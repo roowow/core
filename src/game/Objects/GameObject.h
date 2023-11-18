@@ -30,6 +30,10 @@
 #include "Util.h"
 #include <shared_mutex>
 
+#ifdef ENABLE_ELUNA
+class Group;
+#endif
+
 class Unit;
 class GameObjectAI;
 class GameObjectModel;
@@ -195,6 +199,15 @@ class GameObject : public SpellCaster
 
         Loot        loot;
 
+        #ifdef ENABLE_ELUNA
+        ObjectGuid GetLootRecipientGuid() const { return m_lootRecipientGuid; }
+        uint32 GetLootGroupRecipientId() const { return m_lootGroupRecipientId; }
+        Player* GetOriginalLootRecipient() const; 
+        Player* GetLootRecipient() const;
+        Group* GetGroupLootRecipient() const;
+        void SetLootRecipient(Unit* pUnit);
+        #endif
+
         bool HasQuest(uint32 quest_id) const override;
         bool HasInvolvedQuest(uint32 quest_id) const override;
         bool ActivateToQuest(Player* pTarget) const;
@@ -285,6 +298,10 @@ class GameObject : public SpellCaster
         GameObjectAI* i_AI;
 
         uint32 m_playerGroupId;
+        #ifdef ENABLE_ELUNA
+        ObjectGuid m_lootRecipientGuid;                     // player who will have rights for looting if m_lootGroupRecipient==0 or group disbanded
+        uint32 m_lootGroupRecipientId;                      // group who will have rights for looting if set and exist
+        #endif
     private:
         void SwitchDoorOrButton(bool activate, bool alternative = false);
 

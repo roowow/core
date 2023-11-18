@@ -38,6 +38,10 @@
 #include "Util.h"
 #include "Anticheat.h"
 
+#ifdef ENABLE_ELUNA
+#include "LuaEngine.h"
+#endif /* ENABLE_ELUNA */
+
 void WorldSession::HandleAutostoreLootItemOpcode(WorldPacket& recv_data)
 {
     Player  *player =   GetPlayer();
@@ -183,9 +187,21 @@ void WorldSession::HandleAutostoreLootItemOpcode(WorldPacket& recv_data)
         --loot->unlootedCount;
 
 
-        sLog.Player(this, LOG_LOOTS, LOG_LVL_MINIMAL, "%s loots %ux%u [loot from %s]", _player->GetShortDescription().c_str(), item->count, item->itemid, lguid.GetString().c_str());
+        // sLog.Player(this, LOG_LOOTS, LOG_LVL_MINIMAL, "%s loots %ux%u [loot from %s]", _player->GetShortDescription().c_str(), item->count, item->itemid, lguid.GetString().c_str());
+        ItemPrototype const* itemProto = sObjectMgr.GetItemPrototype(item->itemid);
+        if (itemProto->Quality > 2) {
+            sLog.Player(this, LOG_LOOTS, LOG_LVL_MINIMAL, "%s loots %ux%u [loot from %s]", _player->GetShortDescription().c_str(), item->count, item->itemid, lguid.GetString().c_str());
+
+            /// BigData - character_log_item
+            CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `count`, `type`, `lootguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', 'Auto', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                    _player->GetGUIDLow(), _player->GetName(), item->itemid, item->count, lguid.GetCounter(), _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
+        }
         player->SendNewItem(newitem, uint32(item->count), false, false, true);
         player->OnReceivedItem(newitem);
+        // Used by Eluna
+        #ifdef ENABLE_ELUNA
+            sEluna->OnLootItem(_player, newitem, item->count, lguid);
+        #endif /* ENABLE_ELUNA */
     }
     else
         player->SendEquipError(msg, nullptr, nullptr, item->itemid);
@@ -285,6 +301,11 @@ void WorldSession::HandleLootMoneyOpcode(WorldPacket& /*recv_data*/)
         }
         else
             player->LootMoney(pLoot->gold, pLoot);
+
+        // Used by Eluna
+        #ifdef ENABLE_ELUNA
+            sEluna->OnLootMoney(player, pLoot->gold);
+        #endif /* ENABLE_ELUNA */
 
         pLoot->gold = 0;
 
@@ -687,6 +708,15 @@ void WorldSession::HandleLootMasterGiveOpcode(WorldPacket& recv_data)
             target->GetShortDescription().c_str(), lootGuid.GetString().c_str());
         target->SendNewItem(newitem, uint32(item.count), false, false, true);
         target->OnReceivedItem(newitem);
+
+        /// BigData - character_log_item
+        CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `count`, `type`, `lootguid`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', 'Master', '%u', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                target->GetGUIDLow(), target->GetName(), item.itemid, item.count, lootGuid.GetCounter(), _player->GetGUIDLow(), target->GetZoneId(), target->GetMapId(), target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(), target->GetSession()->GetRemoteAddress().c_str());
+
+            // Used by Eluna
+        #ifdef ENABLE_ELUNA
+            sEluna->OnLootItem(target, newitem, item.count, lootGuid);
+        #endif /* ENABLE_ELUNA */
     }
 
     // mark as looted

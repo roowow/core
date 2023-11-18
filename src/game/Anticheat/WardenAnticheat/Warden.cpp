@@ -505,7 +505,7 @@ void Warden::ApplyPenalty(std::string message, WardenActions penalty, std::share
     sLog.OutWarden(this, LOG_LVL_BASIC, message.c_str());
     sWorld.GetMessager().AddMessage([message](World* world)
     {
-        world->SendGMText(LANG_GM_ANNOUNCE_COLOR, "WardenAnticheat", message.c_str());
+        // world->SendGMText(LANG_GM_ANNOUNCE_COLOR, "WardenAnticheat", message.c_str());
     });
 }
 
@@ -675,9 +675,9 @@ void Warden::Update()
 
     if (!!m_timeoutClock && WorldTimer::getMSTime() > m_timeoutClock)
     {
-        sLog.OutWarden(this, LOG_LVL_BASIC, "Client response timeout.  Kicking.");
-        KickSession();
-        return;
+        // sLog.OutWarden(this, LOG_LVL_BASIC, "Client response timeout.  Kicking.");
+        // KickSession();
+        // return;
     }
 
     if (m_pendingScans.empty())

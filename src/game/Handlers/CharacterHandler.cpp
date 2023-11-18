@@ -46,6 +46,10 @@
 #include "PlayerBotMgr.h"
 #include "AccountMgr.h"
 
+#ifdef ENABLE_ELUNA
+#include "LuaEngine.h"
+#endif /* ENABLE_ELUNA */
+
 class LoginQueryHolder : public SqlQueryHolder
 {
 private:
@@ -104,6 +108,8 @@ bool LoginQueryHolder::Initialize()
     res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADMAILS,           "SELECT `id`, `message_type`, `sender_guid`, `receiver_guid`, `subject`, `item_text_id`, `expire_time`, `deliver_time`, `money`, `cod`, `checked`, `stationery`, `mail_template_id`, `has_items` FROM `mail` WHERE `receiver_guid` = '%u' ORDER BY `id` DESC", m_guid.GetCounter());
     res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADMAILEDITEMS,     "SELECT `creator_guid`, `gift_creator_guid`, `count`, `duration`, `charges`, `flags`, `enchantments`, `random_property_id`, `durability`, `text`, `mail_id`, `item_guid`, `item_instance`.`item_id`, `generated_loot` FROM `mail_items` JOIN `item_instance` ON `item_guid` = `guid` WHERE `receiver_guid` = '%u'", m_guid.GetCounter());
     res &= SetPQuery(PLAYER_LOGIN_QUERY_FORGOTTEN_SKILLS,    "SELECT `skill`, `value` FROM `character_forgotten_skills` WHERE `guid` = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_HARDCORE,            "SELECT `status`, `retired`, `pvpflag`, `changed` FROM `character_hardcore` WHERE `guid` = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_DUALTALENT,          "SELECT `flag` FROM `character_spell_talent` WHERE active = 1 and `guid` = '%u'", m_guid.GetCounter());
 
     return res;
 }
@@ -342,6 +348,19 @@ void WorldSession::HandleCharCreateOpcode(WorldPacket& recv_data)
         data << (uint8)CHAR_CREATE_ERROR;
         SendPacket(&data);
     }
+
+    // Used by Eluna
+    #ifdef ENABLE_ELUNA
+        Player* pNewChar = new Player(this);
+        if (!pNewChar->Create(sObjectMgr.GeneratePlayerLowGuid(), name, race_, class_, gender, skin, face, hairStyle, hairColor, facialHair))
+        {
+            // Player not create (race/class problem?)
+            delete pNewChar;
+            return;
+        }
+        sEluna->OnCreate(pNewChar);
+        delete pNewChar;
+    #endif /* ENABLE_ELUNA */
 }
 
 void WorldSession::HandleCharDeleteOpcode(WorldPacket& recv_data)
@@ -365,6 +384,17 @@ void WorldSession::HandleCharDeleteOpcode(WorldPacket& recv_data)
         return;
     }
 
+    //// Hardcore check
+    QueryResult* hresult = CharacterDatabase.PQuery("SELECT ch.guid FROM character_hardcore ch join characters c on ch.guid = c.guid where c.level >20 and ch.guid = %u", guid);
+    if (hresult)
+    {
+        WorldPacket data(SMSG_CHAR_DELETE, 1);
+        data << (uint8)CHAR_DELETE_FAILED;
+        SendPacket(&data);
+        return;
+    }
+    //// Hardcore check
+
     uint32 lowguid = guid.GetCounter();
 
     PlayerCacheData* cacheData = sObjectMgr.GetPlayerDataByGUID(lowguid);
@@ -379,6 +409,11 @@ void WorldSession::HandleCharDeleteOpcode(WorldPacket& recv_data)
         return;
 
     sLog.Player(this, LOG_CHAR, "Delete", LOG_LVL_BASIC, "Character %s guid %u", name.c_str(), guid);
+
+    // Used by Eluna
+    #ifdef ENABLE_ELUNA
+        sEluna->OnDelete(lowguid);
+    #endif /* ENABLE_ELUNA */
 
     // If the character is online (ALT-F4 logout for example)
     if (Player* onlinePlayer = sObjectAccessor.FindPlayer(guid))
@@ -715,6 +750,12 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
         SendNotification(LANG_RESET_TALENTS);               // we can use SMSG_TALENTS_INVOLUNTARILY_RESET here
     }
 
+    // Used by Eluna
+    #ifdef ENABLE_ELUNA
+        if (pCurrChar->HasAtLoginFlag(AT_LOGIN_FIRST))
+            sEluna->OnFirstLogin(pCurrChar);
+    #endif /* ENABLE_ELUNA */
+
     if (pCurrChar->HasAtLoginFlag(AT_LOGIN_FIRST))
         pCurrChar->RemoveAtLoginFlag(AT_LOGIN_FIRST);
 
@@ -755,6 +796,11 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
     if (sWorld.getConfig(CONFIG_BOOL_SEND_LOOT_ROLL_UPON_RECONNECT) && alreadyOnline)
         if (Group* pGroup = pCurrChar->GetGroup())
             pGroup->SendLootStartRollsForPlayer(pCurrChar);
+
+    // Used by Eluna
+    #ifdef ENABLE_ELUNA
+        sEluna->OnLogin(pCurrChar);
+    #endif /* ENABLE_ELUNA */
 }
 
 void WorldSession::HandleSetFactionAtWarOpcode(WorldPacket& recv_data)

@@ -96,7 +96,19 @@ namespace MaNGOS
         inline uint32 BaseGain(uint32 ownerLevel, uint32 unitLevel, uint32 mob_level)
         {
             uint32 const nBaseExp = 45;
-            return (ownerLevel * 5 + nBaseExp) * BaseGainLevelFactor(unitLevel, mob_level);
+            // return (ownerLevel * 5 + nBaseExp) * BaseGainLevelFactor(unitLevel, mob_level);
+
+            // improve xp for lower level
+            // player level 39, mob level 34
+            // orgin exp: 140
+            // new exp: 212
+            float factor = BaseGainLevelFactor(unitLevel, mob_level);
+            if (factor < 1.0f && factor > 0) {
+                factor = factor * 1.5;
+                if (factor > 1.0f) {factor = 1.0f;}
+            }
+
+            return (ownerLevel * 5 + nBaseExp) * factor;
         }
 
         inline uint32 Gain(Unit* pUnit, Creature* pCreature)

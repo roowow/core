@@ -21,7 +21,13 @@ enum PlayerExtraFlags
     // other states
     PLAYER_EXTRA_PVP_DEATH          = 0x0100,               // store PvP death status until corpse creating.
     PLAYER_EXTRA_WHISP_RESTRICTION  = 0x0200,
-    PLAYER_EXTRA_CITY_PROTECTOR     = 0x0400
+    PLAYER_EXTRA_CITY_PROTECTOR     = 0x0400,
+
+    /// Hardcore
+    PLAYER_EXTRA_HARDCORE_ON        = 0x1000,
+    PLAYER_EXTRA_HARDCORE_RETIRED   = 0x2000,
+    PLAYER_EXTRA_HARDCORE_DEAD      = 0x4000,
+    PLAYER_EXTRA_HARDCORE_PVP       = 0x8000
 };
 
 class MasterPlayer;

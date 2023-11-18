@@ -82,6 +82,10 @@
 #include "world/scourge_invasion.h"
 #include "world/world_event_wareffort.h"
 
+#ifdef ENABLE_ELUNA
+#include "LuaEngine.h"
+#endif /* ENABLE_ELUNA */
+
 #define ZONE_UPDATE_INTERVAL (1*IN_MILLISECONDS)
 
 #define PLAYER_SKILL_INDEX(x)       (PLAYER_SKILL_INFO_1_1 + ((x)*3))
@@ -3295,6 +3299,44 @@ void Player::SetCheatIgnoreTriggers(bool on, bool notify)
     }
 }
 
+/// Hardcore
+void Player::SetHardcore()
+{
+    m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_ON;
+}
+
+void Player::SetHardcoreRetired()
+{
+    m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_RETIRED;
+}
+
+void Player::SetHardcoreDead(bool on)
+{
+    if (on)
+    {
+        m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_DEAD;
+    }
+    else
+    {
+        m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_DEAD;
+    }
+}
+
+void Player::SetHardcorePVP(bool on)
+{
+    if (on)
+    {
+        m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_PVP;
+        CharacterDatabase.PExecute("UPDATE `character_hardcore` SET `pvpflag` = 1, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
+    }
+    else
+    {
+        m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_PVP;
+        CharacterDatabase.PExecute("UPDATE `character_hardcore` SET `pvpflag` = 0, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
+    }
+}
+/// Hardcore
+
 bool Player::IsAllowedWhisperFrom(ObjectGuid guid) const
 {
     if (PlayerSocial const* social = GetSocial())
@@ -3502,6 +3544,10 @@ void Player::GiveLevel(uint32 level)
         GetName(), GetGUIDLow(), GetClass(), GetRace(), level, GetZoneId(), GetPositionX(), GetPositionY(), GetPositionZ(),
         groupInfo.str().c_str(), instanceInfo.str().c_str());
 
+    /// BigData - character_log_levelup
+    CharacterDatabase.PExecute("INSERT INTO `character_log_levelup` (`guid`, `name`, `level`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                            GetGUIDLow(), GetName(), level, GetZoneId(), GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetSession()->GetRemoteAddress().c_str());
+
     // If we have instance members, and the number of players in the instance is not
     // equal to the number of group members, then the player is likely mob tagging
     // and dropping group. Or they are soloing a dungeon, which is questionable.
@@ -3604,6 +3650,11 @@ void Player::GiveLevel(uint32 level)
     // update level to hunter/summon pet
     if (Pet* pet = GetPet())
         pet->SynchronizeLevelWithOwner();
+
+    #ifdef ENABLE_ELUNA
+        int oldLevel = GetLevel();
+        sEluna->OnLevelChanged(this, oldLevel);
+    #endif
 }
 
 void Player::UpdateFreeTalentPoints(bool resetIfNeed)
@@ -5031,6 +5082,14 @@ void Player::BuildPlayerRepop()
 
 void Player::ResurrectPlayer(float restore_percent, bool applySickness)
 {
+    /// Hardcore
+    if (IsHardcore() && !IsHardcoreRetired())
+    {
+        ChatHandler(this).SendSysMessage("勇敢者，您已经陨落，无法复活。");
+        return;
+    }
+    /// Hardcore
+
     // Interrupt resurrect spells
     InterruptSpellsCastedOnMe(false, true);
 
@@ -6861,6 +6920,11 @@ void Player::RewardReputation(Unit* pVictim, float rate)
     if (pVictim->IsPet() && sWorld.GetWowPatch() >= WOW_PATCH_110)
         return;
 
+    #ifdef ENABLE_ELUNA
+        if (((Creature*)pVictim)->IsReputationGainDisabled())
+            return;
+    #endif
+
     ReputationOnKillEntry const* Rep = sObjectMgr.GetReputationOnKillEntry(((Creature*)pVictim)->GetEntry());
 
     if (!Rep)
@@ -7136,6 +7200,11 @@ void Player::UpdateZone(uint32 newZone, uint32 newArea)
     if (pvpInfo.inPvPEnforcedArea && !IsTaxiFlying()) // in hostile area
         UpdatePvP(true);
 
+    // UpdateZone, Hardcore
+    // zone 竞技场, 无需处理
+    if (IsHardcore() && !IsHardcoreRetired() && !IsHardcorePVP() && !InBattleGround())
+        UpdatePvP(false, true);
+
     if ((zoneEntry->Flags & AREA_FLAG_CAPITAL) && !pvpInfo.inPvPEnforcedArea) // in capital city
         SetRestType(REST_TYPE_IN_CITY);
     else if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING) && GetRestType() != REST_TYPE_IN_TAVERN)
@@ -7159,6 +7228,10 @@ void Player::UpdateZone(uint32 newZone, uint32 newArea)
 
     UpdateZoneDependentAuras();
     SetZoneScript();
+
+    #ifdef ENABLE_ELUNA
+    sEluna->OnUpdateZone(this, newZone, newArea);
+    #endif
 }
 
 //If players are too far way of duel flag... then player loose the duel
@@ -8120,6 +8193,15 @@ void Player::SendLoot(ObjectGuid guid, LootType loot_type, Player* pVictim)
 
             loot = &go->loot;
 
+            #ifdef ENABLE_ELUNA
+                Player* recipient = go->GetLootRecipient();
+                if (!recipient)
+                {
+                    go->SetLootRecipient(this);
+                    recipient = this;
+                }
+            #endif
+
             // generate loot only if ready for open and spawned in world
             if (go->getLootState() == GO_READY && go->isSpawned())
             {
@@ -8877,6 +8959,24 @@ uint32 Player::GetItemCount(uint32 item, bool inBankAlso, Item* skipItem) const
 
     return count;
 }
+
+#ifdef ENABLE_ELUNA
+Item* Player::GetItemByEntry(uint32 itemEntry) const
+{
+	for (int i = EQUIPMENT_SLOT_START; i < INVENTORY_SLOT_ITEM_END; ++i)
+		if (Item* pItem = GetItemByPos(INVENTORY_SLOT_BAG_0, i))
+			if (pItem->GetEntry() == itemEntry)
+				return pItem;
+
+	for (int i = INVENTORY_SLOT_BAG_START; i < INVENTORY_SLOT_BAG_END; ++i)
+		if (Bag* pBag = (Bag*)GetItemByPos(INVENTORY_SLOT_BAG_0, i))
+			if (Item* itemPtr = pBag->GetItemByEntry(itemEntry))
+				return itemPtr;
+
+	return NULL;
+}
+
+#endif
 
 Item* Player::GetItemByGuid(ObjectGuid guid) const
 {
@@ -13308,6 +13408,11 @@ void Player::AddQuest(Quest const* pQuest, Object* questGiver)
     }
 
     UpdateForQuestWorldObjects();
+
+    // Used by Eluna
+    #ifdef ENABLE_ELUNA
+        sEluna->OnQuestAccept(this, quest_id);
+    #endif /* ENABLE_ELUNA */
 }
 
 void Player::FullQuestComplete(uint32 questId)
@@ -14568,6 +14673,21 @@ void Player::LogModifyMoney(int32 d, char const* type, ObjectGuid fromGuid, uint
     {
         sLog.Player(GetSession(), LOG_MONEY_TRADES, type, LOG_LVL_BASIC, "%s gets %ic (data: %u|%s)",
             GetShortDescription().c_str(), d, data, fromGuid.GetString().c_str());
+
+        /// BigData - character_log_money
+        if (d >= 10000)
+        {
+            if (fromGuid.IsPlayer())
+            {
+                CharacterDatabase.PExecute("INSERT INTO `character_log_money` (`guid`, `name`, `money`, `type`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%s', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                    GetGUIDLow(), GetName(), d, type, fromGuid.GetCounter(), GetZoneId(), GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetSession()->GetRemoteAddress().c_str());
+            }
+            else{
+                CharacterDatabase.PExecute("INSERT INTO `character_log_money` (`guid`, `name`, `money`, `type`, `lootguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%s', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                    GetGUIDLow(), GetName(), d, type, fromGuid.GetCounter(), GetZoneId(), GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetSession()->GetRemoteAddress().c_str());
+            }
+        }
+
         if (d > 0)
             sWorld.LogMoneyTrade(fromGuid, GetObjectGuid(), d, type, data);
         else
@@ -14575,6 +14695,18 @@ void Player::LogModifyMoney(int32 d, char const* type, ObjectGuid fromGuid, uint
     }
     ModifyMoney(d);
 }
+
+#ifdef ENABLE_ELUNA
+void Player::ModifyMoney(int32 d)
+{
+    sEluna->OnMoneyChanged(this, d);
+
+    if (d < 0)
+        SetMoney(GetMoney() > uint32(-d) ? GetMoney() + d : 0);
+    else
+        SetMoney(GetMoney() < uint32(MAX_MONEY_AMOUNT - d) ? GetMoney() + d : MAX_MONEY_AMOUNT);
+}
+#endif
 
 void Player::MoneyChanged(uint32 count)
 {
@@ -15019,6 +15151,51 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
     SetUInt16Value(PLAYER_BYTES_3, PLAYER_BYTES_3_OFFSET_GENDER_AND_INEBRIATION, (m_drunk & 0xFFFE) | gender);
 
     SetUInt32Value(PLAYER_FLAGS, fields[15].GetUInt32() & ~(PLAYER_FLAGS_PARTIAL_PLAY_TIME | PLAYER_FLAGS_NO_PLAY_TIME));
+
+    /// Hardcore state
+    // "SELECT `status`, `retired`, `pvpflag`, `changed` FROM `character_hardcore` WHERE `guid` = '%u'";
+    QueryResult* hresult = holder->GetResult(PLAYER_LOGIN_QUERY_HARDCORE);
+    if (hresult)
+    {
+        Field* fields = hresult->Fetch();
+        uint32 hstatus = fields[0].GetUInt32();
+        uint32 hretired = fields[1].GetUInt32();
+        uint32 hpvpflag = fields[2].GetUInt32();
+        uint32 hchanged = fields[3].GetUInt32();
+
+        // set falg
+        m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_ON;
+
+        // set retired
+        if (hretired == 1) {
+            m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_RETIRED;
+        } else {
+            m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_RETIRED;
+        }
+
+        // set dead
+        if (hstatus == 0) {
+            m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_DEAD;
+        } else {
+            m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_DEAD;
+        }
+
+        // set pvp
+        if (hpvpflag == 1) {
+            m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_PVP;
+        } else {
+            m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_PVP;
+        }
+    }
+
+    /// DualTalent state
+    // "SELECT `talent` FROM `character_spell_talent` WHERE active = 1 and `guid` = '%u'"
+    QueryResult* tresult = holder->GetResult(PLAYER_LOGIN_QUERY_DUALTALENT);
+    if (tresult)
+    {
+        Field* fields = tresult->Fetch();
+        oowowInfo.activeTalent = fields[0].GetUInt32();
+    }
 
     if (IsPvPDesired())
     {
@@ -17647,6 +17824,38 @@ void Player::TextEmote(char const* text) const
     ChatHandler::BuildChatPacket(data, CHAT_MSG_EMOTE, text, LANG_UNIVERSAL, GetChatTag(), GetObjectGuid(), GetName());
     SendMessageToSetInRange(&data, sWorld.getConfig(CONFIG_FLOAT_LISTEN_RANGE_TEXTEMOTE), true, !sWorld.getConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_INTERACTION_CHAT));
 }
+
+#ifdef ENABLE_ELUNA
+void Player::Whisper(const std::string& text, uint32 language, ObjectGuid receiver)
+{
+	if (language != LANG_ADDON)                             // if not addon data
+	{
+		language = LANG_UNIVERSAL;
+	}                      // whispers should always be readable
+
+	Player* rPlayer = sObjectMgr.GetPlayer(receiver);
+
+	if (!rPlayer) // Player is offline/not available.
+		return;
+
+	WorldPacket data;
+	ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER, text.c_str(), Language(language), GetChatTag(), GetObjectGuid(), GetName());
+	rPlayer->GetSession()->SendPacket(&data);
+}
+/* removed from v18,but need's in eluna */
+void Player::RemoveAllSpellCooldown()
+{
+	if (!m_cooldownMap.IsEmpty())
+	{
+		if (Player* player = GetAffectingPlayer())
+			for (CooldownContainer::ConstIterator itr = m_cooldownMap.begin(); itr != m_cooldownMap.end(); ++itr)
+				player->SendClearCooldown(itr->first, this);
+
+		m_cooldownMap.clear();
+	}
+}
+
+#endif /* ENABLE_ELUNA */
 
 void Player::PetSpellInitialize()
 {
@@ -21928,8 +22137,12 @@ void Player::LootMoney(int32 money, Loot* loot)
         return;
 
     WorldObject const* target = loot->GetLootTarget();
-    sLog.Player(GetSession(), LOG_LOOTS, LOG_LVL_BASIC, "%s gets %ug%us%uc [loot from %s]",
-             GetShortDescription().c_str(), money / GOLD, (money % GOLD) / SILVER, (money % GOLD) % SILVER, target ? target->GetGuidStr().c_str() : "NULL");
+    // sLog.Player(GetSession(), LOG_LOOTS, LOG_LVL_BASIC, "%s gets %ug%us%uc [loot from %s]",
+    //          GetShortDescription().c_str(), money / GOLD, (money % GOLD) / SILVER, (money % GOLD) % SILVER, target ? target->GetGuidStr().c_str() : "NULL");
+    if (money / GOLD > 1) {
+        sLog.Player(GetSession(), LOG_LOOTS, LOG_LVL_BASIC, "%s gets %ug%us%uc [loot from %s]",
+            GetShortDescription().c_str(), money / GOLD, (money % GOLD) / SILVER, (money % GOLD) % SILVER, target ? target->GetGuidStr().c_str() : "NULL");
+    }
     LogModifyMoney(money, "Loot", target ? target->GetObjectGuid() : ObjectGuid());
 }
 
@@ -22542,6 +22755,9 @@ static char const* type_strings[] =
     "MoneyTrade",
     "GM",
     "GMCritical",
+    #ifdef ENABLE_ELUNA
+    "ELUNA",
+    #endif /* ENABLE_ELUNA */
     "Anticheat"
 };
 

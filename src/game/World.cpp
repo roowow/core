@@ -84,6 +84,10 @@
 
 #include <chrono>
 
+#ifdef ENABLE_ELUNA
+#include "LuaEngine.h"
+#endif /* ENABLE_ELUNA */
+
 INSTANTIATE_SINGLETON_1(World);
 
 volatile bool World::m_stopEvent = false;
@@ -473,7 +477,7 @@ void World::LoadConfigSettings(bool reload)
 
     // Read the player limit and the Message of the day from the config file
     SetPlayerLimit(sConfig.GetIntDefault("PlayerLimit", DEFAULT_PLAYER_LIMIT), true);
-    SetMotd(sConfig.GetStringDefault("Motd", "Welcome to the Massive Network Game Object Server.") + std::string("\n") + std::string(GetPatchName()) + std::string(" is now live!"));
+    SetMotd(sConfig.GetStringDefault("Motd", "Welcome to the Massive Network Game Object Server.") + std::string("\n") + std::string("当前阶段：") + std::string(GetPatchName()));
 
     // Read all rates from the config file
     setConfigPos(CONFIG_FLOAT_RATE_HEALTH,               "Rate.Health", 1.0f);
@@ -939,6 +943,11 @@ void World::LoadConfigSettings(bool reload)
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "WORLD: VMap data directory is: %svmaps", m_dataPath.c_str());
     setConfig(CONFIG_BOOL_MMAP_ENABLED, "mmap.enabled", true);
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "WORLD: mmap pathfinding %sabled", getConfig(CONFIG_BOOL_MMAP_ENABLED) ? "en" : "dis");
+    setConfig(CONFIG_BOOL_ELUNA_ENABLED, "Eluna.Enabled", true);
+    #ifdef ENABLE_ELUNA
+    if (reload)
+        sEluna->OnConfigLoad(reload);
+    #endif /* ENABLE_ELUNA */
 
     setConfig(CONFIG_UINT32_EMPTY_MAPS_UPDATE_TIME, "MapUpdate.Empty.UpdateTime", 0);
     setConfigMinMax(CONFIG_UINT32_MAP_OBJECTSUPDATE_THREADS, "MapUpdate.ObjectsUpdate.MaxThreads", 4, 1, 20);
@@ -1252,27 +1261,27 @@ char const* World::GetPatchName() const
     switch(GetWowPatch())
     {
         case 0:
-            return "Patch 1.2: Mysteries of Maraudon";
+            return "玛拉顿之谜（1.2）";
         case 1:
-            return "Patch 1.3: Ruins of the Dire Maul";
+            return "厄运之槌废墟（1.3）";
         case 2:
-            return "Patch 1.4: The Call to War";
+            return "战斗的召唤（1.4）";
         case 3:
-            return "Patch 1.5: Battlegrounds";
+            return "战场争锋（1.5）";
         case 4:
-            return "Patch 1.6: Assault on Blackwing Lair";
+            return "进军黑翼之巢（1.6）";
         case 5:
-            return "Patch 1.7: Rise of the Blood God";
+            return "血神复苏（1.7）";
         case 6:
-            return "Patch 1.8: Dragons of Nightmare";
+            return "梦魇之龙（1.8）";
         case 7:
-            return "Patch 1.9: The Gates of Ahn'Qiraj";
+            return "安其拉之门（1.9）";
         case 8:
-            return "Patch 1.10: Storms of Azeroth";
+            return "艾泽拉斯的风暴（1.10）";
         case 9:
-            return "Patch 1.11: Shadow of the Necropolis";
+            return "大墓地之影（1.11）";
         case 10:
-            return "Patch 1.12: Drums of War";
+            return "战鼓震天（1.12）";
     }
 
     return "Invalid Patch!";
@@ -1412,6 +1421,12 @@ void World::SetInitialWorldSettings()
     // Init highest guids before any guid using table loading to prevent using not initialized guids in some code.
     sObjectMgr.SetHighestGuids();                           // must be after packing instances
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
+
+    #ifdef ENABLE_ELUNA
+    //need to be set here, or will leads to error when loading Transports
+    ELUNA_LOG_INFO("Initialize Eluna Lua Engine...");
+    Eluna::Initialize();
+    #endif
 
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading Broadcast Texts...");
     sObjectMgr.LoadBroadcastTexts();
@@ -1862,6 +1877,11 @@ void World::SetInitialWorldSettings()
 
     sAnticheatMgr->StartWardenUpdateThread();
 
+    #ifdef ENABLE_ELUNA
+    sEluna->RunScripts();
+    sEluna->OnConfigLoad(false); // Must be done after Eluna is initialized and scripts have run.
+    #endif /* ENABLE_ELUNA */
+
     m_broadcaster =
         std::make_unique<MovementBroadcaster>(getConfig(CONFIG_UINT32_PACKET_BCAST_THREADS),
                                               std::chrono::milliseconds(getConfig(CONFIG_UINT32_PACKET_BCAST_FREQUENCY)));
@@ -2028,6 +2048,10 @@ void World::Update(uint32 diff)
     sBattleGroundMgr.Update(diff);
     sGuardMgr.Update(diff);
     sZoneScriptMgr.Update(diff);
+
+    #ifdef ENABLE_ELUNA
+    sEluna->OnWorldUpdate(diff);
+    #endif /* ENABLE_ELUNA */
 
     // Update groups with offline leaders
     if (m_timers[WUPDATE_GROUPS].Passed())
@@ -2647,6 +2671,9 @@ void World::ShutdownServ(uint32 time, uint32 options, uint8 exitcode)
         m_ShutdownTimer = time;
         ShutdownMsg(true);
     }
+    #ifdef ENABLE_ELUNA
+    sEluna->OnShutdownInitiate(ShutdownExitCode(exitcode), ShutdownMask(options));
+    #endif /* ENABLE_ELUNA */
 }
 
 // Display a shutdown message to the user(s)
@@ -2694,6 +2721,9 @@ void World::ShutdownCancel()
     SendServerMessage(msgid);
 
     sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Server %s cancelled.", (m_ShutdownMask & SHUTDOWN_MASK_RESTART ? "restart" : "shutdown"));
+    #ifdef ENABLE_ELUNA
+    sEluna->OnShutdownCancel();
+    #endif /* ENABLE_ELUNA */
 }
 
 // Send a server message to the user(s)
