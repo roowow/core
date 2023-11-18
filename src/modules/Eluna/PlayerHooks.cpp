@@ -36,7 +36,7 @@ void Eluna::OnLearnTalents(Player* pPlayer, uint32 talentId, uint32 talentRank)
     Push(pPlayer);
     Push(talentId);
     Push(talentRank);
-    Push(spellid);
+    // Push(spellid);
     CallAllFunctions(PlayerEventBindings, key);
 }
 
