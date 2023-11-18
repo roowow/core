@@ -119,6 +119,10 @@ Log::Log() :
     logFiles[LOG_GM_CRITICAL] = openLogFile("LogFile.CriticalCommands", "gm_critical.log", log_file_timestamp, false);
     logFiles[LOG_ANTICHEAT] = openLogFile("LogFile.Anticheat", "Anticheat.log", log_file_timestamp, false);
 
+    #ifdef ENABLE_ELUNA
+    logFiles[LOG_ELUNA] = openLogFile("LogFile.ElunaLogFile", "ElunaLogFile.log", log_file_timestamp, false);
+    #endif /* ENABLE_ELUNA */
+
     // Main log file settings
     m_wardenDebug = sConfig.GetBoolDefault("Warden.DebugLog", false);
     m_includeTime = sConfig.GetBoolDefault("LogTime", false);
