@@ -2895,6 +2895,8 @@ void Spell::EffectOpenLock(SpellEffectIndex effIdx)
     if (itemTarget)
     {
         itemTarget->SetFlag(ITEM_FIELD_FLAGS, ITEM_DYNFLAG_UNLOCKED);
+        itemTarget->SetState(ITEM_CHANGED);
+    }
 
     SendLoot(guid, LOOT_SKINNING, LockType(m_spellInfo->EffectMiscValue[effIdx]));
 
