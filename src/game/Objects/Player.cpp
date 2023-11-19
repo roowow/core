@@ -15153,7 +15153,6 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
     SetUInt32Value(PLAYER_FLAGS, fields[15].GetUInt32() & ~(PLAYER_FLAGS_PARTIAL_PLAY_TIME | PLAYER_FLAGS_NO_PLAY_TIME));
 
     /// Hardcore state
-    // "SELECT `status`, `retired`, `pvpflag`, `changed` FROM `character_hardcore` WHERE `guid` = '%u'";
     QueryResult* hresult = holder->GetResult(PLAYER_LOGIN_QUERY_HARDCORE);
     if (hresult)
     {
@@ -15189,7 +15188,6 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
     }
 
     /// DualTalent state
-    // "SELECT `talent` FROM `character_spell_talent` WHERE active = 1 and `guid` = '%u'"
     QueryResult* tresult = holder->GetResult(PLAYER_LOGIN_QUERY_DUALTALENT);
     if (tresult)
     {
