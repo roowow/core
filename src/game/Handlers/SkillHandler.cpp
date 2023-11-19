@@ -37,13 +37,7 @@ void WorldSession::HandleLearnTalentOpcode(WorldPacket& recv_data)
     uint32 talent_id, requested_rank;
     recv_data >> talent_id >> requested_rank;
 
-    // _player->LearnTalent(talent_id, requested_rank);
-    if (_player->LearnTalent(talent_id, requested_rank))
-    {
-        #ifdef ENABLE_ELUNA
-            sEluna->OnLearnTalents(_player, talent_id, requested_rank);
-        #endif
-    }
+    _player->LearnTalent(talent_id, requested_rank);
 }
 
 void WorldSession::HandleTalentWipeConfirmOpcode(WorldPacket& recv_data)
