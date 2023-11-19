@@ -6102,25 +6102,6 @@ void Unit::TogglePlayerPvPFlagOnAttackVictim(Unit const* pVictim, bool touchOnly
 
             if (!pVictimPlayer || ((pThisPlayer != pVictimPlayer) && !pThisPlayer->IsInDuelWith(pVictimPlayer) && !(pThisPlayer->IsFFAPvP() && pVictimPlayer->IsFFAPvP())))
             {
-                /// Hardcore - each attack will trigger
-                if (pThisPlayer->IsHardcore() && !pThisPlayer->IsHardcoreRetired())
-                {
-                    time_t now_seconds = time(nullptr);
-                    if (pThisPlayer->IsHardcorePVP())
-                    {
-                        if (!pThisPlayer->pvpInfo.PvPHardcoreTimestamp || pThisPlayer->pvpInfo.PvPHardcoreTimestamp < now_seconds - 30*60) // refresh time after 30 minutes
-                        {
-                            pThisPlayer->SetHardcorePVP(true); 
-                            pThisPlayer->pvpInfo.PvPHardcoreTimestamp = now_seconds;
-                        }
-                    }
-                    else {
-                        pThisPlayer->SetHardcorePVP(true);
-                        pThisPlayer->pvpInfo.PvPHardcoreTimestamp = now_seconds;
-                    }
-                }
-                /// Hardcore
-
                 pThisPlayer->pvpInfo.inPvPCombat = (pThisPlayer->pvpInfo.inPvPCombat || !touchOnly);
                 pThisPlayer->UpdatePvP(true);
 
