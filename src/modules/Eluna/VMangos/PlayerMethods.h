@@ -4444,10 +4444,6 @@ namespace LuaPlayer
         { "HasSpellCooldown", &LuaPlayer::HasSpellCooldown },
         { "IsInWater", &LuaPlayer::IsInWater },
         { "IsMoving", &LuaPlayer::IsMoving },
-        { "IsHardcore", &LuaPlayer::IsHardcore }, /// Hardcore
-        { "IsHardcoreRetired", &LuaPlayer::IsHardcoreRetired }, /// Hardcore
-        { "IsHardcoreDead", &LuaPlayer::IsHardcoreDead }, /// Hardcore
-        { "IsHardcorePVP", &LuaPlayer::IsHardcorePVP }, /// Hardcore
 #ifndef CLASSIC
         { "HasTitle", &LuaPlayer::HasTitle },
         { "IsInArenaTeam", &LuaPlayer::IsInArenaTeam },
@@ -4461,6 +4457,15 @@ namespace LuaPlayer
         { "CanTitanGrip", &LuaPlayer::CanTitanGrip },
 #endif
 
+        /// Hardcore
+        { "IsHardcore", &LuaPlayer::IsHardcore }, 
+        { "IsHardcoreRetired", &LuaPlayer::IsHardcoreRetired },
+        { "IsHardcoreDead", &LuaPlayer::IsHardcoreDead },
+
+        /// DualTalent
+        { "GetHonorRank", &LuaPlayer::GetHonorRank },
+        { "ActiveTalent", &LuaPlayer::ActiveTalent },
+        { "SetActiveTalent", &LuaPlayer::SetActiveTalent },
 
         // Gossip
         { "GossipMenuAddItem", &LuaPlayer::GossipMenuAddItem },
