@@ -64,12 +64,7 @@ void WorldSession::HandleTalentWipeConfirmOpcode(WorldPacket& recv_data)
         SendPacket(&data);
         return;
     }
-    else {
-        #ifdef ENABLE_ELUNA
-            sEluna->OnTalentsReset(GetPlayer());
-        #endif
-    }
-
+    
     unit->CastSpell(_player, 14867, true);                  //spell: "Untalent Visual Effect"
 }
 
