@@ -55,14 +55,14 @@ autom4te.cache
 *~
 *.bak
 *.orig
-*.patch
+#*.patch
 callgrind.out.*
 
 #
 # Git stuff
 #
 # stgit directories
-patches-*
+#patches-*
 
 #
 # Github stuff
@@ -103,7 +103,7 @@ cmake_install.cmake
 
 # Nostalrius
 newsletter
-patch
+#patch
 php
 
 sql/migrations/*.py
