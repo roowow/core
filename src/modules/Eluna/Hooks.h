@@ -203,6 +203,7 @@ namespace Hooks
         PLAYER_EVENT_ON_LEARN_TALENTS           =     39,       // (event, player, talentId, talentRank, spellid)
         PLAYER_EVENT_ON_ENVIRONMENTAL_DEATH     =     40,       // (event, player, environmentalDamageType)
         // UNUSED                               =     41,       // (event, player)
+        PLAYER_EVENT_ON_KILL_SELF               =     41,       // (event, player)
         PLAYER_EVENT_ON_COMMAND                 =     42,       // (event, player, command) - player is nil if command used from console. Can return false
         PLAYER_EVENT_ON_QUEST_ACCEPT            =     43,       // (event, player, questId)
 
