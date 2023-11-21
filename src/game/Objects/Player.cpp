@@ -3299,44 +3299,6 @@ void Player::SetCheatIgnoreTriggers(bool on, bool notify)
     }
 }
 
-/// Hardcore
-void Player::SetHardcore()
-{
-    m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_ON;
-}
-
-void Player::SetHardcoreRetired()
-{
-    m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_RETIRED;
-}
-
-void Player::SetHardcoreDead(bool on)
-{
-    if (on)
-    {
-        m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_DEAD;
-    }
-    else
-    {
-        m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_DEAD;
-    }
-}
-
-void Player::SetHardcorePVP(bool on)
-{
-    if (on)
-    {
-        m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_PVP;
-        CharacterDatabase.PExecute("UPDATE `character_hardcore` SET `pvpflag` = 1, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
-    }
-    else
-    {
-        m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_PVP;
-        CharacterDatabase.PExecute("UPDATE `character_hardcore` SET `pvpflag` = 0, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
-    }
-}
-/// Hardcore
-
 bool Player::IsAllowedWhisperFrom(ObjectGuid guid) const
 {
     if (PlayerSocial const* social = GetSocial())
@@ -5082,14 +5044,6 @@ void Player::BuildPlayerRepop()
 
 void Player::ResurrectPlayer(float restore_percent, bool applySickness)
 {
-    /// Hardcore
-    if (IsHardcore() && !IsHardcoreRetired())
-    {
-        ChatHandler(this).SendSysMessage("勇敢者，您已经陨落，无法复活。");
-        return;
-    }
-    /// Hardcore
-
     // Interrupt resurrect spells
     InterruptSpellsCastedOnMe(false, true);
 
@@ -7199,11 +7153,6 @@ void Player::UpdateZone(uint32 newZone, uint32 newArea)
 
     if (pvpInfo.inPvPEnforcedArea && !IsTaxiFlying()) // in hostile area
         UpdatePvP(true);
-
-    // UpdateZone, Hardcore
-    // zone 竞技场, 无需处理
-    if (IsHardcore() && !IsHardcoreRetired() && !IsHardcorePVP() && !InBattleGround())
-        UpdatePvP(false, true);
 
     if ((zoneEntry->Flags & AREA_FLAG_CAPITAL) && !pvpInfo.inPvPEnforcedArea) // in capital city
         SetRestType(REST_TYPE_IN_CITY);
@@ -15151,49 +15100,6 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
     SetUInt16Value(PLAYER_BYTES_3, PLAYER_BYTES_3_OFFSET_GENDER_AND_INEBRIATION, (m_drunk & 0xFFFE) | gender);
 
     SetUInt32Value(PLAYER_FLAGS, fields[15].GetUInt32() & ~(PLAYER_FLAGS_PARTIAL_PLAY_TIME | PLAYER_FLAGS_NO_PLAY_TIME));
-
-    /// Hardcore state
-    QueryResult* hresult = holder->GetResult(PLAYER_LOGIN_QUERY_HARDCORE);
-    if (hresult)
-    {
-        Field* fields = hresult->Fetch();
-        uint32 hstatus = fields[0].GetUInt32();
-        uint32 hretired = fields[1].GetUInt32();
-        uint32 hpvpflag = fields[2].GetUInt32();
-        uint32 hchanged = fields[3].GetUInt32();
-
-        // set falg
-        m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_ON;
-
-        // set retired
-        if (hretired == 1) {
-            m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_RETIRED;
-        } else {
-            m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_RETIRED;
-        }
-
-        // set dead
-        if (hstatus == 0) {
-            m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_DEAD;
-        } else {
-            m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_DEAD;
-        }
-
-        // set pvp
-        if (hpvpflag == 1) {
-            m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_PVP;
-        } else {
-            m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_PVP;
-        }
-    }
-
-    /// DualTalent state
-    QueryResult* tresult = holder->GetResult(PLAYER_LOGIN_QUERY_DUALTALENT);
-    if (tresult)
-    {
-        Field* fields = tresult->Fetch();
-        oowowInfo.activeTalent = fields[0].GetUInt32();
-    }
 
     if (IsPvPDesired())
     {
