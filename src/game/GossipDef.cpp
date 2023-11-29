@@ -308,8 +308,8 @@ void PlayerMenu::SendTalking(uint32 textID)
         for (uint32 i = 0; i < 8; ++i)
         {
             data << float(0);
-            data << "Greetings $N";
-            data << "Greetings $N";
+            data << "你好， $N！";
+            data << "你好， $N！";
             data << uint32(0);
             data << uint32(0);
             data << uint32(0);
@@ -354,8 +354,8 @@ void PlayerMenu::SendTalking(uint32 textID)
             else
             {
                 data << float(0);
-                data << "Greetings $N";
-                data << "Greetings $N";
+                data << "你好， $N！";
+                data << "你好， $N！";
                 data << uint32(0);
                 data << uint32(0);
                 data << uint32(0);
