@@ -29,6 +29,7 @@
 #include "Spell.h"
 #include "SpellAuras.h"
 #include "GameObject.h"
+#include "Map.h"
 
 #ifdef ENABLE_ELUNA
 #include "LuaEngine.h"
