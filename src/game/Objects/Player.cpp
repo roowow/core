@@ -3044,7 +3044,8 @@ bool Player::CanSeeHealthOf(Unit const* pTarget) const
 
 bool Player::CanSeeSpecialInfoOf(Unit const* pTarget) const
 {
-    return pTarget->HasAuraTypeByCaster(SPELL_AURA_EMPATHY, GetObjectGuid());
+    return HasCheatOption(PLAYER_CHEAT_DEBUG_TARGET_INFO) ||
+           pTarget->HasAuraTypeByCaster(SPELL_AURA_EMPATHY, GetObjectGuid());
 }
 
 struct SetGameMasterOnHelper
@@ -3299,43 +3300,38 @@ void Player::SetCheatIgnoreTriggers(bool on, bool notify)
     }
 }
 
-/// Hardcore
-void Player::SetHardcore()
+void Player::SetCheatDebugTargetInfo(bool on, bool notify)
 {
-    m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_ON;
-}
+    SetCheatOption(PLAYER_CHEAT_DEBUG_TARGET_INFO, on);
 
-void Player::SetHardcoreRetired()
-{
-    m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_RETIRED;
-}
+    if (notify)
+    {
+        GetSession()->SendNotification(on ? LANG_CHEAT_DEBUG_TARGET_INFO_ON : LANG_CHEAT_DEBUG_TARGET_INFO_OFF);
 
-void Player::SetHardcoreDead(bool on)
-{
-    if (on)
-    {
-        m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_DEAD;
-    }
-    else
-    {
-        m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_DEAD;
-    }
-}
+        for (auto const& guid : m_visibleGUIDs)
+        {
+            if (!guid.IsUnit())
+                continue;
 
-void Player::SetHardcorePVP(bool on)
-{
-    if (on)
-    {
-        m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_PVP;
-        CharacterDatabase.PExecute("UPDATE `character_hardcore` SET `pvpflag` = 1, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
-    }
-    else
-    {
-        m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_PVP;
-        CharacterDatabase.PExecute("UPDATE `character_hardcore` SET `pvpflag` = 0, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
+            Unit* pUnit = GetMap()->GetUnit(guid);
+            if (!pUnit)
+                continue;
+
+            uint16 updateFlags = UF_FLAG_DYNAMIC;
+            if (on)
+                updateFlags |= UF_FLAG_SPECIAL_INFO;
+
+            UpdateData newData;
+            pUnit->BuildValuesUpdateBlockForPlayerWithFlags(newData, this, UpdateFieldFlags(updateFlags), true);
+            if (newData.HasData())
+            {
+                WorldPacket newDataPacket;
+                newData.BuildPacket(&newDataPacket);
+                SendDirectMessage(&newDataPacket);
+            }
+        }
     }
 }
-/// Hardcore
 
 bool Player::IsAllowedWhisperFrom(ObjectGuid guid) const
 {
@@ -5082,14 +5078,6 @@ void Player::BuildPlayerRepop()
 
 void Player::ResurrectPlayer(float restore_percent, bool applySickness)
 {
-    /// Hardcore
-    if (IsHardcore() && !IsHardcoreRetired())
-    {
-        ChatHandler(this).SendSysMessage("勇敢者，您已经陨落，无法复活。");
-        return;
-    }
-    /// Hardcore
-
     // Interrupt resurrect spells
     InterruptSpellsCastedOnMe(false, true);
 
@@ -7199,11 +7187,6 @@ void Player::UpdateZone(uint32 newZone, uint32 newArea)
 
     if (pvpInfo.inPvPEnforcedArea && !IsTaxiFlying()) // in hostile area
         UpdatePvP(true);
-
-    // UpdateZone, Hardcore
-    // zone 竞技场, 无需处理
-    if (IsHardcore() && !IsHardcoreRetired() && !IsHardcorePVP() && !InBattleGround())
-        UpdatePvP(false, true);
 
     if ((zoneEntry->Flags & AREA_FLAG_CAPITAL) && !pvpInfo.inPvPEnforcedArea) // in capital city
         SetRestType(REST_TYPE_IN_CITY);
@@ -15152,49 +15135,6 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
 
     SetUInt32Value(PLAYER_FLAGS, fields[15].GetUInt32() & ~(PLAYER_FLAGS_PARTIAL_PLAY_TIME | PLAYER_FLAGS_NO_PLAY_TIME));
 
-    /// Hardcore state
-    QueryResult* hresult = holder->GetResult(PLAYER_LOGIN_QUERY_HARDCORE);
-    if (hresult)
-    {
-        Field* fields = hresult->Fetch();
-        uint32 hstatus = fields[0].GetUInt32();
-        uint32 hretired = fields[1].GetUInt32();
-        uint32 hpvpflag = fields[2].GetUInt32();
-        uint32 hchanged = fields[3].GetUInt32();
-
-        // set falg
-        m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_ON;
-
-        // set retired
-        if (hretired == 1) {
-            m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_RETIRED;
-        } else {
-            m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_RETIRED;
-        }
-
-        // set dead
-        if (hstatus == 0) {
-            m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_DEAD;
-        } else {
-            m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_DEAD;
-        }
-
-        // set pvp
-        if (hpvpflag == 1) {
-            m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_PVP;
-        } else {
-            m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_PVP;
-        }
-    }
-
-    /// DualTalent state
-    QueryResult* tresult = holder->GetResult(PLAYER_LOGIN_QUERY_DUALTALENT);
-    if (tresult)
-    {
-        Field* fields = tresult->Fetch();
-        oowowInfo.activeTalent = fields[0].GetUInt32();
-    }
-
     if (IsPvPDesired())
     {
         UpdatePvP(true);
@@ -21416,6 +21356,21 @@ bool Player::TeleportToHomebind(uint32 options, bool hearthCooldown)
         }
     }
     return TeleportTo(m_homebind, (options | TELE_TO_FORCE_MAP_CHANGE));
+}
+
+Unit* Player::GetSelectedUnit()
+{
+    return GetMap()->GetUnit(m_curSelectionGuid);
+}
+
+Creature* Player::GetSelectedCreature()
+{
+    return GetMap()->GetCreature(m_curSelectionGuid);
+}
+
+Player* Player::GetSelectedPlayer()
+{
+    return GetMap()->GetPlayer(m_curSelectionGuid);
 }
 
 Object* Player::GetObjectByTypeMask(ObjectGuid guid, TypeMask typemask)

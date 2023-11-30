@@ -360,27 +360,30 @@ bool Creature::InitEntry(uint32 entry, GameEventCreatureData const* eventData /*
 #else
     SetInt32Value(UNIT_MOD_CAST_SPEED, 0);
 #endif
+
     // update speed for the new CreatureInfo base speed mods
     UpdateSpeed(MOVE_WALK, false);
     UpdateSpeed(MOVE_RUN,  false);
     SetFly(CanFly());
-
     m_defaultMovementType = MovementGeneratorType(m_creatureData ? m_creatureData->movement_type : cinfo->movement_type);
 
     // Apply Poison & Disease immunities for Elemental and Mechanical type creatures
-    if (GetCreatureInfo()->type == CREATURE_TYPE_ELEMENTAL ||
-        GetCreatureInfo()->type == CREATURE_TYPE_MECHANICAL)
+    switch (GetCreatureInfo()->type)
     {
-        ApplySpellImmune(0, IMMUNITY_DISPEL, DISPEL_DISEASE, true);
-        ApplySpellImmune(0, IMMUNITY_DISPEL, DISPEL_POISON, true);
-    }
-
-    if (GetCreatureInfo()->type == CREATURE_TYPE_MECHANICAL)
-    {
-        ApplySpellImmune(0, IMMUNITY_EFFECT, SPELL_EFFECT_HEAL, true);
-        ApplySpellImmune(0, IMMUNITY_EFFECT, SPELL_EFFECT_HEAL_MAX_HEALTH, true);
-        ApplySpellImmune(0, IMMUNITY_STATE, SPELL_AURA_PERIODIC_HEAL, true);
-        ApplySpellImmune(0, IMMUNITY_STATE, SPELL_AURA_PERIODIC_LEECH, true);
+        case CREATURE_TYPE_MECHANICAL:
+        {
+            ApplySpellImmune(0, IMMUNITY_EFFECT, SPELL_EFFECT_HEAL, true);
+            ApplySpellImmune(0, IMMUNITY_EFFECT, SPELL_EFFECT_HEAL_MAX_HEALTH, true);
+            ApplySpellImmune(0, IMMUNITY_STATE, SPELL_AURA_PERIODIC_HEAL, true);
+            ApplySpellImmune(0, IMMUNITY_STATE, SPELL_AURA_PERIODIC_LEECH, true);
+            // no break
+        }
+        case CREATURE_TYPE_ELEMENTAL:
+        {
+            ApplySpellImmune(0, IMMUNITY_DISPEL, DISPEL_DISEASE, true);
+            ApplySpellImmune(0, IMMUNITY_DISPEL, DISPEL_POISON, true);
+            break;
+        }
     }
 
     if (HasImmunityFlag(CREATURE_IMMUNITY_TAUNT))
@@ -398,6 +401,21 @@ bool Creature::InitEntry(uint32 entry, GameEventCreatureData const* eventData /*
     if (HasImmunityFlag(CREATURE_IMMUNITY_MOD_CAST_SPEED))
     {
         ApplySpellImmune(0, IMMUNITY_STATE, SPELL_AURA_MOD_CASTING_SPEED_NOT_STACK, true);
+    }
+
+    if (HasImmunityFlag(CREATURE_IMMUNITY_DISEASE))
+    {
+        ApplySpellImmune(0, IMMUNITY_DISPEL, DISPEL_DISEASE, true);
+    }
+
+    if (HasImmunityFlag(CREATURE_IMMUNITY_POISON))
+    {
+        ApplySpellImmune(0, IMMUNITY_DISPEL, DISPEL_POISON, true);
+    }
+
+    if (HasImmunityFlag(CREATURE_IMMUNITY_CURSE))
+    {
+        ApplySpellImmune(0, IMMUNITY_DISPEL, DISPEL_CURSE, true);
     }
 
     return true;
@@ -1862,7 +1880,7 @@ void Creature::LoadEquipment(uint32 equipmentId, bool force)
         if (force)
         {
             for (uint8 i = 0; i < MAX_VIRTUAL_ITEM_SLOT; ++i)
-                SetVirtualItem(VirtualItemSlot(i), 0);
+                SetVirtualItem(WeaponAttackType(i), 0);
             m_equipmentId = 0;
         }
         return;
@@ -1874,7 +1892,7 @@ void Creature::LoadEquipment(uint32 equipmentId, bool force)
         if (EquipmentEntry const* pEquipEntry = pEquipTemplate->ChooseEquipmentEntry())
         {
             for (uint8 i = 0; i < MAX_VIRTUAL_ITEM_SLOT; ++i)
-                SetVirtualItem(VirtualItemSlot(i), pEquipEntry->item[i]);
+                SetVirtualItem(WeaponAttackType(i), pEquipEntry->item[i]);
         }
     }
 }
@@ -4041,7 +4059,7 @@ uint32 Creature::GetDBTableGUIDLow() const
     return 0;
 }
 
-void Creature::SetVirtualItem(VirtualItemSlot slot, uint32 item_id)
+void Creature::SetVirtualItem(WeaponAttackType slot, uint32 item_id)
 {
     if (item_id == 0)
     {
@@ -4065,6 +4083,26 @@ void Creature::SetVirtualItem(VirtualItemSlot slot, uint32 item_id)
     SetByteValue(UNIT_VIRTUAL_ITEM_INFO + (slot * 2) + 0, VIRTUAL_ITEM_INFO_0_OFFSET_INVENTORYTYPE, proto->InventoryType);
 
     SetByteValue(UNIT_VIRTUAL_ITEM_INFO + (slot * 2) + 1, VIRTUAL_ITEM_INFO_1_OFFSET_SHEATH,        proto->Sheath);
+}
+
+uint32 Creature::GetVirtualItemDisplayId(WeaponAttackType slot) const
+{
+    return GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_DISPLAY + slot);
+}
+
+uint32 Creature::GetVirtualItemClass(WeaponAttackType slot) const
+{
+    return GetByteValue(UNIT_VIRTUAL_ITEM_INFO + (slot * 2) + 0, VIRTUAL_ITEM_INFO_0_OFFSET_CLASS);
+}
+
+uint32 Creature::GetVirtualItemSubclass(WeaponAttackType slot) const
+{
+    return GetByteValue(UNIT_VIRTUAL_ITEM_INFO + (slot * 2) + 0, VIRTUAL_ITEM_INFO_0_OFFSET_SUBCLASS);
+}
+
+uint32 Creature::GetVirtualItemInventoryType(WeaponAttackType slot) const
+{
+    return GetByteValue(UNIT_VIRTUAL_ITEM_INFO + (slot * 2) + 0, VIRTUAL_ITEM_INFO_0_OFFSET_INVENTORYTYPE);
 }
 
 void Creature::JoinCreatureGroup(Creature* leader, float dist, float angle, uint32 options)

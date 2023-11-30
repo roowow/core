@@ -169,6 +169,13 @@ void Eluna::OnPVPKill(Player* pKiller, Player* pKilled)
     CallAllFunctions(PlayerEventBindings, key);
 }
 
+void Eluna::OnKillSelf(Player* pKilled)
+{
+    START_HOOK(PLAYER_EVENT_ON_KILL_SELF);
+    Push(pKilled);
+    CallAllFunctions(PlayerEventBindings, key);
+}
+
 void Eluna::OnCreatureKill(Player* pKiller, Creature* pKilled)
 {
     START_HOOK(PLAYER_EVENT_ON_KILL_CREATURE);

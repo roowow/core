@@ -22,7 +22,7 @@ extern "C"
 #include "WorldObjectMethods.h"
 #include "UnitMethods.h"
 #include "PlayerMethods.h"
-#include "CreatureMethods.h"
+// #include "CreatureMethods.h"
 #include "GroupMethods.h"
 #include "GuildMethods.h"
 #include "GameObjectMethods.h"
@@ -33,8 +33,8 @@ extern "C"
 #include "SpellMethods.h"
 #include "QuestMethods.h"
 #include "MapMethods.h"
-#include "CorpseMethods.h"
-#include "VehicleMethods.h"
+// #include "CorpseMethods.h"
+// #include "VehicleMethods.h"
 #include "BattleGroundMethods.h"
 
 #if (!defined(TBC) && !defined(CLASSIC))
@@ -123,17 +123,17 @@ void RegisterFunctions(Eluna* E)
     ElunaTemplate<Creature>::SetMethods(E, LuaObject::ObjectMethods);
     ElunaTemplate<Creature>::SetMethods(E, LuaWorldObject::WorldObjectMethods);
     ElunaTemplate<Creature>::SetMethods(E, LuaUnit::UnitMethods);
-    ElunaTemplate<Creature>::SetMethods(E, LuaCreature::CreatureMethods);
+    // ElunaTemplate<Creature>::SetMethods(E, LuaCreature::CreatureMethods);
 
     ElunaTemplate<GameObject>::Register(E, "GameObject");
     ElunaTemplate<GameObject>::SetMethods(E, LuaObject::ObjectMethods);
     ElunaTemplate<GameObject>::SetMethods(E, LuaWorldObject::WorldObjectMethods);
     ElunaTemplate<GameObject>::SetMethods(E, LuaGameObject::GameObjectMethods);
 
-    ElunaTemplate<Corpse>::Register(E, "Corpse");
-    ElunaTemplate<Corpse>::SetMethods(E, LuaObject::ObjectMethods);
-    ElunaTemplate<Corpse>::SetMethods(E, LuaWorldObject::WorldObjectMethods);
-    ElunaTemplate<Corpse>::SetMethods(E, LuaCorpse::CorpseMethods);
+    // ElunaTemplate<Corpse>::Register(E, "Corpse");
+    // ElunaTemplate<Corpse>::SetMethods(E, LuaObject::ObjectMethods);
+    // ElunaTemplate<Corpse>::SetMethods(E, LuaWorldObject::WorldObjectMethods);
+    // ElunaTemplate<Corpse>::SetMethods(E, LuaCorpse::CorpseMethods);
 
     ElunaTemplate<Item>::Register(E, "Item");
     ElunaTemplate<Item>::SetMethods(E, LuaObject::ObjectMethods);
@@ -141,8 +141,8 @@ void RegisterFunctions(Eluna* E)
 
 #ifndef CLASSIC
 #ifndef TBC
-    ElunaTemplate<Vehicle>::Register(E, "Vehicle");
-    ElunaTemplate<Vehicle>::SetMethods(E, LuaVehicle::VehicleMethods);
+    // ElunaTemplate<Vehicle>::Register(E, "Vehicle");
+    // ElunaTemplate<Vehicle>::SetMethods(E, LuaVehicle::VehicleMethods);
 #endif
 #endif
 

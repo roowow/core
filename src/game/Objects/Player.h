@@ -26,11 +26,12 @@
 #include "Unit.h"
 #include "Database/DatabaseEnv.h"
 #include "GroupReference.h"
+#include "MapReference.h"
 #include "WorldSession.h"
 #include "Pet.h"
 #include "Util.h"                                           // for Tokens typedef
 #include "ReputationMgr.h"
-#include "BattleGround.h"
+#include "BattleGroundDefines.h"
 #include "SharedDefines.h"
 #include "GameObjectDefines.h"
 #include "SpellMgr.h"
@@ -39,6 +40,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <shared_mutex>
 
 struct Mail;
 struct ItemPrototype;
@@ -56,7 +58,7 @@ class Item;
 class ZoneScript;
 class PlayerAI;
 class PlayerBroadcaster;
-class MapReference;
+class BattleGround;
 
 #define PLAYER_MAX_SKILLS           127
 #define PLAYER_EXPLORED_ZONES_SIZE  64
@@ -501,16 +503,17 @@ enum AtLoginFlags
 
 enum PlayerCheatOptions : uint16
 {
-    PLAYER_CHEAT_GOD             = 0x001,
-    PLAYER_CHEAT_NO_COOLDOWN     = 0x002,
-    PLAYER_CHEAT_NO_CAST_TIME    = 0x004,
-    PLAYER_CHEAT_NO_POWER        = 0x008,
-    PLAYER_CHEAT_DEBUFF_IMMUNITY = 0x010,
-    PLAYER_CHEAT_ALWAYS_CRIT     = 0x020,
-    PLAYER_CHEAT_NO_CHECK_CAST   = 0x040,
-    PLAYER_CHEAT_ALWAYS_PROC     = 0x080,
-    PLAYER_CHEAT_TRIGGER_PASS    = 0x100,
-    PLAYER_CHEAT_IGNORE_TRIGGERS = 0x200,
+    PLAYER_CHEAT_GOD               = 0x001,
+    PLAYER_CHEAT_NO_COOLDOWN       = 0x002,
+    PLAYER_CHEAT_NO_CAST_TIME      = 0x004,
+    PLAYER_CHEAT_NO_POWER          = 0x008,
+    PLAYER_CHEAT_DEBUFF_IMMUNITY   = 0x010,
+    PLAYER_CHEAT_ALWAYS_CRIT       = 0x020,
+    PLAYER_CHEAT_NO_CHECK_CAST     = 0x040,
+    PLAYER_CHEAT_ALWAYS_PROC       = 0x080,
+    PLAYER_CHEAT_TRIGGER_PASS      = 0x100,
+    PLAYER_CHEAT_IGNORE_TRIGGERS   = 0x200,
+    PLAYER_CHEAT_DEBUG_TARGET_INFO = 0x400,
 };
 
 typedef std::map<uint32, QuestStatusData> QuestStatusMap;
@@ -1027,6 +1030,7 @@ class Player final: public Unit
         void SetCheatAlwaysProc(bool on, bool notify = false);
         void SetCheatTriggerPass(bool on, bool notify = false);
         void SetCheatIgnoreTriggers(bool on, bool notify = false);
+        void SetCheatDebugTargetInfo(bool on, bool notify = false);
         uint16 GetCheatOptions() const { return m_cheatOptions; }
         bool HasCheatOption(PlayerCheatOptions o) const { return (m_cheatOptions & o); }
         void EnableCheatOption(PlayerCheatOptions o)    { m_cheatOptions |= o; }
@@ -1713,6 +1717,7 @@ class Player final: public Unit
         void UpdateAllSpellCritChances();
         void UpdateSpellCritChance(uint32 school);
         void CalculateMinMaxDamage(WeaponAttackType attType, bool normalized, float& min_damage, float& max_damage, uint8 index = 0) const;
+        float GetBonusHitChanceFromAuras(WeaponAttackType attType) const final;
 
         uint32 GetShieldBlockValue() const override;                 // overwrite Unit version (virtual)
         bool CanParry() const { return m_canParry; }
@@ -2282,9 +2287,9 @@ class Player final: public Unit
         void SetSelectedGobj(ObjectGuid guid) { m_selectedGobj = guid; }
         ObjectGuid const& GetSelectionGuid() const { return m_curSelectionGuid; }
         void SetSelectionGuid(ObjectGuid guid) { m_curSelectionGuid = guid; SetTargetGuid(guid); }
-        Unit* GetSelectedUnit() { return GetMap()->GetUnit(m_curSelectionGuid); }
-        Creature* GetSelectedCreature() { return GetMap()->GetCreature(m_curSelectionGuid); }
-        Player* GetSelectedPlayer() { return GetMap()->GetPlayer(m_curSelectionGuid); }
+        Unit* GetSelectedUnit();
+        Creature* GetSelectedCreature();
+        Player* GetSelectedPlayer();
         Object* GetObjectByTypeMask(ObjectGuid guid, TypeMask typemask);
 
         void SetResurrectRequestData(ObjectGuid guid, uint32 mapId, float X, float Y, float Z, uint32 health, uint32 mana)

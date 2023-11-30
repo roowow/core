@@ -148,6 +148,7 @@ enum CreatureImmunityFlags
     CREATURE_IMMUNITY_MOD_CAST_SPEED = 0x08, // SPELL_AURA_MOD_CASTING_SPEED_NOT_STACK
     CREATURE_IMMUNITY_DISEASE        = 0x10, // DISPEL_DISEASE
     CREATURE_IMMUNITY_POISON         = 0x20, // DISPEL_POISON
+    CREATURE_IMMUNITY_CURSE          = 0x40, // DISPEL_CURSE
 };
 
 // Number of spells in one template
@@ -596,13 +597,6 @@ struct TrainerSpellData
 #define CREATURE_Z_ATTACK_RANGE 3
 
 #define MAX_VENDOR_ITEMS 128                                // Limitation in item count field size in SMSG_LIST_INVENTORY
-
-enum VirtualItemSlot
-{
-    VIRTUAL_ITEM_SLOT_0 = 0,
-    VIRTUAL_ITEM_SLOT_1 = 1,
-    VIRTUAL_ITEM_SLOT_2 = 2,
-};
 
 #define MAX_VIRTUAL_ITEM_SLOT 3
 

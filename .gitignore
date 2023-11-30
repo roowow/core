@@ -31,8 +31,7 @@ CMakeSettings.json
 /out/
 
 # CLion files
-cmake-build-debug
-cmake-build-release
+cmake-build-*
 
 #
 # Top-level generic files
@@ -55,14 +54,14 @@ autom4te.cache
 *~
 *.bak
 *.orig
-*.patch
+#*.patch
 callgrind.out.*
 
 #
 # Git stuff
 #
 # stgit directories
-patches-*
+#patches-*
 
 #
 # Github stuff
@@ -103,7 +102,7 @@ cmake_install.cmake
 
 # Nostalrius
 newsletter
-patch
+#patch
 php
 
 sql/migrations/*.py

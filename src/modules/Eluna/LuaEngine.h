@@ -460,6 +460,7 @@ public:
     void OnPlayerEnterCombat(Player* pPlayer, Unit* pEnemy);
     void OnPlayerLeaveCombat(Player* pPlayer);
     void OnPVPKill(Player* pKiller, Player* pKilled);
+    void OnKillSelf(Player* pKilled);
     void OnCreatureKill(Player* pKiller, Creature* pKilled);
     void OnPlayerKilledByCreature(Creature* pKiller, Player* pKilled);
     void OnPlayerKilledByEnvironment(Player* pKilled, uint8 damageType);
