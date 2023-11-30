@@ -19,26 +19,26 @@ namespace LuaCorpse
      *
      * @return ObjectGuid ownerGUID
      */
-    int GetOwnerGUID(lua_State* L, Corpse* corpse)
-    {
-#if defined TRINITY || AZEROTHCORE
-        Eluna::Push(L, corpse->GetOwnerGUID());
-#else
-        Eluna::Push(L, corpse->GetOwnerGuid());
-#endif
-        return 1;
-    }
+//     int GetOwnerGUID(lua_State* L, Corpse* corpse)
+//     {
+// #if defined TRINITY || AZEROTHCORE
+//         Eluna::Push(L, corpse->GetOwnerGUID());
+// #else
+//         Eluna::Push(L, corpse->GetOwnerGuid());
+// #endif
+//         return 1;
+//     }
 
     /**
      * Returns the time when the [Player] became a ghost and spawned this [Corpse].
      *
      * @return uint32 ghostTime
      */
-    int GetGhostTime(lua_State* L, Corpse* corpse)
-    {
-        Eluna::Push(L, corpse->GetGhostTime());
-        return 1;
-    }
+    // int GetGhostTime(lua_State* L, Corpse* corpse)
+    // {
+    //     Eluna::Push(L, corpse->GetGhostTime());
+    //     return 1;
+    // }
 
     /**
      * Returns the [CorpseType] of a [Corpse].
@@ -52,44 +52,44 @@ namespace LuaCorpse
      *
      * @return [CorpseType] corpseType
      */
-    int GetType(lua_State* L, Corpse* corpse)
-    {
-        Eluna::Push(L, corpse->GetType());
-        return 1;
-    }
+    // int GetType(lua_State* L, Corpse* corpse)
+    // {
+    //     Eluna::Push(L, corpse->GetType());
+    //     return 1;
+    // }
 
     /**
      * Sets the "ghost time" to the current time.
      *
      * See [Corpse:GetGhostTime].
      */
-    int ResetGhostTime(lua_State* /*L*/, Corpse* corpse)
-    {
-        corpse->ResetGhostTime();
-        return 0;
-    }
+    // int ResetGhostTime(lua_State* /*L*/, Corpse* corpse)
+    // {
+    //     corpse->ResetGhostTime();
+    //     return 0;
+    // }
 
     /**
      * Saves the [Corpse] to the database.
      */
-    int SaveToDB(lua_State* /*L*/, Corpse* corpse)
-    {
-        corpse->SaveToDB();
-        return 0;
-    }
+    // int SaveToDB(lua_State* /*L*/, Corpse* corpse)
+    // {
+    //     corpse->SaveToDB();
+    //     return 0;
+    // }
     
-    ElunaRegister<Corpse> CorpseMethods[] =
-    {
-        // Getters
-        { "GetOwnerGUID", &LuaCorpse::GetOwnerGUID },
-        { "GetGhostTime", &LuaCorpse::GetGhostTime },
-        { "GetType", &LuaCorpse::GetType },
+    // ElunaRegister<Corpse> CorpseMethods[] =
+    // {
+    //     // Getters
+    //     { "GetOwnerGUID", &LuaCorpse::GetOwnerGUID },
+    //     { "GetGhostTime", &LuaCorpse::GetGhostTime },
+    //     { "GetType", &LuaCorpse::GetType },
 
-        // Other
-        { "ResetGhostTime", &LuaCorpse::ResetGhostTime },
-        { "SaveToDB", &LuaCorpse::SaveToDB },
+    //     // Other
+    //     { "ResetGhostTime", &LuaCorpse::ResetGhostTime },
+    //     { "SaveToDB", &LuaCorpse::SaveToDB },
 
-        { NULL, NULL }
-    };
+    //     { NULL, NULL }
+    // };
 };
 #endif
