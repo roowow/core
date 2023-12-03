@@ -4094,17 +4094,6 @@ namespace LuaPlayer
     }
 
     /**
-     * Returns 'true' if the [Player] is Hardcore Retired.
-     *
-     * @return bool IsHardcore
-     */
-    int IsHardcoreRetired(lua_State* L, Player* player)
-    {
-        Eluna::Push(L, player->IsHardcoreRetired());
-        return 1;
-    }
-
-    /**
      * Returns 'true' if the [Player] is Hardcore Dead.
      *
      * @return bool IsHardcore
@@ -4112,6 +4101,17 @@ namespace LuaPlayer
     int IsHardcoreDead(lua_State* L, Player* player)
     {
         Eluna::Push(L, player->IsHardcoreDead());
+        return 1;
+    }
+    
+    /**
+     * Returns 'true' if the [Player] is Hardcore Retired.
+     *
+     * @return bool IsHardcore
+     */
+    int IsHardcoreRetired(lua_State* L, Player* player)
+    {
+        Eluna::Push(L, player->IsHardcoreRetired());
         return 1;
     }
 
@@ -4131,7 +4131,9 @@ namespace LuaPlayer
      */
     int SetHardcore(lua_State* L, Player* player)
     {
-        player->SetHardcore();
+        bool apply = Eluna::CHECKVAL<bool>(L, 2, true);
+
+        player->SetHardcore(apply);
         return 0;
     }
 
@@ -4149,7 +4151,9 @@ namespace LuaPlayer
      */
     int SetHardcoreDead(lua_State* L, Player* player)
     {
-        player->SetHardcoreDead();
+        bool apply = Eluna::CHECKVAL<bool>(L, 2, true);
+
+        player->SetHardcoreDead(apply);
         return 0;
     }
 
