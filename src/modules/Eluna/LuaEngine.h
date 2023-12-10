@@ -39,6 +39,8 @@
 #include <mutex>
 #include <memory>
 
+#include "PlayerBotMgr.h"
+
 extern "C"
 {
 #include "lua.h"
