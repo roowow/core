@@ -40,6 +40,7 @@
 #include "Policies/SingletonImp.h"
 #include <chrono>
 #include <random>
+#include "PlayerBotMgr.h"
 
 INSTANTIATE_SINGLETON_1(BattleGroundMgr);
 
@@ -1719,4 +1720,143 @@ bool BattleGroundQueue::PlayerLoggedIn(Player* player)
 
     itr->second.online          = true;
     return true;
+}
+
+uint32 BattleGroundMgr::CheckBattleGround(uint32 instanceId, uint32 bgTypeId, uint32 team)
+{
+    BattleGroundTypeId v_bgTypeId = BATTLEGROUND_TYPE_NONE;
+
+    if (bgTypeId == 1)
+        v_bgTypeId = BATTLEGROUND_AV;
+
+    if (bgTypeId == 2)
+        v_bgTypeId = BATTLEGROUND_WS;
+
+    if (bgTypeId == 3)
+        v_bgTypeId = BATTLEGROUND_AB;
+
+    BattleGround* bg = GetBattleGround(instanceId, v_bgTypeId);
+
+    if (!bg)
+        return 0; // bg closed
+
+    if (team == 1) {
+        if (bg->GetTypeID() == 1)
+        {
+            if (bg->GetPlayersCountByTeam(ALLIANCE) > 30)
+            {
+                sPlayerBotMgr.DeleteBattleBot(bg->GetInstanceID(), ALLIANCE);
+                return 1;
+            }
+            if (bg->GetPlayersCountByTeam(ALLIANCE) < 30)
+            {
+                sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_QUEUE_WS), ALLIANCE, bg->GetMaxLevel(), false);
+                return 3;
+            }
+        }
+        if (bg->GetTypeID() == 2)
+        {
+            if (bg->GetPlayersCountByTeam(ALLIANCE) > 8)
+            {
+                sPlayerBotMgr.DeleteBattleBot(bg->GetInstanceID(), ALLIANCE);
+                return 1;
+            }
+            if (bg->GetPlayersCountByTeam(ALLIANCE) < 8)
+            {
+                sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_QUEUE_WS), ALLIANCE, bg->GetMaxLevel(), false);
+                return 3;
+            }
+        }
+        if (bg->GetTypeID() == 3)
+        {
+            if (bg->GetPlayersCountByTeam(ALLIANCE) > 12)
+            {
+                sPlayerBotMgr.DeleteBattleBot(bg->GetInstanceID(), ALLIANCE);
+                return 1;
+            }
+            if (bg->GetPlayersCountByTeam(ALLIANCE) < 12)
+            {
+                sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_QUEUE_WS), ALLIANCE, bg->GetMaxLevel(), false);
+                return 3;
+            }
+        }
+    }
+
+    if (team == 2) {
+        if (bg->GetTypeID() == 1)
+        {
+            if (bg->GetPlayersCountByTeam(HORDE) > 30)
+            {
+                sPlayerBotMgr.DeleteBattleBot(bg->GetInstanceID(), HORDE);
+                return 2;
+            }
+            if (bg->GetPlayersCountByTeam(HORDE) < 30)
+            {
+                sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_QUEUE_WS), HORDE, bg->GetMaxLevel(), false);
+                return 4;
+            }
+        }
+        if (bg->GetTypeID() == 2)
+        {
+            if (bg->GetPlayersCountByTeam(HORDE) > 8)
+            {
+                sPlayerBotMgr.DeleteBattleBot(bg->GetInstanceID(), HORDE);
+                return 2;
+            }
+            if (bg->GetPlayersCountByTeam(HORDE) < 8)
+            {
+                sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_QUEUE_WS), HORDE, bg->GetMaxLevel(), false);
+                return 4;
+            }
+        }
+        if (bg->GetTypeID() == 3)
+        {
+            if (bg->GetPlayersCountByTeam(HORDE) > 12)
+            {
+                sPlayerBotMgr.DeleteBattleBot(bg->GetInstanceID(), HORDE);
+                return 2;
+            }
+            if (bg->GetPlayersCountByTeam(HORDE) < 12)
+            {
+                sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_QUEUE_WS), HORDE, bg->GetMaxLevel(), false);
+                return 4;
+            }
+        }
+    }
+
+    // just check balance
+    if (team == 3) {
+        if (bg->GetPlayersCountByTeam(HORDE) > bg->GetPlayersCountByTeam(ALLIANCE))
+        {
+            if (bg->GetPlayersCountByTeam(ALLIANCE) < bg->GetMaxPlayersPerTeam() - 2)
+            {
+                sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_QUEUE_WS), ALLIANCE, bg->GetMaxLevel(), false);
+                return 3;
+            }
+        }
+        if (bg->GetPlayersCountByTeam(ALLIANCE) > bg->GetPlayersCountByTeam(HORDE))
+        {
+            if (bg->GetPlayersCountByTeam(HORDE) < bg->GetMaxPlayersPerTeam() - 2)
+            {
+                sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_QUEUE_WS), HORDE, bg->GetMaxLevel(), false);
+                return 4;
+            }
+        }
+
+        // check active players
+        bool activePlayer = false;
+        for (auto const& itr : bg->GetPlayers())
+        {
+            Player const* pPlayer = sObjectMgr.GetPlayer(itr.first);
+            if (!pPlayer->IsBot())
+                activePlayer = true;
+        }
+        if (!activePlayer)
+        {
+            bg->StopBattleGround();
+            return 9;
+        }
+    }
+
+    return 99; // nothing
 }

@@ -89,7 +89,9 @@ class PlayerBotMgr
 
         void AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam, uint32 botLevel, bool temporary);
         void DeleteBattleBots();
+        void DeleteBattleBot(uint32 instanceID, Team team);
         void SwitchAutoJoinBattleBots(bool payload);
+        void SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId);
 
         void DeleteAll();
         void AddAllBots();
@@ -128,7 +130,9 @@ class PlayerBotMgr
         bool m_confAllowSaving;
         bool m_confDebug;
         bool m_confEnableRandomBots;
-        bool m_confBattleBotAutoJoin;
+        bool m_confBattleBotAutoJoin_1;
+        bool m_confBattleBotAutoJoin_2;
+        bool m_confBattleBotAutoJoin_3;
 };
 
 #define sPlayerBotMgr MaNGOS::Singleton<PlayerBotMgr>::Instance()

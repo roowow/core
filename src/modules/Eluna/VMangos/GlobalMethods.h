@@ -479,6 +479,25 @@ namespace LuaGlobalFunctions
         return 1;
     }
 
+    int CheckBattleGround(lua_State* L)
+    {
+        uint32 instanceId = Eluna::CHECKVAL<uint32>(L, 1);
+        uint32 bgTypeId = Eluna::CHECKVAL<uint32>(L, 2);
+        uint32 team = Eluna::CHECKVAL<uint32>(L, 3);
+
+        Eluna::Push(L, sBattleGroundMgr.CheckBattleGround(instanceId, bgTypeId, team));
+        return 1;
+    }
+
+    int SwitchAutoJoinBattleBots(lua_State* L)
+    {
+        bool apply = Eluna::CHECKVAL<bool>(L, 1);
+        uint32 bgTypeId = Eluna::CHECKVAL<uint32>(L, 2);
+
+        sPlayerBotMgr.SwitchAutoJoinBattleBots(apply, bgTypeId);
+        return 0;
+    }
+    
     static int RegisterEntryHelper(lua_State* L, int regtype)
     {
         uint32 id = Eluna::CHECKVAL<uint32>(L, 1);
@@ -2966,6 +2985,8 @@ namespace LuaGlobalFunctions
         { "CreateUint64", &LuaGlobalFunctions::CreateULongLong },
         { "StartGameEvent", &LuaGlobalFunctions::StartGameEvent },
         { "StopGameEvent", &LuaGlobalFunctions::StopGameEvent },
+        { "CheckBattleGround", &LuaGlobalFunctions::CheckBattleGround },
+        { "SwitchAutoJoinBattleBots", &LuaGlobalFunctions::SwitchAutoJoinBattleBots },
 
         { NULL, NULL }
     };

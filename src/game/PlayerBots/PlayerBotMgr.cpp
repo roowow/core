@@ -32,7 +32,9 @@ PlayerBotMgr::PlayerBotMgr()
     m_confUpdateDiff            = 10000;
     m_confEnableRandomBots      = false;
     m_confDebug                 = false;
-    m_confBattleBotAutoJoin     = false;
+    m_confBattleBotAutoJoin_1   = false;
+    m_confBattleBotAutoJoin_2   = false;
+    m_confBattleBotAutoJoin_3   = false;
 
     // Time
     m_elapsedTime = 0;
@@ -55,7 +57,7 @@ void PlayerBotMgr::LoadConfig()
     m_confAllowSaving = sConfig.GetBoolDefault("PlayerBot.AllowSaving", false);
     m_confDebug = sConfig.GetBoolDefault("PlayerBot.Debug", false);
     m_confUpdateDiff = sConfig.GetIntDefault("PlayerBot.UpdateMs", 10000);
-    m_confBattleBotAutoJoin = sConfig.GetBoolDefault("BattleBot.AutoJoin", false);
+    // m_confBattleBotAutoJoin = sConfig.GetBoolDefault("BattleBot.AutoJoin", false);
 
     if (!sWorld.getConfig(CONFIG_BOOL_FORCE_LOGOUT_DELAY))
         m_tempBots.clear();
@@ -294,7 +296,7 @@ void PlayerBotMgr::Update(uint32 diff)
         ++iter;
     }
 
-    if (m_confBattleBotAutoJoin && (m_lastBattleBotQueueUpdate <= (sWorld.GetGameTime() - 10)))
+    if ((m_lastBattleBotQueueUpdate <= (sWorld.GetGameTime() - 10)))
     {
         m_lastBattleBotQueueUpdate = sWorld.GetGameTime();
         for (uint32 queueType = BATTLEGROUND_QUEUE_AV; queueType < MAX_BATTLEGROUND_QUEUE_TYPES; ++queueType)
@@ -337,17 +339,35 @@ void PlayerBotMgr::Update(uint32 diff)
                 ASSERT(minLevel <= PLAYER_MAX_LEVEL);
                 uint32 const maxLevel = std::min<uint32>(minLevel + 9, PLAYER_MAX_LEVEL);
                 
-                for (uint32 i = queuedAllianceCount[bracketId]; i < bg->GetMinPlayersPerTeam(); ++i)
+                bool toAddBattleBot = false;
+                if (bg->GetTypeID() == 1 && m_confBattleBotAutoJoin_1)
                 {
-                    uint32 const botLevel = urand(minLevel, maxLevel);
-                    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[PlayerBotMgr] Adding level %u alliance battlebot to bg queue %u.", botLevel, queueType);
-                    AddBattleBot(BattleGroundQueueTypeId(queueType), ALLIANCE, botLevel, true);
+                    toAddBattleBot= true;
                 }
-                for (uint32 i = queuedHordeCount[bracketId]; i < bg->GetMinPlayersPerTeam(); ++i)
+                if (bg->GetTypeID() == 2 && m_confBattleBotAutoJoin_2)
                 {
-                    uint32 const botLevel = urand(minLevel, maxLevel);
-                    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[PlayerBotMgr] Adding level %u horde battlebot to bg queue %u.", botLevel, queueType);
-                    AddBattleBot(BattleGroundQueueTypeId(queueType), HORDE, botLevel, true);
+                    toAddBattleBot= true;
+                }
+                if (bg->GetTypeID() == 3 && m_confBattleBotAutoJoin_3)
+                {
+                    toAddBattleBot= true;
+                }
+
+                // check if already added
+                if (toAddBattleBot)
+                {
+                    for (uint32 i = queuedAllianceCount[bracketId]; i < bg->GetMinPlayersPerTeam(); ++i)
+                    {
+                        uint32 const botLevel = urand(minLevel, maxLevel);
+                        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[PlayerBotMgr] Adding level %u alliance battlebot to bg queue %u.", botLevel, queueType);
+                        AddBattleBot(BattleGroundQueueTypeId(queueType), ALLIANCE, maxLevel, true);
+                    }
+                    for (uint32 i = queuedHordeCount[bracketId]; i < bg->GetMinPlayersPerTeam(); ++i)
+                    {
+                        uint32 const botLevel = urand(minLevel, maxLevel);
+                        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[PlayerBotMgr] Adding level %u horde battlebot to bg queue %u.", botLevel, queueType);
+                        AddBattleBot(BattleGroundQueueTypeId(queueType), HORDE, maxLevel, true);
+                    }
                 }
             }
         }
@@ -596,9 +616,42 @@ void PlayerBotMgr::DeleteBattleBots()
     // m_confBattleBotAutoJoin = false;
 }
 
-void PlayerBotMgr::SwitchAutoJoinBattleBots(bool payload)
+void PlayerBotMgr::DeleteBattleBot(uint32 instanceID, Team team)
 {
-    m_confBattleBotAutoJoin = payload ? true : false;
+    for (auto const& itr : m_bots)
+    {
+        if (dynamic_cast<BattleBotAI*>(itr.second->ai.get()))
+        {
+            BattleGround* bg_me = itr.second->ai.get()->me->GetBattleGround();
+            if (instanceID != bg_me->GetInstanceID())
+                continue;
+
+            if (team != itr.second->ai.get()->me->GetTeam())
+                continue;
+
+            itr.second->requestRemoval = true;
+            break;
+        }
+    }
+}
+
+void PlayerBotMgr::SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId)
+{
+    switch (bgTypeId)
+    {
+        case 1:
+            m_confBattleBotAutoJoin_1 = payload ? true : false;
+            break;
+        case 2:
+            m_confBattleBotAutoJoin_2 = payload ? true : false;
+            break;
+        case 3:
+            m_confBattleBotAutoJoin_3 = payload ? true : false;
+            break;
+        default:
+            return;
+            break;
+    }
 }
 
 bool PlayerBotMgr::ForceAccountConnection(WorldSession* sess)
@@ -1772,7 +1825,7 @@ bool ChatHandler::HandleBattleBotRemoveAllCommand(char* args)
     return true;
 }
 
-bool ChatHandler::HandleBattleBotAutoJoinCommand(char* args)
+bool ChatHandler::HandleBattleBotAutoJoin1Command(char* args)
 {
     bool value;
     if (!ExtractOnOff(&args, value))
@@ -1781,7 +1834,33 @@ bool ChatHandler::HandleBattleBotAutoJoinCommand(char* args)
         SetSentErrorMessage(true);
         return false;
     }
-    sPlayerBotMgr.SwitchAutoJoinBattleBots(value);
+    sPlayerBotMgr.SwitchAutoJoinBattleBots(value, 1);
+    return true;    
+}
+
+bool ChatHandler::HandleBattleBotAutoJoin2Command(char* args)
+{
+    bool value;
+    if (!ExtractOnOff(&args, value))
+    {
+        SendSysMessage(LANG_USE_BOL);
+        SetSentErrorMessage(true);
+        return false;
+    }
+    sPlayerBotMgr.SwitchAutoJoinBattleBots(value, 2);
+    return true;    
+}
+
+bool ChatHandler::HandleBattleBotAutoJoin3Command(char* args)
+{
+    bool value;
+    if (!ExtractOnOff(&args, value))
+    {
+        SendSysMessage(LANG_USE_BOL);
+        SetSentErrorMessage(true);
+        return false;
+    }
+    sPlayerBotMgr.SwitchAutoJoinBattleBots(value, 3);
     return true;    
 }
 
