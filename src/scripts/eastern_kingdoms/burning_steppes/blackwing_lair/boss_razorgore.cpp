@@ -190,7 +190,8 @@ struct boss_razorgoreAI : public ScriptedAI
             m_pInstance->SetData(TYPE_RAZORGORE, FAIL);
 
         SituationInitiale();
-        m_creature->MonsterYell("I'm free! That device shall never torment me again!",0,0);
+        // m_creature->MonsterYell("I'm free! That device shall never torment me again!",0,0);
+        m_creature->MonsterYell(7980);
     }
 
     void SituationInitiale()

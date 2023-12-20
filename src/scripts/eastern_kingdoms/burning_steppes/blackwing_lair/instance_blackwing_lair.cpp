@@ -474,7 +474,8 @@ struct instance_blackwing_lair : public ScriptedInstance
                 if (m_auiEncounter[TYPE_RAZORGORE] == FAIL)
                 {
                     if (Creature* pRazorgore = instance->GetCreature(m_auiData[DATA_RAZORGORE_GUID]))
-                        pRazorgore->MonsterYell("If I fall into the abyss, I'll take all of you mortals with me!",0,0);
+                        // pRazorgore->MonsterYell("If I fall into the abyss, I'll take all of you mortals with me!",0,0);
+                        pRazorgore->MonsterYell(-1469025);
                 }
                 break;
         }
@@ -947,15 +948,18 @@ struct go_oeuf_razAI: public GameObjectAI
                 switch (urand(0, 5))
                 {
                     case 0:
-                        pUser->MonsterYell("No! Not another one! I'll have your heads for this atrocity!", LANG_UNIVERSAL);
+                        // pUser->MonsterYell("No! Not another one! I'll have your heads for this atrocity!", LANG_UNIVERSAL);
+                        pUser->MonsterYell(-1469024);
                         pUser->PlayDirectSound(8277);
                         break;
                     case 1:
-                        pUser->MonsterYell("Fools! These eggs are more precious than you know!", LANG_UNIVERSAL);
+                        // pUser->MonsterYell("Fools! These eggs are more precious than you know!", LANG_UNIVERSAL);
+                        pUser->MonsterYell(-1469023);
                         pUser->PlayDirectSound(8276);
                         break;
                     case 2:
-                        pUser->MonsterYell("You'll pay for forcing me to do this!", LANG_UNIVERSAL);
+                        // pUser->MonsterYell("You'll pay for forcing me to do this!", LANG_UNIVERSAL);
+                        pUser->MonsterYell(-1469022);
                         pUser->PlayDirectSound(8275);
                         break;
                 }
