@@ -616,25 +616,6 @@ void PlayerBotMgr::DeleteBattleBots()
     // m_confBattleBotAutoJoin = false;
 }
 
-void PlayerBotMgr::DeleteBattleBot(uint32 instanceID, Team team)
-{
-    for (auto const& itr : m_bots)
-    {
-        if (dynamic_cast<BattleBotAI*>(itr.second->ai.get()))
-        {
-            BattleGround* bg_me = itr.second->ai.get()->me->GetBattleGround();
-            if (instanceID != bg_me->GetInstanceID())
-                continue;
-
-            if (team != itr.second->ai.get()->me->GetTeam())
-                continue;
-
-            itr.second->requestRemoval = true;
-            break;
-        }
-    }
-}
-
 void PlayerBotMgr::SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId)
 {
     switch (bgTypeId)
