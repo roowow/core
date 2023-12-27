@@ -130,9 +130,9 @@ ChatCommand * ChatHandler::getCommandTable()
         { "removeall",    SEC_ADMINISTRATOR,    true,  &ChatHandler::HandleBattleBotRemoveAllCommand,    "", nullptr },
         { "showpath",     SEC_ADMINISTRATOR,    false, &ChatHandler::HandleBattleBotShowPathCommand,     "", nullptr },
         { "showallpaths", SEC_ADMINISTRATOR,    false, &ChatHandler::HandleBattleBotShowAllPathsCommand, "", nullptr },
-        { "autojoin1",     SEC_ADMINISTRATOR,    false, &ChatHandler::HandleBattleBotAutoJoin1Command,     "", nullptr },
-        { "autojoin2",     SEC_ADMINISTRATOR,    false, &ChatHandler::HandleBattleBotAutoJoin2Command,     "", nullptr },
-        { "autojoin3",     SEC_ADMINISTRATOR,    false, &ChatHandler::HandleBattleBotAutoJoin3Command,     "", nullptr },
+        { "autojoin1",     SEC_ADMINISTRATOR,    true, &ChatHandler::HandleBattleBotAutoJoin1Command,     "", nullptr },
+        { "autojoin2",     SEC_ADMINISTRATOR,    true, &ChatHandler::HandleBattleBotAutoJoin2Command,     "", nullptr },
+        { "autojoin3",     SEC_ADMINISTRATOR,    true, &ChatHandler::HandleBattleBotAutoJoin3Command,     "", nullptr },
         { nullptr,        0,                    false, nullptr,                                          "", nullptr },
     };
 
