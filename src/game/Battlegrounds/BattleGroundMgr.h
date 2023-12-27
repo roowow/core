@@ -296,6 +296,8 @@ class BattleGroundMgr
         std::set<uint32> const& GetUsedRefLootIds() const { return m_usedRefloot; }
         void PlayerLoggedIn(Player* player);
         void PlayerLoggedOut(Player* player);
+
+        std::array<std::string, 10000> BattleBotNames;
     private:
         //std::mutex    schedulerLock;
         BattleMastersMap    m_battleMastersMap;

@@ -1066,10 +1066,10 @@ class Player final: public Unit
         bool IsHardcoreRetired() const { return m_ExtraFlags & PLAYER_EXTRA_HARDCORE_RETIRED; }
         bool IsHardcoreDead()    const { return m_ExtraFlags & PLAYER_EXTRA_HARDCORE_DEAD; }
         bool IsHardcorePVP()     const { return m_ExtraFlags & PLAYER_EXTRA_HARDCORE_PVP; }
-        void SetHardcore();
-        void SetHardcoreRetired();
+        void SetHardcore(bool on = true);
         void SetHardcoreDead(bool on = true);
         void SetHardcorePVP(bool on = true);
+        void SetHardcoreRetired();
 
         /*********************************************************/
         /***                    STORAGE SYSTEM                 ***/

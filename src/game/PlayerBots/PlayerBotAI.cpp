@@ -24,6 +24,7 @@
 #include "MoveSpline.h"
 #include "Opcodes.h"
 #include "WorldPacket.h"
+#include "BattleGroundMgr.h"
 
 bool PlayerBotAI::OnSessionLoaded(PlayerBotEntry* entry, WorldSession* sess)
 {
@@ -76,9 +77,29 @@ enum
 bool PlayerBotAI::SpawnNewPlayer(WorldSession* sess, uint8 class_, uint32 race_, uint32 mapId, uint32 instanceId, float x, float y, float z, float o, Player* pClone)
 {
     ASSERT(botEntry);
-    // std::string name = "[甜水绿洲]" + sObjectMgr.GeneratePetName(1863); // Succubus name
-    std::string name = sObjectMgr.GeneratePetName(1863); // Succubus name
+
+    int32 BattleBotNamesCount = 0;
+    for (int i = 0; i < sBattleGroundMgr.BattleBotNames.size(); i++) {
+        if (!sBattleGroundMgr.BattleBotNames[i].empty())
+        {
+            BattleBotNamesCount++;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    int index = rand() % BattleBotNamesCount;
+    std::string botName = sBattleGroundMgr.BattleBotNames[index];
+    std::string name = botName;
+    Player* tmpPlayer = sObjectMgr.GetPlayer(botName.c_str());
+    if (tmpPlayer)
+    {
+        name = sObjectMgr.GeneratePetName(1863); // Succubus name
+    }
     normalizePlayerName(name);
+
     uint8 gender = pClone ? pClone->GetByteValue(UNIT_FIELD_BYTES_0, UNIT_BYTES_0_OFFSET_GENDER) : urand(0, 1);
     uint8 skin = pClone ? pClone->GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_SKIN_ID) : urand(0, 5);
     uint8 face = pClone ? pClone->GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_FACE_ID) : urand(0, 5);
