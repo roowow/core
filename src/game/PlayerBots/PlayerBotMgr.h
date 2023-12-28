@@ -109,6 +109,11 @@ class PlayerBotMgr
         uint32 GenBotAccountId() { return ++m_maxAccountId; }
         PlayerBotStats& GetStats(){ return m_stats; }
         void Start() { m_confEnableRandomBots = true; }
+
+        bool m_confBattleBotAutoJoin;
+        bool m_confBattleBotAutoJoin_1;
+        bool m_confBattleBotAutoJoin_2;
+        bool m_confBattleBotAutoJoin_3;
     protected:
         // How long since last update?
         uint32 m_elapsedTime;
@@ -129,9 +134,6 @@ class PlayerBotMgr
         bool m_confAllowSaving;
         bool m_confDebug;
         bool m_confEnableRandomBots;
-        bool m_confBattleBotAutoJoin_1;
-        bool m_confBattleBotAutoJoin_2;
-        bool m_confBattleBotAutoJoin_3;
 };
 
 #define sPlayerBotMgr MaNGOS::Singleton<PlayerBotMgr>::Instance()
