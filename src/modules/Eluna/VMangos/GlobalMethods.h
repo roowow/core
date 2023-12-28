@@ -489,6 +489,12 @@ namespace LuaGlobalFunctions
         return 1;
     }
 
+    int CheckAutoJoinBattleBots(lua_State* L)
+    {
+        Eluna::Push(L, sPlayerBotMgr.m_confBattleBotAutoJoin);
+        return 1;
+    }
+
     int SwitchAutoJoinBattleBots(lua_State* L)
     {
         bool apply = Eluna::CHECKVAL<bool>(L, 1);
@@ -2986,6 +2992,7 @@ namespace LuaGlobalFunctions
         { "StartGameEvent", &LuaGlobalFunctions::StartGameEvent },
         { "StopGameEvent", &LuaGlobalFunctions::StopGameEvent },
         { "CheckBattleGround", &LuaGlobalFunctions::CheckBattleGround },
+        { "CheckAutoJoinBattleBots", &LuaGlobalFunctions::CheckAutoJoinBattleBots },
         { "SwitchAutoJoinBattleBots", &LuaGlobalFunctions::SwitchAutoJoinBattleBots },
 
         { NULL, NULL }
