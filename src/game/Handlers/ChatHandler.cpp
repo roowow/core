@@ -162,7 +162,7 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
 
     if (!IsLanguageAllowedForChatType(lang, type))
     {
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "CHAT: Wrong language %u received for chat type %u.", lang, type);
+        //sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "CHAT: Wrong language %u received for chat type %u.", lang, type);
         return;
     }
 
