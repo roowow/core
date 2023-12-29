@@ -826,7 +826,7 @@ void WorldSession::HandleAreaTriggerOpcode(WorldPacket& recv_data)
         // corpse not in dungeon or some linked deep dungeons
         if (!instance_map)
         {
-            pPlayer->GetSession()->SendAreaTriggerMessage("You cannot enter %s while in ghost form.", pTargetMap->name);
+            pPlayer->GetSession()->SendAreaTriggerMessage("灵魂状态下无法进入 %s 。", pTargetMap->name);
             return;
         }
 

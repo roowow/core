@@ -162,7 +162,7 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
 
     if (!IsLanguageAllowedForChatType(lang, type))
     {
-        //sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "CHAT: Wrong language %u received for chat type %u.", lang, type);
+        // sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "CHAT: Wrong language %u received for chat type %u.", lang, type);
         return;
     }
 
@@ -327,7 +327,7 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
                     if (chn->IsLevelRestricted() && playerPointer->GetLevel() < sWorld.getConfig(CONFIG_UINT32_WORLD_CHAN_MIN_LEVEL)
                         && GetAccountMaxLevel() < sWorld.getConfig(CONFIG_UINT32_PUB_CHANS_MUTE_VANISH_LEVEL))
                     {
-                        ChatHandler(this).SendSysMessage("You cannot use this channel yet.");
+                        ChatHandler(this).SendSysMessage("你还不能使用这个频道。");
                         return;
                     }
 
@@ -388,7 +388,7 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
             if (GetPlayer()->GetLevel() < sWorld.getConfig(CONFIG_UINT32_SAY_MIN_LEVEL)
                 && GetAccountMaxLevel() < sWorld.getConfig(CONFIG_UINT32_PUB_CHANS_MUTE_VANISH_LEVEL))
             {
-                ChatHandler(this).SendSysMessage("You cannot speak yet (too low level).");
+                ChatHandler(this).SendSysMessage("等级过低，你还不能说话。");
                 return;
             }
 
@@ -410,7 +410,7 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
             if (GetPlayer()->GetLevel() < sWorld.getConfig(CONFIG_UINT32_SAY_EMOTE_MIN_LEVEL)
                 && GetAccountMaxLevel() < sWorld.getConfig(CONFIG_UINT32_PUB_CHANS_MUTE_VANISH_LEVEL))
             {
-                ChatHandler(this).SendSysMessage("You cannot use emotes yet (too low level).");
+                ChatHandler(this).SendSysMessage("等级过低，你还不能使用表情。");
                 return;
             }
 
@@ -433,7 +433,7 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
             if (GetPlayer()->GetLevel() < sWorld.getConfig(CONFIG_UINT32_YELL_MIN_LEVEL)
                 && GetAccountMaxLevel() < sWorld.getConfig(CONFIG_UINT32_PUB_CHANS_MUTE_VANISH_LEVEL))
             {
-                ChatHandler(this).SendSysMessage("You cannot yell yet (too low level).");
+                ChatHandler(this).SendSysMessage("等级过低，你还不能喊话。");
                 return;
             }
 
@@ -493,7 +493,7 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
                 }
                 if (/*player->GetZoneId() != masterPlr->GetZoneId() && */masterPlr->GetLevel() < sWorld.getConfig(CONFIG_UINT32_WHISP_DIFF_ZONE_MIN_LEVEL))
                 {
-                    ChatHandler(this).SendSysMessage("You cannot whisper yet.");
+                    ChatHandler(this).SendSysMessage("你还不能发送悄悄话。");
                     return;
                 }
             }
