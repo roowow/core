@@ -1812,3 +1812,37 @@ void BattleGround::HandleCommand(Player* player, ChatHandler* handler, char* arg
                 handler->PSendSysMessage("Event (%u, %u): %u gobj / %u creatures", eventIdx, j, m_eventObjects[MAKE_PAIR32(eventIdx, j)].gameobjects.size(), m_eventObjects[MAKE_PAIR32(eventIdx, j)].creatures.size());
     }
 }
+
+bool BattleGround::DeleteBattleBot(Team team)
+{
+    for (auto const& itr : GetPlayers())
+    {
+        Player const* pPlayertmp = sObjectMgr.GetPlayer(itr.first);
+        if (pPlayertmp->GetTeam() == team)
+        {
+            if (pPlayertmp->IsBot())
+            {
+                sPlayerBotMgr.DeleteBot(pPlayertmp->GetGUID());
+                return true;
+                break;
+            }
+        }
+    }
+    return false;
+}
+
+uint32 BattleGround::GetBotPlayersCountByTeam(Team team) {
+    uint32 count = 0;
+    for (auto const& itr : GetPlayers())
+    {
+        Player const* pPlayertmp = sObjectMgr.GetPlayer(itr.first);
+        if (pPlayertmp->GetTeam() == team)
+        {
+            if (pPlayertmp->IsBot())
+            {
+                count++;
+            }
+        }
+    }
+    return count;
+}
