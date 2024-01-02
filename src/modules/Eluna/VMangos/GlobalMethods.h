@@ -483,9 +483,8 @@ namespace LuaGlobalFunctions
     {
         uint32 instanceId = Eluna::CHECKVAL<uint32>(L, 1);
         uint32 bgTypeId = Eluna::CHECKVAL<uint32>(L, 2);
-        uint32 team = Eluna::CHECKVAL<uint32>(L, 3);
 
-        Eluna::Push(L, sBattleGroundMgr.CheckBattleGround(instanceId, bgTypeId, team));
+        Eluna::Push(L, sBattleGroundMgr.CheckBattleGround(instanceId, bgTypeId));
         return 1;
     }
 

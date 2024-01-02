@@ -237,6 +237,7 @@ class BattleGround
         static BattleGroundTeamIndex GetTeamIndexByTeamId(Team team) { return team == ALLIANCE ? BG_TEAM_ALLIANCE : BG_TEAM_HORDE; }
         uint32 GetPlayersCountByTeam(Team team) const { return m_playersCount[GetTeamIndexByTeamId(team)]; }
         uint32 GetBotPlayersCountByTeam(Team team);
+        uint32 GetRealPlayersCountByTeam(Team team);
         uint32 GetAlivePlayersCountByTeam(Team team) const; // used in arenas to correctly handle death in spirit of redemption / last stand etc. (killer = killed) cases
         void UpdatePlayersCountByTeam(Team team, bool remove)
         {
@@ -339,7 +340,7 @@ class BattleGround
         uint32 GetPlayerSkinRefLootId() const { return m_playerSkinReflootId; }
         void SetPlayerSkinRefLootId(uint32 reflootId) { m_playerSkinReflootId = reflootId; }
 
-        bool DeleteBattleBot(Team team);
+        bool DeleteBattleBot(Team team, bool all = false);
     protected:
         //this method is called, when BG cannot spawn its own spirit guide, or something is wrong, It correctly ends BattleGround
         void EndNow();
