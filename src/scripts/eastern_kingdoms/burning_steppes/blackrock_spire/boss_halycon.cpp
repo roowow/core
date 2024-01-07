@@ -73,7 +73,8 @@ struct boss_halyconAI : public ScriptedAI
         //Summon Gizrul
         if (!Summoned)
         {
-            m_creature->MonsterTextEmote("Halycon lets loose a gutteral growl as her body collapses. A horrifying howl can be heard echoing through the halls of Blackrock Spire. Something is very, very angry.");
+            //m_creature->MonsterTextEmote("Halycon lets loose a gutteral growl as her body collapses. A horrifying howl can be heard echoing through the halls of Blackrock Spire. Something is very, very angry.");
+	    m_creature->MonsterTextEmote("当她的身体崩溃时，哈雷肯发出了一声巨大的咆哮。可以听到一个可怕的嚎叫回荡在黑石塔的大厅。其中某个未知变得非常非常的生气。");
             if (Creature* pGizrul = m_creature->SummonCreature(10268, -167.58f, -382.41f, 64.401f, 1.563f, TEMPSUMMON_DEAD_DESPAWN, 0))
             {
                 pGizrul->SetHomePosition(-172.633f, -324.253f, 64.401f, 4.74f);
