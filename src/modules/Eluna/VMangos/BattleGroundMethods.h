@@ -43,6 +43,27 @@ namespace LuaBattleGround
         return 1;
     }
 
+    int GetPlayersCountByTeam(lua_State* L, BattleGround* bg)
+    {
+        uint32 team = Eluna::CHECKVAL<uint32>(L, 2);
+        Eluna::Push(L, bg->GetPlayersCountByTeam((Team)team));
+        return 1;
+    }
+
+    int GetBotPlayersCountByTeam(lua_State* L, BattleGround* bg)
+    {
+        uint32 team = Eluna::CHECKVAL<uint32>(L, 2);
+        Eluna::Push(L, bg->GetBotPlayersCountByTeam((Team)team));
+        return 1;
+    }
+
+    int GetRealPlayersCountByTeam(lua_State* L, BattleGround* bg)
+    {
+        uint32 team = Eluna::CHECKVAL<uint32>(L, 2);
+        Eluna::Push(L, bg->GetRealPlayersCountByTeam((Team)team));
+        return 1;
+    }
+
     /**
      * Returns the [Map] of the [BattleGround].
      *
@@ -248,6 +269,9 @@ namespace LuaBattleGround
         // Getters
         { "GetName", &LuaBattleGround::GetName },
         { "GetAlivePlayersCountByTeam", &LuaBattleGround::GetAlivePlayersCountByTeam },
+        { "GetPlayersCountByTeam", &LuaBattleGround::GetPlayersCountByTeam },
+        { "GetBotPlayersCountByTeam", &LuaBattleGround::GetBotPlayersCountByTeam },
+        { "GetRealPlayersCountByTeam", &LuaBattleGround::GetRealPlayersCountByTeam },
         { "GetMap", &LuaBattleGround::GetMap },
         { "GetBonusHonorFromKillCount", &LuaBattleGround::GetBonusHonorFromKillCount },
         { "GetBracketId", &LuaBattleGround::GetBracketId },
