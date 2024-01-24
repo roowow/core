@@ -450,7 +450,7 @@ void BattleGroundAV::UpgradeArmor(Object* questGiver, Player* player)
 
     if (resources%500 == 0 && m_teamQuestStatus[teamIdx][0] != 0 && questGiver->GetTypeId() == TYPEID_UNIT)
     {
-        sprintf(sMessageRemaining,"Thanks for the supplies, %s",player->GetName());
+        sprintf(sMessageRemaining,"感谢您的物资，%s",player->GetName());
         ((Creature*)questGiver)->MonsterSay(sMessageRemaining, 0, 0);
 
         if (resources == 500)
@@ -460,7 +460,7 @@ void BattleGroundAV::UpgradeArmor(Object* questGiver, Player* player)
             else
                 CastSpellOnTeam(28418, HORDE);
 
-            sprintf(sMessageRemaining,"Seasoned units are entering the battle!");
+            sprintf(sMessageRemaining,"经验丰富的部队正在投入战斗！");
             ((Creature*)questGiver)->MonsterYell(sMessageRemaining, 0, 0);
         }
         else if (resources == 1000)
@@ -470,7 +470,7 @@ void BattleGroundAV::UpgradeArmor(Object* questGiver, Player* player)
             else
                 CastSpellOnTeam(28419, HORDE);
 
-            sprintf(sMessageRemaining,"Veteran units are entering the battle!");
+            sprintf(sMessageRemaining,"老兵部队正在投入战斗");
             ((Creature*)questGiver)->MonsterYell(sMessageRemaining, 0, 0);
         }
         else if (resources == 1500)
@@ -480,7 +480,7 @@ void BattleGroundAV::UpgradeArmor(Object* questGiver, Player* player)
             else
                 CastSpellOnTeam(28420, HORDE);
 
-            sprintf(sMessageRemaining,"Champion units are entering the battle!");
+            sprintf(sMessageRemaining,"冠军单位即将投入战斗！");
             ((Creature*)questGiver)->MonsterYell(sMessageRemaining, 0, 0);
         }
     }
@@ -606,9 +606,9 @@ void BattleGroundAV::HandleQuestComplete(Unit* questGiver, uint32 questid, Playe
             if (m_teamQuestStatus[teamIdx][1] == 90)
             {
                 if (teamIdx == 0)
-                    sprintf(sMessageRemaining,"Soldiers of Stormpike, come to my aid! The beacon must be planted.");
+                    sprintf(sMessageRemaining,"雷矛的士兵们，来帮助我吧！信标必须树起来。");
                 else
-                    sprintf(sMessageRemaining,"Soldiers of the Horde, come to my aid! The beacon must be planted.");
+                    sprintf(sMessageRemaining,"霜狼的士兵们，来帮助我吧！信标必须树起来。");
 
                 questGiver->MonsterYell(sMessageRemaining, 0, 0);
             }
@@ -620,9 +620,9 @@ void BattleGroundAV::HandleQuestComplete(Unit* questGiver, uint32 questid, Playe
             if (m_teamQuestStatus[teamIdx][2] == 60)
             {
                 if (teamIdx == 0)
-                    sprintf(sMessageRemaining,"Soldiers of Stormpike, come to my aid! The beacon must be planted.");
+                    sprintf(sMessageRemaining,"雷矛的士兵们，来帮助我吧！信标必须树起来。");
                 else
-                    sprintf(sMessageRemaining,"Soldiers of the Horde, come to my aid! The beacon must be planted.");
+                    sprintf(sMessageRemaining,"霜狼的士兵们，来帮助我吧！信标必须树起来。");
 
                 questGiver->MonsterYell(sMessageRemaining, 0, 0);
             }
@@ -634,9 +634,9 @@ void BattleGroundAV::HandleQuestComplete(Unit* questGiver, uint32 questid, Playe
             if (m_teamQuestStatus[teamIdx][3] == 30)
             {
                 if (teamIdx == 0)
-                    sprintf(sMessageRemaining,"Soldiers of Stormpike, come to my aid! The beacon must be planted.");
+                    sprintf(sMessageRemaining,"雷矛的士兵们，来帮助我吧！信标必须树起来。");
                 else
-                    sprintf(sMessageRemaining,"Soldiers of the Horde, come to my aid! The beacon must be planted.");
+                    sprintf(sMessageRemaining,"霜狼的士兵们，来帮助我吧！信标必须树起来。");
 
                 questGiver->MonsterYell(sMessageRemaining, 0, 0);
             }
@@ -653,9 +653,9 @@ void BattleGroundAV::HandleQuestComplete(Unit* questGiver, uint32 questid, Playe
             if (m_teamQuestStatus[teamIdx][4] == 200)
             {
                 if (teamIdx == 0)
-                    sprintf(sMessageRemaining,"Soldiers of Stormpike, aid and protect us! The Forest Lord has granted us his protection. The portal must now be opened!");
+                    sprintf(sMessageRemaining,"雷矛的士兵们，援助并保护我们！森林领主给予了我们他的保护。现在必须打开门户！");
                 else
-                    sprintf(sMessageRemaining,"Soldiers of Frostwolf, come to my aid! The Ice Lord has granted us his protection. He's accepted the offering! The time has come to unleash him upon the Stormpike Army!");
+                    sprintf(sMessageRemaining,"霜狼的士兵们，来帮助我吧！冰雪领主给予了我们他的保护。他接受了这个提议！是时候让他攻击雷矛军队了！");
 
                 questGiver->MonsterYell(sMessageRemaining, 0, 0);
             }
@@ -700,9 +700,9 @@ void BattleGroundAV::HandleQuestComplete(Unit* questGiver, uint32 questid, Playe
             reputation = 1;
 
             if (m_teamQuestStatus[teamIdx][8]%25 == 0 && m_teamQuestStatus[teamIdx][8] !=0)
-                questGiver->MonsterYell("The stables are filled up!", 0, 0);
+                questGiver->MonsterYell("马厩已经满了！", 0, 0);
             if ((m_teamQuestStatus[teamIdx][8]%5) == 0)
-                questGiver->PMonsterSay("Thanks for the supplies, %s",player->GetName());
+                questGiver->PMonsterSay("感谢您的物资，%s",player->GetName());
 
 
             /** Adding visual mount each time 5 resources are added */
