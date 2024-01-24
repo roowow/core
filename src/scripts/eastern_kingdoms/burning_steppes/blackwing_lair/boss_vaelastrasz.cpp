@@ -86,8 +86,8 @@ enum
 // Coords used to spawn Nefarius at the throne
 static float const aNefariusSpawnLoc[4] = { -7466.16f, -1040.80f, 412.053f, 2.14675f};
 
-#define GOSSIP_ITEM_VAEL_1         "I cannot, Vaelastrasz! Surely something can be done to heal you!"
-#define GOSSIP_ITEM_VAEL_2         "Vaelastrasz, no!!!"
+#define GOSSIP_ITEM_VAEL_1         "我不能，瓦拉斯特拉兹！当然可以做一些事情来治愈你！"
+#define GOSSIP_ITEM_VAEL_2         "瓦拉斯塔兹，不！！！"
 
 struct boss_vaelAI : public ScriptedAI
 {
