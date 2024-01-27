@@ -381,6 +381,7 @@ public:
     void OnResurrect(Player* pPlayer);
     void OnQuestAbandon(Player* pPlayer, uint32 questId);
     void OnQuestAccept(Player* pPlayer, uint32 questId);
+    void OnQuestComplete(Player* pPlayer, uint32 questId);
     // void OnLearnTalents(Player* pPlayer, uint32 talentId, uint32 talentRank, uint32 spellid);
     void OnLearnTalents(Player* pPlayer, uint32 talentId, uint32 talentRank);
     InventoryResult OnCanUseItem(const Player* pPlayer, uint32 itemEntry);
