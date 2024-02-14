@@ -681,6 +681,12 @@ void WorldSession::HandleLootMasterGiveOpcode(WorldPacket& recv_data)
         return;
     }
 
+    if (!pLoot->IsAllowedLooter(playerGuid, false))
+    {
+        _player->SendLootError(lootGuid, LOOT_ERROR_MASTER_OTHER);
+        return;
+    }
+
     LootItem& item = pLoot->items[slotid];
 
     ItemPosCountVec dest;

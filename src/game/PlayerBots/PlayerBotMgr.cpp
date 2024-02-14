@@ -342,34 +342,34 @@ void PlayerBotMgr::Update(uint32 diff)
                 uint32 const minLevel = bg->GetMinLevel() + 10 * bracketId;
                 ASSERT(minLevel <= PLAYER_MAX_LEVEL);
                 uint32 const maxLevel = std::min<uint32>(minLevel + 9, PLAYER_MAX_LEVEL);
-                
+
                 bool toAddBattleBot = false;
-                if (bg->GetTypeID() == 1 && m_confBattleBotAutoJoin_1)
+                uint32 initialPlayers = bg->GetMinPlayersPerTeam();
+
+                // BattleBot AutoJoin
+                if (bgTypeId == BATTLEGROUND_AV)
                 {
-                    toAddBattleBot= true;
+                    initialPlayers = 35;
+                    if (m_confBattleBotAutoJoin_1)
+                        toAddBattleBot= true;
                 }
-                if (bg->GetTypeID() == 2 && m_confBattleBotAutoJoin_2)
+                if (bgTypeId == BATTLEGROUND_WS)
                 {
-                    toAddBattleBot= true;
-                }
-                if (bg->GetTypeID() == 3 && m_confBattleBotAutoJoin_3)
-                {
-                    toAddBattleBot= true;
+                    initialPlayers = 9;
+                    if (m_confBattleBotAutoJoin_2)
+                        toAddBattleBot= true;
                 }
 
-                // check if already added
-                if (toAddBattleBot)
+                if (toAddBattleBot && m_confBattleBotAutoJoin)
                 {
-                    for (uint32 i = queuedAllianceCount[bracketId]; i < bg->GetMinPlayersPerTeam(); ++i)
+                    for (uint32 i = queuedAllianceCount[bracketId]; i < initialPlayers; ++i)
                     {
                         uint32 const botLevel = urand(minLevel, maxLevel);
-                        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[PlayerBotMgr] Adding level %u alliance battlebot to bg queue %u.", botLevel, queueType);
                         AddBattleBot(BattleGroundQueueTypeId(queueType), ALLIANCE, maxLevel, true);
                     }
-                    for (uint32 i = queuedHordeCount[bracketId]; i < bg->GetMinPlayersPerTeam(); ++i)
+                    for (uint32 i = queuedHordeCount[bracketId]; i < initialPlayers; ++i)
                     {
                         uint32 const botLevel = urand(minLevel, maxLevel);
-                        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[PlayerBotMgr] Adding level %u horde battlebot to bg queue %u.", botLevel, queueType);
                         AddBattleBot(BattleGroundQueueTypeId(queueType), HORDE, maxLevel, true);
                     }
                 }
@@ -430,7 +430,7 @@ bool PlayerBotMgr::AddBot(uint32 playerGUID, bool chatBot, PlayerBotAI* pAI)
 
     if (!accountId)
     {
-        sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "Compte du joueur %u introuvable ...", playerGUID);
+        sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "Player account %u not found...", playerGUID);
         return false;
     }
 
@@ -608,6 +608,17 @@ void PlayerBotMgr::AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam,
     uint32 const instanceId = sMapMgr.GetContinentInstanceId(1, 16224.356f, 16284.763f);
     BattleBotAI* ai = new BattleBotAI(botRace, botClass, botLevel, 1, instanceId, 16224.356f, 16284.763f, 13.175f, 4.56f, queueType, temporary);
     AddBot(ai);
+
+    if (botTeam == ALLIANCE)
+    {
+        sWorld.SendWorldText(LANG_ALLIANCE_BATTLEBOT_ADDED, botLevel, queueType);
+        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[PlayerBotMgr] Adding level %u alliance battlebot to bg queue %u.", botLevel, queueType);
+    }
+    else
+    {
+        sWorld.SendWorldText(LANG_HORDE_BATTLEBOT_ADDED, botLevel, queueType);
+        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[PlayerBotMgr] Adding level %u horde battlebot to bg queue %u.", botLevel, queueType);
+    }
 }
 
 void PlayerBotMgr::DeleteBattleBots()
@@ -691,14 +702,14 @@ bool ChatHandler::HandleBotAddRandomCommand(char * args)
 bool ChatHandler::HandleBotStopCommand(char * args)
 {
     sPlayerBotMgr.DeleteAll();
-    SendSysMessage("Tous les bots ont ete decharges.");
+    SendSysMessage("All the bots have been unloaded.");
     return true;
 }
 
 bool ChatHandler::HandleBotAddAllCommand(char * args)
 {
     sPlayerBotMgr.AddAllBots();
-    SendSysMessage("Tous les bots ont ete connecte");
+    SendSysMessage("All bots have been loaded.");
     return true;
 }
 
@@ -735,7 +746,7 @@ bool ChatHandler::HandleBotDeleteCommand(char * args)
 
     if (!charname || strcmp(charname, "") == 0)
     {
-        SendSysMessage("Syntaxe : $nomDuJoueur");
+        SendSysMessage("Syntax : $playerName");
         SetSentErrorMessage(true);
         return false;
     }
@@ -1334,6 +1345,12 @@ bool ChatHandler::HandlePartyBotFocusMarkCommand(char* args)
         {
             if (PartyBotAI* pAI = dynamic_cast<PartyBotAI*>(pTarget->AI()))
             {
+                if (std::find(pAI->m_marksToFocus.begin(), pAI->m_marksToFocus.end(), itrMark->second) != pAI->m_marksToFocus.end()) 
+                {
+                    PSendSysMessage("%s already have focus %s.", pTarget->GetName(), args);
+                    return false;
+                }
+
                 PSendSysMessage("%s will focus %s.", pTarget->GetName(), args);
                 pAI->m_marksToFocus.push_back(itrMark->second);
                 return true;
@@ -1363,6 +1380,11 @@ bool ChatHandler::HandlePartyBotFocusMarkCommand(char* args)
             {
                 if (PartyBotAI* pAI = dynamic_cast<PartyBotAI*>(pMember->AI()))
                 {
+                    if (std::find(pAI->m_marksToFocus.begin(), pAI->m_marksToFocus.end(), itrMark->second) != pAI->m_marksToFocus.end()) 
+                    {
+                        // Already have focus mark
+                        continue;
+                    }
                     pAI->m_marksToFocus.push_back(itrMark->second);
                 }
             }
@@ -1766,16 +1788,6 @@ bool ChatHandler::HandleBattleBotAddCommand(char* args, uint8 bg)
     }
 
     sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(bg), botTeam, botLevel, false);
-
-    if (bg == BATTLEGROUND_QUEUE_WS)
-        PSendSysMessage("Added %s battle bot and queuing for WS", option.c_str());
-        
-    if (bg == BATTLEGROUND_QUEUE_AB)
-        PSendSysMessage("Added %s battle bot and queuing for AB", option.c_str());
-    
-    if (bg == BATTLEGROUND_QUEUE_AV)
-        PSendSysMessage("Added %s battle bot and queuing for AV", option.c_str());
-
     return true;
 }
 
