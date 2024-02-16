@@ -3333,6 +3333,55 @@ void Player::SetCheatDebugTargetInfo(bool on, bool notify)
     }
 }
 
+/// Hardcore
+void Player::SetHardcore(bool on)
+{
+    if (on)
+    {
+        m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_ON;
+        CharacterDatabase.PExecute("INSERT INTO character_hardcore (guid, created, status) VALUES (%u, UNIX_TIMESTAMP(), 1)", GetGUIDLow());
+    }
+    else
+    {
+        // normalize
+        m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_ON;
+        CharacterDatabase.PExecute("UPDATE `character_hardcore` SET `normal` = 1, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
+    }
+}
+
+void Player::SetHardcoreRetired()
+{
+    m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_RETIRED;
+    CharacterDatabase.PExecute("UPDATE `character_hardcore` SET `retired` = 1, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
+}
+
+void Player::SetHardcoreDead(bool on)
+{
+    if (on)
+    {
+        m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_DEAD;
+    }
+    else
+    {
+        m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_DEAD;
+    }
+}
+
+void Player::SetHardcorePVP(bool on)
+{
+    if (on)
+    {
+        m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_PVP;
+        CharacterDatabase.PExecute("UPDATE `character_hardcore` SET `pvpflag` = 1, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
+    }
+    else
+    {
+        m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_PVP;
+        CharacterDatabase.PExecute("UPDATE `character_hardcore` SET `pvpflag` = 0, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
+    }
+}
+/// Hardcore
+
 bool Player::IsAllowedWhisperFrom(ObjectGuid guid) const
 {
     if (PlayerSocial const* social = GetSocial())
@@ -3541,8 +3590,9 @@ void Player::GiveLevel(uint32 level)
         groupInfo.str().c_str(), instanceInfo.str().c_str());
 
     /// BigData - character_log_levelup
-    CharacterDatabase.PExecute("INSERT INTO `character_log_levelup` (`guid`, `name`, `level`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
-                            GetGUIDLow(), GetName(), level, GetZoneId(), GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetSession()->GetRemoteAddress().c_str());
+    if (!IsBot())
+        CharacterDatabase.PExecute("INSERT INTO `character_log_levelup` (`guid`, `name`, `level`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                                GetGUIDLow(), GetName(), level, GetZoneId(), GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetSession()->GetRemoteAddress().c_str());
 
     // If we have instance members, and the number of players in the instance is not
     // equal to the number of group members, then the player is likely mob tagging
@@ -5078,6 +5128,17 @@ void Player::BuildPlayerRepop()
 
 void Player::ResurrectPlayer(float restore_percent, bool applySickness)
 {
+    /// Hardcore
+    if (IsHardcore() && !IsHardcoreRetired())
+    {
+        if (GetLevel() < 40 && IsHardcoreDead())
+        {
+            ChatHandler(this).SendSysMessage("勇敢者，您已经陨落，无法复活。");
+            return;
+        }
+    }
+    /// Hardcore
+
     // Interrupt resurrect spells
     InterruptSpellsCastedOnMe(false, true);
 
@@ -5110,6 +5171,26 @@ void Player::ResurrectPlayer(float restore_percent, bool applySickness)
     m_camera.UpdateVisibilityForOwner();
     // update visibility of player for nearby cameras
     UpdateObjectVisibility();
+
+    /// Hardcore
+    if (IsHardcoreRetired())
+    {
+        // add retired buff
+        AddAura(461, 0, this);
+    }
+    else
+    {
+        if (IsHardcore() && GetLevel() >= 40 && IsHardcoreDead())
+        {
+            // remove hardcore buff
+            RemoveAurasDueToSpell(7363);
+
+            // normalize
+            SetHardcore(false);
+            ChatHandler(this).SendSysMessage("先遣队通过重重努力帮你重新凝聚了灵魂，但你不再适合做勇敢者了。回到大部队，发挥你的光和热。");
+        }
+    }
+    /// Hardcore
 
     if (!applySickness)
         return;
@@ -7188,6 +7269,11 @@ void Player::UpdateZone(uint32 newZone, uint32 newArea)
 
     if (pvpInfo.inPvPEnforcedArea && !IsTaxiFlying()) // in hostile area
         UpdatePvP(true);
+
+    // UpdateZone, Hardcore
+    // zone 竞技场, 无需处理
+    if (IsHardcore() && !IsHardcoreRetired() && !IsHardcorePVP() && !InBattleGround() && GetLevel() < 55)
+        UpdatePvP(false, true);
 
     if ((zoneEntry->Flags & AREA_FLAG_CAPITAL) && !pvpInfo.inPvPEnforcedArea) // in capital city
         SetRestType(REST_TYPE_IN_CITY);
@@ -13610,6 +13696,10 @@ void Player::RewardQuest(Quest const* pQuest, uint32 reward, WorldObject* questE
     // Used for client inform but rewarded only in case not max level
     uint32 xp = uint32(pQuest->XPValue(this) * (GetPersonalXpRate() >= 0.0f ? GetPersonalXpRate() : sWorld.getConfig(CONFIG_FLOAT_RATE_XP_QUEST)));
 
+    // 双倍经验 RewardQuest
+    if (HasAura(11))
+        xp *= 2;
+
     if (GetLevel() < sWorld.getConfig(CONFIG_UINT32_MAX_PLAYER_LEVEL))
         GiveXP(xp , nullptr);
     else if (int32 money = pQuest->GetRewMoneyMaxLevelAtComplete())
@@ -13721,6 +13811,11 @@ void Player::RewardQuest(Quest const* pQuest, uint32 reward, WorldObject* questE
                 if (!HasAura(itr->second->spellId, EFFECT_INDEX_0))
                     CastSpell(this, itr->second->spellId, true);
     }
+
+    // Used by Eluna
+    #ifdef ENABLE_ELUNA
+        sEluna->OnQuestComplete(this, quest_id);
+    #endif /* ENABLE_ELUNA */
 }
 
 void Player::FailQuest(uint32 questId)
@@ -15144,6 +15239,67 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
     SetUInt16Value(PLAYER_BYTES_3, PLAYER_BYTES_3_OFFSET_GENDER_AND_INEBRIATION, (m_drunk & 0xFFFE) | gender);
 
     SetUInt32Value(PLAYER_FLAGS, fields[15].GetUInt32() & ~(PLAYER_FLAGS_PARTIAL_PLAY_TIME | PLAYER_FLAGS_NO_PLAY_TIME));
+
+    /// Hardcore state
+    // SELECT `status`, `retired`, `pvpflag`, `changed`, `normal` FROM `character_hardcore`
+    QueryResult* hresult = holder->GetResult(PLAYER_LOGIN_QUERY_HARDCORE);
+    if (hresult)
+    {
+        Field* fields   = hresult->Fetch();
+        uint32 hstatus  = fields[0].GetUInt32();
+        uint32 hretired = fields[1].GetUInt32();
+        uint32 hpvpflag = fields[2].GetUInt32();
+        uint32 hchanged = fields[3].GetUInt32();
+        uint32 normal   = fields[4].GetUInt32();
+
+        // is Hardcore
+        if (normal == 0)
+        {
+            m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_ON;
+        }
+        else
+        {
+            m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_ON;
+        }
+
+        // is Hardcore Dead
+        if (hstatus == 0)
+        {
+            m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_DEAD;
+        }
+        else
+        {
+            m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_DEAD;
+        }
+
+        // is Hardcore Retired
+        if (hretired == 1)
+        {
+            m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_RETIRED;
+        }
+        else
+        {
+            m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_RETIRED;
+        }
+
+        // is Hardcore PVP
+        if (hpvpflag == 1)
+        {
+            m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_PVP;
+        }
+        else
+        {
+            m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_PVP;
+        }
+    }
+
+    /// DualTalent state
+    QueryResult* tresult = holder->GetResult(PLAYER_LOGIN_QUERY_DUALTALENT);
+    if (tresult)
+    {
+        Field* fields = tresult->Fetch();
+        oowowInfo.activeTalent = fields[0].GetUInt32();
+    }
 
     if (IsPvPDesired())
     {
@@ -20345,7 +20501,11 @@ void Player::RewardSinglePlayerAtKill(Unit* pVictim)
 {
     bool PvP = pVictim->IsCharmerOrOwnerPlayerOrPlayerItself();
     uint32 xp = PvP ? 0 : MaNGOS::XP::Gain(this, static_cast<Creature*>(pVictim));
-    
+
+    // 双倍经验 RewardSinglePlayerAtKill
+    if (HasAura(11))
+        xp *= 2;
+
     // honor can be in PvP and !PvP (racial leader) cases
     RewardHonor(pVictim, 1);
 
@@ -22536,7 +22696,7 @@ void Player::AddCooldown(SpellEntry const& spellEntry, ItemPrototype const* item
         auto& cdData = cdDataItr->second;
         if (!cdData->IsPermanent() && (!cdData->IsSpellCDExpired(sWorld.GetCurrentClockTime()) || !cdData->IsCatCDExpired(sWorld.GetCurrentClockTime())))
         {
-            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Player::AddCooldown> Spell(%u) try to add and already existing cooldown?", spellEntry.Id);
+            sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "Player::AddCooldown> Spell(%u) try to add and already existing cooldown?", spellEntry.Id);
             return;
         }
         wasPermanent = cdData->IsPermanent();

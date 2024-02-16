@@ -645,7 +645,7 @@ void PlayerBotMgr::SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId)
             m_confBattleBotAutoJoin_3 = payload ? true : false;
             break;
         default:
-            return;
+            m_confBattleBotAutoJoin = payload ? true : false;
             break;
     }
 }
@@ -1819,6 +1819,19 @@ bool ChatHandler::HandleBattleBotRemoveAllCommand(char* args)
 {
     sPlayerBotMgr.DeleteBattleBots();
     SendSysMessage("Removed all battlebots.");
+    return true;
+}
+
+bool ChatHandler::HandleBattleBotAutoJoinCommand(char* args)
+{
+    bool value;
+    if (!ExtractOnOff(&args, value))
+    {
+        SendSysMessage(LANG_USE_BOL);
+        SetSentErrorMessage(true);
+        return false;
+    }
+    sPlayerBotMgr.SwitchAutoJoinBattleBots(value, 0);
     return true;
 }
 

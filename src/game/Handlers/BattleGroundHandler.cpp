@@ -125,6 +125,12 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recv_data)
         return;
     }
 
+    if (sPlayerBotMgr.m_confBattleBotAutoJoin && joinAsGroup)
+    {
+        ChatHandler(_player).SendSysMessage("战场训练营开启期间，战场只能单人排队。");
+        return;
+    }
+
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_6_1
     if (queuedAtBGPortal)
     {
@@ -437,6 +443,13 @@ void WorldSession::HandleBattleFieldPortOpcode(WorldPacket& recv_data)
     //some checks if player isn't cheating - it is not exactly cheating, but we cannot allow it
     if (action == 1)
     {
+        // Hardcore
+        if (! _player->IsBot() && _player->IsHardcore() && ! _player->IsHardcoreRetired())
+        {
+            ChatHandler(_player).SendSysMessage("勇敢者在退役前无法加入战场。");
+            action = 0;
+        }
+
         //if player is trying to enter battleground and he has deserter debuff, we must just remove him from queue
         if (!_player->CanJoinToBattleground())
         {
@@ -494,6 +507,28 @@ void WorldSession::HandleBattleFieldPortOpcode(WorldPacket& recv_data)
             _player->SetBGTeam(ginfo.groupTeam);
             // bg->HandleBeforeTeleportToBattleGround(_player);
             sBattleGroundMgr.SendToBattleGround(_player, ginfo.isInvitedToBgInstanceGuid, bgTypeId);
+
+            // BattleBot AutoDelete
+            Team targetTeam;
+            if (_player->GetTeam() == ALLIANCE)
+            {
+                targetTeam = HORDE;
+            }
+            else
+            {
+                targetTeam = ALLIANCE;
+            }
+            if (bgTypeId == 1)
+            {
+                if (!_player->IsBot())
+                {
+                    if (bg->GetRealPlayersCountByTeam(_player->GetTeam()) <= 5 && bg->GetPlayersCountByTeam(_player->GetTeam()) >= 35)
+                    {
+                        bg->DeleteBattleBot(_player->GetTeam());
+                    }
+                }
+            }
+
             // add only in HandleMoveWorldPortAck()
             // bg->AddPlayer(_player,team);
             sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Battleground: player %s (%u) joined battle for bg %u, bgtype %u, queue type %u.", _player->GetName(), _player->GetGUIDLow(), bg->GetInstanceID(), bg->GetTypeID(), bgQueueTypeId);
