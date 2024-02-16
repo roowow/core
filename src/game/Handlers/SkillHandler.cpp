@@ -37,7 +37,12 @@ void WorldSession::HandleLearnTalentOpcode(WorldPacket& recv_data)
     uint32 talent_id, requested_rank;
     recv_data >> talent_id >> requested_rank;
 
-    _player->LearnTalent(talent_id, requested_rank);
+    if (_player->LearnTalent(talent_id, requested_rank))
+    {
+        #ifdef ENABLE_ELUNA
+            sEluna->OnLearnTalents(_player, talent_id, requested_rank);
+        #endif
+    }
 }
 
 void WorldSession::HandleTalentWipeConfirmOpcode(WorldPacket& recv_data)
@@ -64,7 +69,12 @@ void WorldSession::HandleTalentWipeConfirmOpcode(WorldPacket& recv_data)
         SendPacket(&data);
         return;
     }
-    
+    else
+    {
+        #ifdef ENABLE_ELUNA
+            sEluna->OnTalentsReset(GetPlayer());
+        #endif
+    }
     unit->CastSpell(_player, 14867, true);                  //spell: "Untalent Visual Effect"
 }
 

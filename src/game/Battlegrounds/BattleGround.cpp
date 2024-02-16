@@ -1813,8 +1813,9 @@ void BattleGround::HandleCommand(Player* player, ChatHandler* handler, char* arg
     }
 }
 
-bool BattleGround::DeleteBattleBot(Team team)
+bool BattleGround::DeleteBattleBot(Team team, bool all)
 {
+    bool result = false;
     for (auto const& itr : GetPlayers())
     {
         Player const* pPlayertmp = sObjectMgr.GetPlayer(itr.first);
@@ -1823,12 +1824,13 @@ bool BattleGround::DeleteBattleBot(Team team)
             if (pPlayertmp->IsBot())
             {
                 sPlayerBotMgr.DeleteBot(pPlayertmp->GetGUID());
-                return true;
-                break;
+                result = true;
+                if (!all)
+                    break;
             }
         }
     }
-    return false;
+    return result;
 }
 
 uint32 BattleGround::GetBotPlayersCountByTeam(Team team) {
@@ -1839,6 +1841,22 @@ uint32 BattleGround::GetBotPlayersCountByTeam(Team team) {
         if (pPlayertmp->GetTeam() == team)
         {
             if (pPlayertmp->IsBot())
+            {
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
+uint32 BattleGround::GetRealPlayersCountByTeam(Team team) {
+    uint32 count = 0;
+    for (auto const& itr : GetPlayers())
+    {
+        Player const* pPlayertmp = sObjectMgr.GetPlayer(itr.first);
+        if (pPlayertmp->GetTeam() == team)
+        {
+            if (!pPlayertmp->IsBot())
             {
                 count++;
             }
