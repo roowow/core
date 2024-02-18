@@ -1397,6 +1397,21 @@ void BattleGroundMgr::BuildBattleGroundListPacket(WorldPacket* data, ObjectGuid 
         *data << uint32(id);
         ++count;
     }
+
+    // 战场控制
+    // printf("ClientBattleGroundIdSet: %u \n", count);
+    if (bgTypeId == BATTLEGROUND_AV && sPlayerBotMgr.m_confBattleBotAutoJoin)
+    {
+        if (count >= 2)
+        {
+            sPlayerBotMgr.m_confBattleBotAutoJoin_1 = false;
+        }
+        else
+        {
+            sPlayerBotMgr.m_confBattleBotAutoJoin_1 = true;
+        }
+    }
+
     data->put<uint32>(countPos, count);
 }
 
@@ -1766,38 +1781,33 @@ uint32 BattleGroundMgr::CheckBattleGround(uint32 instanceId, uint32 bgTypeId, bo
         return 2; // nothing
 
     // 空战场检查
+    // https://github.com/vmangos/core/commit/922d93bba35494d4be804496ce6e383afecb3ae6
     if (!initial && bg->GetRealPlayersCountByTeam(ALLIANCE) == 0 && bg->GetRealPlayersCountByTeam(HORDE) == 0)
     {
-        if (bgTypeId == 1)
-        {
-            sPlayerBotMgr.m_confBattleBotAutoJoin_1 = true;
-        }
-        if (bgTypeId == 2)
-        {
-            bg->DeleteBattleBot(ALLIANCE, true);
-            bg->DeleteBattleBot(HORDE, true);
-            sPlayerBotMgr.m_confBattleBotAutoJoin_2 = true;
-        }
-
+        bg->DeleteBattleBot(ALLIANCE, true);
+        bg->DeleteBattleBot(HORDE, true);
         bg->EndBattleGround(TEAM_NONE);
+
+        sPlayerBotMgr.SwitchAutoJoinBattleBots(true, bgTypeId);
         return 1; // bg closed
     }
 
     // 奥山
     if (bgTypeId == 1)
     {
-        if (sPlayerBotMgr.m_confBattleBotAutoJoin_1)
-        {
-            if (bg->GetPlayersCountByTeam(ALLIANCE) < 38)
-            {
-                sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_QUEUE_AV), ALLIANCE, bg->GetMaxLevel(), false);
-            }
-            if (bg->GetPlayersCountByTeam(HORDE) < 38)
-            {
-                sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_QUEUE_AV), HORDE, bg->GetMaxLevel(), false);
-            }
-        }
-        else
+        // if (bg->GetRealPlayersCountByTeam(ALLIANCE) > 0 ||  bg->GetRealPlayersCountByTeam(HORDE) > 0)
+        // {
+        //     if (bg->GetPlayersCountByTeam(ALLIANCE) < 38)
+        //     {
+        //         sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_QUEUE_AV), ALLIANCE, bg->GetMaxLevel(), false);
+        //     }
+        //     if (bg->GetPlayersCountByTeam(HORDE) < 38)
+        //     {
+        //         sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_QUEUE_AV), HORDE, bg->GetMaxLevel(), false);
+        //     }
+        // }
+
+        if (! sPlayerBotMgr.m_confBattleBotAutoJoin_1)
         {
             // 必须要先关闭 自动加入战场，不然可能会导致人数不够，无法开新场
             if (bg->GetPlayersCountByTeam(ALLIANCE) == 40)

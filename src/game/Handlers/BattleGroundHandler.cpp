@@ -36,6 +36,7 @@
 #include "ScriptMgr.h"
 #include "World.h"
 #include "Anticheat.h"
+#include "PlayerBotMgr.h"
 
 void WorldSession::HandleBattlemasterHelloOpcode(WorldPacket& recv_data)
 {
@@ -509,25 +510,25 @@ void WorldSession::HandleBattleFieldPortOpcode(WorldPacket& recv_data)
             sBattleGroundMgr.SendToBattleGround(_player, ginfo.isInvitedToBgInstanceGuid, bgTypeId);
 
             // BattleBot AutoDelete
-            Team targetTeam;
-            if (_player->GetTeam() == ALLIANCE)
-            {
-                targetTeam = HORDE;
-            }
-            else
-            {
-                targetTeam = ALLIANCE;
-            }
-            if (bgTypeId == 1)
-            {
-                if (!_player->IsBot())
-                {
-                    if (bg->GetRealPlayersCountByTeam(_player->GetTeam()) <= 5 && bg->GetPlayersCountByTeam(_player->GetTeam()) >= 35)
-                    {
-                        bg->DeleteBattleBot(_player->GetTeam());
-                    }
-                }
-            }
+            // Team targetTeam;
+            // if (_player->GetTeam() == ALLIANCE)
+            // {
+            //     targetTeam = HORDE;
+            // }
+            // else
+            // {
+            //     targetTeam = ALLIANCE;
+            // }
+            // if (bgTypeId == 1)
+            // {
+            //     if (!_player->IsBot())
+            //     {
+            //         if (bg->GetRealPlayersCountByTeam(_player->GetTeam()) <= 5 && bg->GetPlayersCountByTeam(_player->GetTeam()) >= 35)
+            //         {
+            //             bg->DeleteBattleBot(_player->GetTeam());
+            //         }
+            //     }
+            // }
 
             // add only in HandleMoveWorldPortAck()
             // bg->AddPlayer(_player,team);

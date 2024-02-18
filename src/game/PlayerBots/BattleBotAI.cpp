@@ -766,6 +766,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                     if (!me->GetMap()->HaveRealPlayers())
                     {
                         botEntry->requestRemoval = true;
+                        bg->EndBattleGround(TEAM_NONE);
                         return;
                     }
                 }
