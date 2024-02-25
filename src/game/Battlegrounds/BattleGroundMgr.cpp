@@ -1402,7 +1402,7 @@ void BattleGroundMgr::BuildBattleGroundListPacket(WorldPacket* data, ObjectGuid 
     // printf("ClientBattleGroundIdSet: %u \n", count);
     if (bgTypeId == BATTLEGROUND_AV && sPlayerBotMgr.m_confBattleBotAutoJoin)
     {
-        if (count >= 2)
+        if (count >= 3)
         {
             sPlayerBotMgr.m_confBattleBotAutoJoin_1 = false;
         }
