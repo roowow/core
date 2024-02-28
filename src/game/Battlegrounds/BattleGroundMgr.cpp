@@ -1777,8 +1777,8 @@ uint32 BattleGroundMgr::CheckBattleGround(uint32 instanceId, uint32 bgTypeId, bo
         return 0; // bg closed
 
     // 总开关检查
-    if (!sPlayerBotMgr.m_confBattleBotAutoJoin)
-        return 2; // nothing
+    // if (!sPlayerBotMgr.m_confBattleBotAutoJoin)
+    //     return 2; // nothing
 
     // 空战场检查
     // https://github.com/vmangos/core/commit/922d93bba35494d4be804496ce6e383afecb3ae6
@@ -1826,6 +1826,10 @@ uint32 BattleGroundMgr::CheckBattleGround(uint32 instanceId, uint32 bgTypeId, bo
             }
         }
     }
+
+    // 总开关检查
+    if (!sPlayerBotMgr.m_confBattleBotAutoJoin)
+        return 2; // nothing
 
     // 战歌
     if (bgTypeId == 2 && sPlayerBotMgr.m_confBattleBotAutoJoin_2)
