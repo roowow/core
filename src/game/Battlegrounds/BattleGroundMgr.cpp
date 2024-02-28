@@ -1795,18 +1795,6 @@ uint32 BattleGroundMgr::CheckBattleGround(uint32 instanceId, uint32 bgTypeId, bo
     // 奥山
     if (bgTypeId == 1)
     {
-        // if (bg->GetRealPlayersCountByTeam(ALLIANCE) > 0 ||  bg->GetRealPlayersCountByTeam(HORDE) > 0)
-        // {
-        //     if (bg->GetPlayersCountByTeam(ALLIANCE) < 38)
-        //     {
-        //         sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_QUEUE_AV), ALLIANCE, bg->GetMaxLevel(), false);
-        //     }
-        //     if (bg->GetPlayersCountByTeam(HORDE) < 38)
-        //     {
-        //         sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_QUEUE_AV), HORDE, bg->GetMaxLevel(), false);
-        //     }
-        // }
-
         if (! sPlayerBotMgr.m_confBattleBotAutoJoin_1)
         {
             // 必须要先关闭 自动加入战场，不然可能会导致人数不够，无法开新场
