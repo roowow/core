@@ -1812,14 +1812,14 @@ uint32 BattleGroundMgr::CheckBattleGround(uint32 instanceId, uint32 bgTypeId, bo
             // 必须要先关闭 自动加入战场，不然可能会导致人数不够，无法开新场
             if (bg->GetPlayersCountByTeam(ALLIANCE) == 40)
             {
-                if (bg->GetRealPlayersCountByTeam(ALLIANCE) < 20 || bg->GetRealPlayersCountByTeam(HORDE) >= 10)
+                if (bg->GetRealPlayersCountByTeam(ALLIANCE) < 15 || bg->GetRealPlayersCountByTeam(HORDE) >= 5)
                 {
                     bg->DeleteBattleBot(ALLIANCE);
                 }
             }
             if (bg->GetPlayersCountByTeam(HORDE) == 40)
             {
-                if (bg->GetRealPlayersCountByTeam(HORDE) < 20 || bg->GetRealPlayersCountByTeam(ALLIANCE) >= 10)
+                if (bg->GetRealPlayersCountByTeam(HORDE) < 15 || bg->GetRealPlayersCountByTeam(ALLIANCE) >= 5)
                 {
                     bg->DeleteBattleBot(HORDE);
                 }
