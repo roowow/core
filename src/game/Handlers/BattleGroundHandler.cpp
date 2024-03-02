@@ -509,27 +509,6 @@ void WorldSession::HandleBattleFieldPortOpcode(WorldPacket& recv_data)
             // bg->HandleBeforeTeleportToBattleGround(_player);
             sBattleGroundMgr.SendToBattleGround(_player, ginfo.isInvitedToBgInstanceGuid, bgTypeId);
 
-            // BattleBot AutoDelete
-            // Team targetTeam;
-            // if (_player->GetTeam() == ALLIANCE)
-            // {
-            //     targetTeam = HORDE;
-            // }
-            // else
-            // {
-            //     targetTeam = ALLIANCE;
-            // }
-            // if (bgTypeId == 1)
-            // {
-            //     if (!_player->IsBot())
-            //     {
-            //         if (bg->GetRealPlayersCountByTeam(_player->GetTeam()) <= 5 && bg->GetPlayersCountByTeam(_player->GetTeam()) >= 35)
-            //         {
-            //             bg->DeleteBattleBot(_player->GetTeam());
-            //         }
-            //     }
-            // }
-
             // add only in HandleMoveWorldPortAck()
             // bg->AddPlayer(_player,team);
             sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Battleground: player %s (%u) joined battle for bg %u, bgtype %u, queue type %u.", _player->GetName(), _player->GetGUIDLow(), bg->GetInstanceID(), bg->GetTypeID(), bgQueueTypeId);
