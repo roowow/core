@@ -1861,19 +1861,6 @@ bool ChatHandler::HandleBattleBotAutoJoin2Command(char* args)
     return true;    
 }
 
-bool ChatHandler::HandleBattleBotAutoJoin3Command(char* args)
-{
-    bool value;
-    if (!ExtractOnOff(&args, value))
-    {
-        SendSysMessage(LANG_USE_BOL);
-        SetSentErrorMessage(true);
-        return false;
-    }
-    sPlayerBotMgr.SwitchAutoJoinBattleBots(value, 3);
-    return true;    
-}
-
 #define SPELL_RED_GLOW 20370
 
 void ShowBattleBotPathHelper(Map* pMap, BattleBotPath* pPath, uint32 id)
