@@ -32,9 +32,10 @@ PlayerBotMgr::PlayerBotMgr()
     m_confUpdateDiff            = 10000;
     m_confEnableRandomBots      = false;
     m_confDebug                 = false;
+    m_confBattleBotAutoJoin     = false;
     m_confBattleBotAutoJoin_1   = false;
+    m_confBattleBotAutoJoin_11  = true;
     m_confBattleBotAutoJoin_2   = false;
-    m_confBattleBotAutoJoin_3   = false;
 
     // Time
     m_elapsedTime = 0;
@@ -57,7 +58,7 @@ void PlayerBotMgr::LoadConfig()
     m_confAllowSaving = sConfig.GetBoolDefault("PlayerBot.AllowSaving", false);
     m_confDebug = sConfig.GetBoolDefault("PlayerBot.Debug", false);
     m_confUpdateDiff = sConfig.GetIntDefault("PlayerBot.UpdateMs", 10000);
-    // m_confBattleBotAutoJoin = sConfig.GetBoolDefault("BattleBot.AutoJoin", false);
+    m_confBattleBotAutoJoin = sConfig.GetBoolDefault("BattleBot.AutoJoin", false);
 
     if (!sWorld.getConfig(CONFIG_BOOL_FORCE_LOGOUT_DELAY))
         m_tempBots.clear();
@@ -350,14 +351,14 @@ void PlayerBotMgr::Update(uint32 diff)
                 if (bgTypeId == BATTLEGROUND_AV)
                 {
                     initialPlayers = 35;
-                    if (m_confBattleBotAutoJoin_1)
-                        toAddBattleBot= true;
+                    if (m_confBattleBotAutoJoin_1 && m_confBattleBotAutoJoin_11)
+                        toAddBattleBot = true;
                 }
                 if (bgTypeId == BATTLEGROUND_WS)
                 {
                     initialPlayers = 9;
                     if (m_confBattleBotAutoJoin_2)
-                        toAddBattleBot= true;
+                        toAddBattleBot = true;
                 }
 
                 if (toAddBattleBot && m_confBattleBotAutoJoin)
@@ -640,9 +641,6 @@ void PlayerBotMgr::SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId)
             break;
         case 2:
             m_confBattleBotAutoJoin_2 = payload ? true : false;
-            break;
-        case 3:
-            m_confBattleBotAutoJoin_3 = payload ? true : false;
             break;
         default:
             m_confBattleBotAutoJoin = payload ? true : false;

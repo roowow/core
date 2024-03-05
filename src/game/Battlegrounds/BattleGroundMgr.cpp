@@ -1404,11 +1404,11 @@ void BattleGroundMgr::BuildBattleGroundListPacket(WorldPacket* data, ObjectGuid 
     {
         if (count >= 3)
         {
-            sPlayerBotMgr.m_confBattleBotAutoJoin_1 = false;
+            sPlayerBotMgr.m_confBattleBotAutoJoin_11 = false;
         }
         else
         {
-            sPlayerBotMgr.m_confBattleBotAutoJoin_1 = true;
+            sPlayerBotMgr.m_confBattleBotAutoJoin_11 = true;
         }
     }
 
@@ -1795,7 +1795,7 @@ uint32 BattleGroundMgr::CheckBattleGround(uint32 instanceId, uint32 bgTypeId, bo
     // 奥山
     if (bgTypeId == 1)
     {
-        if (! sPlayerBotMgr.m_confBattleBotAutoJoin_1)
+        if (! sPlayerBotMgr.m_confBattleBotAutoJoin_11)
         {
             // 必须要先关闭 自动加入战场，不然可能会导致人数不够，无法开新场
             if (bg->GetPlayersCountByTeam(ALLIANCE) == 40)
