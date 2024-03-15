@@ -139,6 +139,14 @@ uint32 MovementAnticheat::Finalize(Player* pPlayer, std::stringstream& reason)
     {
         sLog.Player(m_session, LOG_ANTICHEAT, "Movement", LOG_LVL_BASIC, "DesyncMs %d DesyncDist %f Cheats %s",
             m_clientDesync, m_overspeedDistance, reason.rdbuf()->in_avail() ? reason.str().c_str() : "");
+
+        // 2024-02-28 20:51:03 [ELUNA] (Movement) (acc 2, ip 10.1.1.1, guid 2, name 侧视一一二, map 0, pos -5044.88 -1267.05 511.139) DesyncMs 0 DesyncDist 0.000000 Cheats
+        // 2024-02-28 16:06:46 [ELUNA] (Movement) (acc 5257, ip 111.16.178.202, guid 102850, name 雪拉, map 0, pos -8250 -2191.5 140.462) DesyncMs 877 DesyncDist 0.000000 Cheats Botting(Total:99)
+        if (reason.rdbuf()->in_avail() && pPlayer && ! pPlayer->IsBot())
+        {
+            CharacterDatabase.PExecute("INSERT INTO `character_log_anticheat` (`guid`, `name`, `cheat`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%s', '%u', '%u', '%f', '%f', '%f', '%s')",
+                pPlayer->GetGUIDLow(), pPlayer->GetName(), reason.str().c_str(), pPlayer->GetZoneId(), pPlayer->GetMapId(), pPlayer->GetPositionX(), pPlayer->GetPositionY(), pPlayer->GetPositionZ(), pPlayer->GetSession()->GetRemoteAddress().c_str());
+        }
     }
 
     if ((result & (CHEAT_ACTION_KICK | CHEAT_ACTION_BAN_ACCOUNT | CHEAT_ACTION_BAN_IP_ACCOUNT)) && !m_packetLog.empty())
