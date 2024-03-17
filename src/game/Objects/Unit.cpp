@@ -3863,10 +3863,18 @@ void Unit::RemoveAurasWithInterruptFlags(uint32 flags, uint32 except, bool check
 {
     for (SpellAuraHolderMap::iterator iter = m_spellAuraHolders.begin(); iter != m_spellAuraHolders.end();)
     {
+        /// Hardcore 达图尔的变形魔棒
+        bool AuraInterrupt6405 = iter->second->GetSpellProto()->AuraInterruptFlags & flags;
+        if (IsPlayer() && ToPlayer()->IsHardcore() && iter->second->GetSpellProto()->Id == 6405)
+        {
+            AuraInterrupt6405 = false;
+        }
+
         if ((!checkProcFlags || !iter->second->GetSpellProto()->procFlags) &&
             (!skipStealth || iter->second->GetSpellProto()->Dispel != DISPEL_STEALTH) &&
             (!skipInvisibility || iter->second->GetSpellProto()->Dispel != DISPEL_INVISIBILITY) &&
-            (iter->second->GetSpellProto()->AuraInterruptFlags & flags) &&
+            // (iter->second->GetSpellProto()->AuraInterruptFlags & flags) &&
+            AuraInterrupt6405 &&
             (iter->second->GetSpellProto()->Id != except))
         {
             RemoveSpellAuraHolder(iter->second);
@@ -6165,6 +6173,25 @@ void Unit::TogglePlayerPvPFlagOnAttackVictim(Unit const* pVictim, bool touchOnly
 
             if (!pVictimPlayer || ((pThisPlayer != pVictimPlayer) && !pThisPlayer->IsInDuelWith(pVictimPlayer) && !(pThisPlayer->IsFFAPvP() && pVictimPlayer->IsFFAPvP())))
             {
+                /// Hardcore - each attack will trigger
+                if (pThisPlayer->IsHardcore() && !pThisPlayer->IsHardcoreRetired())
+                {
+                    time_t now_seconds = time(nullptr);
+                    if (pThisPlayer->IsHardcorePVP())
+                    {
+                        if (!pThisPlayer->pvpInfo.PvPHardcoreTimestamp || pThisPlayer->pvpInfo.PvPHardcoreTimestamp < now_seconds - 30*60) // refresh time after 30 minutes
+                        {
+                            pThisPlayer->SetHardcorePVP(true);
+                            pThisPlayer->pvpInfo.PvPHardcoreTimestamp = now_seconds;
+                        }
+                    }
+                    else {
+                        pThisPlayer->SetHardcorePVP(true);
+                        pThisPlayer->pvpInfo.PvPHardcoreTimestamp = now_seconds;
+                    }
+                }
+                /// Hardcore
+
                 pThisPlayer->pvpInfo.inPvPCombat = (pThisPlayer->pvpInfo.inPvPCombat || !touchOnly);
                 pThisPlayer->UpdatePvP(true);
 
