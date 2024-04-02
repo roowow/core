@@ -510,7 +510,7 @@ struct npc_prince_thunderaanAI : public ScriptedAI
     {
         if (!engaged)
         {
-            m_creature->MonsterYell("My power is discombobulatingly devastating! It is ludicrous that these mortals even attempt to enter my realm!", 0);
+            m_creature->MonsterYell("我的力量是毁灭性的！这些凡人竟然想进入我的领域，真是可笑！", 0);
             engaged = true;
         }
     }
@@ -629,7 +629,7 @@ struct npc_colossusAI : public ScriptedAI
         {
             if (DoCastSpellIfCan(m_creature, SPELL_COLOSSAL_SMASH) == CAST_OK) // Maxi KB
             {
-                m_creature->MonsterTextEmote("Colossus begins to cast Colossus Smash", nullptr);
+                m_creature->MonsterTextEmote("巨像开始施放巨像粉碎", nullptr);
                 m_uiColossalSmashTimer = firstSmash ? 10000 : 60000;
                 m_uiColossalSmashEmoteTimer = 5000;
 
@@ -641,7 +641,7 @@ struct npc_colossusAI : public ScriptedAI
 
         if (m_uiColossalSmashEmoteTimer && m_uiColossalSmashEmoteTimer < uiDiff)
         {
-            m_creature->MonsterTextEmote("Colossus lets loose a massive attack", nullptr);
+            m_creature->MonsterTextEmote("巨像发动大规模攻击", nullptr);
             m_uiColossalSmashEmoteTimer = 0;
         }
         else
@@ -2325,8 +2325,8 @@ bool QuestRewarded_scarab_gong(Player* player, GameObject* go, Quest const* ques
  ## npc_Krug_SkullSplit ##
  ########################*/
 
-#define GOSSIP_ITEM_KRUG_SKULLSPLIT_1 "Continue."
-#define GOSSIP_ITEM_KRUG_SKULLSPLIT_2 "Very well, let's go!"
+#define GOSSIP_ITEM_KRUG_SKULLSPLIT_1 "继续。"
+#define GOSSIP_ITEM_KRUG_SKULLSPLIT_2 "很好，我们走吧！"
 
 /* Hunterkiller */
 #define HUNTERKILLER_SPAWN_POS_X -7765.0f
