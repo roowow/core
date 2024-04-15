@@ -509,6 +509,13 @@ void WorldSession::HandleBattleFieldPortOpcode(WorldPacket& recv_data)
             // bg->HandleBeforeTeleportToBattleGround(_player);
             sBattleGroundMgr.SendToBattleGround(_player, ginfo.isInvitedToBgInstanceGuid, bgTypeId);
 
+            // BattleBot AutoDelete
+            if (!_player->IsBot())
+            {
+                if (bg->GetBotPlayersCountByTeam(_player->GetTeam()) > 4 && bg->GetPlayersCountByTeam(_player->GetTeam()) > bg->GetMinPlayersPerTeam())
+                    bg->DeleteBattleBot(_player->GetTeam());
+            }
+
             // add only in HandleMoveWorldPortAck()
             // bg->AddPlayer(_player,team);
             sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Battleground: player %s (%u) joined battle for bg %u, bgtype %u, queue type %u.", _player->GetName(), _player->GetGUIDLow(), bg->GetInstanceID(), bg->GetTypeID(), bgQueueTypeId);
