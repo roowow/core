@@ -350,13 +350,13 @@ void PlayerBotMgr::Update(uint32 diff)
                 // BattleBot AutoJoin
                 if (bgTypeId == BATTLEGROUND_AV)
                 {
-                    initialPlayers = 35;
-                    if (m_confBattleBotAutoJoin_1 && m_confBattleBotAutoJoin_11)
+                    // initialPlayers = 35;
+                    if (m_confBattleBotAutoJoin_1)
                         toAddBattleBot = true;
                 }
                 if (bgTypeId == BATTLEGROUND_WS)
                 {
-                    initialPlayers = 9;
+                    // initialPlayers = 9;
                     if (m_confBattleBotAutoJoin_2)
                         toAddBattleBot = true;
                 }
@@ -366,12 +366,26 @@ void PlayerBotMgr::Update(uint32 diff)
                     for (uint32 i = queuedAllianceCount[bracketId]; i < initialPlayers; ++i)
                     {
                         uint32 const botLevel = urand(minLevel, maxLevel);
-                        AddBattleBot(BattleGroundQueueTypeId(queueType), ALLIANCE, maxLevel, true);
+                        if (maxLevel > 50)
+                        {
+                            AddBattleBot(BattleGroundQueueTypeId(queueType), ALLIANCE, maxLevel, true);
+                        }
+                        else
+                        {
+                            AddBattleBot(BattleGroundQueueTypeId(queueType), ALLIANCE, botLevel, true);
+                        }
                     }
                     for (uint32 i = queuedHordeCount[bracketId]; i < initialPlayers; ++i)
                     {
                         uint32 const botLevel = urand(minLevel, maxLevel);
-                        AddBattleBot(BattleGroundQueueTypeId(queueType), HORDE, maxLevel, true);
+                        if (maxLevel > 50)
+                        {
+                            AddBattleBot(BattleGroundQueueTypeId(queueType), HORDE, maxLevel, true);
+                        }
+                        else
+                        {
+                            AddBattleBot(BattleGroundQueueTypeId(queueType), HORDE, botLevel, true);
+                        }
                     }
                 }
             }
