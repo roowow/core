@@ -1816,9 +1816,8 @@ void BattleGround::HandleCommand(Player* player, ChatHandler* handler, char* arg
 bool BattleGround::DeleteBattleBot(Team team, bool all)
 {
     bool result = false;
-    for (auto const& itr : GetPlayers())
-    {
-        Player const* pPlayertmp = sObjectMgr.GetPlayer(itr.first);
+    for (auto itr = GetPlayers().rbegin(); itr != GetPlayers().rend(); ++itr) {
+        Player const* pPlayertmp = sObjectMgr.GetPlayer(itr->first);
         if (pPlayertmp->GetTeam() == team)
         {
             if (pPlayertmp->IsBot())
