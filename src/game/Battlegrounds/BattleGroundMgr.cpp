@@ -1776,52 +1776,17 @@ uint32 BattleGroundMgr::CheckBattleGround(uint32 instanceId, uint32 bgTypeId, bo
     if (!bg)
         return 0; // bg closed
 
-    // 总开关检查
-    // if (!sPlayerBotMgr.m_confBattleBotAutoJoin)
-    //     return 2; // nothing
-
-    // 空战场检查
-    // https://github.com/vmangos/core/commit/922d93bba35494d4be804496ce6e383afecb3ae6
-    // if (!initial && bg->GetRealPlayersCountByTeam(ALLIANCE) == 0 && bg->GetRealPlayersCountByTeam(HORDE) == 0)
-    // {
-    //     bg->DeleteBattleBot(ALLIANCE, true);
-    //     bg->DeleteBattleBot(HORDE, true);
-    //     bg->EndBattleGround(TEAM_NONE);
-
-    //     sPlayerBotMgr.SwitchAutoJoinBattleBots(true, bgTypeId);
-    //     return 1; // bg closed
-    // }
-
     // 奥山
     if (bgTypeId == 1)
     {
-        // if (! sPlayerBotMgr.m_confBattleBotAutoJoin_11)
-        // {
-            // 必须要先关闭 自动加入战场，不然可能会导致人数不够，无法开新场
-            if (bg->GetPlayersCountByTeam(ALLIANCE) == 40 && bg->GetBotPlayersCountByTeam(ALLIANCE) > 4)
-            {
-                // if (bg->GetRealPlayersCountByTeam(ALLIANCE) < 10 || bg->GetRealPlayersCountByTeam(HORDE) >= 5)
-                // {
-                    bg->DeleteBattleBot(ALLIANCE);
-                // }
-            }
-            if (bg->GetPlayersCountByTeam(HORDE) == 40 && bg->GetBotPlayersCountByTeam(HORDE) > 4)
-            {
-                // if (bg->GetRealPlayersCountByTeam(HORDE) < 10 || bg->GetRealPlayersCountByTeam(ALLIANCE) >= 5)
-                // {
-                    bg->DeleteBattleBot(HORDE);
-                // }
-            }
-        // }
-
-        // if (! initial)
-        // {
-        //     bg->DeleteBattleBot(ALLIANCE);
-        //     sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_AV), ALLIANCE, bg->GetMaxLevel(), false);
-
-        //     bg->DeleteBattleBot(HORDE);
-        //     sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_AV), HORDE, bg->GetMaxLevel(), false);
-        // }
+        if (bg->GetPlayersCountByTeam(ALLIANCE) == 40 && bg->GetBotPlayersCountByTeam(ALLIANCE) > 4)
+        {
+            bg->DeleteBattleBot(ALLIANCE);
+        }
+        if (bg->GetPlayersCountByTeam(HORDE) == 40 && bg->GetBotPlayersCountByTeam(HORDE) > 4)
+        {
+            bg->DeleteBattleBot(HORDE);
+        }
     }
 
     // 总开关检查

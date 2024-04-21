@@ -2598,7 +2598,7 @@ void ObjectMgr::CorrectItemEffects(uint32 itemId, _ItemSpell& itemSpell)
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_9_4
     // Bonereaver's Edge
     // The spell data was changed in 1.10, so use a substitute spell id before content patch 1.10 when playing with a newer client.
-    if ((itemSpell.SpellId == 21153) && (itemId == 17076) && (sWorld.GetWowPatch() < WOW_PATCH_110))
+    if ((itemSpell.SpellId == 21153) && (itemId == 17076) && (sWorld.GetWowPatch() < WOW_PATCH_107))
         itemSpell.SpellId = 15280;
 #endif
     // Substitute spell power spells that were changed in the 1.4 client.

@@ -350,14 +350,17 @@ void PlayerBotMgr::Update(uint32 diff)
                 // BattleBot AutoJoin
                 if (bgTypeId == BATTLEGROUND_AV)
                 {
-                    // initialPlayers = 35;
                     if (m_confBattleBotAutoJoin_1)
                         toAddBattleBot = true;
                 }
                 if (bgTypeId == BATTLEGROUND_WS)
                 {
-                    // initialPlayers = 9;
                     if (m_confBattleBotAutoJoin_2)
+                        toAddBattleBot = true;
+                }
+                if (bgTypeId == BATTLEGROUND_AB)
+                {
+                    if (m_confBattleBotAutoJoin_3)
                         toAddBattleBot = true;
                 }
 
@@ -655,6 +658,9 @@ void PlayerBotMgr::SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId)
             break;
         case 2:
             m_confBattleBotAutoJoin_2 = payload ? true : false;
+            break;
+        case 3:
+            m_confBattleBotAutoJoin_3 = payload ? true : false;
             break;
         default:
             m_confBattleBotAutoJoin = payload ? true : false;
@@ -1871,6 +1877,19 @@ bool ChatHandler::HandleBattleBotAutoJoin2Command(char* args)
     }
     sPlayerBotMgr.SwitchAutoJoinBattleBots(value, 2);
     return true;    
+}
+
+bool ChatHandler::HandleBattleBotAutoJoin3Command(char* args)
+{
+    bool value;
+    if (!ExtractOnOff(&args, value))
+    {
+        SendSysMessage(LANG_USE_BOL);
+        SetSentErrorMessage(true);
+        return false;
+    }
+    sPlayerBotMgr.SwitchAutoJoinBattleBots(value, 3);
+    return true;
 }
 
 #define SPELL_RED_GLOW 20370
