@@ -345,33 +345,41 @@ void PlayerBotMgr::Update(uint32 diff)
                 uint32 const maxLevel = std::min<uint32>(minLevel + 9, PLAYER_MAX_LEVEL);
 
                 bool toAddBattleBot = false;
-                uint32 initialPlayers = bg->GetMinPlayersPerTeam();
-
                 // BattleBot AutoJoin
                 if (bgTypeId == BATTLEGROUND_AV)
                 {
-                    initialPlayers = 35;
                     if (m_confBattleBotAutoJoin_1 && m_confBattleBotAutoJoin_11)
                         toAddBattleBot = true;
                 }
                 if (bgTypeId == BATTLEGROUND_WS)
                 {
-                    initialPlayers = 9;
                     if (m_confBattleBotAutoJoin_2)
+                        toAddBattleBot = true;
+                }
+                if (bgTypeId == BATTLEGROUND_AB)
+                {
+                    if (m_confBattleBotAutoJoin_3)
                         toAddBattleBot = true;
                 }
 
                 if (toAddBattleBot && m_confBattleBotAutoJoin)
                 {
-                    for (uint32 i = queuedAllianceCount[bracketId]; i < initialPlayers; ++i)
+                    for (uint32 i = queuedAllianceCount[bracketId]; i < bg->GetMinPlayersPerTeam(); ++i)
                     {
                         uint32 const botLevel = urand(minLevel, maxLevel);
                         AddBattleBot(BattleGroundQueueTypeId(queueType), ALLIANCE, maxLevel, true);
                     }
-                    for (uint32 i = queuedHordeCount[bracketId]; i < initialPlayers; ++i)
+                    for (uint32 i = queuedHordeCount[bracketId]; i < bg->GetMinPlayersPerTeam(); ++i)
                     {
                         uint32 const botLevel = urand(minLevel, maxLevel);
-                        AddBattleBot(BattleGroundQueueTypeId(queueType), HORDE, maxLevel, true);
+                        if (maxLevel > 50)
+                        {
+                            AddBattleBot(BattleGroundQueueTypeId(queueType), HORDE, maxLevel, true);
+                        }
+                        else
+                        {
+                            AddBattleBot(BattleGroundQueueTypeId(queueType), HORDE, botLevel, true);
+                        }
                     }
                 }
             }
@@ -1115,7 +1123,7 @@ bool ChatHandler::HandlePartyBotAttackStartCommand(char* args)
         SetSentErrorMessage(true);
         return false;
     }
-    
+
     Group* pGroup = pPlayer->GetGroup();
     if (!pGroup)
     {
@@ -1138,10 +1146,10 @@ bool ChatHandler::HandlePartyBotAttackStartCommand(char* args)
                     if (pMember->IsValidAttackTarget(pTarget))
                         pAI->AttackStart(pTarget);
                 }
-            }            
+            }
         }
     }
-    
+
     PSendSysMessage("All party bots are now attacking %s.", pTarget->GetName());
     return true;
 }
@@ -1343,7 +1351,7 @@ bool ChatHandler::HandlePartyBotFocusMarkCommand(char* args)
         {
             if (PartyBotAI* pAI = dynamic_cast<PartyBotAI*>(pTarget->AI()))
             {
-                if (std::find(pAI->m_marksToFocus.begin(), pAI->m_marksToFocus.end(), itrMark->second) != pAI->m_marksToFocus.end()) 
+                if (std::find(pAI->m_marksToFocus.begin(), pAI->m_marksToFocus.end(), itrMark->second) != pAI->m_marksToFocus.end())
                 {
                     PSendSysMessage("%s already have focus %s.", pTarget->GetName(), args);
                     return false;
@@ -1378,7 +1386,7 @@ bool ChatHandler::HandlePartyBotFocusMarkCommand(char* args)
             {
                 if (PartyBotAI* pAI = dynamic_cast<PartyBotAI*>(pMember->AI()))
                 {
-                    if (std::find(pAI->m_marksToFocus.begin(), pAI->m_marksToFocus.end(), itrMark->second) != pAI->m_marksToFocus.end()) 
+                    if (std::find(pAI->m_marksToFocus.begin(), pAI->m_marksToFocus.end(), itrMark->second) != pAI->m_marksToFocus.end())
                     {
                         // Already have focus mark
                         continue;
@@ -1659,7 +1667,7 @@ bool ChatHandler::HandlePartyBotPauseHelper(char* args, bool pause)
             else
                 PSendSysMessage("%s unpaused.", pTarget->GetName());
         }
-            
+
         else
             SendSysMessage("Target is not a party bot.");
     }
@@ -1675,6 +1683,59 @@ bool ChatHandler::HandlePartyBotPauseCommand(char* args)
 bool ChatHandler::HandlePartyBotUnpauseCommand(char* args)
 {
     return HandlePartyBotPauseHelper(args, false);
+}
+
+bool ChatHandler::HandlePartyBotPullCommand(char* args)
+{
+    Player* pPlayer = GetSession()->GetPlayer();
+    Unit* pTarget = GetSelectedUnit();
+    if (!pTarget || !pPlayer->IsValidAttackTarget(pTarget, true))
+    {
+        SendSysMessage(LANG_SELECT_CHAR_OR_CREATURE);
+        SetSentErrorMessage(true);
+        return false;
+    }
+
+    Group* pGroup = pPlayer->GetGroup();
+    if (!pGroup)
+    {
+        SendSysMessage("You are not in a group.");
+        SetSentErrorMessage(true);
+        return false;
+    }
+
+    uint32 duration;
+    if (!ExtractUInt32(&args, duration))
+        duration = 10 * IN_MILLISECONDS;
+
+    for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
+    {
+        if (Player* pMember = itr->getSource())
+        {
+            if (pMember == pPlayer)
+                continue;
+
+            if (pMember->AI())
+            {
+                if (PartyBotAI* pAI = dynamic_cast<PartyBotAI*>(pMember->AI()))
+                {
+                    if (pAI->m_role == ROLE_MELEE_DPS || pAI->m_role == ROLE_RANGE_DPS)
+                    {
+                        HandlePartyBotPauseApplyHelper(pMember, duration);
+                        continue;
+                    }
+                    else if (pAI->m_role == ROLE_TANK)
+                    {
+                        if (pMember->IsValidAttackTarget(pTarget))
+                            pAI->AttackStart(pTarget);
+                    }
+                }
+            }
+        }
+    }
+
+    PSendSysMessage("Tank party bots are pulling %s, DPS party bots are paused for %d seconds.", pTarget->GetName(), (duration / IN_MILLISECONDS));
+    return true;
 }
 
 bool ChatHandler::HandlePartyBotUnequipCommand(char* args)
