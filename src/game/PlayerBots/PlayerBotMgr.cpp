@@ -348,7 +348,7 @@ void PlayerBotMgr::Update(uint32 diff)
                 // BattleBot AutoJoin
                 if (bgTypeId == BATTLEGROUND_AV)
                 {
-                    if (m_confBattleBotAutoJoin_1 && m_confBattleBotAutoJoin_11)
+                    if (m_confBattleBotAutoJoin_1)
                         toAddBattleBot = true;
                 }
                 if (bgTypeId == BATTLEGROUND_WS)
@@ -367,7 +367,14 @@ void PlayerBotMgr::Update(uint32 diff)
                     for (uint32 i = queuedAllianceCount[bracketId]; i < bg->GetMinPlayersPerTeam(); ++i)
                     {
                         uint32 const botLevel = urand(minLevel, maxLevel);
-                        AddBattleBot(BattleGroundQueueTypeId(queueType), ALLIANCE, maxLevel, true);
+                        if (maxLevel > 50)
+                        {
+                            AddBattleBot(BattleGroundQueueTypeId(queueType), ALLIANCE, maxLevel, true);
+                        }
+                        else
+                        {
+                            AddBattleBot(BattleGroundQueueTypeId(queueType), ALLIANCE, botLevel, true);
+                        }
                     }
                     for (uint32 i = queuedHordeCount[bracketId]; i < bg->GetMinPlayersPerTeam(); ++i)
                     {
@@ -649,6 +656,9 @@ void PlayerBotMgr::SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId)
             break;
         case 2:
             m_confBattleBotAutoJoin_2 = payload ? true : false;
+            break;
+        case 3:
+            m_confBattleBotAutoJoin_3 = payload ? true : false;
             break;
         default:
             m_confBattleBotAutoJoin = payload ? true : false;
@@ -1918,6 +1928,19 @@ bool ChatHandler::HandleBattleBotAutoJoin2Command(char* args)
     }
     sPlayerBotMgr.SwitchAutoJoinBattleBots(value, 2);
     return true;    
+}
+
+bool ChatHandler::HandleBattleBotAutoJoin3Command(char* args)
+{
+    bool value;
+    if (!ExtractOnOff(&args, value))
+    {
+        SendSysMessage(LANG_USE_BOL);
+        SetSentErrorMessage(true);
+        return false;
+    }
+    sPlayerBotMgr.SwitchAutoJoinBattleBots(value, 3);
+    return true;
 }
 
 #define SPELL_RED_GLOW 20370

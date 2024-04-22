@@ -1933,6 +1933,12 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
         {
             case 126:   // Kilrogg eye
             case 6272:  // Eye of Yesmur
+            case 8067:                              // Party Time!
+            {
+                // OOWOW 派对活动
+                target->DeMorph();
+                return;
+            }
             case 11403: // Dream Vision
                 if (Player* pCaster = ToPlayer(GetCaster()))
                     pCaster->UnsummonPossessedMinion();
