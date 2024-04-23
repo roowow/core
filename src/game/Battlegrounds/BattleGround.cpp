@@ -36,6 +36,7 @@
 #include "Formulas.h"
 #include "GridNotifiersImpl.h"
 #include "Chat.h"
+#include "PlayerBotMgr.h"
 #ifdef ENABLE_ELUNA
 #include "LuaEngine.h"
 #endif
