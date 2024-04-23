@@ -715,14 +715,6 @@ void BattleGroundQueue::Update(BattleGroundTypeId bgTypeId, BattleGroundBracketI
     }
     // get the min. players per team, properly for larger arenas as well.
     uint32 minPlayersPerTeam = bgTemplate->GetMinPlayersPerTeam();
-    // if (bgTypeId == BATTLEGROUND_AV)
-    // {
-    //     minPlayersPerTeam = 35;
-    // }
-    // if (bgTypeId == BATTLEGROUND_WS)
-    // {
-    //     minPlayersPerTeam = 9;
-    // }
     uint32 maxPlayersPerTeam = bgTemplate->GetMaxPlayersPerTeam();
 
     int normalMatchesCreationAttempts = 1;

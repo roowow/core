@@ -4063,10 +4063,11 @@ void Spell::cast(bool skipCheck)
     m_targets.updateTradeSlotItem();
 
     // Used by Eluna
-    #ifdef ENABLE_ELUNA
+#ifdef ENABLE_ELUNA
     if (m_caster->GetTypeId() == TYPEID_PLAYER)
-        sEluna->OnSpellCast(m_caster->ToPlayer(), this, skipCheck);
-    #endif /* ENABLE_ELUNA */
+        if (Eluna* e = m_caster->GetEluna())
+            e->OnSpellCast(m_caster->ToPlayer(), this, skipCheck);
+#endif /* ENABLE_ELUNA */
 
     FillTargetMap();
     if (m_channeled)

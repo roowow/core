@@ -122,9 +122,10 @@ GameObject* GameObject::CreateGameObject(uint32 entry)
 
 void GameObject::AddToWorld()
 {
-    #ifdef ENABLE_ELUNA
+
+#ifdef ENABLE_ELUNA
     bool inWorld = IsInWorld();
-    #endif /* ENABLE_ELUNA */
+#endif /* ENABLE_ELUNA */
 
     // Register the gameobject for guid lookup
     if (!IsInWorld())
@@ -146,11 +147,11 @@ void GameObject::AddToWorld()
 
     if (sWorld.getConfig(CONFIG_UINT32_SPELL_PROC_DELAY))
         m_procsUpdateTimer = sWorld.getConfig(CONFIG_UINT32_SPELL_PROC_DELAY) - (WorldTimer::getMSTime() % sWorld.getConfig(CONFIG_UINT32_SPELL_PROC_DELAY));
-
-    #ifdef ENABLE_ELUNA
+#ifdef ENABLE_ELUNA
     if (!inWorld)
-        sEluna->OnAddToWorld(this);
-    #endif /* ENABLE_ELUNA */
+        if (Eluna* e = GetEluna())
+            e->OnAddToWorld(this);
+#endif /* ENABLE_ELUNA */  
 }
 
 void GameObject::AIM_Initialize()
@@ -164,9 +165,10 @@ void GameObject::RemoveFromWorld()
     // Remove the gameobject from the accessor
     if (IsInWorld())
     {
-        #ifdef ENABLE_ELUNA
-        sEluna->OnRemoveFromWorld(this);
-        #endif /* ENABLE_ELUNA */
+#ifdef ENABLE_ELUNA
+        if (Eluna* e = GetEluna())
+            e->OnRemoveFromWorld(this);
+#endif /* ENABLE_ELUNA */
         if (AI())
             AI()->OnRemoveFromWorld();
 
@@ -276,11 +278,13 @@ bool GameObject::Create(uint32 guidlow, uint32 name_id, Map* map, float x, float
         if (sWorld.getConfig(CONFIG_BOOL_VISIBILITY_FORCE_ACTIVE_OBJECTS))
             SetActiveObjectState(true);
     }
-
+	
 	// Used by Eluna
-    #ifdef ENABLE_ELUNA
-    sEluna->OnSpawn(this);
-    #endif /* ENABLE_ELUNA */
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetEluna())
+        e->OnSpawn(this);
+#endif /* ENABLE_ELUNA */    
+
 
     //Notify the map's instance data.
     //Only works if you create the object in it, not if it is moves to that map.
@@ -360,9 +364,10 @@ void GameObject::Update(uint32 update_diff, uint32 /*p_time*/)
         i_AI->UpdateAI(update_diff);
 
     // Used by Eluna
-    #ifdef ENABLE_ELUNA
-    sEluna->UpdateAI(this, update_diff);
-    #endif /* ENABLE_ELUNA */
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetEluna())
+        e->UpdateAI(this, update_diff);
+#endif /* ENABLE_ELUNA */
 
     switch (m_lootState)
     {
@@ -2282,9 +2287,10 @@ bool GameObject::PlayerCanUse(Player* pPlayer)
 void GameObject::SetLootState(LootState state)
 {
     m_lootState = state;
-    #ifdef ENABLE_ELUNA
-    sEluna->OnLootStateChanged(this, state);
-    #endif /* ENABLE_ELUNA */
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetEluna())
+        e->OnLootStateChanged(this, state);
+#endif /* ENABLE_ELUNA */
     UpdateCollisionState();
 }
 
@@ -2292,9 +2298,10 @@ void GameObject::SetGoState(GOState state)
 {
     //SetByteValue(GAMEOBJECT_BYTES_1, 0, state); // 3.3.5
     SetUInt32Value(GAMEOBJECT_STATE, state);
-    #ifdef ENABLE_ELUNA
-    sEluna->OnGameObjectStateChanged(this, state);
-    #endif /* ENABLE_ELUNA */
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetEluna())
+        e->OnGameObjectStateChanged(this, state);
+#endif /* ENABLE_ELUNA */
     UpdateCollisionState();
 }
 
@@ -2455,8 +2462,8 @@ GameObjectData const* GameObject::GetGOData() const
 {
     return sObjectMgr.GetGOData(GetGUIDLow());
 }
-
 #ifdef ENABLE_ELUNA
+
 Player* GameObject::GetOriginalLootRecipient() const
 {
     return m_lootRecipientGuid ? sObjectAccessor.FindPlayer(m_lootRecipientGuid) : NULL;

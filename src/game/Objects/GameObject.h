@@ -30,6 +30,7 @@
 #include "Util.h"
 #include <shared_mutex>
 
+
 #ifdef ENABLE_ELUNA
 class Group;
 #endif
@@ -199,18 +200,19 @@ class GameObject : public SpellCaster
 
         Loot        loot;
 
-        #ifdef ENABLE_ELUNA
+        bool HasQuest(uint32 quest_id) const override;
+        bool HasInvolvedQuest(uint32 quest_id) const override;
+        bool ActivateToQuest(Player const* pTarget) const;
+
+#ifdef ENABLE_ELUNA
         ObjectGuid GetLootRecipientGuid() const { return m_lootRecipientGuid; }
         uint32 GetLootGroupRecipientId() const { return m_lootGroupRecipientId; }
         Player* GetOriginalLootRecipient() const; 
         Player* GetLootRecipient() const;
         Group* GetGroupLootRecipient() const;
         void SetLootRecipient(Unit* pUnit);
-        #endif
+#endif
 
-        bool HasQuest(uint32 quest_id) const override;
-        bool HasInvolvedQuest(uint32 quest_id) const override;
-        bool ActivateToQuest(Player const* pTarget) const;
         uint32 GetDefaultGossipMenuId() const override { return GetGOInfo()->GetGossipMenuId(); }
         void UseDoorOrButton(uint32 time_to_restore = 0, bool alternative = false);
                                                             // 0 = use `gameobject`.`spawntimesecs`
@@ -298,10 +300,10 @@ class GameObject : public SpellCaster
         GameObjectAI* i_AI;
 
         uint32 m_playerGroupId;
-        #ifdef ENABLE_ELUNA
+#ifdef ENABLE_ELUNA
         ObjectGuid m_lootRecipientGuid;                     // player who will have rights for looting if m_lootGroupRecipient==0 or group disbanded
         uint32 m_lootGroupRecipientId;                      // group who will have rights for looting if set and exist
-        #endif
+#endif
     private:
         void SwitchDoorOrButton(bool activate, bool alternative = false);
 

@@ -697,8 +697,10 @@ class ObjectMgr
 
         void LoadTaxiNodes();
         TaxiNodesEntry const* GetTaxiNodeEntry(uint32 id) const { return id < GetMaxTaxiNodeId() ? m_TaxiNodes[id].get() : nullptr; }
+
+		void SetTaxiNodeEntry(uint32 nodeId, std::unique_ptr<TaxiNodesEntry> &nodeEntry); // Eluna
+
         uint32 GetMaxTaxiNodeId() const { return m_TaxiNodes.size(); }
-        void SetTaxiNodeEntry(uint32 nodeId, std::unique_ptr<TaxiNodesEntry> &nodeEntry); // Eluna
 
         ObjectGuid GetFullTransportGuidFromLowGuid(uint32 lowGuid);
 

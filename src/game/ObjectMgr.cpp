@@ -8854,6 +8854,9 @@ void ObjectMgr::LoadTaxiNodes()
     }
 
     BarGoLink bar(result->GetRowCount());
+    #ifdef ENABLE_ELUNA
+    m_TaxiNodes.reserve(maxTaxiNodeEntry*3); // Some buffer as Eluna allows for more nodes.
+    #endif
     m_TaxiNodes.resize(maxTaxiNodeEntry);
 
     do

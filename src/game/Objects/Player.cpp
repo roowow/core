@@ -1166,6 +1166,12 @@ uint32 Player::EnvironmentalDamage(EnvironmentalDamageType type, uint32 damage)
 
     damage = DealDamage(this, damage, nullptr, SELF_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr, false);
 
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetEluna())
+        if (!IsAlive())
+            e->OnPlayerKilledByEnvironment(this, type);
+#endif
+
     // DealDamage not apply item durability loss at self damage
     // Confirmed on classic that dying from lava, fatigue and
     // drowning causes durability loss. Probably applies to all.
@@ -3548,6 +3554,10 @@ void Player::GiveLevel(uint32 level)
     if (level == GetLevel())
         return;
 
+#if ENABLE_ELUNA
+    int oldLevel = GetLevel();
+#endif
+
     uint32 numInstanceMembers = 0;
     uint32 numGroupMembers = 0;
 
@@ -3710,10 +3720,10 @@ void Player::GiveLevel(uint32 level)
     if (Pet* pet = GetPet())
         pet->SynchronizeLevelWithOwner();
 
-    #ifdef ENABLE_ELUNA
-        int oldLevel = GetLevel();
-        sEluna->OnLevelChanged(this, oldLevel);
-    #endif
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetEluna())
+        e->OnLevelChanged(this, oldLevel);
+#endif
 }
 
 void Player::UpdateFreeTalentPoints(bool resetIfNeed)
@@ -4296,6 +4306,10 @@ void Player::LearnSpell(uint32 spellId, bool dependent, bool talent)
         WorldPacket data(SMSG_LEARNED_SPELL, 4);
         data << uint32(spellId);
         GetSession()->SendPacket(&data);
+#ifdef ENABLE_ELUNA
+        if (Eluna* e = GetEluna())
+            e->OnLearnSpell(this, spellId);
+#endif
     }
 
     // learn all disabled higher ranks (recursive) - skip for talent spells
@@ -5978,6 +5992,10 @@ bool Player::UpdateSkillPro(uint16 SkillId, int32 Chance, uint32 step)
         SetUInt32Value(valueIndex, MAKE_SKILL_VALUE(new_value, MaxValue));
         if (itr->second.uState != SKILL_NEW)
             itr->second.uState = SKILL_CHANGED;
+#ifdef ENABLE_ELUNA
+        if (Eluna* e = GetEluna())
+            e->OnSkillChange(this, SkillId, new_value);
+#endif
         sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Player::UpdateSkillPro Chance=%3.1f%% taken", Chance / 10.0);
         return true;
     }
@@ -7005,10 +7023,10 @@ void Player::RewardReputation(Unit const* pVictim, float rate)
     if (pVictim->IsPet() && sWorld.GetWowPatch() >= WOW_PATCH_110)
         return;
 
-    #ifdef ENABLE_ELUNA
-        if (((Creature*)pVictim)->IsReputationGainDisabled())
-            return;
-    #endif
+#ifdef ENABLE_ELUNA
+    if (((Creature*)pVictim)->IsReputationGainDisabled())
+        return;
+#endif
 
     ReputationOnKillEntry const* Rep = sObjectMgr.GetReputationOnKillEntry(((Creature*)pVictim)->GetEntry());
 
@@ -7212,6 +7230,9 @@ void Player::SetTransport(GenericTransport* t)
 
 void Player::UpdateArea(uint32 newArea)
 {
+#ifdef ENABLE_ELUNA
+    uint32 oldArea = m_areaUpdateId;
+#endif
     m_areaUpdateId    = newArea;
 
     DismountCheck();
@@ -7234,6 +7255,13 @@ void Player::UpdateArea(uint32 newArea)
     }
 
     UpdateAreaDependentAuras();
+
+#ifdef ENABLE_ELUNA
+    // We only want the hook to trigger when the old and new area is actually different
+    if (Eluna* e = GetEluna())
+        if (oldArea != newArea)
+            e->OnUpdateArea(this, oldArea, newArea);
+#endif
 }
 
 void Player::UpdateZone(uint32 newZone, uint32 newArea)
@@ -7321,9 +7349,10 @@ void Player::UpdateZone(uint32 newZone, uint32 newArea)
     UpdateZoneDependentAuras();
     SetZoneScript();
 
-    #ifdef ENABLE_ELUNA
-    sEluna->OnUpdateZone(this, newZone, newArea);
-    #endif
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetEluna())
+        e->OnUpdateZone(this, newZone, newArea);
+#endif
 }
 
 //If players are too far way of duel flag... then player loose the duel
@@ -8295,15 +8324,14 @@ void Player::SendLoot(ObjectGuid guid, LootType loot_type, Player const* pVictim
                 }
 
             loot = &go->loot;
-
-            #ifdef ENABLE_ELUNA
-                Player* recipient = go->GetLootRecipient();
-                if (!recipient)
-                {
-                    go->SetLootRecipient(this);
-                    recipient = this;
-                }
-            #endif
+#ifdef ENABLE_ELUNA
+            Player* recipient = go->GetLootRecipient();
+            if (!recipient)
+            {
+                go->SetLootRecipient(this);
+                recipient = this;
+            }
+#endif
 
             // generate loot only if ready for open and spawned in world
             if (go->getLootState() == GO_READY && go->isSpawned())
@@ -10771,6 +10799,11 @@ Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update
         if (randomPropertyId)
             pItem->SetItemRandomProperties(randomPropertyId);
         pItem = StoreItem(dest, pItem, update);
+
+#ifdef ENABLE_ELUNA
+        if (Eluna* e = GetEluna())
+            e->OnAdd(this, pItem);
+#endif
     }
     return pItem;
 }
@@ -13518,10 +13551,10 @@ void Player::AddQuest(Quest const* pQuest, Object* questGiver)
 
     UpdateForQuestWorldObjects();
 
-    // Used by Eluna
-    #ifdef ENABLE_ELUNA
-        sEluna->OnQuestAccept(this, quest_id);
-    #endif /* ENABLE_ELUNA */
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetEluna())
+        e->OnQuestAccept(this, quest_id);
+#endif
 }
 
 void Player::FullQuestComplete(uint32 questId)
@@ -13726,10 +13759,6 @@ void Player::RewardQuest(Quest const* pQuest, uint32 reward, WorldObject* questE
     // Used for client inform but rewarded only in case not max level
     uint32 xp = uint32(pQuest->XPValue(this) * (GetPersonalXpRate() >= 0.0f ? GetPersonalXpRate() : sWorld.getConfig(CONFIG_FLOAT_RATE_XP_QUEST)));
 
-    // 双倍经验 RewardQuest
-    if (HasAura(11))
-        xp *= 2;
-
     if (GetLevel() < sWorld.getConfig(CONFIG_UINT32_MAX_PLAYER_LEVEL))
         GiveXP(xp , nullptr);
     else if (int32 money = pQuest->GetRewMoneyMaxLevelAtComplete())
@@ -13844,7 +13873,8 @@ void Player::RewardQuest(Quest const* pQuest, uint32 reward, WorldObject* questE
 
     // Used by Eluna
     #ifdef ENABLE_ELUNA
-        sEluna->OnQuestComplete(this, quest_id);
+    if (Eluna* e = GetEluna())
+        e->OnQuestComplete(this, quest_id);
     #endif /* ENABLE_ELUNA */
 }
 
@@ -14415,6 +14445,10 @@ void Player::SetQuestStatus(uint32 quest_id, QuestStatus status)
 
         UpdateForQuestWorldObjects();
     }
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetEluna())
+        e->OnQuestStatusChanged(this, quest_id, status);
+#endif
 }
 
 void Player::AdjustQuestReqItemCount(Quest const* pQuest, QuestStatusData& questStatusData)
@@ -14817,7 +14851,8 @@ void Player::LogModifyMoney(int32 d, char const* type, ObjectGuid fromGuid, uint
 #ifdef ENABLE_ELUNA
 void Player::ModifyMoney(int32 d)
 {
-    sEluna->OnMoneyChanged(this, d);
+    if (Eluna* e = GetEluna())
+        e->OnMoneyChanged(this, d);
 
     if (d < 0)
         SetMoney(GetMoney() > uint32(-d) ? GetMoney() + d : 0);
@@ -17018,6 +17053,13 @@ void Player::SaveToDB(bool online, bool force)
     //outDebugStatsValues();
 
     CharacterDatabase.BeginTransaction(GetGUIDLow());
+
+#ifdef ENABLE_ELUNA
+    // Hack to check that this is not on create save
+    if (Eluna* e = GetEluna())
+        if (!HasAtLoginFlag(AT_LOGIN_FIRST))
+            e->OnSave(this);
+#endif
 
     m_honorMgr.Update();
 
@@ -22967,11 +23009,11 @@ static char const* type_strings[] =
     "MoneyTrade",
     "GM",
     "GMCritical",
-    #ifdef ENABLE_ELUNA
+    "Scripts",
+#ifdef ENABLE_ELUNA
     "ELUNA",
-    #endif /* ENABLE_ELUNA */
-    "Anticheat",
-    "Scripts"
+#endif
+    "Anticheat"
 };
 
 static_assert(sizeof(type_strings) / sizeof(type_strings[0]) == LOG_TYPE_MAX, "type_strings must be updated");

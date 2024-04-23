@@ -160,17 +160,12 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
         return;
     }
 
-    // pUser->CastItemUseSpell(pItem, targets);
-    #ifdef ENABLE_ELUNA
-	// Note: If script stop casting it must send appropriate data to client to prevent stuck item in gray state.
-	if (sEluna->OnUse(pUser, pItem, targets))
-	{
-		// no script or script not process request by self
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = pUser->GetEluna())
+        if (!e->OnUse(pUser, pItem, targets))
+            return;
+#endif
 		pUser->CastItemUseSpell(pItem, targets);
-	}
-    #else
-        pUser->CastItemUseSpell(pItem, targets);
-    #endif
 }
 
 void WorldSession::HandleOpenItemOpcode(WorldPacket& recvPacket)

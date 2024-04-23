@@ -567,15 +567,16 @@ source_group("Anticheat"
 )
 
 if(SCRIPT_LIB_ELUNA)
-    file(GLOB SRC_GRP_ELUNA
+    file(GLOB SRC_GRP_ELUNA 
         ${CMAKE_SOURCE_DIR}/src/modules/Eluna/*.cpp
         ${CMAKE_SOURCE_DIR}/src/modules/Eluna/*.h
-        ${CMAKE_SOURCE_DIR}/src/modules/Eluna/VMangos/*.cpp
-        ${CMAKE_SOURCE_DIR}/src/modules/Eluna/VMangos/*.h
+        ${CMAKE_SOURCE_DIR}/src/modules/Eluna/hooks/*.cpp
+        ${CMAKE_SOURCE_DIR}/src/modules/Eluna/hooks/*.h
+        ${CMAKE_SOURCE_DIR}/src/modules/Eluna/methods/VMangos/*.cpp
+        ${CMAKE_SOURCE_DIR}/src/modules/Eluna/methods/VMangos/*.h
     )
     source_group("Eluna" FILES ${SRC_GRP_ELUNA})
 endif()
-
 add_library(game STATIC
   ${game_SRCS}
   $<$<BOOL:${SCRIPT_LIB_ELUNA}>:${SRC_GRP_ELUNA}>
@@ -588,20 +589,19 @@ target_link_libraries(game
   Detour
   $<$<BOOL:${SCRIPT_LIB_ELUNA}>:lualib>
 )
-
 target_compile_definitions(game
-  PUBLIC
-    $<$<BOOL:${SCRIPT_LIB_ELUNA}>:ENABLE_ELUNA>
-    $<$<BOOL:${SCRIPT_LIB_ELUNA}>:CLASSIC>
-    $<$<BOOL:${SCRIPT_LIB_ELUNA}>:VMANGOS>
+    PUBLIC
+      $<$<BOOL:${SCRIPT_LIB_ELUNA}>:ENABLE_ELUNA>
+      $<$<BOOL:${SCRIPT_LIB_ELUNA}>:CLASSIC>
+      $<$<BOOL:${SCRIPT_LIB_ELUNA}>:VMANGOS>
 )
-
 target_include_directories(game
-  PUBLIC
-    $<$<BOOL:${SCRIPT_LIB_ELUNA}>:
-          ${CMAKE_SOURCE_DIR}/src/modules/Eluna
-          ${CMAKE_SOURCE_DIR}/src/modules/Eluna/VMangos
-      >
+    PUBLIC
+      $<$<BOOL:${SCRIPT_LIB_ELUNA}>:
+            ${CMAKE_SOURCE_DIR}/src/modules/Eluna
+            ${CMAKE_SOURCE_DIR}/src/modules/Eluna/hooks/
+            ${CMAKE_SOURCE_DIR}/src/modules/Eluna/methods/VMangos
+        >
 )
 
 #add_dependencies(game revision.h)
@@ -637,6 +637,7 @@ else()
       )
   endif()
 endif()
+
 
 if(SCRIPT_LIB_ELUNA)
 install(

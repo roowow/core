@@ -1125,9 +1125,9 @@ class Player final: public Unit
         uint32 GetItemCount(uint32 item, bool inBankAlso = false, Item const* skipItem = nullptr) const;
         Item* GetItemByGuid(ObjectGuid guid) const;
 
-        #ifdef ENABLE_ELUNA
+#ifdef ENABLE_ELUNA
         Item* GetItemByEntry(uint32 item) const;            // only for special cases
-        #endif
+#endif
 
         Item* GetItemByPos(uint16 pos) const;
         Item* GetItemByPos(uint8 bag, uint8 slot) const;
@@ -1247,9 +1247,9 @@ class Player final: public Unit
 
         uint32 GetMoney() const { return GetUInt32Value(PLAYER_FIELD_COINAGE); }
         void LogModifyMoney(int32 d, char const* type, ObjectGuid fromGuid = ObjectGuid(), uint32 data = 0);
-        #ifdef ENABLE_ELUNA
-        void ModifyMoney(int32 d);
-        #else
+#ifdef ENABLE_ELUNA
+        void ModifyMoney(int32 d);       
+#else
         void ModifyMoney(int32 d)
         {
             if (d < 0)
@@ -1257,7 +1257,7 @@ class Player final: public Unit
             else
                 SetMoney(GetMoney() < uint32(MAX_MONEY_AMOUNT - d) ? GetMoney() + d : MAX_MONEY_AMOUNT);
         }
-        #endif
+#endif
         void LootMoney(int32 g, Loot* loot);
         std::string GetShortDescription() const; // "player:guid [username:accountId@IP]"
 
@@ -1771,10 +1771,10 @@ class Player final: public Unit
         float GetSpellCritPercent(SpellSchools school) const { return m_SpellCritPercentage[school]; }
         void SetSpellCritPercent(SpellSchools school, float percent) { m_SpellCritPercentage[school] = percent; }
 
-        #ifdef ENABLE_ELUNA
+#ifdef ENABLE_ELUNA
 		float GetHealthBonusFromStamina() const { return GetHealthBonusFromStamina(GetStat(STAT_STAMINA)); };
 		float GetManaBonusFromIntellect() const { return GetManaBonusFromIntellect(GetStat(STAT_INTELLECT)); };
-        #endif
+#endif
 
         /*********************************************************/
         /***                   SKILLS SYSTEM                   ***/
@@ -2397,11 +2397,10 @@ class Player final: public Unit
         void RemoveLanguage(uint64 languageId) { m_knownLanguagesMask &= ~(1llu << languageId);}
         bool KnowsLanguage(uint64 languageId) const { return (m_knownLanguagesMask & (1llu << languageId)) != 0; }
 
-        #ifdef ENABLE_ELUNA
+#ifdef ENABLE_ELUNA
         void Whisper(const std::string& text, const uint32 language, ObjectGuid receiver);
 		void RemoveAllSpellCooldown();
-        #endif
-
+#endif
         /*********************************************************/
         /***                   FACTION SYSTEM                  ***/
         /*********************************************************/
