@@ -4007,6 +4007,80 @@ namespace LuaPlayer
     }
 #endif
 
+    int IsHardcore(Eluna* E, Player* player)
+    {
+        E->Push(L, player->IsHardcore());
+        return 1;
+    }
+
+    int IsHardcoreDead(Eluna* E, Player* player)
+    {
+        E->Push(L, player->IsHardcoreDead());
+        return 1;
+    }
+
+    int IsHardcoreRetired(Eluna* E, Player* player)
+    {
+        E->Push(L, player->IsHardcoreRetired());
+        return 1;
+    }
+
+    int IsHardcorePVP(Eluna* E, Player* player)
+    {
+        E->Push(L, player->IsHardcorePVP());
+        return 1;
+    }
+
+    int SetHardcore(Eluna* E, Player* player)
+    {
+        bool apply = E->CHECKVAL<bool>(2, true);
+
+        player->SetHardcore(apply);
+        return 0;
+    }
+
+    int SetHardcoreDead(Eluna* E, Player* player)
+    {
+        bool apply = E->CHECKVAL<bool>(2, true);
+
+        player->SetHardcoreDead(apply);
+        return 0;
+    }
+
+    int SetHardcorePVP(Eluna* E, Player* player)
+    {
+        bool apply = E->CHECKVAL<bool>(2, true);
+
+        player->SetHardcorePVP(apply);
+        return 0;
+    }
+
+    int SetHardcoreRetired(Eluna* E, Player* player)
+    {
+        player->SetHardcoreRetired();
+        return 0;
+    }
+
+    int GetHonorRank(Eluna* E, Player* player)
+    {
+        E->Push(L, player->GetHonorMgr().GetRank().rank);
+        return 1;
+    }
+
+    int ActiveTalent(Eluna* E, Player* player)
+    {
+        E->Push(L, player->ActiveTalent());
+        return 1;
+    }
+
+    int SetActiveTalent(Eluna* E, Player* player)
+    {
+        uint32 talent = E->CHECKVAL<uint32>(2);
+
+        player->SetActiveTalent(talent);
+        return 0;
+    }
+
     /*int BindToInstance(Eluna* E, Player* player)
     {
     player->BindToInstance();
@@ -4267,6 +4341,19 @@ namespace LuaPlayer
         { "CanTitanGrip", &LuaPlayer::CanTitanGrip },
 #endif
 
+        /// Hardcore
+        { "IsHardcore", &LuaPlayer::IsHardcore }, 
+        { "IsHardcoreRetired", &LuaPlayer::IsHardcoreRetired },
+        { "IsHardcoreDead", &LuaPlayer::IsHardcoreDead },
+        { "SetHardcore", &LuaPlayer::SetHardcore }, 
+        { "SetHardcoreRetired", &LuaPlayer::SetHardcoreRetired },
+        { "SetHardcoreDead", &LuaPlayer::SetHardcoreDead },
+        { "SetHardcorePVP", &LuaPlayer::SetHardcorePVP },
+
+        /// DualTalent
+        { "GetHonorRank", &LuaPlayer::GetHonorRank },
+        { "ActiveTalent", &LuaPlayer::ActiveTalent },
+        { "SetActiveTalent", &LuaPlayer::SetActiveTalent },
 
         // Gossip
         { "GossipMenuAddItem", &LuaPlayer::GossipMenuAddItem },
