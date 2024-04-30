@@ -228,6 +228,7 @@ Creature::~Creature()
 
 void Creature::AddToWorld()
 {
+
 #ifdef ENABLE_ELUNA
     bool inWorld = IsInWorld();
 #endif /* ENABLE_ELUNA */

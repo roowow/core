@@ -432,6 +432,7 @@ void MaNGOS::WorldObjectLastSearcher<Check>::Visit(DynamicObjectMapType &m)
     }
 }
 #endif
+
 template<class Check>
 void MaNGOS::WorldObjectListSearcher<Check>::Visit(PlayerMapType &m)
 {

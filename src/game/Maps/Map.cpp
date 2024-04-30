@@ -63,6 +63,7 @@
 #include "ElunaLoader.h"
 #endif /* ENABLE_ELUNA */
 
+
 Map::~Map()
 {
 #ifdef ENABLE_ELUNA
@@ -183,7 +184,7 @@ Map::Map(uint32 id, time_t expiry, uint32 InstanceId)
 #endif
     if (numObjThreads > 1)
     {
-        m_objectThreads.reset(new ThreadPool(numObjThreads -1));
+        m_objectThreads.reset(new ThreadPool(numObjThreads - 1));
         m_objectThreads->start<ThreadPool::MySQL<ThreadPool::MultiQueue>>();
     }
     if (IsContinent())
@@ -1264,6 +1265,7 @@ void ScriptedEvent::SendEventToAllTargets(uint32 uiData)
 
 void Map::Remove(Player* player, bool remove)
 {
+
 #ifdef ENABLE_ELUNA
     if (Eluna* e = GetEluna())
         e->OnPlayerLeave(this, player);
