@@ -217,6 +217,8 @@ namespace Hooks
         // UNUSED                               =     52,       // (event, player)
         // UNUSED                               =     53,       // (event, player)
         PLAYER_EVENT_ON_QUEST_STATUS_CHANGED    =     54,       // (event, player, questId, status)
+        PLAYER_EVENT_ON_QUEST_ACCEPT            =     93,       // (event, player, questId)
+        PLAYER_EVENT_ON_QUEST_COMPLETE          =     94,       // (event, player, questId)
 
         PLAYER_EVENT_COUNT
     };
