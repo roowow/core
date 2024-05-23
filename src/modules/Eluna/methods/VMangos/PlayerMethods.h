@@ -4009,25 +4009,25 @@ namespace LuaPlayer
 
     int IsHardcore(Eluna* E, Player* player)
     {
-        E->Push(L, player->IsHardcore());
+        E->Push(player->IsHardcore());
         return 1;
     }
 
     int IsHardcoreDead(Eluna* E, Player* player)
     {
-        E->Push(L, player->IsHardcoreDead());
+        E->Push(player->IsHardcoreDead());
         return 1;
     }
 
     int IsHardcoreRetired(Eluna* E, Player* player)
     {
-        E->Push(L, player->IsHardcoreRetired());
+        E->Push(player->IsHardcoreRetired());
         return 1;
     }
 
     int IsHardcorePVP(Eluna* E, Player* player)
     {
-        E->Push(L, player->IsHardcorePVP());
+        E->Push(player->IsHardcorePVP());
         return 1;
     }
 
@@ -4063,13 +4063,13 @@ namespace LuaPlayer
 
     int GetHonorRank(Eluna* E, Player* player)
     {
-        E->Push(L, player->GetHonorMgr().GetRank().rank);
+        E->Push(player->GetHonorMgr().GetRank().rank);
         return 1;
     }
 
     int ActiveTalent(Eluna* E, Player* player)
     {
-        E->Push(L, player->ActiveTalent());
+        E->Push(player->ActiveTalent());
         return 1;
     }
 

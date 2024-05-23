@@ -26,13 +26,14 @@ using namespace Hooks;
     if (!PlayerEventBindings->HasBindingsFor(key))\
         return RETVAL;
 
-void Eluna::OnLearnTalents(Player* pPlayer, uint32 talentId, uint32 talentRank, uint32 spellid)
+// void Eluna::OnLearnTalents(Player* pPlayer, uint32 talentId, uint32 talentRank, uint32 spellid)
+void Eluna::OnLearnTalents(Player* pPlayer, uint32 talentId, uint32 talentRank)
 {
     START_HOOK(PLAYER_EVENT_ON_LEARN_TALENTS);
     HookPush(pPlayer);
     HookPush(talentId);
     HookPush(talentRank);
-    HookPush(spellid);
+    // HookPush(spellid);
     CallAllFunctions(PlayerEventBindings, key);
 }
 
@@ -174,6 +175,22 @@ void Eluna::OnQuestAbandon(Player* pPlayer, uint32 questId)
     CallAllFunctions(PlayerEventBindings, key);
 }
 
+void Eluna::OnQuestAccept(Player* pPlayer, uint32 questId)
+{
+    START_HOOK(PLAYER_EVENT_ON_QUEST_ACCEPT);
+    Push(pPlayer);
+    Push(questId);
+    CallAllFunctions(PlayerEventBindings, key);
+}
+
+void Eluna::OnQuestComplete(Player* pPlayer, uint32 questId)
+{
+    START_HOOK(PLAYER_EVENT_ON_QUEST_COMPLETE);
+    Push(pPlayer);
+    Push(questId);
+    CallAllFunctions(PlayerEventBindings, key);
+}
+
 void Eluna::OnQuestStatusChanged(Player* pPlayer, uint32 questId, uint8 status)
 {
     START_HOOK(PLAYER_EVENT_ON_QUEST_STATUS_CHANGED);
@@ -277,11 +294,12 @@ void Eluna::OnFreeTalentPointsChanged(Player* pPlayer, uint32 newPoints)
     CallAllFunctions(PlayerEventBindings, key);
 }
 
-void Eluna::OnTalentsReset(Player* pPlayer, bool noCost)
+// void Eluna::OnTalentsReset(Player* pPlayer, bool noCost)
+void Eluna::OnTalentsReset(Player* pPlayer)
 {
     START_HOOK(PLAYER_EVENT_ON_TALENTS_RESET);
     HookPush(pPlayer);
-    HookPush(noCost);
+    // HookPush(noCost);
     CallAllFunctions(PlayerEventBindings, key);
 }
 

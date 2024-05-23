@@ -403,8 +403,11 @@ public:
     void OnRepop(Player* pPlayer);
     void OnResurrect(Player* pPlayer);
     void OnQuestAbandon(Player* pPlayer, uint32 questId);
+    void OnQuestAccept(Player* pPlayer, uint32 questId);
+    void OnQuestComplete(Player* pPlayer, uint32 questId);
     void OnQuestStatusChanged(Player* pPlayer, uint32 questId, uint8 status);
-    void OnLearnTalents(Player* pPlayer, uint32 talentId, uint32 talentRank, uint32 spellid);
+    // void OnLearnTalents(Player* pPlayer, uint32 talentId, uint32 talentRank, uint32 spellid);
+    void OnLearnTalents(Player* pPlayer, uint32 talentId, uint32 talentRank);
     void OnSkillChange(Player* pPlayer, uint32 skillId, uint32 skillValue);
     void OnLearnSpell(Player* pPlayer, uint32 spellid);
     InventoryResult OnCanUseItem(const Player* pPlayer, uint32 itemEntry);
@@ -498,7 +501,8 @@ public:
     void OnPlayerKilledByEnvironment(Player* pKilled, uint8 damageType);
     void OnLevelChanged(Player* pPlayer, uint8 oldLevel);
     void OnFreeTalentPointsChanged(Player* pPlayer, uint32 newPoints);
-    void OnTalentsReset(Player* pPlayer, bool noCost);
+    // void OnTalentsReset(Player* pPlayer, bool noCost);
+    void OnTalentsReset(Player* pPlayer);
     void OnMoneyChanged(Player* pPlayer, int32& amount);
 #ifdef CATA
     void OnMoneyChanged(Player* pPlayer, int64& amount);

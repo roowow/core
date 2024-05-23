@@ -37,7 +37,7 @@
 #include "LuaEngine.h"
 #endif /* ENABLE_ELUNA */
 
-void WorldSession::HandleQuestgiverStatusQueryOpcode(WorldPacket& recv_data)
+void WorldSession::HandleQuestgiverStatusQueryOpcode(WorldPacket & recv_data)
 {
     ObjectGuid guid;
     recv_data >> guid;
