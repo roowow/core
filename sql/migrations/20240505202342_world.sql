@@ -16,10 +16,10 @@ DELETE FROM `gameobject` WHERE `guid`=3996125;
 -- Delete Throne spawned in uninstanced BWL
 DELETE FROM `gameobject` WHERE `guid`=3996089;
 -- Delete invisible object House 2 in old Quel'Thalas area
-DELETE FROM `gameobject` WHERE `guid`=3996095;
+-- DELETE FROM `gameobject` WHERE `guid`=3996095;
 -- Delete "Love is in the Air" objects in old Quel'Thalas area
-DELETE FROM `gameobject` WHERE `guid`=3996106;
-DELETE FROM `gameobject` WHERE `guid`=3996109;
+-- DELETE FROM `gameobject` WHERE `guid`=3996106;
+-- DELETE FROM `gameobject` WHERE `guid`=3996109;
 -- Delete custom Horde Mailbox at the house in GM Island
 DELETE FROM `gameobject` WHERE `guid`=314065;
 -- Delete Wine bottles in GM Island
