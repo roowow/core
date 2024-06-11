@@ -523,7 +523,7 @@ void WorldSession::HandleBattleFieldPortOpcode(WorldPacket& recv_data)
             // BattleBot AutoDelete
             if (!_player->IsBot())
             {
-                if (bg->GetBotPlayersCountByTeam(_player->GetTeam()) > 4 && bg->GetPlayersCountByTeam(_player->GetTeam()) > bg->GetMinPlayersPerTeam())
+                if (bg->GetBotPlayersCountByTeam(_player->GetTeam()) > 1 && bg->GetPlayersCountByTeam(_player->GetTeam()) > bg->GetMinPlayersPerTeam())
                     bg->DeleteBattleBot(_player->GetTeam());
             }
 
