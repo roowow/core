@@ -1424,20 +1424,6 @@ void BattleGroundMgr::BuildBattleGroundListPacket(WorldPacket* data, ObjectGuid 
         ++count;
     }
 
-    // 战场控制
-    // printf("ClientBattleGroundIdSet: %u \n", count);
-    if (bgTypeId == BATTLEGROUND_AV && sPlayerBotMgr.m_confBattleBotAutoJoin)
-    {
-        if (count > 3)
-        {
-            sPlayerBotMgr.m_confBattleBotAutoJoin_11 = false;
-        }
-        else
-        {
-            sPlayerBotMgr.m_confBattleBotAutoJoin_11 = true;
-        }
-    }
-
     data->put<uint32>(countPos, count);
 }
 

@@ -589,9 +589,9 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
         case CHAT_MSG_GUILD: // Master side
         {
             if (GetMasterPlayer()->GetGuildId())
-                if (Guild* guild = sGuildMgr.GetGuildById(GetMasterPlayer()->GetGuildId()))
-                {
-                    guild->BroadcastToGuild(this, msg, lang == LANG_ADDON ? LANG_ADDON : LANG_UNIVERSAL);
+                                if (Guild* guild = sGuildMgr.GetGuildById(GetMasterPlayer()->GetGuildId()))
+                                {
+                                        guild->BroadcastToGuild(this, msg, lang == LANG_ADDON ? LANG_ADDON : LANG_UNIVERSAL);
 
 #ifdef ENABLE_ELUNA
                     msg_str = std::string(msg);
@@ -599,7 +599,7 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
                         if (!e->OnChat(GetPlayer(), type, lang, msg_str, guild))
                             return;
 #endif
-                }
+                                }
             if (lang != LANG_ADDON)
                 sWorld.LogChat(this, "Guild", msg, nullptr, GetMasterPlayer()->GetGuildId());
             break;
@@ -608,7 +608,7 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
         {
             if (GetMasterPlayer()->GetGuildId())
                 if (Guild* guild = sGuildMgr.GetGuildById(GetMasterPlayer()->GetGuildId()))
-        {
+                {
                     guild->BroadcastToOfficers(this, msg, lang == LANG_ADDON ? LANG_ADDON : LANG_UNIVERSAL);
 
 #ifdef ENABLE_ELUNA
@@ -617,7 +617,7 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
                         if (!e->OnChat(GetPlayer(), type, lang, msg_str, guild))
                             return;
 #endif
-        }
+                }
 
             if (lang != LANG_ADDON)
                 sWorld.LogChat(this, "Officer", msg, nullptr, GetMasterPlayer()->GetGuildId());

@@ -34,7 +34,6 @@ PlayerBotMgr::PlayerBotMgr()
     m_confDebug                 = false;
     m_confBattleBotAutoJoin     = false;
     m_confBattleBotAutoJoin_1   = false;
-    m_confBattleBotAutoJoin_11  = true;
     m_confBattleBotAutoJoin_2   = false;
 
     // Time
