@@ -31,6 +31,10 @@
 #include "MangosSocketImpl.h"
 #include "ace/OS_NS_netdb.h"
 
+#ifdef ENABLE_ELUNA
+#include "LuaEngine.h"
+#endif /* ENABLE_ELUNA */
+
 template class MangosSocket<WorldSession, WorldSocket, AuthCrypt>;
 
 int WorldSocket::ProcessIncoming(WorldPacket* new_pct)
@@ -65,6 +69,10 @@ int WorldSocket::ProcessIncoming(WorldPacket* new_pct)
                     sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "WorldSocket::ProcessIncoming: Player send CMSG_AUTH_SESSION again");
                     return -1;
                 }
+#ifdef ENABLE_ELUNA
+                if (!sWorld.GetEluna()->OnPacketReceive(m_Session, *new_pct))
+                    return 0;
+#endif /* ENABLE_ELUNA */
 
                 return HandleAuthSession(*new_pct);
             default:
@@ -143,7 +151,7 @@ int WorldSocket::HandleAuthSession(WorldPacket& recvPacket)
     uint32 id, security;
     LocaleConstant locale;
     std::string account, os, platform;
-    BigNumber v, s, g, N, K;
+    BigNumber K;
     WorldPacket packet, addonPacket;
     static std::set<std::string> const serverAddressList = GetServerAddresses();
 
@@ -195,22 +203,6 @@ int WorldSocket::HandleAuthSession(WorldPacket& recvPacket)
     }
 
     Field* fields = result->Fetch();
-
-    N.SetHexStr("894B645E89E1535BBDAD5B8B290650530801B18EBFBF5E8FAB3C82872A3E9BB7");
-    g.SetDword(7);
-
-    v.SetHexStr(fields[4].GetString());
-    s.SetHexStr(fields[5].GetString());
-
-    char const* sStr = s.AsHexStr();                        //Must be freed by OPENSSL_free()
-    char const* vStr = v.AsHexStr();                        //Must be freed by OPENSSL_free()
-
-    sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "WorldSocket::HandleAuthSession: (s,v) check s: %s v: %s",
-              sStr,
-              vStr);
-
-    OPENSSL_free((void*) sStr);
-    OPENSSL_free((void*) vStr);
 
     // Prevent connecting directly to mangosd by checking
     // that same ip connected to realmd previously.
@@ -340,9 +332,6 @@ int WorldSocket::HandleAuthSession(WorldPacket& recvPacket)
     m_Session->SetSessionKey(K);
     m_Session->LoadGlobalAccountData();
     m_Session->LoadTutorialsData();
-
-    // In case needed sometime the second arg is in microseconds 1 000 000 = 1 sec
-    ACE_OS::sleep(ACE_Time_Value(0, 10000));
 
     sWorld.AddSession(m_Session);
 

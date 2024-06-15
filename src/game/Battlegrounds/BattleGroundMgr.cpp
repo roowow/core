@@ -640,19 +640,53 @@ should be called from BattleGround::RemovePlayer function in some cases
 void BattleGroundQueue::Update(BattleGroundTypeId bgTypeId, BattleGroundBracketId bracketId)
 {
     //ACE_Guard<ACE_Recursive_Thread_Mutex> guard(m_lock);
-    // First, remove old offline players
+
+    // First, remove players who shouldn't be in queue anymore
     QueuedPlayersMap::iterator itrOffline = m_queuedPlayers.begin();
     while (itrOffline != m_queuedPlayers.end())
     {
+        // remove offline players
         if (!itrOffline->second.online && WorldTimer::getMSTimeDiffToNow(itrOffline->second.lastOnlineTime) > OFFLINE_BG_QUEUE_TIME)
         {
             RemovePlayer(itrOffline->first, true);
             itrOffline = m_queuedPlayers.begin();
+            continue;
         }
-        else
-            ++itrOffline;
+
+        // remove players who are in queue for bg that has ended
+        GroupQueueInfo* group = itrOffline->second.groupInfo;
+        if (group->isInvitedToBgInstanceGuid)
+        {
+            BattleGround* bg;
+            if ((bg = sBattleGroundMgr.GetBattleGround(group->isInvitedToBgInstanceGuid, group->bgTypeId)) && bg->GetStatus() == STATUS_WAIT_LEAVE)
+            {
+                if (itrOffline->second.online)
+                {
+                    if (Player* player = ObjectAccessor::FindPlayerNotInWorld(itrOffline->first))
+                    {
+                        BattleGroundQueueTypeId queueTypeId = BattleGroundMgr::BgQueueTypeId(group->bgTypeId);
+                        uint32 queueSlot = player->GetBattleGroundQueueIndex(queueTypeId);
+                        if (queueSlot < PLAYER_MAX_BATTLEGROUND_QUEUES)
+                        {
+                            player->RemoveBattleGroundQueueId(queueTypeId);
+
+                            WorldPacket data;
+                            sBattleGroundMgr.BuildBattleGroundStatusPacket(&data, bg, queueSlot, STATUS_NONE, 0, 0);
+                            player->GetSession()->SendPacket(&data);
+                        }
+                    }
+                }
+
+                RemovePlayer(itrOffline->first, true);
+                itrOffline = m_queuedPlayers.begin();
+                continue;
+            }
+        }
+
+        ++itrOffline;
     }
-    //if no players in queue - do nothing
+
+    // if no players in queue - do nothing
     if (m_queuedGroups[bracketId][BG_QUEUE_PREMADE_ALLIANCE].empty() &&
             m_queuedGroups[bracketId][BG_QUEUE_PREMADE_HORDE].empty() &&
             m_queuedGroups[bracketId][BG_QUEUE_NORMAL_ALLIANCE].empty() &&
@@ -670,7 +704,7 @@ void BattleGroundQueue::Update(BattleGroundTypeId bgTypeId, BattleGroundBracketI
             std::default_random_engine(seed));
     }
 
-    //battleground with free slot for player should be always in the beginning of the queue
+    // battleground with free slot for player should be always in the beginning of the queue
     // maybe it would be better to create bgfreeslotqueue for each bracketId
     BgFreeSlotQueueType::iterator itr, next;
     for (itr = sBattleGroundMgr.m_bgFreeSlotQueue[bgTypeId].begin(); itr != sBattleGroundMgr.m_bgFreeSlotQueue[bgTypeId].end(); itr = next)
@@ -715,14 +749,6 @@ void BattleGroundQueue::Update(BattleGroundTypeId bgTypeId, BattleGroundBracketI
     }
     // get the min. players per team, properly for larger arenas as well.
     uint32 minPlayersPerTeam = bgTemplate->GetMinPlayersPerTeam();
-    if (bgTypeId == BATTLEGROUND_AV)
-    {
-        minPlayersPerTeam = 35;
-    }
-    if (bgTypeId == BATTLEGROUND_WS)
-    {
-        minPlayersPerTeam = 9;
-    }
     uint32 maxPlayersPerTeam = bgTemplate->GetMaxPlayersPerTeam();
 
     int normalMatchesCreationAttempts = 1;
@@ -1398,20 +1424,6 @@ void BattleGroundMgr::BuildBattleGroundListPacket(WorldPacket* data, ObjectGuid 
         ++count;
     }
 
-    // 战场控制
-    // printf("ClientBattleGroundIdSet: %u \n", count);
-    if (bgTypeId == BATTLEGROUND_AV && sPlayerBotMgr.m_confBattleBotAutoJoin)
-    {
-        if (count >= 3)
-        {
-            sPlayerBotMgr.m_confBattleBotAutoJoin_11 = false;
-        }
-        else
-        {
-            sPlayerBotMgr.m_confBattleBotAutoJoin_11 = true;
-        }
-    }
-
     data->put<uint32>(countPos, count);
 }
 
@@ -1700,6 +1712,7 @@ void BattleGroundMgr::LoadBattleEventIndexes()
 void BattleGroundMgr::PlayerLoggedIn(Player* player)
 {
     for (int i = 1; i <= PLAYER_MAX_BATTLEGROUND_QUEUES; ++i)
+    {
         if (m_battleGroundQueues[i].PlayerLoggedIn(player))
         {
             GroupQueueInfo groupInfo;
@@ -1714,8 +1727,16 @@ void BattleGroundMgr::PlayerLoggedIn(Player* player)
             player->GetSession()->SendPacket(&data);
 
             if (groupInfo.isInvitedToBgInstanceGuid)
+            {
                 player->SetInviteForBattleGroundQueueType(BattleGroundQueueTypeId(i), groupInfo.isInvitedToBgInstanceGuid);
+
+                // create automatic remove events
+                BGQueueRemoveEvent* removeEvent = new BGQueueRemoveEvent(player->GetObjectGuid(), groupInfo.isInvitedToBgInstanceGuid, bg->GetTypeID(), BattleGroundQueueTypeId(i), groupInfo.removeInviteTime);
+                uint32 offset = (WorldTimer::getMSTime() > groupInfo.removeInviteTime) ? 1 : WorldTimer::getMSTimeDiff(WorldTimer::getMSTime(), groupInfo.removeInviteTime);
+                player->m_Events.AddEvent(removeEvent, player->m_Events.CalculateTime(offset));
+            }
         }
+    }
 }
 
 void BattleGroundMgr::PlayerLoggedOut(Player* player)
@@ -1776,42 +1797,16 @@ uint32 BattleGroundMgr::CheckBattleGround(uint32 instanceId, uint32 bgTypeId, bo
     if (!bg)
         return 0; // bg closed
 
-    // 总开关检查
-    // if (!sPlayerBotMgr.m_confBattleBotAutoJoin)
-    //     return 2; // nothing
-
-    // 空战场检查
-    // https://github.com/vmangos/core/commit/922d93bba35494d4be804496ce6e383afecb3ae6
-    if (!initial && bg->GetRealPlayersCountByTeam(ALLIANCE) == 0 && bg->GetRealPlayersCountByTeam(HORDE) == 0)
-    {
-        bg->DeleteBattleBot(ALLIANCE, true);
-        bg->DeleteBattleBot(HORDE, true);
-        bg->EndBattleGround(TEAM_NONE);
-
-        sPlayerBotMgr.SwitchAutoJoinBattleBots(true, bgTypeId);
-        return 1; // bg closed
-    }
-
     // 奥山
     if (bgTypeId == 1)
     {
-        if (! sPlayerBotMgr.m_confBattleBotAutoJoin_11)
+        if (bg->GetPlayersCountByTeam(ALLIANCE) == 40 && bg->GetBotPlayersCountByTeam(ALLIANCE) > 4)
         {
-            // 必须要先关闭 自动加入战场，不然可能会导致人数不够，无法开新场
-            if (bg->GetPlayersCountByTeam(ALLIANCE) == 40)
-            {
-                if (bg->GetRealPlayersCountByTeam(ALLIANCE) < 15 || bg->GetRealPlayersCountByTeam(HORDE) >= 5)
-                {
-                    bg->DeleteBattleBot(ALLIANCE);
-                }
-            }
-            if (bg->GetPlayersCountByTeam(HORDE) == 40)
-            {
-                if (bg->GetRealPlayersCountByTeam(HORDE) < 15 || bg->GetRealPlayersCountByTeam(ALLIANCE) >= 5)
-                {
-                    bg->DeleteBattleBot(HORDE);
-                }
-            }
+            bg->DeleteBattleBot(ALLIANCE);
+        }
+        if (bg->GetPlayersCountByTeam(HORDE) == 40 && bg->GetBotPlayersCountByTeam(HORDE) > 4)
+        {
+            bg->DeleteBattleBot(HORDE);
         }
     }
 
@@ -1837,6 +1832,12 @@ uint32 BattleGroundMgr::CheckBattleGround(uint32 instanceId, uint32 bgTypeId, bo
 
             if (bg->GetPlayersCountByTeam(HORDE) < 10)
                 sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_WS), HORDE, bg->GetMaxLevel(), false);
+
+            bg->DeleteBattleBot(ALLIANCE);
+            sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_WS), ALLIANCE, bg->GetMaxLevel(), false);
+
+            bg->DeleteBattleBot(HORDE);
+            sPlayerBotMgr.AddBattleBot(BattleGroundQueueTypeId(BATTLEGROUND_WS), HORDE, bg->GetMaxLevel(), false);
         }
     }
 

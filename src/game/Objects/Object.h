@@ -36,6 +36,9 @@
 #include "Camera.h"
 #include "Cell.h"
 #include <string>
+#ifdef ENABLE_ELUNA
+#include "LuaValue.h"
+#endif
 
 class WorldPacket;
 class UpdateData;
@@ -54,10 +57,10 @@ class ZoneScript;
 class GenericTransport;
 struct FactionEntry;
 struct FactionTemplateEntry;
-
 #ifdef ENABLE_ELUNA
 class ElunaEventProcessor;
-#endif /* ENABLE_ELUNA */
+class Eluna;
+#endif
 
 typedef std::unordered_map<Player*, UpdateData> UpdateDataMapType;
 
@@ -378,9 +381,9 @@ class Object
         void BuildValuesUpdate(uint8 updatetype, ByteBuffer* data, UpdateMask* updateMask, Player* target) const;
         void BuildUpdateDataForPlayer(Player* pl, UpdateDataMapType& update_players);
 
-        void SendOutOfRangeUpdateToPlayer(Player* player);
+        void SendOutOfRangeUpdateToPlayer(Player const* player);
 
-        virtual void DestroyForPlayer(Player* target) const;
+        virtual void DestroyForPlayer(Player const* target) const;
 
         int32 const& GetInt32Value(uint16 index) const
         {
@@ -613,8 +616,8 @@ class Object
         void _Create (uint32 guidlow, uint32 entry, HighGuid guidhigh);
 
         uint16 GetUpdateFieldFlagsForTarget(Player const* target, uint16 const*& flags) const;
-        void _SetCreateBits(UpdateMask& updateMask, Player* target) const;
-        void _SetUpdateBits(UpdateMask& updateMask, Player* target) const;
+        void _SetCreateBits(UpdateMask& updateMask, Player const* target) const;
+        void _SetUpdateBits(UpdateMask& updateMask, Player const* target) const;
         void _LoadIntoDataField(std::string const& data, uint32 startOffset, uint32 count);
 
         uint16 m_objectType;
@@ -683,12 +686,7 @@ class WorldObject : public Object
                 WorldObject* const m_obj;
         };
 
-        virtual ~WorldObject () override {
-        #ifdef ENABLE_ELUNA
-            delete elunaEvents;
-            elunaEvents = NULL;
-        #endif /* ENABLE_ELUNA */
-		}
+        virtual ~WorldObject() override {}
 
         virtual void Update(uint32 /*update_diff*/, uint32 /*time_diff*/);
 
@@ -704,8 +702,8 @@ class WorldObject : public Object
         float GetPositionX() const { return m_position.x; }
         float GetPositionY() const { return m_position.y; }
         float GetPositionZ() const { return m_position.z; }
-        virtual void GetSafePosition(float &x, float &y, float &z, GenericTransport* onTransport = nullptr) const { GetPosition(x, y, z, onTransport); }
-        void GetPosition(float &x, float &y, float &z, GenericTransport* onTransport = nullptr) const;
+        virtual void GetSafePosition(float &x, float &y, float &z, GenericTransport const* onTransport = nullptr) const { GetPosition(x, y, z, onTransport); }
+        void GetPosition(float &x, float &y, float &z, GenericTransport const* onTransport = nullptr) const;
         void GetPosition(WorldLocation &loc) const { loc.mapId = m_mapId; GetPosition(loc.x, loc.y, loc.z); loc.o = GetOrientation(); }
         float GetOrientation() const { return m_position.o; }
         void GetNearPoint2D(float &x, float &y, float distance, float absAngle) const
@@ -872,7 +870,12 @@ class WorldObject : public Object
 
         // Send to players
         virtual void SendMessageToSet(WorldPacket* data, bool self) const;
+
         // Send to players who have object at client
+    private:
+        template<class DelivererType>
+        void SendObjectMessageToSetImpl(WorldPacket* data, bool self, WorldObject const* except = nullptr) const;
+    public:
         void SendObjectMessageToSet(WorldPacket* data, bool self, WorldObject const* except = nullptr) const;
         void SendMovementMessageToSet(WorldPacket data, bool self, WorldObject const* except = nullptr);
 
@@ -1006,10 +1009,15 @@ class WorldObject : public Object
 
         uint32 GetCreatureSummonLimit() const;
         void SetCreatureSummonLimit(uint32 limit);
-        #ifdef ENABLE_ELUNA
-		ElunaEventProcessor* elunaEvents;
-        #endif /* ENABLE_ELUNA */
 
+		
+#ifdef ENABLE_ELUNA
+        ElunaEventProcessor* elunaEvents;
+
+        Eluna* GetEluna() const;
+
+        LuaVal lua_data = LuaVal({});
+#endif 
     protected:
         explicit WorldObject();
 

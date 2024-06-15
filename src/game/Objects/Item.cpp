@@ -255,9 +255,10 @@ void Item::UpdateDuration(Player* owner, uint32 diff)
     if (GetUInt32Value(ITEM_FIELD_DURATION) <= diff)
     {
         // Used by Eluna
-        #ifdef ENABLE_ELUNA
-        sEluna->OnExpire(owner, GetProto());
-        #endif /* ENABLE_ELUNA */
+#ifdef ENABLE_ELUNA
+        if (Eluna* e = owner->GetEluna())
+            e->OnExpire(owner, GetProto());
+#endif /* ENABLE_ELUNA */
         owner->DestroyItem(GetBagSlot(), GetSlot(), true);
         return;
     }

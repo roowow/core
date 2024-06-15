@@ -152,6 +152,7 @@ struct boss_jeklikAI : public ScriptedAI
 
         if (!PhaseTwo && m_creature->GetHealthPercent() < 50.0f)
         {
+            m_creature->SetInvincibilityHpThreshold(0);
             m_creature->RemoveAurasDueToSpell(SPELL_BAT_FORM);
             m_creature->SetFly(false);
             m_creature->SetObjectScale(1.5f);
@@ -426,10 +427,10 @@ struct mob_batriderAI : public ScriptedAI
             if (Unit* pTarget = pJeklik->SelectAttackingTarget(ATTACKING_TARGET_RANDOM, 0))
                 m_creature->CastSpell(pTarget, SPELL_THROW_LIQUID_FIRE, false);
             else
-                sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "mob_batriderAI: Unable to find a target");
+                sLog.Out(LOG_SCRIPTS, LOG_LVL_MINIMAL, "mob_batriderAI: Unable to find a target");
         }
         else
-            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "mob_batriderAI: Jeklik not found.");
+            sLog.Out(LOG_SCRIPTS, LOG_LVL_MINIMAL, "mob_batriderAI: Jeklik not found.");
     }
 
     // Called when spell hits creature's target
@@ -519,9 +520,9 @@ struct npc_guru_bat_riderAI : public ScriptedAI
         {
             GoingToExplose = true;
             if (urand(0, 1))
-                m_creature->MonsterTextEmote("Gurubashi Bat Rider becomes fully engulfed in flames.", nullptr, false);
+                m_creature->MonsterTextEmote("古拉巴什蝙蝠骑士完全被火焰吞没。", nullptr, false);
             else
-                m_creature->MonsterTextEmote("Gurubashi Bat Rider gets a crazed look in his eye.", nullptr, false);
+                m_creature->MonsterTextEmote("古拉巴什蝙蝠骑士眼中露出疯狂的表情。", nullptr, false);
             m_creature->ApplySpellImmune(0, IMMUNITY_MECHANIC, MECHANIC_FEAR, true); // fear immunity
             m_creature->CastSpell(m_creature, SPELL_EXPLOSION, false);
         }

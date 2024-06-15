@@ -36,7 +36,6 @@
 #include "Spell.h"
 #include "Chat.h"
 #include "CharacterDatabaseCache.h"
-
 #ifdef ENABLE_ELUNA
 #include "LuaEngine.h"
 #endif /* ENABLE_ELUNA */
@@ -432,8 +431,8 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
         if (!sScriptMgr.OnGossipSelect(_player, pGo, sender, action, code.empty() ? nullptr : code.c_str()))
             _player->OnGossipSelect(pGo, gossipListId);
     }
-    // Used by Eluna
-    #ifdef ENABLE_ELUNA
+// Used by Eluna
+#ifdef ENABLE_ELUNA
     else if (guid.IsItem())
     {
         Item* item = GetPlayer()->GetItemByGuid(guid);
@@ -443,8 +442,8 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
             return;
         }
 
-        sEluna->HandleGossipSelectOption(GetPlayer(), item, GetPlayer()->PlayerTalkClass->GossipOptionSender(gossipListId), GetPlayer()->PlayerTalkClass->GossipOptionAction(gossipListId), code);
-
+        if (Eluna* e = GetPlayer()->GetEluna())
+            e->HandleGossipSelectOption(GetPlayer(), item, GetPlayer()->PlayerTalkClass->GossipOptionSender(gossipListId), GetPlayer()->PlayerTalkClass->GossipOptionAction(gossipListId), code);
     }
     else if (guid.IsPlayer())
     {
@@ -454,10 +453,11 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
             return;
         }
 
-        sEluna->HandleGossipSelectOption(GetPlayer(), GetPlayer()->PlayerTalkClass->GetGossipMenu().GetMenuId(), GetPlayer()->PlayerTalkClass->GossipOptionSender(gossipListId), GetPlayer()->PlayerTalkClass->GossipOptionAction(gossipListId), code);
-
+        if (Eluna* e = GetPlayer()->GetEluna())
+            e->HandleGossipSelectOption(GetPlayer(), GetPlayer()->PlayerTalkClass->GetGossipMenu().GetMenuId(), GetPlayer()->PlayerTalkClass->GossipOptionSender(gossipListId), GetPlayer()->PlayerTalkClass->GossipOptionAction(gossipListId), code);
     }
-    #endif /* ENABLE_ELUNA */
+#endif /* ENABLE_ELUNA */
+
 }
 
 void WorldSession::HandleSpiritHealerActivateOpcode(WorldPacket& recv_data)
@@ -738,8 +738,8 @@ void WorldSession::HandleUnstablePet(WorldPacket& recv_data)
     }
 
     uint32 creatureId = petData->entry;
-    CreatureInfo const* creatureInfo = ObjectMgr::GetCreatureTemplate(creatureId);
-    if (!creatureInfo || !creatureInfo->isTameable())
+    CreatureInfo const* creatureInfo = sObjectMgr.GetCreatureTemplate(creatureId);
+    if (!creatureInfo || !creatureInfo->IsTameable())
     {
         SendStableResult(STABLE_ERR_STABLE);
         return;
@@ -840,8 +840,8 @@ void WorldSession::HandleStableSwapPet(WorldPacket& recv_data)
         return;
     }
 
-    CreatureInfo const* creatureInfo = ObjectMgr::GetCreatureTemplate(creature_id);
-    if (!creatureInfo || !creatureInfo->isTameable())
+    CreatureInfo const* creatureInfo = sObjectMgr.GetCreatureTemplate(creature_id);
+    if (!creatureInfo || !creatureInfo->IsTameable())
     {
         SendStableResult(STABLE_ERR_STABLE);
         return;

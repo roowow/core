@@ -112,8 +112,8 @@ class PlayerBotMgr
 
         bool m_confBattleBotAutoJoin;
         bool m_confBattleBotAutoJoin_1;
-        bool m_confBattleBotAutoJoin_11;
         bool m_confBattleBotAutoJoin_2;
+        bool m_confBattleBotAutoJoin_3;
     protected:
         // How long since last update?
         uint32 m_elapsedTime;

@@ -92,11 +92,43 @@ struct go_wind_stoneAI: public GameObjectAI
 
         if (!npcEntry)
         {
-            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "go_wind_stoneAI - Unhandled spell id %u!\n", spellId);
+            sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "go_wind_stoneAI - Unhandled spell id %u!\n", spellId);
             return false;
         }
+
+        if (!me->isSpawned())
+            return true;
+
+        float x, y, z, o;
+        switch (me->GetEntry())
+        {
+            case 180461: // guessed
+                x = -7927.48f;
+                y = 1935.30f;
+                z = 5.61f;
+                o = 4.76475f;
+                break;
+            case 180534: // guessed
+                x = -6998.52f;
+                y = 1223.02f;
+                z = 9.16f;
+                o = 4.76475f;
+                break;
+            case 180554: // sniffed
+                x = -6716.82f;
+                y = 1674.36f;
+                z = 8.51f;
+                o = 4.76475f;
+                break;
+            default:
+                x = me->GetPositionX();
+                y = me->GetPositionY();
+                z = me->GetPositionZ();
+                o = me->GetOrientation();
+                break;
+        }
         
-        if (Creature* pCreature = me->SummonCreature(npcEntry, me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), me->GetOrientation(), TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, MINUTE * IN_MILLISECONDS))
+        if (Creature* pCreature = me->SummonCreature(npcEntry, x, y, z, o, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN, MINUTE * IN_MILLISECONDS))
         {
             pCreature->m_Events.AddLambdaEventAtOffset([pCreature, casterGuid = caster->GetObjectGuid()]
             {
@@ -478,7 +510,7 @@ struct npc_prince_thunderaanAI : public ScriptedAI
     {
         if (!engaged)
         {
-            m_creature->MonsterYell("My power is discombobulatingly devastating! It is ludicrous that these mortals even attempt to enter my realm!", 0);
+            m_creature->MonsterYell("我的力量是毁灭性的！这些凡人竟然想进入我的领域，真是可笑！", 0);
             engaged = true;
         }
     }
@@ -597,7 +629,7 @@ struct npc_colossusAI : public ScriptedAI
         {
             if (DoCastSpellIfCan(m_creature, SPELL_COLOSSAL_SMASH) == CAST_OK) // Maxi KB
             {
-                m_creature->MonsterTextEmote("Colossus begins to cast Colossus Smash", nullptr);
+                m_creature->MonsterTextEmote("巨像开始施放巨像粉碎", nullptr);
                 m_uiColossalSmashTimer = firstSmash ? 10000 : 60000;
                 m_uiColossalSmashEmoteTimer = 5000;
 
@@ -609,7 +641,7 @@ struct npc_colossusAI : public ScriptedAI
 
         if (m_uiColossalSmashEmoteTimer && m_uiColossalSmashEmoteTimer < uiDiff)
         {
-            m_creature->MonsterTextEmote("Colossus lets loose a massive attack", nullptr);
+            m_creature->MonsterTextEmote("巨像发动大规模攻击", nullptr);
             m_uiColossalSmashEmoteTimer = 0;
         }
         else
@@ -1219,7 +1251,6 @@ enum
     GO_AQ_BARRIER           = 176146,
     GO_AQ_GATE_ROOTS        = 176147,
     GO_AQ_GATE_RUNES        = 176148,
-    GO_AQ_GHOST_GATE        = 180322,
 
     AQ_OPEN_IF_CLOSED = 0,
     AQ_PREPARE_CLOSE = 1,
@@ -2129,8 +2160,6 @@ struct scarab_gongAI: public GameObjectAI
     GameObject* go_aq_barrier;
     GameObject* go_aq_gate_runes;
     GameObject* go_aq_gate_roots;
-    // Invisible AQ barrier
-    GameObject* go_aq_ghost_gate;
 
     void UpdateAI(uint32 const uiDiff) override
     {
@@ -2207,9 +2236,8 @@ struct scarab_gongAI: public GameObjectAI
         go_aq_barrier    = GetClosestGameObjectWithEntry(me, GO_AQ_BARRIER, 150);
         go_aq_gate_runes = GetClosestGameObjectWithEntry(me, GO_AQ_GATE_RUNES, 150);
         go_aq_gate_roots = GetClosestGameObjectWithEntry(me, GO_AQ_GATE_ROOTS, 150);
-        go_aq_ghost_gate = GetClosestGameObjectWithEntry(me, GO_AQ_GHOST_GATE, 150);
 
-        if (!go_aq_barrier || !go_aq_gate_runes || !go_aq_gate_roots || !go_aq_ghost_gate)
+        if (!go_aq_barrier || !go_aq_gate_runes || !go_aq_gate_roots)
             return;
 
         // Abort "Pawn on the Eternal Board" scene if currently active.
@@ -2241,7 +2269,6 @@ struct scarab_gongAI: public GameObjectAI
 
     void ResetAQGates()
     {
-        go_aq_ghost_gate->SetGoState(GO_STATE_READY);
         go_aq_barrier->SetGoState(GO_STATE_READY);
         go_aq_gate_runes->SetGoState(GO_STATE_READY);
         go_aq_gate_roots->ResetDoorOrButton();
@@ -2293,8 +2320,8 @@ bool QuestRewarded_scarab_gong(Player* player, GameObject* go, Quest const* ques
  ## npc_Krug_SkullSplit ##
  ########################*/
 
-#define GOSSIP_ITEM_KRUG_SKULLSPLIT_1 "Continue."
-#define GOSSIP_ITEM_KRUG_SKULLSPLIT_2 "Very well, let's go!"
+#define GOSSIP_ITEM_KRUG_SKULLSPLIT_1 "继续。"
+#define GOSSIP_ITEM_KRUG_SKULLSPLIT_2 "很好，我们走吧！"
 
 /* Hunterkiller */
 #define HUNTERKILLER_SPAWN_POS_X -7765.0f

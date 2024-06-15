@@ -44,6 +44,9 @@
 #include <unordered_map>
 #include <thread>
 
+#ifdef ENABLE_ELUNA
+class Eluna;
+#endif
 class Object;
 class WorldSession;
 class Player;
@@ -92,7 +95,9 @@ enum WorldTimers
 // Configuration elements
 enum eConfigUInt32Values
 {
-    CONFIG_UINT32_COMPRESSION = 0,
+    CONFIG_UINT32_COMPRESSION_LEVEL = 0,
+    CONFIG_UINT32_COMPRESSION_UPDATE_SIZE,
+    CONFIG_UINT32_COMPRESSION_MOVEMENT_COUNT,
     CONFIG_UINT32_LOGIN_QUEUE_GRACE_PERIOD_SECS,
     CONFIG_UINT32_CHARACTER_SCREEN_MAX_IDLE_TIME,
     CONFIG_UINT32_PLAYER_HARD_LIMIT,
@@ -482,7 +487,6 @@ enum eConfigBoolValues
     CONFIG_BOOL_OUTDOORPVP_SI_ENABLE,
     CONFIG_BOOL_MMAP_ENABLED,
     CONFIG_BOOL_SKIP_CINEMATICS,
-    CONFIG_BOOL_ELUNA_ENABLED,
     CONFIG_BOOL_PLAYER_COMMANDS,
     CONFIG_BOOL_FORCE_LOGOUT_DELAY,
     CONFIG_BOOL_SAVE_RESPAWN_TIME_IMMEDIATELY,
@@ -757,7 +761,7 @@ class World
         typedef std::list<WorldSession*> Queue;
         void AddQueuedSession(WorldSession*);
         bool RemoveQueuedSession(WorldSession* session);
-        int32 GetQueuedSessionPos(WorldSession*);
+        uint32 GetQueuedSessionPos(WorldSession*);
 
         // Set a new Message of the Day
         void SetMotd(std::string const& motd) { m_motd = motd; }
@@ -806,6 +810,7 @@ class World
         void LoadConfigSettings(bool reload = false);
 
         void SendWorldText(int32 string_id, ...);
+        void SendWorldTextToBGAndQueue(int32 string_id, uint32 queuedPlayerLevel, uint32 queueType, ...);
         void SendBroadcastTextToWorld(uint32 textId);
 
         // Only for GMs with ticket notification ON
@@ -882,7 +887,7 @@ class World
         void UpdateResultQueue();
         void InitResultQueue();
 
-        void UpdateRealmCharCount(uint32 accid);
+        void UpdateRealmCharCount(uint32 accountId);
 
         LocaleConstant GetAvailableDbcLocale(LocaleConstant locale) const { if (m_availableDbcLocaleMask & (1 << locale)) return locale; else return m_defaultDbcLocale; }
 
@@ -946,6 +951,11 @@ class World
         Messager<World>& GetMessager() { return m_messager; }
 
         LFGQueue& GetLFGQueue() { return m_lfgQueue; }
+
+#ifdef ENABLE_ELUNA
+        Eluna* GetEluna() const { return eluna; }
+        Eluna* eluna;
+#endif
     protected:
         void _UpdateGameTime();
         // callback for UpdateRealmCharacters

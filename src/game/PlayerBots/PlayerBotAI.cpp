@@ -93,7 +93,7 @@ bool PlayerBotAI::SpawnNewPlayer(WorldSession* sess, uint8 class_, uint32 race_,
     int index = rand() % BattleBotNamesCount;
     std::string botName = sBattleGroundMgr.BattleBotNames[index];
     std::string name = botName;
-    Player* tmpPlayer = sObjectMgr.GetPlayer(botName.c_str());
+    Player* tmpPlayer = sObjectMgr.GetPlayer(botName.c_str()); // if name is used
     if (tmpPlayer)
     {
         name = sObjectMgr.GeneratePetName(1863); // Succubus name

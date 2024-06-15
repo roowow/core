@@ -103,6 +103,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "setrole",    SEC_ADMINISTRATOR,      false, &ChatHandler::HandlePartyBotSetRoleCommand,     "", nullptr },
         { "attackstart",SEC_ADMINISTRATOR,      false, &ChatHandler::HandlePartyBotAttackStartCommand, "", nullptr },
         { "attackstop", SEC_ADMINISTRATOR,      false, &ChatHandler::HandlePartyBotAttackStopCommand,  "", nullptr },
+        { "pull",       SEC_ADMINISTRATOR,      false, &ChatHandler::HandlePartyBotPullCommand,        "", nullptr },
         { "aoe",        SEC_ADMINISTRATOR,      false, &ChatHandler::HandlePartyBotAoECommand,         "", nullptr },
         { "ccmark",     SEC_ADMINISTRATOR,      false, &ChatHandler::HandlePartyBotControlMarkCommand, "", nullptr },
         { "focusmark",  SEC_ADMINISTRATOR,      false, &ChatHandler::HandlePartyBotFocusMarkCommand,   "", nullptr },
@@ -133,6 +134,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "autojoin",     SEC_ADMINISTRATOR,    true, &ChatHandler::HandleBattleBotAutoJoinCommand,     "", nullptr },
         { "autojoin1",    SEC_ADMINISTRATOR,    true, &ChatHandler::HandleBattleBotAutoJoin1Command,     "", nullptr },
         { "autojoin2",    SEC_ADMINISTRATOR,    true, &ChatHandler::HandleBattleBotAutoJoin2Command,     "", nullptr },
+        { "autojoin3",    SEC_ADMINISTRATOR,    true, &ChatHandler::HandleBattleBotAutoJoin3Command,     "", nullptr },
         { nullptr,        0,                    false, nullptr,                                          "", nullptr },
     };
 
@@ -525,6 +527,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "item",           SEC_TICKETMASTER,  true,  &ChatHandler::HandleListItemCommand,           "", nullptr },
         { "object",         SEC_TICKETMASTER,  true,  &ChatHandler::HandleListObjectCommand,         "", nullptr },
         { "talents",        SEC_TICKETMASTER,  false, &ChatHandler::HandleListTalentsCommand,        "", nullptr },
+        { "maps",           SEC_TICKETMASTER,  true,  &ChatHandler::HandleListMapsCommand,           "", nullptr },
         { "movegens",       SEC_TICKETMASTER,  false, &ChatHandler::HandleListMoveGensCommand,       "", nullptr },
         { "hostilerefs",    SEC_TICKETMASTER,  false, &ChatHandler::HandleListHostileRefsCommand,    "", nullptr },
         { "threat",         SEC_TICKETMASTER,  false, &ChatHandler::HandleListThreatCommand,         "", nullptr },
@@ -725,6 +728,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "npcflags",       SEC_MODERATOR,      false, &ChatHandler::HandleUnitShowNPCFlagsCommand,    "", nullptr },
         { "moveflags",      SEC_MODERATOR,      false, &ChatHandler::HandleUnitShowMoveFlagsCommand,   "", nullptr },
         { "createspell",    SEC_MODERATOR,      false, &ChatHandler::HandleUnitShowCreateSpellCommand, "", nullptr },
+        { "combattimer",    SEC_MODERATOR,      false, &ChatHandler::HandleUnitShowCombatTimerCommand, "", nullptr },
         { nullptr,          0,                  false, nullptr,                                        "", nullptr }
     };
 
@@ -814,6 +818,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "creature_questrelation",       SEC_DEVELOPER,     true,  &ChatHandler::HandleReloadCreatureQuestRelationsCommand,  "", nullptr },
         { "creature_spells",              SEC_DEVELOPER,     true,  &ChatHandler::HandleReloadCreatureSpellsCommand,          "", nullptr },
         { "creature_spells_scripts",      SEC_DEVELOPER,     true,  &ChatHandler::HandleReloadCreatureSpellScriptsCommand,    "", nullptr },
+        { "creature_template",            SEC_DEVELOPER,     true,  &ChatHandler::HandleReloadCreatureTemplatesCommand,       "", nullptr },
         { "disenchant_loot_template",     SEC_DEVELOPER,     true,  &ChatHandler::HandleReloadLootTemplatesDisenchantCommand, "", nullptr },
         { "event_scripts",                SEC_DEVELOPER,     true,  &ChatHandler::HandleReloadEventScriptsCommand,            "", nullptr },
         { "fishing_loot_template",        SEC_DEVELOPER,     true,  &ChatHandler::HandleReloadLootTemplatesFishingCommand,    "", nullptr },
@@ -1950,10 +1955,11 @@ void ChatHandler::ExecuteCommand(char const* text)
         }
         case CHAT_COMMAND_UNKNOWN_SUBCOMMAND:
         {
-            #ifdef ENABLE_ELUNA
-                if (!sEluna->OnCommand(m_session ? m_session->GetPlayer() : NULL, fullcmd.c_str()))
+#ifdef ENABLE_ELUNA
+            if (Eluna* e = sWorld.GetEluna())
+                if (!e->OnCommand(m_session ? m_session->GetPlayer() : NULL, fullcmd.c_str()))
                     return;
-            #endif /* ENABLE_ELUNA */
+#endif /* ENABLE_ELUNA */
             SendSysMessage(LANG_NO_SUBCMD);
             ShowHelpForCommand(command->ChildCommands, text);
             SetSentErrorMessage(true);
@@ -1961,10 +1967,11 @@ void ChatHandler::ExecuteCommand(char const* text)
         }
         case CHAT_COMMAND_UNKNOWN:
         {
-            #ifdef ENABLE_ELUNA
-                if (!sEluna->OnCommand(m_session ? m_session->GetPlayer() : NULL, fullcmd.c_str()))
+#ifdef ENABLE_ELUNA
+            if (Eluna* e = sWorld.GetEluna())
+                if (!e->OnCommand(m_session ? m_session->GetPlayer() : NULL, fullcmd.c_str()))
                     return;
-            #endif /* ENABLE_ELUNA */
+#endif /* ENABLE_ELUNA */
             SendSysMessage(LANG_NO_CMD);
             SetSentErrorMessage(true);
             break;
@@ -3587,7 +3594,7 @@ bool ChatHandler::ExtractLocationFromLink(char** text, uint32& mapid, float& x, 
             if (!ExtractUInt32(&idS, id))
                 return false;
 
-            if (ObjectMgr::GetCreatureTemplate(id))
+            if (sObjectMgr.GetCreatureTemplate(id))
             {
                 FindCreatureData worker(id, m_session ? m_session->GetPlayer() : nullptr);
 

@@ -44,6 +44,9 @@
 #include "Conditions.h"
 #include "Anticheat.h"
 #include "MasterPlayer.h"
+#ifdef ENABLE_ELUNA
+#include "LuaEngine.h"
+#endif /* ENABLE_ELUNA */
 
 void WorldSession::HandleRepopRequestOpcode(WorldPacket& /*recv_data*/)
 {
@@ -64,6 +67,12 @@ void WorldSession::HandleRepopRequestOpcode(WorldPacket& /*recv_data*/)
         sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "HandleRepopRequestOpcode: got request after player %s(%d) was killed and before he was updated", player->GetName(), player->GetGUIDLow());
         player->KillPlayer();
     }
+
+    // Used by Eluna
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetPlayer()->GetEluna())
+        e->OnRepop(GetPlayer());
+#endif /* ENABLE_ELUNA */
 
     player->BuildPlayerRepop();
     player->ScheduleRepopAtGraveyard();
@@ -760,7 +769,7 @@ void WorldSession::HandleAreaTriggerOpcode(WorldPacket& recv_data)
         if ((pPlayer->GetLevel() < bg->GetMinLevel() || pPlayer->GetLevel() > bg->GetMaxLevel()) ||
             (pPlayer->GetTeam() != pBgEntrance->team))
         {
-            SendAreaTriggerMessage("You must be in the %s and at least %u%s level to enter.", pPlayer->GetTeam() == ALLIANCE ? "Alliance" : "Horde", bg->GetMinLevel(), bg->GetMinLevel() % 2 ? "st" : "th");
+            SendAreaTriggerMessage("You must be in the %s and at least %u%s level to enter.", pPlayer->GetTeam() == ALLIANCE ? "Horde" : "Alliance", bg->GetMinLevel(), bg->GetMinLevel() % 2 ? "st" : "th");
             return;
         }
 

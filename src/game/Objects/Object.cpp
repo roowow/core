@@ -58,6 +58,7 @@
 
 #ifdef ENABLE_ELUNA
 #include "LuaEngine.h"
+#include "ElunaConfig.h"
 #include "ElunaEventMgr.h"
 #endif /* ENABLE_ELUNA */
 
@@ -349,7 +350,7 @@ void WorldObject::DirectSendPublicValueUpdate(uint32 index, uint32 count)
 {
     // Do we need an update ?
     bool abort = true;
-    for (int i = 0; i < count; i++)
+    for (uint32 i = 0; i < count; i++)
     {
         if (m_uint32Values_mirror[index + i] != m_uint32Values[index + i])
         {
@@ -363,7 +364,7 @@ void WorldObject::DirectSendPublicValueUpdate(uint32 index, uint32 count)
 
     UpdateMask updateMask;
     updateMask.SetCount(m_valuesCount);
-    for (int i = 0; i < count; i++)
+    for (uint32 i = 0; i < count; i++)
         updateMask.SetBit(index + i);
 
     DirectSendPublicValueUpdate(updateMask);
@@ -446,7 +447,7 @@ void Object::BuildOutOfRangeUpdateBlock(UpdateData& data) const
     data.AddOutOfRangeGUID(GetObjectGuid());
 }
 
-void Object::SendOutOfRangeUpdateToPlayer(Player* player)
+void Object::SendOutOfRangeUpdateToPlayer(Player const* player)
 {
     UpdateData data;
     BuildOutOfRangeUpdateBlock(data);
@@ -455,7 +456,7 @@ void Object::SendOutOfRangeUpdateToPlayer(Player* player)
     player->SendDirectMessage(&packet);
 }
 
-void Object::DestroyForPlayer(Player* target) const
+void Object::DestroyForPlayer(Player const* target) const
 {
     MANGOS_ASSERT(target);
 
@@ -1084,7 +1085,7 @@ void Object::MarkUpdateFieldsWithFlagForUpdate(UpdateMask& updateMask, uint16 fl
     }
 }
 
-void Object::_SetUpdateBits(UpdateMask& updateMask, Player* target) const
+void Object::_SetUpdateBits(UpdateMask& updateMask, Player const* target) const
 {
     uint16 const* flags = nullptr;
     uint16 visibleFlag = GetUpdateFieldFlagsForTarget(target, flags);
@@ -1097,7 +1098,7 @@ void Object::_SetUpdateBits(UpdateMask& updateMask, Player* target) const
     }
 }
 
-void Object::_SetCreateBits(UpdateMask& updateMask, Player* target) const
+void Object::_SetCreateBits(UpdateMask& updateMask, Player const* target) const
 {
     uint16 const* flags = nullptr;
     uint16 visibleFlag = GetUpdateFieldFlagsForTarget(target, flags);
@@ -1422,8 +1423,15 @@ bool WorldObject::IsWithinLootXPDist(WorldObject const* objToLoot) const
     if (!IsInMap(objToLoot))
         return false;
 
-    if (objToLoot->GetMap()->IsRaid())
-        return true;
+    if (objToLoot->GetMap()->Instanceable())
+    {
+        if (objToLoot->GetMap()->IsRaid())
+            return true;
+
+        if (Creature const* pCreature = objToLoot->ToCreature())
+            if (pCreature->HasStaticFlag(CREATURE_STATIC_FLAG_CORPSE_RAID))
+                return true;
+    }
 
     // Bosses have increased loot distance.
     float lootDistance = sWorld.getConfig(CONFIG_FLOAT_GROUP_XP_DISTANCE);
@@ -1450,16 +1458,17 @@ void WorldObject::SetVisibilityModifier(float f)
 }
 
 WorldObject::WorldObject()
-    :   
-        #ifdef ENABLE_ELUNA
-	    elunaEvents(NULL),
-        #endif /* ENABLE_ELUNA */
-        m_isActiveObject(false), m_visibilityModifier(DEFAULT_VISIBILITY_MODIFIER), m_currMap(nullptr),
+    : 
+#ifdef ENABLE_ELUNA
+	elunaEvents(NULL),
+#endif /* ENABLE_ELUNA */
+    m_isActiveObject(false), m_visibilityModifier(DEFAULT_VISIBILITY_MODIFIER), m_currMap(nullptr),
         m_mapId(0), m_InstanceId(0), m_summonLimitAlert(0), worldMask(WORLD_DEFAULT_OBJECT), m_zoneScript(nullptr),
         m_transport(nullptr)
 {
     m_movementInfo.stime = WorldTimer::getMSTime();
 }
+
 
 void WorldObject::CleanupsBeforeDelete()
 {
@@ -1550,9 +1559,11 @@ float WorldObject::GetSizeFactorForDistance(WorldObject const* obj, SizeFactor d
         }
         case SizeFactor::CombatReachWithMelee:
         {
-            sizefactor = std::max(1.5f, GetCombatReach());
+            sizefactor = BASE_MELEERANGE_OFFSET + GetCombatReach();
             if (obj)
-                sizefactor += std::max(1.5f, obj->GetCombatReach());
+                sizefactor += obj->GetCombatReach();
+            if (sizefactor < ATTACK_DISTANCE)
+                sizefactor = ATTACK_DISTANCE;
             break;
         }
         default:
@@ -1786,7 +1797,7 @@ bool WorldObject::CanReachWithMeleeSpellAttack(WorldObject const* pVictim, float
         return false;
 
     float reach = IsUnit() && pVictim->IsUnit() ? 
-        static_cast<Unit const*>(this)->GetCombatReach(static_cast<Unit const*>(pVictim), true, flat_mod) : ATTACK_DISTANCE;
+        static_cast<Unit const*>(this)->GetCombatReachToTarget(static_cast<Unit const*>(pVictim), true, flat_mod) : ATTACK_DISTANCE;
 
     // This check is not related to bounding radius
     float dx = GetPositionX() - pVictim->GetPositionX();
@@ -2164,7 +2175,25 @@ struct ObjectViewersDeliverer
     template<class SKIP> void Visit(GridRefManager<SKIP>&) {}
 };
 
-void WorldObject::SendObjectMessageToSet(WorldPacket* data, bool self, WorldObject const* except) const
+struct ObjectViewersMovementDeliverer
+{
+    WorldPacket* i_message;
+    WorldObject const* i_sender;
+    WorldObject const* i_except;
+    explicit ObjectViewersMovementDeliverer(WorldObject const* sender, WorldPacket* msg, WorldObject const* except) : i_message(msg), i_sender(sender), i_except(except) {}
+    void Visit(CameraMapType& m)
+    {
+        for (const auto& iter : m)
+            if (Player* player = iter.getSource()->GetOwner())
+                if (player != i_except && player != i_sender)
+                    if (player->IsInVisibleList_Unsafe(i_sender))
+                        player->GetSession()->SendMovementPacket(i_message);
+    }
+    template<class SKIP> void Visit(GridRefManager<SKIP>&) {}
+};
+
+template<class DelivererType>
+void WorldObject::SendObjectMessageToSetImpl(WorldPacket* data, bool self, WorldObject const* except) const
 {
     if (self && this != except)
         if (Player const* me = ToPlayer())
@@ -2184,9 +2213,14 @@ void WorldObject::SendObjectMessageToSet(WorldPacket* data, bool self, WorldObje
     if (!GetMap()->IsLoaded(GetPositionX(), GetPositionY()))
         return;
 
-    ObjectViewersDeliverer post_man(this, data, except);
-    TypeContainerVisitor<ObjectViewersDeliverer, WorldTypeMapContainer> message(post_man);
+    DelivererType post_man(this, data, except);
+    TypeContainerVisitor<DelivererType, WorldTypeMapContainer> message(post_man);
     cell.Visit(p, message, *GetMap(), *this, std::max(GetMap()->GetVisibilityDistance(), GetVisibilityModifier()));
+}
+
+void WorldObject::SendObjectMessageToSet(WorldPacket* data, bool self, WorldObject const* except) const
+{
+    SendObjectMessageToSetImpl<ObjectViewersDeliverer>(data, self, except);
 }
 
 void WorldObject::SendMovementMessageToSet(WorldPacket data, bool self, WorldObject const* except)
@@ -2195,7 +2229,7 @@ void WorldObject::SendMovementMessageToSet(WorldPacket data, bool self, WorldObj
         static_cast<Player*>(this)->GetCheatData()->LogMovementPacket(false, data);
 
     if (!IsPlayer() || !sWorld.GetBroadcaster()->IsEnabled())
-        SendObjectMessageToSet(&data, true, except);
+        SendObjectMessageToSetImpl<ObjectViewersMovementDeliverer>(&data, true, except);
     else
     {
         auto player_broadcast = ToPlayer()->m_broadcaster;
@@ -2266,9 +2300,19 @@ void WorldObject::SetMap(Map* map)
     m_InstanceId = map->GetInstanceId();
 
     #ifdef ENABLE_ELUNA
-    delete elunaEvents;
-    // On multithread replace this with a pointer to map's Eluna pointer stored in a map
-    elunaEvents = new ElunaEventProcessor(&Eluna::GEluna, this);
+    //@todo: possibly look into cleanly clearing all pending events from previous map's event mgr.
+
+    // if multistate, delete elunaEvents and set to nullptr. events shouldn't move across states.
+    // in single state, the timed events should move across maps
+    if (!sElunaConfig->IsElunaCompatibilityMode())
+    {
+        delete elunaEvents;
+        elunaEvents = nullptr; // set to null in case map doesn't use eluna
+    }
+
+    if (Eluna* e = map->GetEluna())
+        if (!elunaEvents)
+            elunaEvents = new ElunaEventProcessor(e, this);
     #endif
 
     // Order is important, must be done after m_currMap is set
@@ -2419,7 +2463,7 @@ Creature* Map::SummonCreature(uint32 entry, float x, float y, float z, float ang
 
 Creature* WorldObject::SummonCreature(uint32 id, float x, float y, float z, float ang, TempSummonType spwtype, uint32 despwtime, bool asActiveObject, uint32 pacifiedTimer, CreatureAiSetter pFuncAiSetter, GenericTransport* pTransport)
 {
-    CreatureInfo const* cinfo = ObjectMgr::GetCreatureTemplate(id);
+    CreatureInfo const* cinfo = sObjectMgr.GetCreatureTemplate(id);
     if (!cinfo)
     {
         sLog.Out(LOG_DBERROR, LOG_LVL_MINIMAL, "WorldObject::SummonCreature: Creature (Entry: %u) not existed for summoner: %s. ", id, GetGuidStr().c_str());
@@ -2468,10 +2512,11 @@ Creature* WorldObject::SummonCreature(uint32 id, float x, float y, float z, floa
     else if (IsGameObject() && ((GameObject*)this)->AI())
         ((GameObject*)this)->AI()->JustSummoned(pCreature);
 
-    #ifdef ENABLE_ELUNA
+#ifdef ENABLE_ELUNA
     if (Unit* summoner = ToUnit())
-        sEluna->OnSummoned(pCreature, summoner);
-    #endif /* ENABLE_ELUNA */
+        if (Eluna* e = GetEluna())
+            e->OnSummoned(pCreature, summoner);
+#endif /* ENABLE_ELUNA */
 
     // Creature Linking, Initial load is handled like respawn
     if (pCreature->IsLinkingEventTrigger())
@@ -3414,7 +3459,7 @@ void WorldObject::MonsterWhisper(int32 textId, Unit const* target, bool IsBossWh
     ((Player*)target)->GetSession()->SendPacket(&data);
 }
 
-void WorldObject::GetPosition(float &x, float &y, float &z, GenericTransport* t) const
+void WorldObject::GetPosition(float &x, float &y, float &z, GenericTransport const* t) const
 {
     if (t && m_movementInfo.t_guid == t->GetObjectGuid())
     {
@@ -3770,3 +3815,13 @@ bool WorldObject::IsValidHelpfulTarget(Unit const* target, bool checkAlive) cons
 
     return true;
 }
+
+#ifdef ENABLE_ELUNA
+Eluna* WorldObject::GetEluna() const
+{
+    if (IsInWorld())
+        return GetMap()->GetEluna();
+
+    return nullptr;
+}
+#endif

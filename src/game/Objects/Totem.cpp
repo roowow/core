@@ -27,6 +27,10 @@
 #include "InstanceData.h"
 #include "ObjectAccessor.h"
 
+#ifdef ENABLE_ELUNA
+#include "LuaEngine.h"
+#endif /* ENABLE_ELUNA */
+
 Totem::Totem() : Creature(CREATURE_SUBTYPE_TOTEM)
 {
     m_duration = 0;
@@ -82,8 +86,8 @@ void Totem::Update(uint32 update_diff, uint32 time)
         UnSummon();                                         // remove self
         return;
     }
-    else
-        m_duration -= update_diff;
+
+    m_duration -= update_diff;
 }
 
 void Totem::Summon(Unit* owner)
@@ -96,20 +100,19 @@ void Totem::Summon(Unit* owner)
     if (owner->GetTypeId() == TYPEID_UNIT && ((Creature*)owner)->AI())
         ((Creature*)owner)->AI()->JustSummoned((Creature*)this);
 
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetEluna())
+        e->OnSummoned(this, owner);
+#endif /* ENABLE_ELUNA */
+
+
     // there are some totems, which exist just for their visual appeareance
     if (!GetSpell())
         return;
 
-    switch (m_type)
+    if (m_type==TOTEM_PASSIVE)
     {
-        case TOTEM_PASSIVE:
-            CastSpell(this, GetSpell(), true);
-            break;
-        case TOTEM_STATUE:
-            CastSpell(GetOwner(), GetSpell(), true);
-            break;
-        default:
-            break;
+        CastSpell(this, GetSpell(), true);
     }
 }
 
@@ -177,8 +180,6 @@ void Totem::SetTypeBySummonSpell(SpellEntry const* spellProto)
         if (totemSpell->GetCastTime(this))
             m_type = TOTEM_ACTIVE;
     }
-    if (spellProto->SpellIconID == 2056)
-        m_type = TOTEM_STATUE;                              //Jewelery statue
 }
 
 bool Totem::IsImmuneToSpellEffect(SpellEntry const* spellInfo, SpellEffectIndex index, bool castOnSelf) const

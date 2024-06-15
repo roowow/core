@@ -36,9 +36,10 @@
 #include "Formulas.h"
 #include "GridNotifiersImpl.h"
 #include "Chat.h"
+#include "PlayerBotMgr.h"
 #ifdef ENABLE_ELUNA
 #include "LuaEngine.h"
-#endif /* ENABLE_ELUNA */
+#endif
 
 namespace MaNGOS
 {
@@ -296,6 +297,9 @@ void BattleGround::Update(uint32 diff)
         // BattleGround Template instance cannot be updated, because it would be deleted
         if (!GetInvitedCount(HORDE) && !GetInvitedCount(ALLIANCE))
             delete this;
+        // update queue to avoid bg remaining indefinitely until player logs back in if he logs out after it pops
+        else if (GetStatus() <= STATUS_WAIT_JOIN && (GetBgMap()->GetCreateTime() + 2 * MINUTE) < time(nullptr))
+            sBattleGroundMgr.ScheduleQueueUpdate(BattleGroundMgr::BgQueueTypeId(GetTypeID()), GetTypeID(), GetBracketId());
 
         return;
     }
@@ -638,8 +642,9 @@ int32 BattleGround::GetHeraldEntry() const
 void BattleGround::EndBattleGround(Team winner)
 {
     #ifdef ENABLE_ELUNA
-        sEluna->OnBGEnd(this, GetTypeID(), GetInstanceID(), winner);
-    #endif /* ENABLE_ELUNA */
+    if (Eluna* e = GetBgMap()->GetEluna())
+        e->OnBGEnd(this, GetTypeID(), GetInstanceID(), winner);
+    #endif
 
     RemoveFromBGFreeSlotQueue();
 
@@ -748,6 +753,10 @@ void BattleGround::EndBattleGround(Team winner)
 #else
         DoOrSimulateScriptTextForMap(winTextId, GetHeraldEntry(), GetBgMap());
 #endif
+
+    // remove any invited players from the queue when bg ends
+    if (GetInvitedCount(HORDE) || GetInvitedCount(ALLIANCE))
+        sBattleGroundMgr.ScheduleQueueUpdate(BattleGroundMgr::BgQueueTypeId(GetTypeID()), GetTypeID(), GetBracketId());
 }
 
 uint32 BattleGround::GetBonusHonorFromKill(uint32 kills) const
@@ -1020,10 +1029,10 @@ void BattleGround::StartBattleGround()
     // This must be done here, because we need to have already invited some players when first BG::Update() method is executed
     // and it doesn't matter if we call StartBattleGround() more times, because m_battleGrounds is a map and instance id never changes
     sBattleGroundMgr.AddBattleGround(GetInstanceID(), GetTypeID(), this);
-
-    #ifdef ENABLE_ELUNA
-    sEluna->OnBGStart(this, GetTypeID(), GetInstanceID());
-    #endif /* ENABLE_ELUNA */
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetBgMap()->GetEluna())
+        e->OnBGStart(this, GetTypeID(), GetInstanceID());
+#endif
 }
 
 void BattleGround::AddPlayer(Player* pPlayer)
@@ -1169,6 +1178,63 @@ uint32 BattleGround::GetFreeSlotsForTeam(Team team) const
     if (GetStatus() == STATUS_WAIT_JOIN || GetStatus() == STATUS_IN_PROGRESS)
         return (GetInvitedCount(team) < GetMaxPlayersPerTeam()) ? GetMaxPlayersPerTeam() - GetInvitedCount(team) : 0;
 
+    return 0;
+}
+
+void BattleGround::DecreaseInvitedCount(Team team)
+{
+    switch (team)
+    {
+        case ALLIANCE:
+        {
+            MANGOS_ASSERT(m_invitedAlliance-- > 0);
+            break;
+        }
+        case HORDE:
+        {
+            MANGOS_ASSERT(m_invitedHorde-- > 0);
+            break;
+        }
+        default:
+        {
+            sLog.Out(LOG_BG, LOG_LVL_ERROR, "BattleGround::DecreaseInvitedCount - Unknown player team %u.", team);
+            break;
+        }
+    }
+}
+void BattleGround::IncreaseInvitedCount(Team team)
+{ 
+    switch (team)
+    {
+        case ALLIANCE:
+        {
+            ++m_invitedAlliance;
+            break;
+        }
+        case HORDE:
+        {
+            ++m_invitedHorde;
+            break;
+        }
+        default:
+        {
+            sLog.Out(LOG_BG, LOG_LVL_ERROR, "BattleGround::IncreaseInvitedCount - Unknown player team %u.", team);
+            break;
+        }
+    }
+}
+
+uint32 BattleGround::GetInvitedCount(Team team) const
+{
+    switch (team)
+    {
+        case ALLIANCE:
+            return m_invitedAlliance;
+        case HORDE:
+            return m_invitedHorde;
+    }
+
+    sLog.Out(LOG_BG, LOG_LVL_ERROR, "BattleGround::GetInvitedCount - Unknown player team %u.", team);
     return 0;
 }
 
@@ -1816,6 +1882,8 @@ void BattleGround::HandleCommand(Player* player, ChatHandler* handler, char* arg
 bool BattleGround::DeleteBattleBot(Team team, bool all)
 {
     bool result = false;
+
+    // for (auto const& itr : GetPlayers())
     for (auto itr = GetPlayers().rbegin(); itr != GetPlayers().rend(); ++itr) {
         Player const* pPlayertmp = sObjectMgr.GetPlayer(itr->first);
         if (pPlayertmp->GetTeam() == team)
@@ -1829,6 +1897,7 @@ bool BattleGround::DeleteBattleBot(Team team, bool all)
             }
         }
     }
+
     return result;
 }
 

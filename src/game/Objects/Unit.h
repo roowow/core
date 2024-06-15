@@ -343,9 +343,9 @@ class Unit : public SpellCaster
 
         virtual ~Unit () override;
 
-        #ifdef ENABLE_ELUNA
+#ifdef ENABLE_ELUNA
         virtual void SetName(std::string const& newname) { }
-        #endif
+#endif
 
         void AddToWorld() override;
         void RemoveFromWorld() override;
@@ -415,9 +415,10 @@ class Unit : public SpellCaster
         bool HealthBelowPctDamaged(int32 pct, uint32 damage) const { return (int32(GetHealth()) - damage) * 100 < GetMaxHealth() * pct; }
         bool HealthAbovePct(int32 pct) const { return GetHealth() * 100 > GetMaxHealth() * pct; }
         uint32 CountPctFromMaxHealth(int32 pct) const { return uint32(float(pct) * GetMaxHealth() / 100.0f); }
-        #ifdef ENABLE_ELUNA
+#ifdef ENABLE_ELUNA
 		uint32 CountPctFromCurHealth(int32 pct) const { return uint32(float(pct) * GetHealth() / 100.0f); }
-        #endif
+#endif
+
         void SetFullHealth() { SetHealth(GetMaxHealth()); }
 
         Powers GetPowerType() const { return Powers(GetByteValue(UNIT_FIELD_BYTES_0, UNIT_BYTES_0_OFFSET_POWER_TYPE)); }
@@ -523,9 +524,11 @@ class Unit : public SpellCaster
             return creatureType ? (1 << (creatureType - 1)) : 0;
         }
         bool IsAlive() const { return m_deathState == ALIVE; }
-        #ifdef ENABLE_ELUNA
+
+#ifdef ENABLE_ELUNA
 		bool IsDying() const { return m_deathState == JUST_DIED; }
-        #endif
+#endif
+
         bool IsDead() const { return m_deathState == DEAD || m_deathState == CORPSE; }
         DeathState GetDeathState() const { return m_deathState; }
         virtual void SetDeathState(DeathState s);           // overwritten in Creature/Player/Pet
@@ -695,7 +698,7 @@ class Unit : public SpellCaster
 
         void SendSpellGo(Unit* target, uint32 spellId) const;
         void SendPlaySpellVisual(uint32 id) const;
-        void SendPeriodicAuraLog(SpellPeriodicAuraLogInfo* pInfo, AuraType auraTypeOverride = SPELL_AURA_NONE) const;
+        void SendPeriodicAuraLog(SpellPeriodicAuraLogInfo const* pInfo, AuraType auraTypeOverride = SPELL_AURA_NONE) const;
         void SendEnvironmentalDamageLog(uint8 type, uint32 damage, uint32 absorb, int32 resist) const;
         void WritePetSpellsCooldown(WorldPacket& data) const;
         void CancelSpellChannelingAnimationInstantly();
@@ -729,8 +732,8 @@ class Unit : public SpellCaster
         void DeleteAuraHolder(SpellAuraHolder* holder);
 
         // removing specific aura stacks by diff reasons and selections
-        void RemoveAurasDueToSpell(uint32 spellId, SpellAuraHolder* except = nullptr, AuraRemoveMode mode = AURA_REMOVE_BY_DEFAULT);
-        void RemoveAurasDueToItemSpell(Item* castItem, uint32 spellId);
+        void RemoveAurasDueToSpell(uint32 spellId, SpellAuraHolder const* except = nullptr, AuraRemoveMode mode = AURA_REMOVE_BY_DEFAULT);
+        void RemoveAurasDueToItemSpell(Item const* castItem, uint32 spellId);
         void RemoveAurasByCasterSpell(uint32 spellId, ObjectGuid casterGuid, AuraRemoveMode mode = AURA_REMOVE_BY_DEFAULT);
         void RemoveAurasDueToSpellByCancel(uint32 spellId);
 
@@ -738,7 +741,7 @@ class Unit : public SpellCaster
         void RemoveNotOwnSingleTargetAuras();
         void RemoveAurasAtMechanicImmunity(uint32 mechMask, uint32 exceptSpellId, bool non_positive = false);
         void RemoveSpellsCausingAura(AuraType auraType, AuraRemoveMode mode = AURA_REMOVE_BY_DEFAULT);
-        void RemoveSpellsCausingAura(AuraType auraType, SpellAuraHolder* except);
+        void RemoveSpellsCausingAura(AuraType auraType, SpellAuraHolder const* except);
         void RemoveSpellsCausingAuraWithMechanic(AuraType auraType);
         void RemoveNonPassiveSpellsCausingAura(AuraType auraType);
         bool RemoveNoStackAurasDueToAuraHolder(SpellAuraHolder* holder);
@@ -749,11 +752,11 @@ class Unit : public SpellCaster
         void RemoveAllNegativeAuras(AuraRemoveMode mode = AURA_REMOVE_BY_DEFAULT);
         void RemoveAuraTypeOnDeath(AuraType auraType);
         void RemoveAllAurasOnDeath();
-        bool RemoveAuraDueToDebuffLimit(SpellAuraHolder* currentAura); // Returns true if we remove 'currentAura'
+        bool RemoveAuraDueToVisibleSlotLimit(SpellAuraHolder* currentAura); // Returns true if we remove 'currentAura'
 #if SUPPORTED_CLIENT_BUILD <= CLIENT_BUILD_1_9_4
         void RemoveAurasByDamageTaken(uint32 damage, uint32 exceptSpellId);
 #endif
-        uint32 GetNegativeAurasCount(); // Limit debuffs to 16
+        uint32 GetVisibleAurasCount(bool positive);
 
         // removing specific aura FROM stack by diff reasons and selections
         void RemoveAuraHolderFromStack(uint32 spellId, uint32 stackAmount = 1, ObjectGuid casterGuid = ObjectGuid(), AuraRemoveMode mode = AURA_REMOVE_BY_DEFAULT);
@@ -842,14 +845,14 @@ class Unit : public SpellCaster
 
         virtual uint32 GetSpellRank(SpellEntry const* spellInfo) const;
         int32 SpellBaseDamageBonusTaken(SpellSchoolMask schoolMask) const;
-        float SpellDamageBonusTaken(SpellCaster* pCaster, SpellEntry const* spellProto, SpellEffectIndex effectIndex, float pdamage, DamageEffectType damagetype, uint32 stack = 1, Spell* spell = nullptr) const;
+        float SpellDamageBonusTaken(SpellCaster const* pCaster, SpellEntry const* spellProto, SpellEffectIndex effectIndex, float pdamage, DamageEffectType damagetype, uint32 stack = 1, Spell* spell = nullptr) const;
         int32 SpellBaseHealingBonusTaken(SpellSchoolMask schoolMask) const;
-        float SpellHealingBonusTaken(SpellCaster* pCaster, SpellEntry const* spellProto, SpellEffectIndex effectIndex, float healamount, DamageEffectType damagetype, uint32 stack = 1, Spell* spell = nullptr) const;
+        float SpellHealingBonusTaken(SpellCaster const* pCaster, SpellEntry const* spellProto, SpellEffectIndex effectIndex, float healamount, DamageEffectType damagetype, uint32 stack = 1, Spell* spell = nullptr) const;
         void CalculateDamageAbsorbAndResist(SpellCaster* pCaster, SpellSchoolMask schoolMask, DamageEffectType damagetype, uint32 const damage, uint32* absorb, int32* resist, SpellEntry const* spellProto = nullptr, Spell* spell = nullptr);
         void CalculateAbsorbResistBlock(SpellCaster* pCaster, SpellNonMeleeDamage* damageInfo, SpellEntry const* spellProto, WeaponAttackType attType = BASE_ATTACK, Spell* spell = nullptr);
         float RollMagicResistanceMultiplierOutcomeAgainst(float resistanceChance, SpellSchoolMask schoolMask, DamageEffectType dmgType, SpellEntry const* spellProto) const;
-        bool IsSpellPartiallyBlocked(SpellCaster* pCaster, SpellEntry const* spellProto, WeaponAttackType attackType = BASE_ATTACK) const;
-        bool RollSpellBlockChanceOutcome(SpellCaster* pCaster, WeaponAttackType attackType) const;
+        bool IsSpellPartiallyBlocked(SpellCaster const* pCaster, SpellEntry const* spellProto, WeaponAttackType attackType = BASE_ATTACK) const;
+        bool RollSpellBlockChanceOutcome(SpellCaster const* pCaster, WeaponAttackType attackType) const;
         bool IsSpellCrit(Unit const* pVictim, SpellEntry const* spellProto, SpellSchoolMask schoolMask, WeaponAttackType attackType = BASE_ATTACK, Spell* spell = nullptr) const final;
         bool IsEffectResist(SpellEntry const* spell, int eff) const; // SPELL_AURA_MOD_MECHANIC_RESISTANCE
         
@@ -919,7 +922,7 @@ class Unit : public SpellCaster
         float m_meleeZLimit;
         float m_meleeZReach;
         ThreatManager m_ThreatManager; // Manage all Units threatening us
-        HostileRefManager m_HostileRefManager; // Manage all Units that are threatened by us
+        HostileRefManager m_HostileRefManager; // Manage all Units that are threatened by us (has list of creatures that have us in their threat list)
         std::vector<ObjectGuid> m_tauntGuids;
     protected:
         uint32 m_attackTimer[MAX_ATTACK];
@@ -1002,10 +1005,10 @@ class Unit : public SpellCaster
         }
 
         void AttackerStateUpdate(Unit* pVictim, WeaponAttackType attType = BASE_ATTACK, bool extra = false);
-        void SendAttackStateUpdate(CalcDamageInfo* damageInfo) const;
-        void SendAttackStateUpdate(uint32 HitInfo, Unit* target, SpellSchoolMask damageSchoolMask, uint32 Damage, uint32 AbsorbDamage, int32 Resist, VictimState TargetState, uint32 BlockedAmount) const;
-        void SendMeleeAttackStop(Unit* victim) const;
-        void SendMeleeAttackStart(Unit* pVictim) const;
+        void SendAttackStateUpdate(CalcDamageInfo const* damageInfo) const;
+        void SendAttackStateUpdate(uint32 HitInfo, Unit const* target, SpellSchoolMask damageSchoolMask, uint32 Damage, uint32 AbsorbDamage, int32 Resist, VictimState TargetState, uint32 BlockedAmount) const;
+        void SendMeleeAttackStop(Unit const* victim) const;
+        void SendMeleeAttackStart(Unit const* pVictim) const;
 
         void ClearAllReactives();
         void StartReactiveTimer(ReactiveType reactive, ObjectGuid target) { m_reactiveTimer[reactive] = REACTIVE_TIMER_START; m_reactiveTarget[reactive] = target; }
@@ -1016,9 +1019,9 @@ class Unit : public SpellCaster
         float MeleeMissChanceCalc(Unit const* pVictim, WeaponAttackType attType) const;
         void CalculateMeleeDamage(Unit* pVictim, uint32 damage, CalcDamageInfo* damageInfo, WeaponAttackType attackType = BASE_ATTACK);
         void UnitDamaged(ObjectGuid from, uint32 damage) { m_damageTakenHistory[from] += damage; m_lastDamageTaken = 0; }
-        void DealMeleeDamage(CalcDamageInfo* damageInfo, bool durabilityLoss);
+        void DealMeleeDamage(CalcDamageInfo const* damageInfo, bool durabilityLoss);
         float CalculateDamage(WeaponAttackType attType, bool normalized, uint8 index = 0) const;
-        float MeleeDamageBonusTaken(SpellCaster* pCaster, float pdamage, WeaponAttackType attType, SpellEntry const* spellProto = nullptr, SpellEffectIndex effectIndex = EFFECT_INDEX_0, DamageEffectType damagetype = DIRECT_DAMAGE, uint32 stack = 1, Spell* spell = nullptr, bool flat = true);
+        float MeleeDamageBonusTaken(SpellCaster const* pCaster, float pdamage, WeaponAttackType attType, SpellEntry const* spellProto = nullptr, SpellEffectIndex effectIndex = EFFECT_INDEX_0, DamageEffectType damagetype = DIRECT_DAMAGE, uint32 stack = 1, Spell* spell = nullptr, bool flat = true);
         MeleeHitOutcome RollMeleeOutcomeAgainst(Unit const* pVictim, WeaponAttackType attType) const;
         MeleeHitOutcome RollMeleeOutcomeAgainst(Unit const* pVictim, WeaponAttackType attType, int32 crit_chance, int32 miss_chance, int32 dodge_chance, int32 parry_chance, int32 block_chance, bool SpellCasted) const;
 
@@ -1038,7 +1041,7 @@ class Unit : public SpellCaster
         bool CanReachWithMeleeAutoAttackAtPosition(Unit const* pVictim, float x, float y, float z, float flat_mod = 0.0f) const;
         float GetMeleeReach() const;
         float GetCombatReach(bool forMeleeRange /*=true*/) const;
-        float GetCombatReach(Unit const* pVictim, bool ability, float flat_mod) const;
+        float GetCombatReachToTarget(Unit const* pVictim, bool ability, float flat_mod, bool ignoreLeeway = false) const;
         void SetMeleeZLimit(float newZLimit) { m_meleeZLimit = newZLimit; }
         float GetMeleeZLimit() const { return m_meleeZLimit; }
         void SetMeleeZReach(float newZReach) { m_meleeZReach = newZReach; }
@@ -1075,14 +1078,15 @@ class Unit : public SpellCaster
          */
         void RemoveAllAttackers();
 
-        #ifdef ENABLE_ELUNA
-            /**
-             * Checks if we are attacking a player.
-             * Pets/minions etc attacking a player counts towards you attacking a player.
-             * @return true if you and/or your pets/minions etc are attacking a player.
-             */
-            bool isAttackingPlayer() const;
-        #endif
+#ifdef ENABLE_ELUNA
+		/**
+		 * Checks if we are attacking a player.
+		 * Pets/minions etc attacking a player counts towards you attacking a player.
+		 * @return true if you and/or your pets/minions etc are attacking a player.
+		 */
+		bool isAttackingPlayer() const;
+#endif
+
 
         void _addAttacker(Unit* pAttacker)                  // (Internal Use) must be called only from Unit::Attack(Unit*)
         {
@@ -1137,10 +1141,10 @@ class Unit : public SpellCaster
         uint8 GetEnemyCountInRadiusAround(Unit const* pTarget, float radius) const;
         void GetEnemyListInRadiusAround(Unit const* pTarget, float radius, std::list<Unit*>& targets) const;
         Unit* SelectNearestTarget(float dist) const;
-        Unit* SelectRandomUnfriendlyTarget(Unit* except = nullptr, float radius = ATTACK_DISTANCE, bool inFront = false, bool isValidAttackTarget = false) const;
-        Unit* SelectRandomFriendlyTarget(Unit* except = nullptr, float radius = ATTACK_DISTANCE, bool inCombat = false) const;
+        Unit* SelectRandomUnfriendlyTarget(Unit const* except = nullptr, float radius = ATTACK_DISTANCE, bool inFront = false, bool isValidAttackTarget = false, bool notPvpEnabling = false) const;
+        Unit* SelectRandomFriendlyTarget(Unit const* except = nullptr, float radius = ATTACK_DISTANCE, bool inCombat = false) const;
         Unit* FindLowestHpFriendlyUnit(float fRange, uint32 uiMinHPDiff = 1, bool bPercent = false, Unit* except = nullptr) const;
-        Unit* FindFriendlyUnitMissingBuff(float range, uint32 spellid, Unit* except = nullptr) const;
+        Unit* FindFriendlyUnitMissingBuff(float range, uint32 spellid, Unit const* except = nullptr) const;
         Unit* FindFriendlyUnitCC(float range) const;
         Unit* SummonCreatureAndAttack(uint32 creatureEntry, Unit* pVictim = nullptr);
 
@@ -1164,6 +1168,7 @@ class Unit : public SpellCaster
         uint32 GetCombatTimer() const { return m_combatTimer; }
         void SetCombatTimer(uint32 t) { m_combatTimer = t; }
         virtual void OnEnterCombat(Unit* /*pAttacker*/, bool /*notInCombat*/) {} // (pAttacker must be valid)
+        bool UsesPvPCombatTimer() const; // 5 second combat timer
 
         // Stop this unit from combat, if includingCast==true, also interrupt casting
         void CombatStop(bool includingCast = false);
@@ -1221,6 +1226,7 @@ class Unit : public SpellCaster
 
         Unit* GetOwner() const;
         Creature* GetOwnerCreature() const;
+        Player* GetOwnerPlayer() const;
         ObjectGuid const& GetOwnerGuid() const { return  GetGuidValue(UNIT_FIELD_SUMMONEDBY); }
         void SetOwnerGuid(ObjectGuid owner) { SetGuidValue(UNIT_FIELD_SUMMONEDBY, owner); ForceValuesUpdateAtIndex(UNIT_FIELD_HEALTH); ForceValuesUpdateAtIndex(UNIT_FIELD_MAXHEALTH); }
         ObjectGuid const& GetCreatorGuid() const { return GetGuidValue(UNIT_FIELD_CREATEDBY); }
@@ -1346,7 +1352,7 @@ class Unit : public SpellCaster
         void SetLevitate(bool apply);
         bool IsLevitating() const { return m_movementInfo.HasMovementFlag(MOVEFLAG_LEVITATING); }
 
-        void KnockBackFrom(WorldObject* target, float horizontalSpeed, float verticalSpeed);
+        void KnockBackFrom(WorldObject const* target, float horizontalSpeed, float verticalSpeed);
         void KnockBack(float angle, float horizontalSpeed, float verticalSpeed);
 
         // reflects direct client control (examples: a player MC another player or a creature (possess effects). etc...)
@@ -1407,7 +1413,7 @@ class Unit : public SpellCaster
         
         void SetInFront(Unit const* pTarget);
         void SetFacingTo(float ori);
-        void SetFacingToObject(WorldObject* pObject);
+        void SetFacingToObject(WorldObject const* pObject);
         bool IsBehindTarget(Unit const* pTarget, bool strict = true) const;
         bool CantPathToVictim() const;
 
@@ -1430,8 +1436,8 @@ class Unit : public SpellCaster
         void DisableSpline();
 
         // Caster movement
-        float GetMinChaseDistance(Unit* target) const;
-        float GetMaxChaseDistance(Unit* target) const;
+        float GetMinChaseDistance(Unit const* target) const;
+        float GetMaxChaseDistance(Unit const* target) const;
         bool HasDistanceCasterMovement() const { return (m_casterChaseDistance >= 1.0f); }
         void SetCasterChaseDistance(float dist) { m_casterChaseDistance = dist; }
 

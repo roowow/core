@@ -440,7 +440,7 @@ struct boss_mandokirAI : public ScriptedAI
                     }
                     if (spirit)
                     {
-                        spirit->MonsterWhisper("I am released through you! Avenge me!", killedPlayer);
+                        spirit->MonsterWhisper("我通过你得到释放！为我报仇！", killedPlayer);
                         spirit->AI()->SpellHitTarget(killedPlayer, nullptr);
                     }
                 }

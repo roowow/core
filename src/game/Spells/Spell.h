@@ -393,6 +393,7 @@ class Spell
         void SendSpellCooldown();
         void SendLogExecute();
         void SendInterrupted(uint8 result);
+        void SendAllTargetsMiss();
         void SendChannelUpdate(uint32 time, bool interrupted = false);
         void SendChannelStart(uint32 duration);
         void SendResurrectRequest(Player* target, bool sickness);
@@ -441,6 +442,7 @@ class Spell
         Unit* GetAffectiveCaster() const { return m_originalCasterGUID ? m_originalCaster : m_casterUnit; }
         // m_originalCasterGUID can store GO guid, and in this case this is visual caster
         SpellCaster* GetCastingObject() const;
+        ObjectGuid GetOriginalCasterGuid() const { return m_originalCasterGUID; }
 
         uint32 GetPowerCost() const { return m_powerCost; }
 

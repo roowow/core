@@ -46,6 +46,9 @@
 #include "Auth/Sha1.h"
 #include "Chat.h"
 #include "MasterPlayer.h"
+#ifdef ENABLE_ELUNA
+#include "LuaEngine.h"
+#endif /* ENABLE_ELUNA */
 
 #include <openssl/md5.h>
 
@@ -136,41 +139,14 @@ void WorldSession::SendPacket(WorldPacket const* packet)
     {
         if (GetBot() && GetBot()->ai)
             GetBot()->ai->OnPacketReceived(packet);
-
-        if (packet->GetOpcode() == SMSG_MESSAGECHAT)
-        {
-            WorldPacket packet2(*packet);
-            packet2.rpos(0);
-            uint8 msgtype;
-            uint32 lang;
-            ObjectGuid guid1;
-            std::string name1;
-            packet2 >> msgtype >> lang;
-            // Channels
-            if (msgtype == CHAT_MSG_CHANNEL)
-            {
-                std::string chanName, message;
-                uint32 unused;
-                packet2 >> chanName >> unused >> guid1 >> unused;
-                packet2 >> message;
-                if (sObjectMgr.GetPlayerNameByGUID(guid1, name1))
-                    m_chatBotHistory << uint32(msgtype) << " " << name1 << " " << chanName << " " << message << std::endl;
-                return;
-            }
-            ObjectGuid guid2;
-            uint32 textLen;
-            std::string message;
-            uint8 chatTag;
-            packet2 >> guid1;
-            if (msgtype == CHAT_MSG_SAY || msgtype == CHAT_MSG_YELL || msgtype == CHAT_MSG_PARTY)
-                packet2 >> guid2;
-            packet2 >> textLen >> message >> chatTag;
-            if (guid1.IsEmpty() || sObjectMgr.GetPlayerNameByGUID(guid1, name1))
-                m_chatBotHistory << uint32(msgtype) << " " << name1 << " NULL " << message << std::endl;
-        }
         return;
     }
 
+    SendPacketImpl(packet);
+}
+
+void WorldSession::SendPacketImpl(WorldPacket const* packet)
+{
 #ifdef _DEBUG
 
     // Code for network use statistic
@@ -214,6 +190,56 @@ void WorldSession::SendPacket(WorldPacket const* packet)
     if (m_socket->SendPacket(*packet) == -1)
         m_socket->CloseSocket();
 }
+
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_8_4
+void WorldSession::SendMovementPacket(WorldPacket const* packet)
+{
+    // There is a maximum size packet.
+    if (packet->size() > 0x8000)
+    {
+        // Packet will be rejected by client
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[NETWORK] Packet %s size %u is too large. Not sent [Account %u Player %s]", LookupOpcodeName(packet->GetOpcode()), packet->size(), GetAccountId(), GetPlayerName());
+        return;
+    }
+
+    if (!m_socket)
+    {
+        if (GetBot() && GetBot()->ai)
+            GetBot()->ai->OnPacketReceived(packet);
+        return;
+    }
+
+    if (++m_movePacketsSentThisInterval < sWorld.getConfig(CONFIG_UINT32_COMPRESSION_MOVEMENT_COUNT) &&
+        m_movePacketsSentLastInterval < sWorld.getConfig(CONFIG_UINT32_COMPRESSION_MOVEMENT_COUNT))
+        SendPacketImpl(packet);
+    else if (m_movementPacketCompressor.CanAddPacket(*packet))
+        m_movementPacketCompressor.AddPacket(*packet);
+    else
+    {
+        // send batched packets first to maintain order of packets
+        SendCompressedMovementPackets();
+        SendPacketImpl(packet);
+    }
+}
+
+void WorldSession::SendCompressedMovementPackets()
+{
+    if (m_movementPacketCompressor.HasData())
+    {
+        WorldPacket packet;
+        if (m_movementPacketCompressor.BuildPacket(packet))
+            SendPacket(&packet);
+        else
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Movement packet compression failed! Packets lost!");
+        m_movementPacketCompressor.ClearBuffer();
+    }
+}
+#else
+void WorldSession::SendMovementPacket(WorldPacket const* packet)
+{
+    SendPacket(packet);
+}
+#endif
 
 uint32 GetChatPacketProcessingType(uint32 chatType)
 {
@@ -417,7 +443,21 @@ bool WorldSession::Update(PacketFilter& updater)
             return ForcePlayerLogoutDelay();
         }
 
-        time_t currTime = time(nullptr);
+        time_t const currTime = time(nullptr);
+
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_8_4
+        // send these out every world update
+        SendCompressedMovementPackets();
+
+        // only enable compression when there's a lot of movement around us
+        if (m_movePacketTrackingIntervalStart + 10 < currTime)
+        {
+            m_movePacketTrackingIntervalStart = currTime;
+            m_movePacketsSentLastInterval = m_movePacketsSentThisInterval;
+            m_movePacketsSentThisInterval = 0;
+        }
+#endif
+        
         if (sWorld.getConfig(CONFIG_BOOL_LIMIT_PLAY_TIME) &&
             GetPlayer() && GetPlayer()->IsInWorld())
             CheckPlayedTimeLimit(currTime);
@@ -742,6 +782,11 @@ void WorldSession::LogoutPlayer(bool Save)
         // No need to create any new maps
         sMapMgr.CancelInstanceCreationForPlayer(_player);
 
+#ifdef ENABLE_ELUNA
+        if (Eluna* e = sWorld.GetEluna())
+            e->OnLogout(_player);
+#endif /* ENABLE_ELUNA */
+
         // Remove the player from the world
         // the player may not be in the world when logging out
         // e.g if he got disconnected during a transfer to another map
@@ -757,6 +802,10 @@ void WorldSession::LogoutPlayer(bool Save)
             _player->CleanupsBeforeDelete();
             Map::DeleteFromWorld(_player);
         }
+
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_8_4
+        m_movementPacketCompressor.ClearBuffer();
+#endif
 
         SetPlayer(nullptr);                                    // deleted in Remove/DeleteFromWorld call
 
@@ -1092,6 +1141,11 @@ void WorldSession::SaveTutorialsData()
 
 void WorldSession::ExecuteOpcode(OpcodeHandler const& opHandle, WorldPacket* packet)
 {
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = sWorld.GetEluna())
+        if (!e->OnPacketReceive(this, *packet))
+            return;
+#endif /* ENABLE_ELUNA */
     // need prevent do internal far teleports in handlers because some handlers do lot steps
     // or call code that can do far teleports in some conditions unexpectedly for generic way work code
     if (_player)
@@ -1189,7 +1243,7 @@ void WorldSession::ProcessAnticheatAction(char const* detector, char const* reas
         (cheatAction >= CHEAT_ACTION_KICK))
     {
         std::stringstream oss;
-        oss << "|r[|c1f40af20Announce by |cffff0000" << detector << "|r]: Player " << _player->GetName() << ", Cheat: " << reason << ", Penalty: " << action;
+        oss << "|r[|c1f40af20Announce by |cffff0000" << detector << "|r]: Player " << playerDesc << ", Cheat: " << reason << ", Penalty: " << action;
         sWorld.SendGlobalText(oss.str().c_str(), this);
     }
 
@@ -1206,6 +1260,15 @@ void WorldSession::ProcessAnticheatAction(char const* detector, char const* reas
     
     sLog.Player(this, LOG_ANTICHEAT, detector, LOG_LVL_MINIMAL, "[%s] Player %s, Cheat %s, Penalty: %s",
         detector, playerDesc.c_str(), reason, action);
+
+    // 2024-03-08 21:25:17 [ELUNA] (PassiveAnticheat) (acc 2, ip 10.1.1.1) [PassiveAnticheat] Player <None> [TEST1:2@10.1.1.1], Cheat Item Load failed: cannot QuickEquip, Penalty: Announced to GMs.
+    // 2024-03-08 21:25:17 [ELUNA] (PassiveAnticheat) (acc 2, ip 10.1.1.1) [PassiveAnticheat] Player <None> [TEST1:2@10.1.1.1], Cheat Broken item 15389 GUID:1732 count:1 bag:0 slot:7, Penalty:
+    // 2024-02-28 16:33:46 [ELUNA] (MovementAnticheat) (acc 5050, ip 111.20.137.237, guid 166336, name 夜愿, map 1, pos -10283.4 -4145.2 -2.26016) [MovementAnticheat] Player 夜愿:166336 [EDIFIER1:5050@111.20.137.237], Cheat Botting(Total:174), Penalty:
+    if (GetPlayer() && ! GetPlayer()->IsBot())
+    {
+        CharacterDatabase.PExecute("INSERT INTO `character_log_anticheat` (`guid`, `name`, `cheat`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%s', '%u', '%u', '%f', '%f', '%f', '%s')",
+            GetPlayer()->GetGUIDLow(), GetPlayer()->GetName(), reason, GetPlayer()->GetZoneId(), GetPlayer()->GetMapId(), GetPlayer()->GetPositionX(), GetPlayer()->GetPositionY(), GetPlayer()->GetPositionZ(), GetPlayer()->GetSession()->GetRemoteAddress().c_str());
+    }
 }
 
 bool WorldSession::HasUsedClickToMove() const

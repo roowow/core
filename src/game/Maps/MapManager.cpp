@@ -42,7 +42,13 @@ MapManager::MapManager()
     :
     i_gridCleanUpDelay(sWorld.getConfig(CONFIG_UINT32_INTERVAL_GRIDCLEAN)),
     i_MaxInstanceId(RESERVED_INSTANCES_LAST),
-    m_threads(new ThreadPool(sWorld.getConfig(CONFIG_UINT32_MAPUPDATE_INSTANCED_UPDATE_THREADS)))
+#ifdef ENABLE_ELUNA
+    configThreads(sWorld.getConfig(CONFIG_UINT32_MAPUPDATE_INSTANCED_UPDATE_THREADS)),
+    numThreads(elunaCompat(configThreads)),
+#else
+    numThreads(sWorld.getConfig(CONFIG_UINT32_MAPUPDATE_INSTANCED_UPDATE_THREADS)),
+#endif
+    m_threads(new ThreadPool(numThreads))
 {
     i_timer.SetInterval(sWorld.getConfig(CONFIG_UINT32_INTERVAL_MAPUPDATE));
     m_threads->start<ThreadPool::MySQL<>>();
@@ -194,9 +200,8 @@ bool MapManager::CanPlayerEnter(uint32 mapid, Player* player)
                 Group* group = player->GetGroup();
                 if (!group || !group->isRaidGroup())
                 {
-                    // probably there must be special opcode, because client has this string constant in GlobalStrings.lua
                     // TODO: this is not a good place to send the message
-                    player->GetSession()->SendAreaTriggerMessage("你必须在一个团队里才能进入%si。", mapName);
+                    player->SendRaidGroupOnlyError(0, ERR_RAID_GROUP_REQUIRED);
                     sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "MAP: Player '%s' must be in a raid group to enter instance of '%s'", player->GetName(), mapName);
                     return false;
                 }
@@ -994,4 +999,10 @@ bool MapManager::waitContinentUpdateFinishedUntil(std::chrono::high_resolution_c
 {
     std::unique_lock<std::mutex> lock(m_continentMutex);
     return m_continentCV.wait_until(lock,time,std::bind(&MapManager::IsContinentUpdateFinished,this));
+}
+
+void MapManager::DoForAllMaps(const std::function<void(Map*)>& worker)
+{
+    for (MapMapType::const_iterator itr = i_maps.begin(); itr != i_maps.end(); ++itr)
+        worker(itr->second);
 }

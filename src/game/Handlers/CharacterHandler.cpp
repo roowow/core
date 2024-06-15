@@ -48,7 +48,7 @@
 
 #ifdef ENABLE_ELUNA
 #include "LuaEngine.h"
-#endif /* ENABLE_ELUNA */
+#endif
 
 class LoginQueryHolder : public SqlQueryHolder
 {
@@ -148,7 +148,6 @@ void WorldSession::HandleCharEnum(QueryResult* result)
     WorldPacket data(SMSG_CHAR_ENUM, 100);                  // we guess size
 
     uint8 num = 0;
-
     data << num;
 
     if (result)
@@ -165,10 +164,9 @@ void WorldSession::HandleCharEnum(QueryResult* result)
                 ++num;
         }
         while (result->NextRow());
-
         delete result;
     }
-
+    
     data.put<uint8>(0, num);
     m_charactersCount = num;
 
@@ -348,19 +346,19 @@ void WorldSession::HandleCharCreateOpcode(WorldPacket& recv_data)
         data << (uint8)CHAR_CREATE_ERROR;
         SendPacket(&data);
     }
-
     // Used by Eluna
-    #ifdef ENABLE_ELUNA
-        Player* pNewChar = new Player(this);
-        if (!pNewChar->Create(sObjectMgr.GeneratePlayerLowGuid(), name, race_, class_, gender, skin, face, hairStyle, hairColor, facialHair))
-        {
-            // Player not create (race/class problem?)
-            delete pNewChar;
-            return;
-        }
-        sEluna->OnCreate(pNewChar);
-        delete pNewChar;
-    #endif /* ENABLE_ELUNA */
+#ifdef ENABLE_ELUNA
+	Player* pNewChar = new Player(this);
+	if (!pNewChar->Create(sObjectMgr.GeneratePlayerLowGuid(), name, race_, class_, gender, skin, face, hairStyle, hairColor, facialHair))
+	{
+		// Player not create (race/class problem?)
+		delete pNewChar;
+		return;
+	}
+    if (Eluna* e = sWorld.GetEluna())
+        e->OnCreate(pNewChar);
+	delete pNewChar;
+#endif /* ENABLE_ELUNA */
 }
 
 void WorldSession::HandleCharDeleteOpcode(WorldPacket& recv_data)
@@ -411,9 +409,10 @@ void WorldSession::HandleCharDeleteOpcode(WorldPacket& recv_data)
     sLog.Player(this, LOG_CHAR, "Delete", LOG_LVL_BASIC, "Character %s guid %u", name.c_str(), guid);
 
     // Used by Eluna
-    #ifdef ENABLE_ELUNA
-        sEluna->OnDelete(lowguid);
-    #endif /* ENABLE_ELUNA */
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = sWorld.GetEluna())
+        e->OnDelete(lowguid);
+#endif
 
     // If the character is online (ALT-F4 logout for example)
     if (Player* onlinePlayer = sObjectAccessor.FindPlayer(guid))
@@ -751,10 +750,11 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
     }
 
     // Used by Eluna
-    #ifdef ENABLE_ELUNA
-        if (pCurrChar->HasAtLoginFlag(AT_LOGIN_FIRST))
-            sEluna->OnFirstLogin(pCurrChar);
-    #endif /* ENABLE_ELUNA */
+#ifdef ENABLE_ELUNA
+    if (pCurrChar->HasAtLoginFlag(AT_LOGIN_FIRST))
+        if (Eluna* e = sWorld.GetEluna())
+            e->OnFirstLogin(pCurrChar);
+#endif
 
     if (pCurrChar->HasAtLoginFlag(AT_LOGIN_FIRST))
         pCurrChar->RemoveAtLoginFlag(AT_LOGIN_FIRST);
@@ -797,10 +797,17 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
         if (Group* pGroup = pCurrChar->GetGroup())
             pGroup->SendLootStartRollsForPlayer(pCurrChar);
 
+    // Update warden speeds
+    //if (GetWarden())
+        //for (int i = 0; i < MAX_MOVE_TYPE; ++i)
+            //GetWarden()->SendSpeedChange(UnitMoveType(i), pCurrChar->GetSpeed(UnitMoveType(i)));
+
     // Used by Eluna
-    #ifdef ENABLE_ELUNA
-        sEluna->OnLogin(pCurrChar);
-    #endif /* ENABLE_ELUNA */
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = sWorld.GetEluna())
+        e->OnLogin(pCurrChar);
+#endif
+
 }
 
 void WorldSession::HandleSetFactionAtWarOpcode(WorldPacket& recv_data)

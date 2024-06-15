@@ -38,6 +38,9 @@
 #include "SQLStorages.h"
 #include "ScriptCommands.h"
 #include "CreatureLinkingMgr.h"
+#ifdef ENABLE_ELUNA
+#include "LuaValue.h"
+#endif
 
 #include <bitset>
 #include <list>
@@ -49,6 +52,9 @@ using Movement::Vector3;
 
 struct CreatureInfo;
 class Creature;
+#ifdef ENABLE_ELUNA
+class Eluna;
+#endif
 class Unit;
 class WorldPacket;
 class InstanceData;
@@ -403,6 +409,7 @@ class Map : public GridRefManager<NGridType>
         }
 
         time_t GetGridExpiry(void) const { return i_gridExpiry; }
+        time_t GetCreateTime() const { return m_createTime; }
         uint32 GetId(void) const { return i_id; }
 
         // some calls like isInWater should not use vmaps due to processor power
@@ -575,6 +582,7 @@ class Map : public GridRefManager<NGridType>
         void MarkNotUpdated() { m_updateFinished = false; }
         void SetUpdateDiffMod(int32 d) { m_updateDiffMod = d; }
         uint32 GetUpdateDiffMod() const { return m_updateDiffMod; }
+        TimePoint GetCurrentClockTime() const { return m_currentTime; }
         void BindToInstanceOrRaid(Player* player, time_t objectResetTime, bool permBindToRaid);
 
         // WeatherSystem
@@ -598,6 +606,12 @@ class Map : public GridRefManager<NGridType>
 
         bool ShouldUpdateMap(uint32 now, uint32 inactiveTimeLimit);
         void RemoveBones(Corpse* corpse);
+
+#ifdef ENABLE_ELUNA
+        Eluna* GetEluna() const;
+
+        LuaVal lua_data = LuaVal({});
+#endif
 
     private:
         void LoadMapAndVMap(int gx, int gy);
@@ -697,8 +711,10 @@ class Map : public GridRefManager<NGridType>
         bool m_crashed = false;
         bool m_updateFinished = false;
         uint32 m_updateDiffMod;
+        TimePoint m_currentTime;
         uint32 m_lastMvtSpellsUpdate = 0;
     private:
+        time_t m_createTime; // time when map was created
         time_t i_gridExpiry;
 
         NGridType* i_grids[MAX_NUMBER_OF_GRIDS][MAX_NUMBER_OF_GRIDS];
@@ -953,6 +969,10 @@ class Map : public GridRefManager<NGridType>
             &Map::ScriptCommand_LoadCreatureSpawn,      // 91
             &Map::ScriptCommand_StartScriptOnZone,      // 92
         };
+
+#ifdef ENABLE_ELUNA
+        Eluna* eluna;
+#endif
 
     public:
         CreatureGroupHolderType CreatureGroupHolder;

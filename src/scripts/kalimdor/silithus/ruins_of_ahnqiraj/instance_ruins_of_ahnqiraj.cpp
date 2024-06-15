@@ -26,6 +26,8 @@ EndScriptData */
 #include "CreatureGroups.h"
 #include "ruins_of_ahnqiraj.h"
 
+#include <random>
+
 instance_ruins_of_ahnqiraj::instance_ruins_of_ahnqiraj(Map* pMap) : ScriptedInstance(pMap)
 {
     Initialize();
@@ -590,7 +592,7 @@ void instance_ruins_of_ahnqiraj::GiveRepAfterRajaxxDeath(Creature* pRajaxx)
     FactionEntry const *factionEntry = sObjectMgr.GetFactionEntry(609); // Cenarion Circle
     if (!factionEntry)
     {
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Rajaxx just died, unable to find Cenarion Circle faction");
+        sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "Rajaxx just died, unable to find Cenarion Circle faction");
         return;
     }
 
@@ -716,7 +718,8 @@ void instance_ruins_of_ahnqiraj::SpawnNewCrystals(ObjectGuid usedCrystal)
         possibleIndexes.push_back(i);
     }
 
-    std::random_shuffle(possibleIndexes.begin(), possibleIndexes.end());
+    std::mt19937 rng(std::time(nullptr));
+    std::shuffle(possibleIndexes.begin(), possibleIndexes.end(), rng);
 
     while (crystalIndexes.size() < OSSIRIAN_CRYSTAL_NUM_ACTIVE)
     {
@@ -746,7 +749,7 @@ void instance_ruins_of_ahnqiraj::SpawnNewCrystals(ObjectGuid usedCrystal)
 
             if (!pCrystal)
             {
-                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[OSSIRIAN] Unable to spawn crystal %u at position #%u", GO_OSSIRIAN_CRYSTAL, newIndex);
+                sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "[OSSIRIAN] Unable to spawn crystal %u at position #%u", GO_OSSIRIAN_CRYSTAL, newIndex);
                 return;
             }
 

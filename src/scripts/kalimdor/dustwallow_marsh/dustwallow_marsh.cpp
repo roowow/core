@@ -282,7 +282,7 @@ enum
     SPELL_JAINAS_AUTOGRAPH       = 23122
 };
 
-#define GOSSIP_ITEM_JAINA "I know this is rather silly but i have a young ward who is a bit shy and would like your autograph."
+#define GOSSIP_ITEM_JAINA "我知道这很愚蠢，但我有一个年轻的受监护人，他有点害羞，想要你的签名。"
 
 struct npc_lady_jaina_proudmooreAI : public ScriptedAI
 {

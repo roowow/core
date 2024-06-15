@@ -1067,6 +1067,23 @@ bool ChatHandler::HandleReloadCreatureQuestInvRelationsCommand(char* /*args*/)
     return true;
 }
 
+bool ChatHandler::HandleReloadCreatureTemplatesCommand(char* args)
+{
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Re-Loading `creature_template` Table!");
+    uint32 entry;
+    if (ExtractUInt32(&args, entry))
+    {
+        sObjectMgr.LoadCreatureTemplate(entry);
+        PSendSysMessage("Creature template %u reloaded.", entry);
+    }
+    else
+    {
+        sObjectMgr.LoadCreatureTemplates();
+        SendSysMessage("DB table `creature_template` reloaded.");
+    }
+    return true;
+}
+
 bool ChatHandler::HandleReloadGossipMenuCommand(char* /*args*/)
 {
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Re-Loading `gossip_menu` Table!");
@@ -2007,6 +2024,15 @@ bool ChatHandler::HandleWarEffortSetStageCommand(char* args)
     sObjectMgr.SetSavedVariable(VAR_WE_STAGE_TRANSITION_TIME, time(nullptr), true);
     PSendSysMessage("War effort stage set to '%s' (%u).", WarEffortStageToString(stage), stage);
     sGameEventMgr.Update();
+
+    return true;
+}
+
+bool ChatHandler::HandleListMapsCommand(char* /*args*/)
+{
+    SendSysMessage("Listing all currently created maps:");
+    for (auto const& itr : sMapMgr.Maps())
+        PSendSysMessage("%u-%u - %s - Players %u - Created %s ago", itr.first.nMapId, itr.first.nInstanceId, playerLink(itr.second->GetMapName()).c_str(), itr.second->GetPlayersCountExceptGMs(), secsToTimeString(time(nullptr) - itr.second->GetCreateTime(), true).c_str());
 
     return true;
 }

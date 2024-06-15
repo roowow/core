@@ -1490,11 +1490,13 @@ void Spell::DoAllEffectOnTarget(TargetInfo *target)
     // All weapon based abilities can trigger weapon procs,
     // even if they do no damage, or break on damage, like Sap.
     // https://www.youtube.com/watch?v=klMsyF_Kz5o
-    bool triggerWeaponProcs = m_casterUnit != unitTarget && m_spellInfo->EquippedItemClass == ITEM_CLASS_WEAPON;
+    bool triggerWeaponProcs = m_casterUnit != unitTarget &&
+        m_spellInfo->EquippedItemClass == ITEM_CLASS_WEAPON &&
+        m_spellInfo->rangeIndex == SPELL_RANGE_IDX_COMBAT;
 
     // All calculated do it!
     // Do healing and triggers
-    if (m_healing)
+    if (m_healing && unitTarget->IsAlive())
     {
         bool crit = target->isCrit;
         uint32 addhealth = ditheru(m_healing);
@@ -1605,7 +1607,6 @@ void Spell::DoAllEffectOnTarget(TargetInfo *target)
 
         // Send log damage message to client
         pCaster->SendSpellNonMeleeDamageLog(&damageInfo);
-        pCaster->DealSpellDamage(&damageInfo, true);
 
         procEx = CreateProcExtendMask(&damageInfo, missInfo);
         procVictim |= PROC_FLAG_TAKEN_ANY_DAMAGE;
@@ -1630,6 +1631,9 @@ void Spell::DoAllEffectOnTarget(TargetInfo *target)
                 m_spellInfo,
                 this));
         }
+
+        // Damage is done after procs so it can trigger auras on the victim that affect the caster in case of killing blow.
+        pCaster->DealSpellDamage(&damageInfo, true);
 
         if (!triggerWeaponProcs && m_caster->IsPlayer())
         {
@@ -4059,10 +4063,11 @@ void Spell::cast(bool skipCheck)
     m_targets.updateTradeSlotItem();
 
     // Used by Eluna
-    #ifdef ENABLE_ELUNA
+#ifdef ENABLE_ELUNA
     if (m_caster->GetTypeId() == TYPEID_PLAYER)
-        sEluna->OnSpellCast(m_caster->ToPlayer(), this, skipCheck);
-    #endif /* ENABLE_ELUNA */
+        if (Eluna* e = m_caster->GetEluna())
+            e->OnSpellCast(m_caster->ToPlayer(), this, skipCheck);
+#endif /* ENABLE_ELUNA */
 
     FillTargetMap();
     if (m_channeled)
@@ -4082,7 +4087,22 @@ void Spell::cast(bool skipCheck)
 
     // Remove any remaining invis auras on cast completion, should only be gnomish cloaking device
     if (!m_IsTriggeredSpell && m_casterUnit)
-        m_casterUnit->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_ACTION_CANCELS_LATE, m_spellInfo->Id, false, !ShouldRemoveStealthAuras(), m_spellInfo->HasAttribute(SPELL_ATTR_EX2_ALLOW_WHILE_INVISIBLE));
+    {
+        uint32 interruptFlags = AURA_INTERRUPT_ACTION_CANCELS_LATE;
+
+        // World of Warcraft Client Patch 1.7.0 (2005-09-13)
+        // - Only spells and abilities that target enemy units will cancel the World Enlarger effect.
+        // This aura has auraInterruptFlags = 4096 implying this flag triggers on negative spell casts.
+        // Confirmed on classic that its removed at the end of the cast with Aimed Shot.
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_6_1
+        if (!Spells::IsPositiveTarget(m_spellInfo->EffectImplicitTargetA[0], m_spellInfo->EffectImplicitTargetB[0]))
+#else
+        if (Spells::IsExplicitlySelectedUnitTarget(m_spellInfo->EffectImplicitTargetA[0]) && m_casterUnit != m_targets.getUnitTarget())
+#endif
+            interruptFlags |= AURA_INTERRUPT_ATTACKING_CANCELS;
+
+        m_casterUnit->RemoveAurasWithInterruptFlags(interruptFlags, m_spellInfo->Id, false, !ShouldRemoveStealthAuras(), m_spellInfo->HasAttribute(SPELL_ATTR_EX2_ALLOW_WHILE_INVISIBLE));
+    }
 
     TakePower();
     TakeReagents();                                         // we must remove reagents before HandleEffects to allow place crafted item in same slot
@@ -4910,7 +4930,10 @@ void Spell::SendSpellGo()
 {
     // not send invisible spell casting
     if (!IsNeedSendToClient())
+    {
+        SendAllTargetsMiss();
         return;
+    }
 
     uint32 castFlags = CAST_FLAG_UNKNOWN9;
     if (m_spellInfo->IsRangedSpell())
@@ -4930,19 +4953,10 @@ void Spell::SendSpellGo()
         data << m_caster->GetGUID();
 #endif
 
-    // (HACK) Don't display cast animation for Flametongue Weapon proc
-    // TODO - figure out the rule for why some procs should or should not have cast animations
-    // e.g. rogue poison proc should have animation
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_8_4
-    if (m_spellInfo->Id == 10444)
-        data << PackedGuid();
-     else
-        data << m_caster->GetPackGUID();
+    data << m_caster->GetPackGUID();
 #else
-    if (m_spellInfo->Id == 10444)
-        data << uint64();
-    else
-        data << m_caster->GetGUID();
+    data << m_caster->GetGUID();
 #endif
     data << uint32(m_spellInfo->Id);                        // spellId
     data << uint16(castFlags);                              // cast flags
@@ -5205,6 +5219,36 @@ void Spell::SendInterrupted(uint8 result)
     WorldPacket data(SMSG_SPELL_FAILED_OTHER, (8 + 4));
     data << m_caster->GetObjectGuid(); // Same as for SMSG_SPELL_FAILURE
     data << m_spellInfo->Id;
+    m_caster->SendObjectMessageToSet(&data, true);
+}
+
+void Spell::SendAllTargetsMiss()
+{
+    if (!m_caster->IsInWorld())
+        return;
+
+    // nothing to send
+    if (m_UniqueTargetInfo.empty())
+        return;
+
+    // we only send this packet if we have only misses
+    for (auto const& target : m_UniqueTargetInfo)
+    {
+        if (target.missCondition == SPELL_MISS_NONE)
+            return;
+    }
+
+    WorldPacket data(SMSG_SPELLLOGMISS, (4 + 8 + 1 + 4 + m_UniqueTargetInfo.size() * (8 + 1)));
+    data << uint32(m_spellInfo->Id);
+    data << m_caster->GetObjectGuid();
+    data << uint8(0);                                       // nothing shown in combat log if != 0 (calls nullsub instead)
+    data << uint32(m_UniqueTargetInfo.size());
+    for (auto const& target : m_UniqueTargetInfo)
+    {
+        data << target.targetGUID;
+        data << uint8(target.missCondition);
+        // 2 more floats if the uint8 before targets is != 0
+    }
     m_caster->SendObjectMessageToSet(&data, true);
 }
 
@@ -5782,8 +5826,7 @@ void Spell::RemoveChanneledAuraHolder(SpellAuraHolder* holder, AuraRemoveMode mo
 
 SpellCastResult Spell::CheckCast(bool strict)
 {
-    if (m_spellInfo->HasAttribute(SPELL_ATTR_EX_IGNORE_CASTER_AND_TARGET_RESTRICTIONS) ||
-        m_spellInfo->HasAttribute(SPELL_ATTR_EX3_IGNORE_CASTER_AND_TARGET_RESTRICTIONS))
+    if (m_spellInfo->IsIgnoringCasterAndTargetRestrictions())
         return SPELL_CAST_OK;
 
     if (m_caster->IsPlayer() && m_caster->ToPlayer()->HasCheatOption(PLAYER_CHEAT_NO_CHECK_CAST))
@@ -6374,7 +6417,7 @@ SpellCastResult Spell::CheckCast(bool strict)
                     return SPELL_FAILED_DONT_REPORT;
                 }
 
-                if (!target->GetCreatureInfo()->isTameable())
+                if (!target->GetCreatureInfo()->IsTameable())
                 {
                     plrCaster->SendPetTameFailure(PETTAME_NOTTAMEABLE);
                     return SPELL_FAILED_DONT_REPORT;
@@ -7231,6 +7274,15 @@ SpellCastResult Spell::CheckCasterAuras() const
     SpellCastResult prevented_reason = SPELL_CAST_OK;
     // Have to check if there is a stun aura. Otherwise will have problems with ghost aura apply while logging out
     uint32 unitflag = m_casterUnit->GetUInt32Value(UNIT_FIELD_FLAGS);     // Get unit state
+
+    // World of Warcraft Client Patch 1.7.0 (2005-09-13)
+    // - Fixed a bug where Fear and Curse of Recklessness, when used together,
+    //   would prevent targets from casting spells.
+#if SUPPORTED_CLIENT_BUILD <= CLIENT_BUILD_1_6_1
+    if (m_casterUnit->HasAuraType(SPELL_AURA_MOD_FEAR))
+        unitflag |= UNIT_FLAG_FLEEING;
+#endif
+
     if ((unitflag & UNIT_FLAG_STUNNED) && !(mechanic_immune & (1 << (MECHANIC_STUN - 1u))) && 
         (!m_casttime || m_spellInfo->HasSpellInterruptFlag(SPELL_INTERRUPT_FLAG_STUN)))
         prevented_reason = SPELL_FAILED_STUNNED;
@@ -7336,6 +7388,22 @@ bool Spell::CanAutoCast(Unit* target)
                 {
                     if (target->HasAura(m_spellInfo->Id, SpellEffectIndex(j)))
                         return false;
+
+                    // World of Warcraft Client Patch 1.7.0 (2005-09-13)
+                    // - Hunter's pets will be smarter about when to use Dash/Dive.
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_6_1
+                    if (m_spellInfo->EffectApplyAuraName[j] == SPELL_AURA_MOD_INCREASE_SPEED &&
+                        m_casterUnit->CanReachWithMeleeAutoAttack(m_casterUnit->GetVictim()))
+                        return false;
+#endif
+
+                    // World of Warcraft Client Patch 1.7.0 (2005-09-13)
+                    // - Succubus pets will be smarter about when to use Seduction.
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_6_1
+                    if (m_spellInfo->EffectApplyAuraName[j] == SPELL_AURA_MOD_STUN &&
+                        target->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_STUNNED))
+                        return false;
+#endif
                 }
             }
             else if (IsAreaAuraEffect(m_spellInfo->Effect[j]))

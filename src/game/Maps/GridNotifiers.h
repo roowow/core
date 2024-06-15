@@ -219,22 +219,41 @@ namespace MaNGOS
         template<class NOT_INTERESTED> void Visit(GridRefManager<NOT_INTERESTED>&) {}
     };
 
-    template<class Check>
-        struct WorldObjectListSearcher
-    {
-        std::list<WorldObject*>& i_objects;
-        Check& i_check;
+	#ifdef ENABLE_ELUNA
+		template<class Check>
+			struct WorldObjectLastSearcher
+		{
+			WorldObject*& i_object;
+			Check& i_check;
 
-        WorldObjectListSearcher(std::list<WorldObject*>& objects, Check & check) : i_objects(objects),i_check(check) {}
+			WorldObjectLastSearcher(WorldObject* & result, Check& check) : i_object(result), i_check(check) {}
 
-        void Visit(PlayerMapType& m);
-        void Visit(CreatureMapType& m);
-        void Visit(CorpseMapType& m);
-        void Visit(GameObjectMapType& m);
-        void Visit(DynamicObjectMapType& m);
+			void Visit(PlayerMapType& m);
+			void Visit(CreatureMapType& m);
+			void Visit(CorpseMapType& m);
+			void Visit(GameObjectMapType& m);
+			void Visit(DynamicObjectMapType& m);
 
-        template<class NOT_INTERESTED> void Visit(GridRefManager<NOT_INTERESTED>&) {}
-    };
+			template<class NOT_INTERESTED> void Visit(GridRefManager<NOT_INTERESTED>&) {}
+		};
+	#endif
+		
+	template<class Check>
+	struct WorldObjectListSearcher
+	{
+		std::list<WorldObject*>& i_objects;
+		Check& i_check;
+
+		WorldObjectListSearcher(std::list<WorldObject*>& objects, Check & check) : i_objects(objects), i_check(check) {}
+
+		void Visit(PlayerMapType& m);
+		void Visit(CreatureMapType& m);
+		void Visit(CorpseMapType& m);
+		void Visit(GameObjectMapType& m);
+		void Visit(DynamicObjectMapType& m);
+
+		template<class NOT_INTERESTED> void Visit(GridRefManager<NOT_INTERESTED>&) {}
+	};
 
     template<class Do>
         struct WorldObjectWorker
@@ -755,7 +774,7 @@ namespace MaNGOS
             //WorldObject const& GetFocusObject() const { return *i_obj; }
             bool operator()(Unit* u) const
             {
-                if (u->IsAlive() && u->IsInCombat() && i_obj->IsFriendlyTo(u) && i_obj->IsWithinDistInMap(u, i_range))
+                if (u->IsAlive() && u->IsInCombat() && i_obj->IsFriendlyTo(u) && i_obj->IsWithinDistInMap(u, i_range) && !u->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE))
                 {
                     if (i_percent)
                         return 100 - u->GetHealthPercent() > i_hp;
@@ -779,8 +798,8 @@ namespace MaNGOS
             WorldObject const& GetFocusObject() const { return *i_obj; }
             bool operator()(Unit* u)
             {
-                return u->IsAlive() && u->IsInCombat() && !i_obj->IsHostileTo(u) && i_obj->IsWithinDistInMap(u, i_range) &&
-                    (u->IsCharmed() || u->IsFrozen() || u->HasUnitState(UNIT_STAT_CAN_NOT_REACT));
+                return u->IsAlive() && u->IsInCombat() && !i_obj->IsHostileTo(u) && !u->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE) &&
+                       i_obj->IsWithinDistInMap(u, i_range) && (u->IsCharmed() || u->IsFrozen() || u->HasUnitState(UNIT_STAT_CAN_NOT_REACT));
             }
         private:
             SpellCaster const* i_obj;
@@ -795,7 +814,7 @@ namespace MaNGOS
             bool operator()(Unit* u)
             {
                 return u->IsAlive() && u->IsInCombat() && !i_obj->IsHostileTo(u) && i_obj->IsWithinDistInMap(u, i_range) &&
-                    !(u->HasAura(i_spell, EFFECT_INDEX_0) || u->HasAura(i_spell, EFFECT_INDEX_1) || u->HasAura(i_spell, EFFECT_INDEX_2));
+                      !u->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE) && !u->HasAura(i_spell);
             }
         private:
             SpellCaster const* i_obj;

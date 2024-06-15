@@ -22,7 +22,7 @@ extern "C"
 #include "WorldObjectMethods.h"
 #include "UnitMethods.h"
 #include "PlayerMethods.h"
-// #include "CreatureMethods.h"
+#include "CreatureMethods.h"
 #include "GroupMethods.h"
 #include "GuildMethods.h"
 #include "GameObjectMethods.h"
@@ -33,67 +33,72 @@ extern "C"
 #include "SpellMethods.h"
 #include "QuestMethods.h"
 #include "MapMethods.h"
-// #include "CorpseMethods.h"
-// #include "VehicleMethods.h"
+#include "CorpseMethods.h"
+#include "VehicleMethods.h"
 #include "BattleGroundMethods.h"
 
-#if (!defined(TBC) && !defined(CLASSIC))
-// fix compile error about accessing vehicle destructor
-template<> int ElunaTemplate<Vehicle>::CollectGarbage(lua_State* L)
-{
-    ASSERT(!manageMemory);
-
-    // Get object pointer (and check type, no error)
-    ElunaObject* obj = Eluna::CHECKOBJ<ElunaObject>(L, 1, false);
-    delete obj;
-    return 0;
-}
-#endif
-
 // Template by Mud from http://stackoverflow.com/questions/4484437/lua-integer-type/4485511#4485511
-template<> int ElunaTemplate<unsigned long long>::Add(lua_State* L) { Eluna::Push(L, Eluna::CHECKVAL<unsigned long long>(L, 1) + Eluna::CHECKVAL<unsigned long long>(L, 2)); return 1; }
-template<> int ElunaTemplate<unsigned long long>::Substract(lua_State* L) { Eluna::Push(L, Eluna::CHECKVAL<unsigned long long>(L, 1) - Eluna::CHECKVAL<unsigned long long>(L, 2)); return 1; }
-template<> int ElunaTemplate<unsigned long long>::Multiply(lua_State* L) { Eluna::Push(L, Eluna::CHECKVAL<unsigned long long>(L, 1) * Eluna::CHECKVAL<unsigned long long>(L, 2)); return 1; }
-template<> int ElunaTemplate<unsigned long long>::Divide(lua_State* L) { Eluna::Push(L, Eluna::CHECKVAL<unsigned long long>(L, 1) / Eluna::CHECKVAL<unsigned long long>(L, 2)); return 1; }
-template<> int ElunaTemplate<unsigned long long>::Mod(lua_State* L) { Eluna::Push(L, Eluna::CHECKVAL<unsigned long long>(L, 1) % Eluna::CHECKVAL<unsigned long long>(L, 2)); return 1; }
-// template<> int ElunaTemplate<unsigned long long>::UnaryMinus(lua_State* L) { Eluna::Push(L, -Eluna::CHECKVAL<unsigned long long>(L, 1)); return 1; }
-template<> int ElunaTemplate<unsigned long long>::Equal(lua_State* L) { Eluna::Push(L, Eluna::CHECKVAL<unsigned long long>(L, 1) == Eluna::CHECKVAL<unsigned long long>(L, 2)); return 1; }
-template<> int ElunaTemplate<unsigned long long>::Less(lua_State* L) { Eluna::Push(L, Eluna::CHECKVAL<unsigned long long>(L, 1) < Eluna::CHECKVAL<unsigned long long>(L, 2)); return 1; }
-template<> int ElunaTemplate<unsigned long long>::LessOrEqual(lua_State* L) { Eluna::Push(L, Eluna::CHECKVAL<unsigned long long>(L, 1) <= Eluna::CHECKVAL<unsigned long long>(L, 2)); return 1; }
+template<> int ElunaTemplate<unsigned long long>::Add(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(E->CHECKVAL<unsigned long long>(1) + E->CHECKVAL<unsigned long long>(2)); return 1; }
+template<> int ElunaTemplate<unsigned long long>::Substract(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(E->CHECKVAL<unsigned long long>(1) - E->CHECKVAL<unsigned long long>(2)); return 1; }
+template<> int ElunaTemplate<unsigned long long>::Multiply(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(E->CHECKVAL<unsigned long long>(1) * E->CHECKVAL<unsigned long long>(2)); return 1; }
+template<> int ElunaTemplate<unsigned long long>::Divide(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(E->CHECKVAL<unsigned long long>(1) / E->CHECKVAL<unsigned long long>(2)); return 1; }
+template<> int ElunaTemplate<unsigned long long>::Mod(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(E->CHECKVAL<unsigned long long>(1) % E->CHECKVAL<unsigned long long>(2)); return 1; }
+// template<> int ElunaTemplate<unsigned long long>::UnaryMinus(lua_State* L) { Eluna::GetEluna(L)->Push(-E->CHECKVAL<unsigned long long>(L, 1)); return 1; }
+template<> int ElunaTemplate<unsigned long long>::Equal(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(E->CHECKVAL<unsigned long long>(1) == E->CHECKVAL<unsigned long long>(2)); return 1; }
+template<> int ElunaTemplate<unsigned long long>::Less(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(E->CHECKVAL<unsigned long long>(1) < E->CHECKVAL<unsigned long long>(2)); return 1; }
+template<> int ElunaTemplate<unsigned long long>::LessOrEqual(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(E->CHECKVAL<unsigned long long>(1) <= E->CHECKVAL<unsigned long long>(2)); return 1; }
 template<> int ElunaTemplate<unsigned long long>::Pow(lua_State* L)
 {
-    Eluna::Push(L, static_cast<unsigned long long>(powl(static_cast<long double>(Eluna::CHECKVAL<unsigned long long>(L, 1)), static_cast<long double>(Eluna::CHECKVAL<unsigned long long>(L, 2)))));
+    Eluna* E = Eluna::GetEluna(L);
+    E->Push(static_cast<unsigned long long>(powl(static_cast<long double>(E->CHECKVAL<unsigned long long>(1)), static_cast<long double>(E->CHECKVAL<unsigned long long>(2)))));
     return 1;
 }
 template<> int ElunaTemplate<unsigned long long>::ToString(lua_State* L)
 {
-    unsigned long long l = Eluna::CHECKVAL<unsigned long long>(L, 1);
+    Eluna* E = Eluna::GetEluna(L);
+
+    unsigned long long l = E->CHECKVAL<unsigned long long>(1);
     std::ostringstream ss;
     ss << l;
-    Eluna::Push(L, ss.str());
+    E->Push(ss.str());
     return 1;
 }
 
-template<> int ElunaTemplate<long long>::Add(lua_State* L) { Eluna::Push(L, Eluna::CHECKVAL<long long>(L, 1) + Eluna::CHECKVAL<long long>(L, 2)); return 1; }
-template<> int ElunaTemplate<long long>::Substract(lua_State* L) { Eluna::Push(L, Eluna::CHECKVAL<long long>(L, 1) - Eluna::CHECKVAL<long long>(L, 2)); return 1; }
-template<> int ElunaTemplate<long long>::Multiply(lua_State* L) { Eluna::Push(L, Eluna::CHECKVAL<long long>(L, 1) * Eluna::CHECKVAL<long long>(L, 2)); return 1; }
-template<> int ElunaTemplate<long long>::Divide(lua_State* L) { Eluna::Push(L, Eluna::CHECKVAL<long long>(L, 1) / Eluna::CHECKVAL<long long>(L, 2)); return 1; }
-template<> int ElunaTemplate<long long>::Mod(lua_State* L) { Eluna::Push(L, Eluna::CHECKVAL<long long>(L, 1) % Eluna::CHECKVAL<long long>(L, 2)); return 1; }
-template<> int ElunaTemplate<long long>::UnaryMinus(lua_State* L) { Eluna::Push(L, -Eluna::CHECKVAL<long long>(L, 1)); return 1; }
-template<> int ElunaTemplate<long long>::Equal(lua_State* L) { Eluna::Push(L, Eluna::CHECKVAL<long long>(L, 1) == Eluna::CHECKVAL<long long>(L, 2)); return 1; }
-template<> int ElunaTemplate<long long>::Less(lua_State* L) { Eluna::Push(L, Eluna::CHECKVAL<long long>(L, 1) < Eluna::CHECKVAL<long long>(L, 2)); return 1; }
-template<> int ElunaTemplate<long long>::LessOrEqual(lua_State* L) { Eluna::Push(L, Eluna::CHECKVAL<long long>(L, 1) <= Eluna::CHECKVAL<long long>(L, 2)); return 1; }
+template<> int ElunaTemplate<long long>::Add(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(E->CHECKVAL<long long>(1) + E->CHECKVAL<long long>(2)); return 1; }
+template<> int ElunaTemplate<long long>::Substract(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(E->CHECKVAL<long long>(1) - E->CHECKVAL<long long>(2)); return 1; }
+template<> int ElunaTemplate<long long>::Multiply(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(E->CHECKVAL<long long>(1) * E->CHECKVAL<long long>(2)); return 1; }
+template<> int ElunaTemplate<long long>::Divide(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(E->CHECKVAL<long long>(1) / E->CHECKVAL<long long>(2)); return 1; }
+template<> int ElunaTemplate<long long>::Mod(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(E->CHECKVAL<long long>(1) % E->CHECKVAL<long long>(2)); return 1; }
+template<> int ElunaTemplate<long long>::UnaryMinus(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(-E->CHECKVAL<long long>(1)); return 1; }
+template<> int ElunaTemplate<long long>::Equal(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(E->CHECKVAL<long long>(1) == E->CHECKVAL<long long>(2)); return 1; }
+template<> int ElunaTemplate<long long>::Less(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(E->CHECKVAL<long long>(1) < E->CHECKVAL<long long>(2)); return 1; }
+template<> int ElunaTemplate<long long>::LessOrEqual(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(E->CHECKVAL<long long>(1) <= E->CHECKVAL<long long>(2)); return 1; }
 template<> int ElunaTemplate<long long>::Pow(lua_State* L)
 {
-    Eluna::Push(L, static_cast<long long>(powl(static_cast<long double>(Eluna::CHECKVAL<long long>(L, 1)), static_cast<long double>(Eluna::CHECKVAL<long long>(L, 2)))));
+    Eluna* E = Eluna::GetEluna(L);
+    E->Push(static_cast<long long>(powl(static_cast<long double>(E->CHECKVAL<long long>(1)), static_cast<long double>(E->CHECKVAL<long long>(2)))));
     return 1;
 }
 template<> int ElunaTemplate<long long>::ToString(lua_State* L)
 {
-    long long l = Eluna::CHECKVAL<long long>(L, 1);
+    Eluna* E = Eluna::GetEluna(L);
+
+    long long l = E->CHECKVAL<long long>(1);
     std::ostringstream ss;
     ss << l;
-    Eluna::Push(L, ss.str());
+    E->Push(ss.str());
+    return 1;
+}
+
+template<> int ElunaTemplate<ObjectGuid>::Equal(lua_State* L) { Eluna* E = Eluna::GetEluna(L); E->Push(E->CHECKVAL<ObjectGuid>(1) == E->CHECKVAL<ObjectGuid>(2)); return 1; }
+template<> int ElunaTemplate<ObjectGuid>::ToString(lua_State* L)
+{
+    Eluna* E = Eluna::GetEluna(L);
+#if defined(TRINITY)
+    E->Push(E->CHECKVAL<ObjectGuid>(1).ToString());
+#else
+    E->Push(E->CHECKVAL<ObjectGuid>(1).GetString());
+#endif
     return 1;
 }
 
@@ -123,17 +128,17 @@ void RegisterFunctions(Eluna* E)
     ElunaTemplate<Creature>::SetMethods(E, LuaObject::ObjectMethods);
     ElunaTemplate<Creature>::SetMethods(E, LuaWorldObject::WorldObjectMethods);
     ElunaTemplate<Creature>::SetMethods(E, LuaUnit::UnitMethods);
-    // ElunaTemplate<Creature>::SetMethods(E, LuaCreature::CreatureMethods);
+    ElunaTemplate<Creature>::SetMethods(E, LuaCreature::CreatureMethods);
 
     ElunaTemplate<GameObject>::Register(E, "GameObject");
     ElunaTemplate<GameObject>::SetMethods(E, LuaObject::ObjectMethods);
     ElunaTemplate<GameObject>::SetMethods(E, LuaWorldObject::WorldObjectMethods);
     ElunaTemplate<GameObject>::SetMethods(E, LuaGameObject::GameObjectMethods);
 
-    // ElunaTemplate<Corpse>::Register(E, "Corpse");
-    // ElunaTemplate<Corpse>::SetMethods(E, LuaObject::ObjectMethods);
-    // ElunaTemplate<Corpse>::SetMethods(E, LuaWorldObject::WorldObjectMethods);
-    // ElunaTemplate<Corpse>::SetMethods(E, LuaCorpse::CorpseMethods);
+    ElunaTemplate<Corpse>::Register(E, "Corpse");
+    ElunaTemplate<Corpse>::SetMethods(E, LuaObject::ObjectMethods);
+    ElunaTemplate<Corpse>::SetMethods(E, LuaWorldObject::WorldObjectMethods);
+    ElunaTemplate<Corpse>::SetMethods(E, LuaCorpse::CorpseMethods);
 
     ElunaTemplate<Item>::Register(E, "Item");
     ElunaTemplate<Item>::SetMethods(E, LuaObject::ObjectMethods);
@@ -141,8 +146,8 @@ void RegisterFunctions(Eluna* E)
 
 #ifndef CLASSIC
 #ifndef TBC
-    // ElunaTemplate<Vehicle>::Register(E, "Vehicle");
-    // ElunaTemplate<Vehicle>::SetMethods(E, LuaVehicle::VehicleMethods);
+    ElunaTemplate<Vehicle>::Register(E, "Vehicle");
+    ElunaTemplate<Vehicle>::SetMethods(E, LuaVehicle::VehicleMethods);
 #endif
 #endif
 
@@ -167,13 +172,17 @@ void RegisterFunctions(Eluna* E)
     ElunaTemplate<BattleGround>::Register(E, "BattleGround");
     ElunaTemplate<BattleGround>::SetMethods(E, LuaBattleGround::BattleGroundMethods);
 
-    ElunaTemplate<WorldPacket>::Register(E, "WorldPacket", true);
+    ElunaTemplate<WorldPacket>::Register(E, "WorldPacket");
     ElunaTemplate<WorldPacket>::SetMethods(E, LuaPacket::PacketMethods);
 
-    ElunaTemplate<ElunaQuery>::Register(E, "ElunaQuery", true);
+    ElunaTemplate<ElunaQuery>::Register(E, "ElunaQuery");
     ElunaTemplate<ElunaQuery>::SetMethods(E, LuaQuery::QueryMethods);
 
-    ElunaTemplate<long long>::Register(E, "long long", true);
+    ElunaTemplate<long long>::Register(E, "long long");
 
-    ElunaTemplate<unsigned long long>::Register(E, "unsigned long long", true);
+    ElunaTemplate<unsigned long long>::Register(E, "unsigned long long");
+
+    ElunaTemplate<ObjectGuid>::Register(E, "ObjectGuid");
+
+    LuaVal::Register(E->L);
 }
