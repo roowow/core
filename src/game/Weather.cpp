@@ -216,6 +216,7 @@ void Weather::SendWeatherUpdateToPlayer(Player* player)
 {
     NormalizeGrade();
 
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_7_1
     WorldPacket data(SMSG_WEATHER, 4 + 4 + 4 + 1);
     data << uint32(m_type);
     data << float(m_grade);
@@ -223,6 +224,7 @@ void Weather::SendWeatherUpdateToPlayer(Player* player)
     data << uint8(0);           // 1 = instant change, 0 = smooth change
 
     player->GetSession()->SendPacket(&data);
+#endif
 }
 
 // Send the new weather to all players in the zone
@@ -230,6 +232,7 @@ bool Weather::SendWeatherForPlayersInZone(Map const* _map)
 {
     NormalizeGrade();
 
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_7_1
     WorldPacket data(SMSG_WEATHER, 4 + 4 + 4 + 1);
     data << uint32(m_type);
     data << float(m_grade);
@@ -239,6 +242,7 @@ bool Weather::SendWeatherForPlayersInZone(Map const* _map)
     // Send the weather packet to all players in this zone
     if (!_map->SendToPlayersInZone(&data, m_zone))
         return false;
+#endif
 
     // Log the event
     LogWeatherState(GetWeatherState());

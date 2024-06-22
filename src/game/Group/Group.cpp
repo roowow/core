@@ -1295,7 +1295,7 @@ void Group::SetTargetIcon(uint8 id, ObjectGuid targetGuid)
 
     m_targetIcons[id] = targetGuid;
 
-#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_8_4
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_10_2
     WorldPacket data(MSG_RAID_TARGET_UPDATE, (1 + 1 + 8));
     data << uint8(0); // 1 - full icon list, 0 - delta update
     data << uint8(id);
@@ -1356,7 +1356,7 @@ void Group::GetDataForXPAtKill(Unit const* victim, uint32& count, uint32& sum_le
 
 void Group::SendTargetIconList(WorldSession* session)
 {
-#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_8_4
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_10_2
     if (!session)
         return;
 
@@ -1379,7 +1379,7 @@ void Group::SendTargetIconList(WorldSession* session)
 void Group::SendUpdate()
 {
     // sending full group list update clears marked targets when not in a raid, so we need to resend them
-#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_8_4
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_10_2
     std::unique_ptr<WorldPacket> markedTargets;
     if (!isRaidGroup())
     {
@@ -1443,7 +1443,7 @@ void Group::SendUpdate()
         }
         player->GetSession()->SendPacket(&data);
 
-#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_8_4
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_10_2
         if (markedTargets)
             player->GetSession()->SendPacket(markedTargets.get());
 #endif

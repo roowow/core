@@ -96,12 +96,12 @@ public:
     Player*     receiverPtr;
     Team        rcTeam;
     uint8       mailsCount;
-    void Callback(QueryResult* result)
+
+    void Callback(std::unique_ptr<QueryResult> result)
     {
         WorldSession* sess = sWorld.FindSession(accountId);
         if (!sess || !sess->GetPlayer() || sess->GetPlayer()->GetObjectGuid() != senderGuid || !sess->GetPlayer()->IsInWorld())
         {
-            delete result;
             delete this;
             return;
         }
@@ -110,7 +110,6 @@ public:
         {
             Field* fields = result->Fetch();
             mailsCount = fields[0].GetUInt32();
-            delete result;
         }
         sess->HandleSendMailCallback(this);
         delete this;

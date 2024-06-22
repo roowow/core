@@ -231,7 +231,7 @@ void WorldSession::HandleOpenItemOpcode(WorldPacket& recvPacket)
 
     if (pItem->HasFlag(ITEM_FIELD_FLAGS, ITEM_DYNFLAG_WRAPPED))// wrapped?
     {
-        QueryResult* result = CharacterDatabase.PQuery("SELECT `item_id`, `flags` FROM `character_gifts` WHERE `item_guid` = '%u'", pItem->GetGUIDLow());
+        std::unique_ptr<QueryResult> result = CharacterDatabase.PQuery("SELECT `item_id`, `flags` FROM `character_gifts` WHERE `item_guid` = '%u'", pItem->GetGUIDLow());
         if (result)
         {
             Field* fields = result->Fetch();
@@ -242,7 +242,6 @@ void WorldSession::HandleOpenItemOpcode(WorldPacket& recvPacket)
             pItem->SetEntry(entry);
             pItem->SetUInt32Value(ITEM_FIELD_FLAGS, flags);
             pItem->SetState(ITEM_CHANGED, pUser);
-            delete result;
         }
         else
         {
@@ -389,16 +388,15 @@ void WorldSession::HandleCancelAuraOpcode(WorldPacket& recvPacket)
         return;
 
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_6_1
-    if (spellInfo->Attributes & SPELL_ATTR_NO_AURA_CANCEL)
+    if (spellInfo->HasAttribute(SPELL_ATTR_NO_AURA_CANCEL))
         return;
 #endif
 
-    if (spellInfo->Attributes & SPELL_ATTR_DO_NOT_DISPLAY)
+    if (spellInfo->HasAttribute(SPELL_ATTR_DO_NOT_DISPLAY))
         return;
     
-    if (spellInfo->AttributesEx & SPELL_ATTR_EX_NO_AURA_ICON)
+    if (spellInfo->HasAttribute(SPELL_ATTR_EX_NO_AURA_ICON) && !spellInfo->activeIconID)
         return;
-    
 
     if (spellInfo->IsPassiveSpell())
         return;

@@ -178,7 +178,7 @@ bool GameEventMgr::IsEnabled(uint16 event_id)
 void GameEventMgr::LoadFromDB()
 {
     {
-        QueryResult* result = WorldDatabase.Query("SELECT MAX(entry) FROM game_event");
+        std::unique_ptr<QueryResult> result = WorldDatabase.Query("SELECT MAX(entry) FROM game_event");
         if (!result)
         {
             sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Table game_event is empty.");
@@ -189,12 +189,11 @@ void GameEventMgr::LoadFromDB()
         Field* fields = result->Fetch();
 
         uint32 max_event_id = fields[0].GetUInt16();
-        delete result;
 
         mGameEvent.resize(max_event_id + 1);
     }
 
-    QueryResult* result = WorldDatabase.Query("SELECT entry,UNIX_TIMESTAMP(start_time),UNIX_TIMESTAMP(end_time),occurence,length,holiday,description,hardcoded,disabled,patch_min,patch_max FROM game_event");
+    std::unique_ptr<QueryResult> result = WorldDatabase.Query("SELECT entry,UNIX_TIMESTAMP(start_time),UNIX_TIMESTAMP(end_time),occurence,length,holiday,description,hardcoded,disabled,patch_min,patch_max FROM game_event");
     if (!result)
     {
         mGameEvent.clear();
@@ -267,7 +266,6 @@ void GameEventMgr::LoadFromDB()
             }
         }
         while (result->NextRow());
-        delete result;
 
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u game events", count);
@@ -362,7 +360,6 @@ void GameEventMgr::LoadFromDB()
 
         }
         while (result->NextRow());
-        delete result;
 
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u creatures in game events", count);
@@ -441,7 +438,6 @@ void GameEventMgr::LoadFromDB()
 
         }
         while (result->NextRow());
-        delete result;
 
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u gameobjects in game events", count);
@@ -541,7 +537,6 @@ void GameEventMgr::LoadFromDB()
 
         }
         while (result->NextRow());
-        delete result;
 
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u creature reactions at game events", count);
@@ -602,7 +597,6 @@ void GameEventMgr::LoadFromDB()
 
         }
         while (result->NextRow());
-        delete result;
 
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u quest additions in game events", count);
@@ -683,7 +677,6 @@ void GameEventMgr::LoadFromDB()
 
         }
         while (result->NextRow());
-        delete result;
 
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u start/end game event mails", count);
@@ -696,7 +689,7 @@ uint32 GameEventMgr::Initialize()                           // return the next e
 
     ActiveEvents activeAtShutdown;
 
-    if (QueryResult* result = CharacterDatabase.Query("SELECT event FROM game_event_status"))
+    if (std::unique_ptr<QueryResult> result = CharacterDatabase.Query("SELECT event FROM game_event_status"))
     {
         do
         {
@@ -705,7 +698,6 @@ uint32 GameEventMgr::Initialize()                           // return the next e
             activeAtShutdown.insert(event_id);
         }
         while (result->NextRow());
-        delete result;
 
         CharacterDatabase.Execute("TRUNCATE game_event_status");
     }
