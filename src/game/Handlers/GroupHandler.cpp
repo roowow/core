@@ -31,6 +31,7 @@
 #include "Group.h"
 #include "SocialMgr.h"
 #include "Util.h"
+#include "Chat.h"
 
 #ifdef ENABLE_ELUNA
 #include "LuaEngine.h"
@@ -200,6 +201,40 @@ void WorldSession::HandleGroupAcceptOpcode(WorldPacket& /*recv_data*/)
             sObjectMgr.AddGroup(group);
         else
             return;
+    }
+
+    // check hardcore
+    if (!leader->IsHardcore())
+    {
+        if (GetPlayer()->IsHardcore() && ! GetPlayer()->IsHardcoreRetired())
+        {
+            ChatHandler(leader).SendSysMessage("勇敢者只能与勇敢者组队。");
+            ChatHandler(GetPlayer()).SendSysMessage("勇敢者只能与勇敢者组队。");
+            return;
+        }
+    }
+    if (leader->IsHardcore() && ! leader->IsHardcoreRetired())
+    {
+        if (! GetPlayer()->IsHardcore())
+        {
+            ChatHandler(leader).SendSysMessage("勇敢者只能与勇敢者组队。");
+            ChatHandler(GetPlayer()).SendSysMessage("勇敢者只能与勇敢者组队。");
+            return;
+        }
+
+        if (leader->GetLevel() > GetPlayer()->GetLevel() && leader->GetLevel() - GetPlayer()->GetLevel() > 5)
+        {
+            ChatHandler(leader).SendSysMessage("勇敢者之间组队不能超过5级。");
+            ChatHandler(GetPlayer()).SendSysMessage("勇敢者之间组队不能超过5级。");
+            return;
+        }
+
+        if (leader->GetLevel() < GetPlayer()->GetLevel() && GetPlayer()->GetLevel() - leader->GetLevel() > 5)
+        {
+            ChatHandler(leader).SendSysMessage("勇敢者之间组队不能超过5级。");
+            ChatHandler(GetPlayer()).SendSysMessage("勇敢者之间组队不能超过5级。");
+            return;
+        }
     }
 
     // everything is fine, do it, PLAYER'S GROUP IS SET IN ADDMEMBER!!!

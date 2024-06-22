@@ -1672,7 +1672,7 @@ void Player::Update(uint32 update_diff, uint32 p_time)
         {
             // m_nextSave reseted in SaveToDB call
             SaveToDB();
-            sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "Player '%s' (GUID: %u) saved", GetName(), GetGUIDLow());
+            sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "Player '%s' (GUID: %u) saved", GetName(), GetGUIDLow());
         }
         else
             m_nextSave -= update_diff;
@@ -15380,7 +15380,7 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
         }
     }
 
-    /// DualTalent state
+    /// DualTalent
     QueryResult* tresult = holder->GetResult(PLAYER_LOGIN_QUERY_DUALTALENT);
     if (tresult)
     {
@@ -16206,7 +16206,7 @@ bool Player::_LoadInventory(std::unique_ptr<QueryResult> result, uint32 timediff
                 oss << "Duplicate item (via AH) " << item_id << " GUID:" << item_lowguid << ", count: " << item->GetCount() << ", bag: " << bag_guid << ", slot: " << uint32(slot);
                 CharacterDatabase.PExecute("DELETE FROM `character_inventory` WHERE `item_guid` = '%u'", item_lowguid);
                 GetSession()->ProcessAnticheatAction("PassiveAnticheat", oss.str().c_str(), CHEAT_ACTION_LOG | CHEAT_ACTION_REPORT_GMS);
-                sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, oss.str().c_str());
+                sLog.Out(LOG_BASIC, LOG_LVL_BASIC, oss.str().c_str());
                 continue;
             }
 
@@ -19362,7 +19362,7 @@ void Player::LeaveBattleground(bool teleportToEntryPoint)
                 AddAura(26013, 0, this);               // Deserter
         }
         bg->RemovePlayerAtLeave(GetObjectGuid(), teleportToEntryPoint, true);
-        sLog.Out(LOG_BG, LOG_LVL_DETAIL, "[%u,%u]: %s:%u [%u:%s] leaves",
+        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[%u,%u]: %s:%u [%u:%s] leaves",
                  bg->GetMapId(), bg->GetInstanceID(),
                  GetName(),
                  GetGUIDLow(), GetSession()->GetAccountId(), GetSession()->GetRemoteAddress().c_str(),
