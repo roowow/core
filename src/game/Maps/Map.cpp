@@ -174,17 +174,40 @@ Map::Map(uint32 id, time_t expiry, uint32 InstanceId)
     m_persistentState->SetUsedByMapState(this);
     m_weatherSystem = new WeatherSystem(this);
 
-
     if (IsContinent())
     {
         int numObjThreads = (int)sWorld.getConfig(CONFIG_UINT32_MAP_OBJECTSUPDATE_THREADS);
+#ifdef ENABLE_ELUNA
+        if (sElunaConfig->IsElunaEnabled() && numObjThreads > 1)
+        {
+            sLog.Out(LOG_ELUNA, LOG_LVL_ERROR, "Object update threads set to %i, when Eluna is enabled only allows 1, changing to 1", numObjThreads);
+            numObjThreads = 1;
+        }
+#endif
         if (numObjThreads > 1)
         {
-            m_objectThreads.reset(new ThreadPool(numObjThreads -1));
+            m_objectThreads.reset(new ThreadPool(numObjThreads - 1));
             m_objectThreads->start<ThreadPool::MySQL<ThreadPool::MultiQueue>>();
         }
-        m_motionThreads.reset(new ThreadPool(sWorld.getConfig(CONFIG_UINT32_CONTINENTS_MOTIONUPDATE_THREADS)));
-        m_visibilityThreads.reset(new ThreadPool(std::max((int)sWorld.getConfig(CONFIG_UINT32_MAP_VISIBILITYUPDATE_THREADS) -1,0)));
+        int numMotionThreads = sWorld.getConfig(CONFIG_UINT32_CONTINENTS_MOTIONUPDATE_THREADS);
+        int numVisabilityThreads = sWorld.getConfig(CONFIG_UINT32_MAP_VISIBILITYUPDATE_THREADS);
+#ifdef ENABLE_ELUNA
+        if (sElunaConfig->IsElunaEnabled() && (numMotionThreads > 0 || numVisabilityThreads > 1))
+        {
+            if (numMotionThreads > 0)
+            {
+                sLog.Out(LOG_ELUNA, LOG_LVL_ERROR, "Motion update threads set to %i, when Eluna is enabled only allows 0, changing to 0", numMotionThreads);
+                numMotionThreads = 0;
+            }
+            if (numVisabilityThreads > 1)
+            {
+                sLog.Out(LOG_ELUNA, LOG_LVL_ERROR, "Visability update threads set to %i, when Eluna is enabled only allows 1, changing to 1", numVisabilityThreads);
+                numVisabilityThreads = 1;
+            }
+        }
+#endif
+        m_motionThreads.reset(new ThreadPool(numMotionThreads));
+        m_visibilityThreads.reset(new ThreadPool(std::max(numVisabilityThreads -1,0)));
         m_cellThreads.reset(new ThreadPool(std::max((int)sWorld.getConfig(CONFIG_UINT32_MTCELLS_THREADS) - 1, 0)));
         m_visibilityThreads->start<ThreadPool::MySQL<ThreadPool::MultiQueue>>();
         m_cellThreads->start();

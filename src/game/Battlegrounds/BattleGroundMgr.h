@@ -216,7 +216,6 @@ class BattleGroundMgr
 
         BattleGround* GetBattleGroundThroughClientInstance(uint32 instanceId, BattleGroundTypeId bgTypeId);
         BattleGround* GetBattleGround(uint32 instanceId, BattleGroundTypeId bgTypeId); // there must be uint32 because MAX_BATTLEGROUND_TYPE_ID means unknown
-        uint32 CheckBattleGround(uint32 instanceId, uint32 bgTypeId, bool initial); // there must be uint32 because MAX_BATTLEGROUND_TYPE_ID means unknown
 
         BattleGround* GetBattleGroundTemplate(BattleGroundTypeId bgTypeId);
         BattleGround* CreateNewBattleGround(BattleGroundTypeId bgTypeId, BattleGroundBracketId bracketId);
