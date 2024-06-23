@@ -1287,7 +1287,7 @@ void BattleGroundMgr::CreateInitialBattleGrounds()
     uint32 count = 0;
 
     uint32 bindex = 0;
-    QueryResult* bresult = CharacterDatabase.PQuery("SELECT name FROM `character_name` where name not in (SELECT Name from characters)");
+    std::unique_ptr<QueryResult> bresult = CharacterDatabase.PQuery("SELECT name FROM `character_name` where name not in (SELECT Name from characters)");
     if (bresult)
     {
          do

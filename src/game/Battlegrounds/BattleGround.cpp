@@ -1920,19 +1920,3 @@ uint32 BattleGround::GetBotPlayersCountByTeam(Team team) {
     }
     return count;
 }
-
-uint32 BattleGround::GetRealPlayersCountByTeam(Team team) {
-    uint32 count = 0;
-    for (auto const& itr : GetPlayers())
-    {
-        Player const* pPlayertmp = sObjectMgr.GetPlayer(itr.first);
-        if (pPlayertmp->GetTeam() == team)
-        {
-            if (!pPlayertmp->IsBot())
-            {
-                count++;
-            }
-        }
-    }
-    return count;
-}

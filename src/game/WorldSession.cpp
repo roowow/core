@@ -1262,9 +1262,6 @@ void WorldSession::ProcessAnticheatAction(char const* detector, char const* reas
     sLog.Player(this, LOG_ANTICHEAT, detector, LOG_LVL_MINIMAL, "[%s] Player %s, Cheat %s, Penalty: %s",
         detector, playerDesc.c_str(), reason, action);
 
-    // 2024-03-08 21:25:17 [ELUNA] (PassiveAnticheat) (acc 2, ip 10.1.1.1) [PassiveAnticheat] Player <None> [TEST1:2@10.1.1.1], Cheat Item Load failed: cannot QuickEquip, Penalty: Announced to GMs.
-    // 2024-03-08 21:25:17 [ELUNA] (PassiveAnticheat) (acc 2, ip 10.1.1.1) [PassiveAnticheat] Player <None> [TEST1:2@10.1.1.1], Cheat Broken item 15389 GUID:1732 count:1 bag:0 slot:7, Penalty:
-    // 2024-02-28 16:33:46 [ELUNA] (MovementAnticheat) (acc 5050, ip 111.20.137.237, guid 166336, name 夜愿, map 1, pos -10283.4 -4145.2 -2.26016) [MovementAnticheat] Player 夜愿:166336 [EDIFIER1:5050@111.20.137.237], Cheat Botting(Total:174), Penalty:
     if (GetPlayer() && ! GetPlayer()->IsBot())
     {
         CharacterDatabase.PExecute("INSERT INTO `character_log_anticheat` (`guid`, `name`, `cheat`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%s', '%u', '%u', '%f', '%f', '%f', '%s')",

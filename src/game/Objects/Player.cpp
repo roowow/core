@@ -7352,11 +7352,6 @@ void Player::UpdateZone(uint32 newZone, uint32 newArea)
 
     UpdateZoneDependentAuras();
     SetZoneScript();
-
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = GetEluna())
-        e->OnUpdateZone(this, newZone, newArea);
-#endif
 }
 
 //If players are too far way of duel flag... then player loose the duel
@@ -13567,11 +13562,6 @@ void Player::AddQuest(Quest const* pQuest, Object* questGiver)
     }
 
     UpdateForQuestWorldObjects();
-
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = GetEluna())
-        e->OnQuestAccept(this, quest_id);
-#endif
 }
 
 void Player::FullQuestComplete(uint32 questId)
@@ -13887,12 +13877,6 @@ void Player::RewardQuest(Quest const* pQuest, uint32 reward, WorldObject* questE
                 if (!HasAura(itr->second->spellId, EFFECT_INDEX_0))
                     CastSpell(this, itr->second->spellId, true);
     }
-
-    // Used by Eluna
-    #ifdef ENABLE_ELUNA
-    if (Eluna* e = GetEluna())
-        e->OnQuestComplete(this, quest_id);
-    #endif /* ENABLE_ELUNA */
 }
 
 void Player::FailQuest(uint32 questId)
@@ -15329,7 +15313,7 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
 
     /// Hardcore state
     // SELECT `status`, `retired`, `pvpflag`, `changed`, `normal` FROM `character_hardcore`
-    QueryResult* hresult = holder->GetResult(PLAYER_LOGIN_QUERY_HARDCORE);
+    std::unique_ptr<QueryResult> hresult = holder->TakeResult(PLAYER_LOGIN_QUERY_HARDCORE);
     if (hresult)
     {
         Field* fields   = hresult->Fetch();
@@ -15381,7 +15365,7 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
     }
 
     /// DualTalent
-    QueryResult* tresult = holder->GetResult(PLAYER_LOGIN_QUERY_DUALTALENT);
+    std::unique_ptr<QueryResult> tresult = holder->TakeResult(PLAYER_LOGIN_QUERY_DUALTALENT);
     if (tresult)
     {
         Field* fields = tresult->Fetch();

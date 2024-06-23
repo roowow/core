@@ -231,7 +231,6 @@ class BattleGround
         static BattleGroundTeamIndex GetTeamIndexByTeamId(Team team) { return team == ALLIANCE ? BG_TEAM_ALLIANCE : BG_TEAM_HORDE; }
         uint32 GetPlayersCountByTeam(Team team) const { return m_playersCount[GetTeamIndexByTeamId(team)]; }
         uint32 GetBotPlayersCountByTeam(Team team);
-        uint32 GetRealPlayersCountByTeam(Team team);
         uint32 GetAlivePlayersCountByTeam(Team team) const; // used in arenas to correctly handle death in spirit of redemption / last stand etc. (killer = killed) cases
         void UpdatePlayersCountByTeam(Team team, bool remove)
         {
