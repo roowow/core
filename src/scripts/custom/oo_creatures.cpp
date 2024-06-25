@@ -27,7 +27,7 @@ bool GossipHello_HardcoreNPC(Player *player, Creature *_Creature)
     {
         // player:GossipMenuAddItem(0, "我要退役，输入：|cFFFF0000确认|r。", 1, 3, true, nil)
         if (! player->IsHardcoreRetired())
-            player->ADD_GOSSIP_ITEM_EXTENDED(0, "我要退役，输入：|cFFFF0000确认|r。", GOSSIP_SENDER_MAIN, 3, "dddd", true)
+            player->ADD_GOSSIP_ITEM_EXTENDED(0, "我要退役，输入：|cFFFF0000确认|r。", GOSSIP_SENDER_MAIN, 3, "dddd", true);
 
         player->SEND_GOSSIP_MENU(22004, _Creature->GetGUID());
     }
@@ -46,11 +46,11 @@ void SendDefaultMenu_HardcoreNPC(Player *player, Creature *_Creature, uint32 act
     {
         case 1: 
             // player:GossipMenuAddItem(0, "加入勇敢者，签署生死状：|cFFFF0000舍生取义|r。", 290006, 2, true, nil)
-            player->ADD_GOSSIP_ITEM_EXTENDED(0, "加入勇敢者，签署生死状：|cFFFF0000舍生取义|r。", GOSSIP_SENDER_MAIN, 2, "eeee", true)
+            player->ADD_GOSSIP_ITEM_EXTENDED(0, "加入勇敢者，签署生死状：|cFFFF0000舍生取义|r。", GOSSIP_SENDER_MAIN, 2, "eeee", true);
 
             player->SEND_GOSSIP_MENU(22005, _Creature->GetGUID());
         case 2: 
-            if (code <> "舍生取义")
+            if (code != "舍生取义")
             {
                 ChatHandler(player).SendSysMessage("你的签名不正确，希望你是故意的。");
                 break;
@@ -62,14 +62,14 @@ void SendDefaultMenu_HardcoreNPC(Player *player, Creature *_Creature, uint32 act
             _Creature->MonsterSay("勇敢者，是人类的明灯，是行走的火炬，带来希望与光明。希望你恪守勇敢者准则，不要辱没了这三个字。", 0, 0);
             break;
         case 3: 
-            if (code <> "确认")
+            if (code != "确认")
             {
                 ChatHandler(player).SendSysMessage("你的输入不正确。");
                 break;
             }
         
             player->CLOSE_GOSSIP_MENU();
-            player->SetHardcoreRetired(true);
+            player->SetHardcoreRetired();
             _Creature->CastSpell(player, 25823, true); // 艾露恩灯柱
             _Creature->MonsterSay("勇敢者，你是人类的明灯！", 0, 0);
             break;
