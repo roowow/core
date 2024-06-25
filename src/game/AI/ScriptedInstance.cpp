@@ -173,7 +173,7 @@ void ScriptedInstance_PTR::OnCreatureEnterCombat(Creature* creature)
         if (it == boss_expirations.end())
         {
             boss_expirations[creature->GetObjectGuid()] = time(nullptr);
-            creature->MonsterSay("Remaining time before despawn: 30 minutes.");
+            creature->MonsterSay("消失前剩余时间：30 分钟。");
         }
     }
     ScriptedInstance::OnCreatureEnterCombat(creature);

@@ -517,7 +517,7 @@ void BattleGroundAV::HandleQuestComplete(Unit* questGiver, uint32 questid, Playe
 //            setReinforcementLevelGroundUnit(teamIdx, m_teamQuestStatus[teamIdx][0]);
 
             if ((m_teamQuestStatus[teamIdx][0]%100) == 0 && (m_teamQuestStatus[teamIdx][0]%500) != 0&& questGiver->GetTypeId() == TYPEID_UNIT)
-                ((Creature*)questGiver)->MonsterSay("Great! Let's keep those supplies coming, people!", 0, 0);
+                ((Creature*)questGiver)->MonsterSay("太棒了！各位，让我们继续供应这些物资吧！", 0, 0);
 
 /*            if (m_teamQuestStatus[teamIdx][0]%500 == 0 && m_teamQuestStatus[teamIdx][0] != 0 && questGiver->GetTypeId() == TYPEID_UNIT)
             {
