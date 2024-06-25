@@ -39,6 +39,7 @@ set (SCRIPTS_SRCS
     custom/boss_arena_hardog.cpp
     custom/custom.cpp
     custom/custom_creatures.cpp
+    custom/oo_creatures.cpp
     custom/event_attack_city.cpp
     custom/gmisland.cpp
     custom/npc_escort.cpp

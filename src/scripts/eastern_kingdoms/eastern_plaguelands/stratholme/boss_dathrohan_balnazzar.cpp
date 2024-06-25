@@ -144,7 +144,7 @@ struct boss_dathrohan_balnazzarAI : public ScriptedAI
 
     void JustDied(Unit* Victim) override
     {
-        m_creature->MonsterSay("Damn you mortals! All my plans of revenge, all my hate... all burned to ash...");
+        m_creature->MonsterSay("你们这些凡人该死！我所有的复仇计划，所有的仇恨……全部化为灰烬……");
         
         static uint32 uiCount = sizeof(m_aSummonPoint) / sizeof(SummonDef);
 
@@ -168,7 +168,7 @@ struct boss_dathrohan_balnazzarAI : public ScriptedAI
 
     void Aggro(Unit* /*pWho*/) override
     {
-        m_creature->MonsterYell("Today you have unmade what took me years to create! For this you shall all die by my hand!");
+        m_creature->MonsterYell("今天你毁掉了我花了几年时间创造的东西！为此，你们都要死在我手上！");
     }
 
     void UpdateAI(uint32 const uiDiff) override
@@ -231,7 +231,7 @@ struct boss_dathrohan_balnazzarAI : public ScriptedAI
             {
                 if (m_uiTransform_Timer <= uiDiff)
                 {
-                    m_creature->MonsterYell("You fools think you can defeat me so easily? Face the true might of the Nathrezim!");
+                    m_creature->MonsterYell("你们这些蠢货以为你们能轻易打败我吗？面对纳斯雷兹姆的真正力量！");
                     m_uiTransform_Timer = 0;
                 }
                 else

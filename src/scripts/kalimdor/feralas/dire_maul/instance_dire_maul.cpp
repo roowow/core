@@ -1099,10 +1099,10 @@ struct GordokBruteAI : public ScriptedAI
         switch (yellChance)
         {
             case 0:
-                m_creature->MonsterSay("Me smash! You die!");
+                m_creature->MonsterSay("我粉碎！你完蛋了！");
                 break;
             case 1:
-                m_creature->MonsterSay("The Great One will smash you!");
+                m_creature->MonsterSay("伟大的人会粉碎你！");
                 break;
             case 2:
                 char eMessage[100];
@@ -1239,7 +1239,7 @@ struct boss_guardsAI : public ScriptedAI
         // Guards no longer drop loot after contributing to the Tribute
         if (pInstance->GetData(TYPE_GORDOK_TRIBUTE) == DONE)
         {
-            m_creature->MonsterSay("Why... Boss.. betray.. us...?", 0, 0);
+            m_creature->MonsterSay("为什么……老大……背叛……我们……？", 0, 0);
             m_creature->SetLootRecipient(nullptr);
         }
     }
@@ -1457,7 +1457,7 @@ struct boss_kromcrushAI : public ScriptedAI
         // Kromcrush no longer drops loot after contributing to the Tribute
         if (pInstance->GetData(TYPE_GORDOK_TRIBUTE) == DONE)
         {
-            m_creature->MonsterSay("Why... Boss.. betray.. us...?", 0, 0);
+            m_creature->MonsterSay("为什么……老大……背叛……我们……？", 0, 0);
             m_creature->SetLootRecipient(nullptr);
         }
     }

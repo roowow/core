@@ -237,7 +237,7 @@ struct npc_watcher_blombergAI : ScriptedAI
         {
             if (m_uiSayTimer < uiDiff)
             {
-                m_creature->MonsterSay("The abomination is coming! Dodds! Paige! Come here and help us!");
+                m_creature->MonsterSay("祸害来了！多兹！佩奇！来这里帮助我们！");
                 m_bIsEngaged = true;
 
                 if (auto pDodds = m_creature->FindNearestCreature(NPC_WATCHER_DODDS, 200.0f))
