@@ -1060,6 +1060,45 @@ void Unit::Kill(Unit* pVictim, SpellEntry const* spellProto, bool durabilityLoss
     if (pPlayerVictim)
         pPlayerVictim->RewardHonorOnDeath();
 
+    // Hardcore, Bigdata
+    if(pPlayerVictim && pPlayerTap)
+    {
+        if( pPlayerTap != pPlayerVictim && ! pPlayerVictim->InBattleGround())
+        {
+            std::string areaOrZoneName = "未知区域";
+            uint32 areaOrZoneId = pPlayerVictim->GetAreaId();
+            const auto* areaEntry = AreaEntry::GetById(areaOrZoneId);
+            if (areaEntry)
+            {
+                areaOrZoneName = areaEntry->Name;
+                sObjectMgr.GetAreaLocaleString(areaEntry->Id, 3, &areaOrZoneName);
+            }
+
+            // GM kill
+            if (pPlayerVictim->IsHardcore() && ! pPlayerVictim->IsHardcoreRetired() && pPlayerTap->IsGameMaster())
+            {
+                CharacterDatabase.PExecute("UPDATE character_hardcore SET status = 0, changed = UNIX_TIMESTAMP(), killedby=%u, killertype=3, area=%u, killedlevel=%u WHERE guid=%u", pPlayerTap->GetGUIDLow(), pPlayerVictim->GetAreaId(), pPlayerVictim->GetLevel(), pPlayerVictim->GetGUIDLow());
+                pPlayerVictim->SetHardcoreDead(true);
+                ChatHandler(pPlayerVictim).SendSysMessage("勇敢者，您已经死亡。遇险情报将稍后送达世界各地，您会被永远铭记！");
+                
+                std::string message = std::string("勇敢者 |cFF") + pPlayerVictim->GetClassColor() + pPlayerVictim->GetName() + std::string("（等级 ") + std::to_string(pPlayerVictim->GetLevel()) 
+                     + std::string("）|r，因违反勇敢者准则被处决于 |cFFFF0000") + areaOrZoneName + std::string("|r。");
+                sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
+            }
+
+            // character_log_pvpkill
+            if (! pPlayerTap->IsGameMaster())
+            {
+                std::string message = std::string("|cFF") + pPlayerTap->GetClassColor() + pPlayerTap->GetName() + std::string("（等级 ") + std::to_string(pPlayerTap->GetLevel()) 
+                     + std::string("）|r 在 ") + areaOrZoneName + std::string(" 击杀了 |cFF") 
+                     + pPlayerVictim->GetClassColor() + pPlayerVictim->GetName() + std::string("（等级 ") + std::to_string(pPlayerVictim->GetLevel())  + std::string("）。");
+                sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
+
+                CharacterDatabase.PExecute("INSERT INTO `character_log_pvpkill` (`killer`, `killerlevel`, `name`, `victim`, `victimlevel`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%u', '%s', '%u', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                    pPlayerTap->GetGUIDLow(), pPlayerTap->GetLevel(), pPlayerTap->GetName(), pPlayerVictim->GetGUIDLow(), pPlayerVictim->GetLevel(), pPlayerTap->GetZoneId(), pPlayerTap->GetMapId(), pPlayerTap->GetPositionX(), pPlayerTap->GetPositionY(), pPlayerTap->GetPositionZ(), pPlayerTap->GetSession()->GetRemoteAddress().c_str());
+            }
+        }
+    }
     // Used by Eluna
 #ifdef ENABLE_ELUNA
     if(pPlayerVictim && pPlayerTap)
@@ -1178,13 +1217,29 @@ void Unit::Kill(Unit* pVictim, SpellEntry const* spellProto, bool durabilityLoss
             WorldPacket data(SMSG_DURABILITY_DAMAGE_DEATH, 0);
             pPlayerVictim->GetSession()->SendPacket(&data);
 
-#ifdef ENABLE_ELUNA
-            // used by eluna
+            // Hardcore, killed by creature
             if (Creature* killer = ToCreature())
-                if (pPlayerVictim)
-                    if (Eluna* e = pPlayerVictim->GetEluna())
-                        e->OnPlayerKilledByCreature(killer, pPlayerVictim);
-#endif /* ENABLE_ELUNA */
+            {
+                if (! pPlayerVictim->InBattleGround() && pPlayerVictim->IsHardcore() && ! pPlayerVictim->IsHardcoreRetired())
+                {
+                    CharacterDatabase.PExecute("UPDATE character_hardcore SET status = 0, changed = UNIX_TIMESTAMP(), killedby=%u, killertype=1, area=%u, killedlevel=%u WHERE guid=%u", killer->GetGUIDLow(), pPlayerVictim->GetAreaId(), pPlayerVictim->GetLevel(), pPlayerVictim->GetGUIDLow());
+                    pPlayerVictim->SetHardcoreDead(true);
+                    ChatHandler(pPlayerVictim).SendSysMessage("勇敢者，您已经死亡。遇险情报将稍后送达世界各地，您会被永远铭记！");
+                    
+                    std::string areaOrZoneName = "未知区域";
+                    uint32 areaOrZoneId = pPlayerVictim->GetAreaId();
+                    const auto* areaEntry = AreaEntry::GetById(areaOrZoneId);
+                    if (areaEntry)
+                    {
+                        areaOrZoneName = areaEntry->Name;
+                        sObjectMgr.GetAreaLocaleString(areaEntry->Id, 3, &areaOrZoneName);
+                    }
+                    std::string message = std::string("勇敢者 |cFF") + pPlayerVictim->GetClassColor() + pPlayerVictim->GetName() + std::string("（等级 ") + std::to_string(pPlayerVictim->GetLevel()) 
+                        + std::string("）|r，我被怪物 |cFFFF0000") + killer->GetNameForLocaleIdx(3) + std::string("|r 在 ") + areaOrZoneName + std::string(" 嘎了。");
+                    sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
+                    sWorld.SendServerMessage(SERVER_MSG_CUSTOM, "勇敢者，行走的火炬，燃烧自己，照亮前方。我勇敢一生，无怨而无悔！");
+                }
+            }
         }
     }
     else                                                // creature died

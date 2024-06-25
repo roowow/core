@@ -409,6 +409,7 @@ bool consoleToUtf8(std::string const& conStr,std::string& utf8str);
 bool Utf8FitTo(std::string const& str, std::wstring search);
 void utf8printf(FILE* out, char const* str, ...);
 void vutf8printf(FILE* out, char const* str, va_list* ap);
+std::string utf8Substr(const std::string& str, unsigned int start, unsigned int leng);
 
 bool IsIPAddress(char const* ipaddress);
 uint32 CreatePIDFile(std::string const& filename);

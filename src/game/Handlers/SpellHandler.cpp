@@ -30,6 +30,7 @@
 #include "SpellAuras.h"
 #include "GameObject.h"
 #include "Map.h"
+#include "Chat.h"
 
 #ifdef ENABLE_ELUNA
 #include "LuaEngine.h"
@@ -160,12 +161,78 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
         return;
     }
 
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = pUser->GetEluna())
-        if (!e->OnUse(pUser, pItem, targets))
-            return;
-#endif
-		pUser->CastItemUseSpell(pItem, targets);
+    // Eluna::OnUse OnItemUse OnItemGossip
+    bool cancelCast = false;
+
+    // Hardcore
+    if (pUser->IsHardcore() && ! pUser->IsHardcoreRetired())
+    {
+        // 骑士不允许无敌炉石 6948 炉石
+        if (pUser->HasAura(25771) && pItem->GetEntry() == 6948)
+        {
+            ChatHandler(pUser).SendSysMessage("勇敢者准则：勇敢者无法在自律期间使用炉石。");
+            cancelCast = true;
+        }
+    }
+
+    // Party 便携式量子发生器 98623
+    if (pItem->GetEntry() == 98623)
+    {
+        std::array<uint32, 100> PartyTexts {22015, 22016, 22017, 22018, 22020, 22021};
+        pUser->PlayerTalkClass->SendGossipMenu(PartyTexts[urand(0, 5)], pItem->GetGUID());
+        pUser->CastSpell(pUser, 26638, true); // Twin Teleport Visual
+        cancelCast = true;
+    }
+
+    // DualTalent 魂器 922001
+    if (pItem->GetEntry() == 922001)
+    {
+        // local Q = CharDBQuery("SELECT flag, name, active from character_spell_talent WHERE guid = "..guid.." order by flag;")
+        std::unique_ptr<QueryResult> dresult = CharacterDatabase.PQuery("SELECT flag, name, active from character_spell_talent WHERE guid = %u order by flag;", pUser->GetGUIDLow());
+        if (dresult)
+        {
+            do
+            {
+                Field* fields = dresult->Fetch();
+                if (fields[2].GetUInt32())
+                {
+                    // player:GossipMenuAddItem(2, "|cFFFF0000灵魂 "..Q:GetUInt32(0).." - "..Q:GetString(1).."|r ", 1, 99) -- active talent
+                    std::string msg = std::string("|cFFFF0000灵魂 ") + std::to_string(fields[0].GetUInt32()) + fields[1].GetString() + std::string("|r ");
+                    pUser->PlayerTalkClass->GetGossipMenu().AddMenuItem(2, msg.c_str(), 1, 99); // active talent
+                }
+                else
+                {
+                    // player:GossipMenuAddItem(3, "灵魂 "..Q:GetUInt32(0).." - "..Q:GetString(1), 1, Q:GetUInt32(0)) -- inactive talent
+                    std::string msg = std::string("灵魂 ") + std::to_string(fields[0].GetUInt32()) + fields[1].GetString();
+                    pUser->PlayerTalkClass->GetGossipMenu().AddMenuItem(3, msg.c_str(), 1, fields[0].GetUInt32()); // inactive talent
+                }
+            }
+            while (dresult->NextRow());
+        }
+        // GossipMenu::AddMenuItem(uint8 Icon, std::string const& Message, bool Coded)
+        // GossipMenu::AddMenuItem(uint8 Icon, char const* Message, bool Coded)
+        // GossipMenu::AddMenuItem(uint8 Icon, char const* Message, uint32 dtSender, uint32 dtAction, char const* BoxMessage, bool Coded)
+        // ossipMenu::AddMenuItem(uint8 Icon, int32 itemText, uint32 dtSender, uint32 dtAction, int32 boxText, bool Coded)
+        // player:GossipMenuAddItem(4, "分裂灵魂", 1, 20)
+        pUser->PlayerTalkClass->GetGossipMenu().AddMenuItem(4, "分裂灵魂", 1, 20);
+        pUser->PlayerTalkClass->SendGossipMenu(22011, pItem->GetGUID());
+        cancelCast = true;
+    }
+
+    if (cancelCast)
+    {
+        // Send equip error that shows no message
+        // This is a hack fix to stop spell casting visual bug when a spell is not cast on use
+        WorldPacket data(SMSG_INVENTORY_CHANGE_FAILURE, 18);
+        data << uint8(59); // EQUIP_ERR_NONE / EQUIP_ERR_CANT_BE_DISENCHANTED
+        data << pUser->GetObjectGuid();
+        data << ObjectGuid(uint64(0));
+        data << uint8(0);
+        pUser->GetSession()->SendPacket(&data);
+        return;
+    }
+
+	pUser->CastItemUseSpell(pItem, targets);
 }
 
 void WorldSession::HandleOpenItemOpcode(WorldPacket& recvPacket)

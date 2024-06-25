@@ -1164,6 +1164,52 @@ uint32 Player::EnvironmentalDamage(EnvironmentalDamageType type, uint32 damage)
 
     damage = DealDamage(this, damage, nullptr, SELF_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr, false);
 
+    // Hardcore, DualTalent
+    if (!IsAlive())
+    {
+        if (IsHardcore() && ! IsHardcoreRetired() && ! InBattleGround())
+        {
+            CharacterDatabase.PExecute("UPDATE character_hardcore SET status = 0, changed = UNIX_TIMESTAMP(), killertype=4, area=%u, killedlevel=%u WHERE guid=%u", GetAreaId(), GetLevel(), GetGUIDLow());
+            SetHardcoreDead(true);
+            ChatHandler(this).SendSysMessage("勇敢者，您已经死亡。遇险情报将稍后送达世界各地，您会被永远铭记！");
+            
+            std::string areaOrZoneName = "未知区域";
+            uint32 areaOrZoneId = GetAreaId();
+            const auto* areaEntry = AreaEntry::GetById(areaOrZoneId);
+            if (areaEntry)
+            {
+                areaOrZoneName = areaEntry->Name;
+                sObjectMgr.GetAreaLocaleString(areaEntry->Id, 3, &areaOrZoneName);
+            }
+
+            std::string damageReason = "遭遇意外";
+            if (type == DAMAGE_EXHAUSTED)
+            {
+                damageReason = damageReason + std::string("：累死了");
+            }
+            else if (type == DAMAGE_DROWNING)
+            {
+                damageReason = damageReason + std::string("：淹死了");
+            }
+            else if (type == DAMAGE_FALL)
+            {
+                damageReason = damageReason + std::string("：摔死了");
+            }
+            damageReason = damageReason + std::string("。");
+
+            std::string message = std::string("勇敢者 |cFF") + GetClassColor() + GetName() + std::string("（等级 ") + std::to_string(GetLevel()) 
+                + std::string("）|r，我在 ") + areaOrZoneName + damageReason;
+            sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
+            sWorld.SendServerMessage(SERVER_MSG_CUSTOM, "勇敢者，行走的火炬，燃烧自己，照亮前方。我勇敢一生，无怨而无悔！");
+        }
+
+        // 跨越深海
+        if (HasQuest(32003))
+            FailQuest(32003);
+
+        if (HasQuest(32005))
+            FailQuest(32005);
+    }
 #ifdef ENABLE_ELUNA
     if (Eluna* e = GetEluna())
         if (!IsAlive())
@@ -3369,12 +3415,28 @@ void Player::SetCheatDebugTargetInfo(bool on, bool notify)
 }
 
 /// Hardcore
-void Player::SetHardcore(bool on)
+bool Player::SetHardcore(bool on)
 {
     if (on)
     {
+        if (GetLevel() > 5)
+        {
+            ChatHandler(this).SendSysMessage("勇敢者小队只招募刚刚返回归地球不超过5级的人类。");
+            return false;
+        }
         m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_ON;
         CharacterDatabase.PExecute("INSERT INTO character_hardcore (guid, created, status) VALUES (%u, UNIX_TIMESTAMP(), 1)", GetGUIDLow());
+
+        CastSpell(this, 15852, true);
+        AddAura(7363, 0, this); // 火光
+
+        SetHardcorePVP(false);
+        SetPvP(false);
+
+        if (Group* group = sObjectMgr.GetGroupByMember(GetGUID()))
+            RemoveFromGroup(group, GetGUID());
+
+        ChatHandler(this).SendSysMessage("你已加入勇敢者小队，希望你恪守勇敢者准则，不要辱没了这三个字。");
     }
     else
     {
@@ -3382,12 +3444,23 @@ void Player::SetHardcore(bool on)
         m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_ON;
         CharacterDatabase.PExecute("UPDATE `character_hardcore` SET `normal` = 1, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
     }
+
+    return true;
 }
 
 void Player::SetHardcoreRetired()
 {
     m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_RETIRED;
     CharacterDatabase.PExecute("UPDATE `character_hardcore` SET `retired` = 1, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
+
+    SetHardcorePVP(true);
+    SetPvP(true);
+
+    CastSpell(this, 26374, true); // 艾露恩的蜡烛 TODO 改成烟花束？
+    CastSpell(this, 461, true); 
+    RemoveAurasDueToSpell(7363);
+
+    ChatHandler(this).SendSysMessage("您已经退役，感谢您做出的贡献！");
 }
 
 void Player::SetHardcoreDead(bool on)
@@ -3416,6 +3489,133 @@ void Player::SetHardcorePVP(bool on)
     }
 }
 /// Hardcore
+
+//// DualTalent
+void Player::SetActiveTalent(uint32 talent)
+{
+    oowowInfo.activeTalent = talent;
+
+    CharacterDatabase.PQuery("UPDATE character_spell_talent SET active = 0 WHERE guid = %u", GetGUIDLow()); // must excute first
+
+    CharacterDatabase.PExecute("UPDATE character_spell_talent SET active = 1 WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
+}
+
+bool Player::IsAllowSwitchTalent()
+{
+    // 虚弱
+    if (HasAura(15007))
+    {
+        ChatHandler(this).SendSysMessage("虚弱时无法凝聚灵魂。");
+        return false;
+    }
+
+    // 战斗中
+    if (IsInCombat())
+    {
+        ChatHandler(this).SendSysMessage("战斗中无法凝聚灵魂。");
+        return false;
+    }
+
+    // 战场
+    if (InBattleGround())
+    {
+        ChatHandler(this).SendSysMessage("战场里无法凝聚灵魂。");
+        return false;
+    }
+
+    return true;
+}
+
+void Player::SwitchTalent(uint32 talent)
+{
+    ResetTalents();
+
+    std::unique_ptr<QueryResult> tresult = CharacterDatabase.PQuery("SELECT talentid, rank from character_spell_extra WHERE flag = %u and guid = %u order by id", talent, GetGUIDLow());
+    if (tresult)
+    {
+        // auto curTime = sWorld.GetCurrentClockTime();
+        do
+        {
+            Field* fields = tresult->Fetch();
+            LearnTalent(fields[0].GetUInt32(), fields[1].GetUInt32());
+        }
+        while (tresult->NextRow());
+    }
+
+    SetActiveTalent(talent);
+
+	// -- 怒气/能量/法力清零
+    SetHealth(GetHealth() * 0.6); // 60% health
+    SetPower(POWER_MANA, 0);
+    SetPower(POWER_RAGE, 0);
+    SetPower(POWER_ENERGY, 0);
+
+	// player:RemoveAura( 6537 ) --森林的召唤
+    CastSpell(this, 14867, true); // Untalent Visual Effect
+    ChatHandler(this).SendSysMessage("已切换灵魂。");
+}
+
+bool Player::AddTalent(std::string name)
+{
+    if (! IsAllowSwitchTalent())
+        return false;
+
+    std::unique_ptr<QueryResult> tresult = CharacterDatabase.PQuery("SELECT count(*) from character_spell_talent WHERE guid = %u", GetGUIDLow());
+    if (tresult)
+    {
+        Field* fields = tresult->Fetch();
+        // fields[0].GetUInt32()
+        if (GetMoney() < 5*100*100)
+        {
+            ChatHandler(this).SendSysMessage("余额不足，无法驱动魂器。");
+            return false;
+        }
+
+        if (fields[0].GetUInt32() > 8)
+        {
+            ChatHandler(this).SendSysMessage("无法分裂更多灵魂。");
+            return false;
+        }
+
+        ModifyMoney(-5*100*100);
+
+        CharacterDatabase.PQuery("INSERT INTO `character_spell_talent` (`Flag`, `Guid`, `name`) VALUES ('%u', '%u', '%s');", fields[0].GetUInt32()+1, GetGUIDLow());
+        
+        SwitchTalent(fields[0].GetUInt32()+1);
+    }
+}
+
+bool Player::DeleteTalent(uint32 talent)
+{
+    if (! IsAllowSwitchTalent())
+        return false;
+
+    CharacterDatabase.PQuery("DELETE FROM `character_spell_talent` WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
+    CharacterDatabase.PQuery("DELETE FROM `character_spell_extra`  WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
+    CharacterDatabase.PQuery("DELETE FROM `character_spell_tmp`    WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
+
+    std::unique_ptr<QueryResult> dresult = CharacterDatabase.PQuery("SELECT flag, active from character_spell_talent WHERE guid = %u order by flagu", GetGUIDLow());
+    if (dresult)
+    {
+        do
+        {
+            Field* fields = dresult->Fetch();
+            uint32 talent_new = 1;
+            CharacterDatabase.PQuery("UPDATE character_spell_talent SET flag = %u WHERE flag = %u and guid = %u", talent_new, fields[0].GetUInt32(), GetGUIDLow());
+            CharacterDatabase.PQuery("UPDATE character_spell_extra  SET flag = %u WHERE flag = %u and guid = %u", talent_new, fields[0].GetUInt32(), GetGUIDLow());
+
+            if (fields[1].GetUInt32())
+                oowowInfo.activeTalent = talent_new;
+
+            talent_new = talent_new + 1;
+        }
+        while (dresult->NextRow());
+    }
+
+    CastSpell(this, 14867, true); // Untalent Visual Effect
+    ChatHandler(this).SendSysMessage("已忘记灵魂。");
+}
+//// DualTalent
 
 bool Player::IsAllowedWhisperFrom(ObjectGuid guid) const
 {
@@ -3569,10 +3769,6 @@ void Player::GiveLevel(uint32 level)
 {
     if (level == GetLevel())
         return;
-
-#if ENABLE_ELUNA
-    int oldLevel = GetLevel();
-#endif
 
     uint32 numInstanceMembers = 0;
     uint32 numGroupMembers = 0;
@@ -3736,10 +3932,12 @@ void Player::GiveLevel(uint32 level)
     if (Pet* pet = GetPet())
         pet->SynchronizeLevelWithOwner();
 
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = GetEluna())
-        e->OnLevelChanged(this, oldLevel);
-#endif
+    // Hardcore OnLevelChanged
+    if (IsHardcore() && level == 60)
+    {
+        std::string message = std::string("勇敢者 |cFF") + GetClassColor() + GetName() + std::string("|r，完成了重重考验，晋升到了60！");
+        sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
+    }
 }
 
 void Player::UpdateFreeTalentPoints(bool resetIfNeed)
@@ -8051,7 +8249,13 @@ void Player::CastItemUseSpell(Item* item, SpellCastTargets const& targets)
 
         Spell* spell = new Spell(this, spellInfo, ((count > 0) || proto->HasExtraFlag(ITEM_EXTRA_CAST_AS_TRIGGERED)));
         spell->SetCastItem(item);
-        spell->prepare(targets);
+        // spell->prepare(targets);
+
+        // Party
+        // if (spellData.SpellId == 20600 && item->GetEntry() == 98623)
+        // {
+        //     RemoveAurasDueToSpell(20600); // not work
+        // }
 
         ++count;
     }
@@ -12819,6 +13023,7 @@ void Player::SendPreparedGossip(WorldObject* pSource)
 
 void Player::OnGossipSelect(WorldObject* pSource, uint32 gossipListId)
 {
+    printf("gossipListId: %u", gossipListId);
     GossipMenu& gossipmenu = PlayerTalkClass->GetGossipMenu();
 
     if (gossipListId >= gossipmenu.MenuItemCount())
@@ -15374,6 +15579,18 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
     {
         Field* fields = tresult->Fetch();
         oowowInfo.activeTalent = fields[0].GetUInt32();
+    }
+
+    /// Braodcast
+    std::unique_ptr<QueryResult> bresult = holder->TakeResult(PLAYER_LOGIN_QUERY_BROADCAST);
+    if (bresult)
+    {
+        do
+        {
+            Field* fields = tresult->Fetch();
+            ChatHandler(this).SendSysMessage(fields[0].GetString());
+
+        } while (bresult->NextRow());
     }
 
     if (IsPvPDesired())

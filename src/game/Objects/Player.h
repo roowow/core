@@ -235,6 +235,7 @@ typedef std::vector<PlayerCreateInfoAction> PlayerCreateInfoActions;
 struct OOWOWInfo
 {
     uint32 activeTalent = 0;
+    uint32 displayID = 0;
 };
 
 struct PlayerInfo
@@ -726,6 +727,7 @@ enum PlayerLoginQueryIndex
     PLAYER_LOGIN_QUERY_FORGOTTEN_SKILLS,
     PLAYER_LOGIN_QUERY_HARDCORE, /// Hardcore
     PLAYER_LOGIN_QUERY_DUALTALENT, /// DualTalent
+    PLAYER_LOGIN_QUERY_BROADCAST, /// Broadcast
 
     MAX_PLAYER_LOGIN_QUERY
 };
@@ -1068,7 +1070,7 @@ class Player final: public Unit
         bool IsHardcoreRetired() const { return m_ExtraFlags & PLAYER_EXTRA_HARDCORE_RETIRED; }
         bool IsHardcoreDead()    const { return m_ExtraFlags & PLAYER_EXTRA_HARDCORE_DEAD; }
         bool IsHardcorePVP()     const { return m_ExtraFlags & PLAYER_EXTRA_HARDCORE_PVP; }
-        void SetHardcore(bool on = true);
+        bool SetHardcore(bool on = true);
         void SetHardcoreDead(bool on = true);
         void SetHardcorePVP(bool on = true);
         void SetHardcoreRetired();
@@ -1652,8 +1654,13 @@ class Player final: public Unit
         bool ResetTalents(bool no_cost = false);
         void InitTalentForLevel();
         bool LearnTalent(uint32 talentId, uint32 talentRank);
-        uint32 ActiveTalent() const { return oowowInfo.activeTalent; }  /// DualTalent
-        void SetActiveTalent(uint32 talent) { oowowInfo.activeTalent = talent;} /// DualTalent
+        // DualTalent
+        uint32 ActiveTalent() const { return oowowInfo.activeTalent; }
+        void SetActiveTalent(uint32 talent); 
+        bool IsAllowSwitchTalent();
+        void SwitchTalent(uint32 talent);
+        bool AddTalent(std::string name);
+        bool DeleteTalent(uint32 talent);
 
         /*********************************************************/
         /***                    STAT SYSTEM                    ***/
@@ -2389,6 +2396,7 @@ class Player final: public Unit
         uint8 GetChatTag() const;
 
         char const* GetName() const final { return m_name.c_str(); }
+        char const*  GetClassColor() const { return "C79C6E"; } //TODO
         void SetName(std::string const& newname) { m_name = newname; }
 
         float GetYellRange() const;

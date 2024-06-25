@@ -565,6 +565,7 @@ class Unit : public SpellCaster
         uint32 GetRaceMask() const { return GetRace() ? 1 << (GetRace()-1) : 0x0; }
         uint8 GetClass() const { return GetByteValue(UNIT_FIELD_BYTES_0, UNIT_BYTES_0_OFFSET_CLASS); }
         uint32 GetClassMask() const { return GetClass() ? 1 << (GetClass()-1) : 0x0; }
+        char const* GetClassColor() const;
         uint8 GetGender() const final { return GetByteValue(UNIT_FIELD_BYTES_0, UNIT_BYTES_0_OFFSET_GENDER); }
         SheathState GetSheath() const { return SheathState(GetByteValue(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_SHEATH_STATE)); }
         virtual void SetSheath(SheathState sheathed) { SetByteValue(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_SHEATH_STATE, sheathed); }

@@ -49,6 +49,7 @@
 #include "MovementPacketSender.h"
 #include "ZoneScript.h"
 #include "LoveIsInTheAir.h"
+#include "Chat.h"
 
 using namespace Spells;
 
@@ -1729,10 +1730,29 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
                         }
                         return;
                     }
-                    case 8067:                              // Party Time!
+                    case 8067:                              // Party Time! 派对活动
                     {
                         m_isPeriodic = true;
                         m_modifier.periodictime = 10 * IN_MILLISECONDS;
+
+                        if (Player* pPlayer = ToPlayer(target))
+                        {
+                            // for (uint32 i = 1; i < sCreatureDisplayInfoAddonStorage.GetMaxEntry(); ++i)
+                            while (true)
+                            {
+                                uint32 displayIdIndex = urand(1, sCreatureDisplayInfoAddonStorage.GetMaxEntry());
+                                CreatureDisplayInfoAddon const* minfo = sCreatureDisplayInfoAddonStorage.LookupEntry<CreatureDisplayInfoAddon>(displayIdIndex);
+                                if (minfo)
+                                {
+                                    pPlayer->SetDisplayId(minfo->display_id);
+                                    std::string msg = std::string("派对时间！(") + std::to_string(minfo->display_id) + std::string("）");
+                                    ChatHandler(pPlayer).SendSysMessage(msg.c_str());
+                                    pPlayer->oowowInfo.displayID = minfo->display_id;
+                                    break;
+                                }
+                            }
+                        }
+
                         return;
                     }
                     case 10255:                             // Stoned
@@ -1931,14 +1951,13 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
 
         switch (GetId())
         {
-            case 126:   // Kilrogg eye
-            case 6272:  // Eye of Yesmur
-            case 8067:                              // Party Time!
+            case 8067:                              // Party Time! 派对活动
             {
-                // OOWOW 派对活动
                 target->DeMorph();
                 return;
             }
+            case 126:   // Kilrogg eye
+            case 6272:  // Eye of Yesmur
             case 11403: // Dream Vision
                 if (Player* pCaster = ToPlayer(GetCaster()))
                     pCaster->UnsummonPossessedMinion();
