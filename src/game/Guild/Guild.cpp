@@ -754,7 +754,6 @@ void Guild::Disband()
     CharacterDatabase.PExecute("DELETE FROM `guild_rank` WHERE `guild_id` = '%u'", m_Id);
     CharacterDatabase.PExecute("DELETE FROM `guild_eventlog` WHERE `guild_id` = '%u'", m_Id);
     CharacterDatabase.CommitTransaction();
-
     sGuildMgr.RemoveGuild(m_Id);
 }
 

@@ -26,8 +26,6 @@ EndScriptData */
 #include "CreatureGroups.h"
 #include "ruins_of_ahnqiraj.h"
 
-#include <random>
-
 instance_ruins_of_ahnqiraj::instance_ruins_of_ahnqiraj(Map* pMap) : ScriptedInstance(pMap)
 {
     Initialize();
@@ -718,8 +716,7 @@ void instance_ruins_of_ahnqiraj::SpawnNewCrystals(ObjectGuid usedCrystal)
         possibleIndexes.push_back(i);
     }
 
-    std::mt19937 rng(std::time(nullptr));
-    std::shuffle(possibleIndexes.begin(), possibleIndexes.end(), rng);
+    std::random_shuffle(possibleIndexes.begin(), possibleIndexes.end());
 
     while (crystalIndexes.size() < OSSIRIAN_CRYSTAL_NUM_ACTIVE)
     {
