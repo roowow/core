@@ -38,7 +38,7 @@ class Player;
 class WorldPacket;
 class BattleGroundMap;
 class ChatHandler;
-// class SpellInfo;
+class SpellInfo;
 
 struct WorldSafeLocsEntry;
 

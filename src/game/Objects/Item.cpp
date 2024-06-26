@@ -28,9 +28,6 @@
 #include "Database/DatabaseEnv.h"
 #include "ItemEnchantmentMgr.h"
 #include "GuildMgr.h"
-#ifdef ENABLE_ELUNA
-#include "LuaEngine.h"
-#endif /* ENABLE_ELUNA */
 
 void AddItemsSetItem(Player* player, Item* item)
 {
@@ -236,15 +233,6 @@ void Item::RemoveFromWorld()
     Object::RemoveFromWorld();
 }
 
-#ifdef ENABLE_ELUNA
-bool Item::IsNotEmptyBag() const
-{
-	if (Bag const* bag = ToBag())
-		return !bag->IsEmpty();
-	return false;
-}
-#endif
-
 void Item::UpdateDuration(Player* owner, uint32 diff)
 {
     if (!GetUInt32Value(ITEM_FIELD_DURATION))
@@ -254,11 +242,6 @@ void Item::UpdateDuration(Player* owner, uint32 diff)
 
     if (GetUInt32Value(ITEM_FIELD_DURATION) <= diff)
     {
-        // Used by Eluna
-#ifdef ENABLE_ELUNA
-        if (Eluna* e = owner->GetEluna())
-            e->OnExpire(owner, GetProto());
-#endif /* ENABLE_ELUNA */
         owner->DestroyItem(GetBagSlot(), GetSlot(), true);
         return;
     }

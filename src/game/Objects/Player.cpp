@@ -81,10 +81,6 @@
 #include "world/scourge_invasion.h"
 #include "world/world_event_wareffort.h"
 
-#ifdef ENABLE_ELUNA
-#include "LuaEngine.h"
-#endif /* ENABLE_ELUNA */
-
 #define ZONE_UPDATE_INTERVAL (1*IN_MILLISECONDS)
 
 #define PLAYER_SKILL_INDEX(x)       (PLAYER_SKILL_INFO_1_1 + ((x)*3))
@@ -1210,11 +1206,6 @@ uint32 Player::EnvironmentalDamage(EnvironmentalDamageType type, uint32 damage)
         if (HasQuest(32005))
             FailQuest(32005);
     }
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = GetEluna())
-        if (!IsAlive())
-            e->OnPlayerKilledByEnvironment(this, type);
-#endif
 
     // DealDamage not apply item durability loss at self damage
     // Confirmed on classic that dying from lava, fatigue and
@@ -3528,6 +3519,9 @@ bool Player::IsAllowSwitchTalent()
 
 void Player::SwitchTalent(uint32 talent)
 {
+    if (! IsAllowSwitchTalent())
+        return;
+
     ResetTalents();
 
     std::unique_ptr<QueryResult> tresult = CharacterDatabase.PQuery("SELECT talentid, rank from character_spell_extra WHERE flag = %u and guid = %u order by id", talent, GetGUIDLow());
@@ -3552,7 +3546,7 @@ void Player::SwitchTalent(uint32 talent)
 
 	// player:RemoveAura( 6537 ) --森林的召唤
     CastSpell(this, 14867, true); // Untalent Visual Effect
-    ChatHandler(this).SendSysMessage("已切换灵魂。");
+    ChatHandler(this).SendSysMessage("已切换灵魂，你感到非常的虚弱。。");
 }
 
 bool Player::AddTalent(std::string name)
@@ -3579,8 +3573,9 @@ bool Player::AddTalent(std::string name)
 
         ModifyMoney(-5*100*100);
 
-        CharacterDatabase.PQuery("INSERT INTO `character_spell_talent` (`Flag`, `Guid`, `name`) VALUES ('%u', '%u', '%s');", fields[0].GetUInt32()+1, GetGUIDLow());
-        
+        CharacterDatabase.PQuery("INSERT INTO `character_spell_talent` (`Flag`, `Guid`, `name`) VALUES ('%u', '%u', '%s');", fields[0].GetUInt32()+1, GetGUIDLow(), name);
+
+        ChatHandler(this).SendSysMessage("新灵魂分裂完成。");
         SwitchTalent(fields[0].GetUInt32()+1);
     }
 }
@@ -4522,10 +4517,6 @@ void Player::LearnSpell(uint32 spellId, bool dependent, bool talent)
         WorldPacket data(SMSG_LEARNED_SPELL, 4);
         data << uint32(spellId);
         GetSession()->SendPacket(&data);
-#ifdef ENABLE_ELUNA
-        if (Eluna* e = GetEluna())
-            e->OnLearnSpell(this, spellId);
-#endif
     }
 
     // learn all disabled higher ranks (recursive) - skip for talent spells
@@ -6203,10 +6194,6 @@ bool Player::UpdateSkillPro(uint16 SkillId, int32 Chance, uint32 step)
         SetUInt32Value(valueIndex, MAKE_SKILL_VALUE(new_value, MaxValue));
         if (itr->second.uState != SKILL_NEW)
             itr->second.uState = SKILL_CHANGED;
-#ifdef ENABLE_ELUNA
-        // if (Eluna* e = GetEluna())
-            // e->OnSkillChange(this, SkillId, new_value);
-#endif
         sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Player::UpdateSkillPro Chance=%3.1f%% taken", Chance / 10.0);
         return true;
     }
@@ -7234,11 +7221,6 @@ void Player::RewardReputation(Unit const* pVictim, float rate)
     if (pVictim->IsPet() && sWorld.GetWowPatch() >= WOW_PATCH_110)
         return;
 
-#ifdef ENABLE_ELUNA
-    if (((Creature*)pVictim)->IsReputationGainDisabled())
-        return;
-#endif
-
     ReputationOnKillEntry const* Rep = sObjectMgr.GetReputationOnKillEntry(((Creature*)pVictim)->GetEntry());
 
     if (!Rep)
@@ -7436,9 +7418,6 @@ void Player::SetTransport(GenericTransport* t)
 
 void Player::UpdateArea(uint32 newArea)
 {
-#ifdef ENABLE_ELUNA
-    uint32 oldArea = m_areaUpdateId;
-#endif
     m_areaUpdateId    = newArea;
 
     DismountCheck();
@@ -7461,13 +7440,6 @@ void Player::UpdateArea(uint32 newArea)
     }
 
     UpdateAreaDependentAuras();
-
-#ifdef ENABLE_ELUNA
-    // We only want the hook to trigger when the old and new area is actually different
-    if (Eluna* e = GetEluna())
-        if (oldArea != newArea)
-            e->OnUpdateArea(this, oldArea, newArea);
-#endif
 }
 
 void Player::UpdateZone(uint32 newZone, uint32 newArea)
@@ -8531,14 +8503,6 @@ void Player::SendLoot(ObjectGuid guid, LootType loot_type, Player const* pVictim
                 }
 
             loot = &go->loot;
-#ifdef ENABLE_ELUNA
-            Player* recipient = go->GetLootRecipient();
-            if (!recipient)
-            {
-                go->SetLootRecipient(this);
-                recipient = this;
-            }
-#endif
 
             // generate loot only if ready for open and spawned in world
             if (go->getLootState() == GO_READY && go->isSpawned())
@@ -9308,24 +9272,6 @@ uint32 Player::GetItemCount(uint32 item, bool inBankAlso, Item const* skipItem) 
 
     return count;
 }
-
-#ifdef ENABLE_ELUNA
-Item* Player::GetItemByEntry(uint32 itemEntry) const
-{
-	for (int i = EQUIPMENT_SLOT_START; i < INVENTORY_SLOT_ITEM_END; ++i)
-		if (Item* pItem = GetItemByPos(INVENTORY_SLOT_BAG_0, i))
-			if (pItem->GetEntry() == itemEntry)
-				return pItem;
-
-	for (int i = INVENTORY_SLOT_BAG_START; i < INVENTORY_SLOT_BAG_END; ++i)
-		if (Bag* pBag = (Bag*)GetItemByPos(INVENTORY_SLOT_BAG_0, i))
-			if (Item* itemPtr = pBag->GetItemByEntry(itemEntry))
-				return itemPtr;
-
-	return NULL;
-}
-
-#endif
 
 Item* Player::GetItemByGuid(ObjectGuid guid) const
 {
@@ -11019,11 +10965,6 @@ Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update
         if (randomPropertyId)
             pItem->SetItemRandomProperties(randomPropertyId);
         pItem = StoreItem(dest, pItem, update);
-
-#ifdef ENABLE_ELUNA
-        if (Eluna* e = GetEluna())
-            e->OnAdd(this, pItem);
-#endif
     }
     return pItem;
 }
@@ -14655,10 +14596,6 @@ void Player::SetQuestStatus(uint32 quest_id, QuestStatus status)
 
         UpdateForQuestWorldObjects();
     }
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = GetEluna())
-        e->OnQuestStatusChanged(this, quest_id, status);
-#endif
 }
 
 void Player::AdjustQuestReqItemCount(Quest const* pQuest, QuestStatusData& questStatusData)
@@ -15057,19 +14994,6 @@ void Player::LogModifyMoney(int32 d, char const* type, ObjectGuid fromGuid, uint
     }
     ModifyMoney(d);
 }
-
-#ifdef ENABLE_ELUNA
-void Player::ModifyMoney(int32 d)
-{
-    if (Eluna* e = GetEluna())
-        e->OnMoneyChanged(this, d);
-
-    if (d < 0)
-        SetMoney(GetMoney() > uint32(-d) ? GetMoney() + d : 0);
-    else
-        SetMoney(GetMoney() < uint32(MAX_MONEY_AMOUNT - d) ? GetMoney() + d : MAX_MONEY_AMOUNT);
-}
-#endif
 
 void Player::MoneyChanged(uint32 count)
 {
@@ -17274,13 +17198,6 @@ void Player::SaveToDB(bool online, bool force)
 
     CharacterDatabase.BeginTransaction(GetGUIDLow());
 
-#ifdef ENABLE_ELUNA
-    // Hack to check that this is not on create save
-    if (Eluna* e = GetEluna())
-        if (!HasAtLoginFlag(AT_LOGIN_FIRST))
-            e->OnSave(this);
-#endif
-
     m_honorMgr.Update();
 
     static SqlStatementID insChar;
@@ -18270,38 +18187,6 @@ void Player::TextEmote(char const* text) const
     ChatHandler::BuildChatPacket(data, CHAT_MSG_EMOTE, text, LANG_UNIVERSAL, GetChatTag(), GetObjectGuid(), GetName());
     SendMessageToSetInRange(&data, sWorld.getConfig(CONFIG_FLOAT_LISTEN_RANGE_TEXTEMOTE), true, !sWorld.getConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_INTERACTION_CHAT));
 }
-
-#ifdef ENABLE_ELUNA
-void Player::Whisper(const std::string& text, uint32 language, ObjectGuid receiver)
-{
-	if (language != LANG_ADDON)                             // if not addon data
-	{
-		language = LANG_UNIVERSAL;
-	}                      // whispers should always be readable
-
-	Player* rPlayer = sObjectMgr.GetPlayer(receiver);
-
-	if (!rPlayer) // Player is offline/not available.
-		return;
-
-	WorldPacket data;
-	ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER, text.c_str(), Language(language), GetChatTag(), GetObjectGuid(), GetName());
-	rPlayer->GetSession()->SendPacket(&data);
-}
-/* removed from v18,but need's in eluna */
-void Player::RemoveAllSpellCooldown()
-{
-	if (!m_cooldownMap.IsEmpty())
-	{
-		if (Player* player = GetAffectingPlayer())
-			for (CooldownContainer::ConstIterator itr = m_cooldownMap.begin(); itr != m_cooldownMap.end(); ++itr)
-				player->SendClearCooldown(itr->first, this);
-
-		m_cooldownMap.clear();
-	}
-}
-
-#endif /* ENABLE_ELUNA */
 
 void Player::PetSpellInitialize()
 {
@@ -23274,9 +23159,6 @@ static char const* type_strings[] =
     "GM",
     "GMCritical",
     "Scripts",
-#ifdef ENABLE_ELUNA
-    "ELUNA",
-#endif
     "Anticheat"
 };
 

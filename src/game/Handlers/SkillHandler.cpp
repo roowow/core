@@ -28,9 +28,6 @@
 #include "WorldSession.h"
 #include "UpdateMask.h"
 #include "Anticheat.h"
-#ifdef ENABLE_ELUNA
-#include "LuaEngine.h"
-#endif /* ENABLE_ELUNA */
 
 void WorldSession::HandleLearnTalentOpcode(WorldPacket& recv_data)
 {
@@ -41,11 +38,6 @@ void WorldSession::HandleLearnTalentOpcode(WorldPacket& recv_data)
     {
         if (_player->ActiveTalent())
             CharacterDatabase.PExecute("INSERT INTO `character_spell_tmp` (`ID`, `TalentID`, `Rank`, `Guid`, `Flag`, `Changed`) VALUES (NULL, %u, %u, %u, %u, UNIX_TIMESTAMP())", talent_id, requested_rank, _player->GetGUIDLow(), _player->ActiveTalent());
-
-        #ifdef ENABLE_ELUNA
-            if (Eluna* e = _player->GetEluna())
-                e->OnLearnTalents(_player, talent_id, requested_rank);
-        #endif
     }
 }
 

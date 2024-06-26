@@ -181,9 +181,9 @@ enum TimeConstants
 enum AccountTypes
 {
     SEC_PLAYER         = 0,
-    SEC_MODERATOR      = 1, // 委员会 一般用途
-    SEC_TICKETMASTER   = 2, // 委员会 常务组
-    SEC_GAMEMASTER     = 3, // 委员会 主席
+    SEC_MODERATOR      = 1,
+    SEC_TICKETMASTER   = 2,
+    SEC_GAMEMASTER     = 3,
     SEC_BASIC_ADMIN    = 4,
     SEC_DEVELOPER      = 5,
     SEC_ADMINISTRATOR  = 6,

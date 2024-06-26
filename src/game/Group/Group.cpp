@@ -39,9 +39,6 @@
 #include "LFGQueue.h"
 #include "UpdateMask.h"
 
-#ifdef ENABLE_ELUNA
-#include "LuaEngine.h"
-#endif
 #include <array>
 
 GroupMemberStatus GetGroupMemberStatus(Player const* member = nullptr)
@@ -167,12 +164,6 @@ bool Group::Create(ObjectGuid guid, char const*  name)
 
     _updateLeaderFlag();
 
-    // Used by Eluna
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = sWorld.GetEluna())
-        e->OnCreate(this, m_leaderGuid, m_groupType);
-#endif
-
     return true;
 }
 
@@ -281,11 +272,6 @@ bool Group::AddInvite(Player* player)
     m_invitees.insert(player);
 
     player->SetGroupInvite(this);
-        // Used by Eluna
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = sWorld.GetEluna())
-        e->OnInviteMember(this, player->GetObjectGuid());
-#endif
 
     return true;
 }
@@ -368,11 +354,6 @@ bool Group::AddMember(ObjectGuid guid, char const* name, uint8 joinMethod)
         player->SetAuraUpdateMask(player->GetAuraApplicationMask());
         if (Pet* pet = player->GetPet())
             pet->SetAuraUpdateMask(pet->GetAuraApplicationMask());
-        // Used by Eluna
-#ifdef ENABLE_ELUNA
-        if (Eluna* e = sWorld.GetEluna())
-            e->OnAddMember(this, player->GetObjectGuid());
-#endif
 
         // quest related GO state dependent from raid membership
         if (isRaidGroup())
@@ -548,11 +529,6 @@ uint32 Group::RemoveMember(ObjectGuid guid, uint8 removeMethod)
     else
         Disband(true, guid);
 
-    // Used by Eluna
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = sWorld.GetEluna())
-        e->OnRemoveMember(this, guid, removeMethod); // Kicker and Reason not a part of Mangos, implement?
-#endif
     return m_memberSlots.size();
 }
 
@@ -561,11 +537,6 @@ void Group::ChangeLeader(ObjectGuid guid)
     member_citerator slot = _getMemberCSlot(guid);
     if (slot == m_memberSlots.end())
         return;
-    // Used by Eluna
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = sWorld.GetEluna())
-        e->OnChangeLeader(this, guid, GetLeaderGuid());
-#endif
 
     _setLeader(guid);
 
@@ -674,11 +645,6 @@ void Group::Disband(bool hideDestroy, ObjectGuid initiator)
         ResetInstances(INSTANCE_RESET_GROUP_DISBAND, nullptr);
     }
 
-    // Used by Eluna
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = sWorld.GetEluna())
-        e->OnDisband(this);
-#endif
     _updateLeaderFlag(true);
     m_leaderGuid.Clear();
     m_leaderName.clear();

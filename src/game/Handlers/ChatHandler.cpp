@@ -40,9 +40,6 @@
 #include "CellImpl.h"
 #include "Anticheat.h"
 #include "AccountMgr.h"
-#ifdef ENABLE_ELUNA
-#include "LuaEngine.h"
-#endif
 
 bool WorldSession::CheckChatMessageValidity(char* msg, uint32 lang, uint32 msgType)
 {
@@ -247,9 +244,6 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
     char* msg = nullptr;
     size_t msgLen = 0;
     std::string channel, to;
-#ifdef ENABLE_ELUNA
-    std::string msg_str;
-#endif /* ENABLE_ELUNA */
 
     // Message parsing
     switch (type)
@@ -411,13 +405,6 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
                     a->addMessage(msg, type, GetPlayerPointer(), nullptr);
             }
 
-#ifdef ENABLE_ELUNA
-            msg_str = std::string(msg);
-            if (Eluna* e = sWorld.GetEluna())
-                if (!e->OnChat(GetPlayer(), type, lang, msg_str))
-                    return;
-#endif
-
             break;
         case CHAT_MSG_EMOTE:
             if (GetPlayer()->GetLevel() < sWorld.getConfig(CONFIG_UINT32_SAY_EMOTE_MIN_LEVEL)
@@ -439,13 +426,6 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
                 if (AntispamInterface *a = sAnticheatMgr->GetAntispam())
                     a->addMessage(msg, type, GetPlayerPointer(), nullptr);
             }
-
-#ifdef ENABLE_ELUNA
-            msg_str = std::string(msg);
-            if (Eluna* e = sWorld.GetEluna())
-                if (!e->OnChat(GetPlayer(), type, LANG_UNIVERSAL, msg_str))
-                    return;
-#endif
 
             break;
         case CHAT_MSG_YELL:
@@ -469,13 +449,6 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
                 if (AntispamInterface *a = sAnticheatMgr->GetAntispam())
                     a->addMessage(msg, type, GetPlayerPointer(), nullptr);
             }
-
-#ifdef ENABLE_ELUNA
-            msg_str = std::string(msg);
-            if (Eluna* e = sWorld.GetEluna())
-                if (!e->OnChat(GetPlayer(), type, lang, msg_str))
-                    return;
-#endif
 
         }
         break;
@@ -544,13 +517,6 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
                         if (AntispamInterface *a = sAnticheatMgr->GetAntispam())
                             a->addMessage(msg, type, GetPlayerPointer(), PlayerPointer(new PlayerWrapper<MasterPlayer>(player)));
                 }
-
-#ifdef ENABLE_ELUNA
-                msg_str = std::string(msg);
-                if (Eluna* e = sWorld.GetEluna())
-                    e->OnChat(masterPlr->GetSession()->GetPlayer(), type, lang, msg_str, toPlayer);
-                return;
-#endif
             }
         }
         break;
@@ -575,31 +541,14 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
             group->BroadcastPacket(&data, false, group->GetMemberGroup(GetPlayer()->GetObjectGuid()));
             if (lang != LANG_ADDON)
                 sWorld.LogChat(this, "Group", msg, nullptr, group->GetId());
-
-            // Used by Eluna
-#ifdef ENABLE_ELUNA
-            msg_str = std::string(msg);
-            if (Eluna* e = sWorld.GetEluna())
-                if (!e->OnChat(GetPlayer(), type, lang, msg_str, group))
-                    return;
-#endif
-
         }
         break;
         case CHAT_MSG_GUILD: // Master side
         {
             if (GetMasterPlayer()->GetGuildId())
-                                if (Guild* guild = sGuildMgr.GetGuildById(GetMasterPlayer()->GetGuildId()))
-                                {
-                                        guild->BroadcastToGuild(this, msg, lang == LANG_ADDON ? LANG_ADDON : LANG_UNIVERSAL);
+                if (Guild* guild = sGuildMgr.GetGuildById(GetMasterPlayer()->GetGuildId()))
+                    guild->BroadcastToGuild(this, msg, lang == LANG_ADDON ? LANG_ADDON : LANG_UNIVERSAL);
 
-#ifdef ENABLE_ELUNA
-                    msg_str = std::string(msg);
-                    if (Eluna* e = sWorld.GetEluna())
-                        if (!e->OnChat(GetPlayer(), type, lang, msg_str, guild))
-                            return;
-#endif
-                                }
             if (lang != LANG_ADDON)
                 sWorld.LogChat(this, "Guild", msg, nullptr, GetMasterPlayer()->GetGuildId());
             break;
@@ -608,16 +557,7 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
         {
             if (GetMasterPlayer()->GetGuildId())
                 if (Guild* guild = sGuildMgr.GetGuildById(GetMasterPlayer()->GetGuildId()))
-                {
                     guild->BroadcastToOfficers(this, msg, lang == LANG_ADDON ? LANG_ADDON : LANG_UNIVERSAL);
-
-#ifdef ENABLE_ELUNA
-                    msg_str = std::string(msg);
-                    if (Eluna* e = sWorld.GetEluna())
-                        if (!e->OnChat(GetPlayer(), type, lang, msg_str, guild))
-                            return;
-#endif
-                }
 
             if (lang != LANG_ADDON)
                 sWorld.LogChat(this, "Officer", msg, nullptr, GetMasterPlayer()->GetGuildId());
@@ -644,13 +584,6 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
 
             if (lang != LANG_ADDON)
                 sWorld.LogChat(this, "Raid", msg, nullptr, group->GetId());
-
-#ifdef ENABLE_ELUNA
-            msg_str = std::string(msg);
-            if (Eluna* e = sWorld.GetEluna())
-                if (!e->OnChat(GetPlayer(), type, lang, msg_str, group))
-                    return;
-#endif
         }
         break;
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_10_2
@@ -674,13 +607,6 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
             group->BroadcastPacket(&data, false);
             if (lang != LANG_ADDON)
                 sWorld.LogChat(this, "Raid", msg, nullptr, group->GetId());
-
-#ifdef ENABLE_ELUNA
-            msg_str = std::string(msg);
-            if (Eluna* e = sWorld.GetEluna())
-                if (!e->OnChat(GetPlayer(), type, lang, msg_str, group))
-                    return;
-#endif
         }
         break;
 
@@ -698,13 +624,6 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
 
             if (lang != LANG_ADDON)
                 sWorld.LogChat(this, "Raid", msg, nullptr, group->GetId());
-
-#ifdef ENABLE_ELUNA
-            msg_str = std::string(msg);
-            if (Eluna* e = sWorld.GetEluna())
-                if (!e->OnChat(GetPlayer(), type, lang, msg_str, group))
-                    return;
-#endif
         }
         break;
 #endif
@@ -722,13 +641,6 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
 
             if (lang != LANG_ADDON)
                 sWorld.LogChat(this, "BG", msg, nullptr, group->GetId());
-
-#ifdef ENABLE_ELUNA
-            msg_str = std::string(msg);
-            if (Eluna* e = sWorld.GetEluna())
-                if (!e->OnChat(GetPlayer(), type, lang, msg_str, group))
-                    return;
-#endif
         }
         break;
 
@@ -745,13 +657,6 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
 
             if (lang != LANG_ADDON)
                 sWorld.LogChat(this, "BG", msg, nullptr, group->GetId());
-
-#ifdef ENABLE_ELUNA
-            msg_str = std::string(msg);
-            if (Eluna* e = sWorld.GetEluna())
-                if (!e->OnChat(GetPlayer(), type, lang, msg_str, group))
-                    return;
-#endif
         }
         break;
 #endif
@@ -773,13 +678,6 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
                 if (_player->IsAFK() && _player->IsDND())
                     _player->ToggleDND();
             }
-
-#ifdef ENABLE_ELUNA
-            msg_str = std::string(msg);
-            if (Eluna* e = sWorld.GetEluna())
-                if (!e->OnChat(GetPlayer(), type, lang, msg_str))
-                    return;
-#endif
         }
 
         break;
@@ -799,13 +697,6 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
                 if (_player->IsDND() && _player->IsAFK())
                     _player->ToggleAFK();
             }
-
-#ifdef ENABLE_ELUNA
-            msg_str = std::string(msg);
-            if (Eluna* e = sWorld.GetEluna())
-                if (!e->OnChat(GetPlayer(), type, lang, msg_str))
-                    return;
-#endif
         }
 
         break;
@@ -834,11 +725,6 @@ void WorldSession::HandleEmoteOpcode(WorldPacket& recv_data)
     GetPlayer()->InterruptSpellsWithChannelFlags(AURA_INTERRUPT_ANIM_CANCELS);
     GetPlayer()->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_ANIM_CANCELS);
     GetPlayer()->HandleEmoteCommand(emote);
-
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = GetPlayer()->GetEluna())
-        e->OnEmote(GetPlayer(), emote);
-#endif
 }
 
 namespace MaNGOS
@@ -924,11 +810,6 @@ void WorldSession::HandleTextEmoteOpcode(WorldPacket& recv_data)
     //Send scripted event call
     if (unit && unit->IsCreature() && ((Creature*)unit)->AI())
         ((Creature*)unit)->AI()->ReceiveEmote(GetPlayer(), textEmote);
-
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = GetPlayer()->GetEluna())
-        e->OnTextEmote(GetPlayer(), textEmote, emoteNum, guid);
-#endif
 }
 
 void WorldSession::HandleChatIgnoredOpcode(WorldPacket& recv_data)

@@ -31,7 +31,6 @@
 
 #include <vector>
 #include <algorithm>
-#include <random>
 
 INSTANTIATE_SINGLETON_1(WardenScanMgr);
 
@@ -308,8 +307,7 @@ std::vector<std::shared_ptr<Scan const>> WardenScanMgr::GetRandomScans(ScanFlags
     }
 
     // randomize the order of matching scans
-    std::mt19937 rng(std::time(nullptr));
-    std::shuffle(matches.begin(), matches.end(), rng);
+    std::random_shuffle(matches.begin(), matches.end());
 
     // determine how many of the identified scans we can fit into the client's request and response buffers
     size_t request = 0, reply = 0;

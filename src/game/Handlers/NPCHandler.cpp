@@ -36,9 +36,6 @@
 #include "Spell.h"
 #include "Chat.h"
 #include "CharacterDatabaseCache.h"
-#ifdef ENABLE_ELUNA
-#include "LuaEngine.h"
-#endif /* ENABLE_ELUNA */
 
 enum StableResultCode
 {
@@ -431,8 +428,6 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
         if (!sScriptMgr.OnGossipSelect(_player, pGo, sender, action, code.empty() ? nullptr : code.c_str()))
             _player->OnGossipSelect(pGo, gossipListId);
     }
-// Used by Eluna
-#ifdef ENABLE_ELUNA
     else if (guid.IsItem())
     {
         Item* item = GetPlayer()->GetItemByGuid(guid);
@@ -442,8 +437,39 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
             return;
         }
 
-        if (Eluna* e = GetPlayer()->GetEluna())
-            e->HandleGossipSelectOption(GetPlayer(), item, GetPlayer()->PlayerTalkClass->GossipOptionSender(gossipListId), GetPlayer()->PlayerTalkClass->GossipOptionAction(gossipListId), code);
+        // DualTalent 魂器 922001
+        if (item->GetEntry() == 922001)
+        {
+            PlayerMenu* pMenu = _player->PlayerTalkClass;
+            pMenu->ClearMenus();
+            std::string msg = utf8Substr(code.c_str(), 1, 20);
+            ChatHandler(_player).SendSysMessage(msg.c_str());
+
+            switch (action)
+            {
+                case 1 ... 9:
+                    pMenu->GetGossipMenu().AddMenuItem(2, "切换灵魂", 1, 200+action, "", true);
+                    pMenu->GetGossipMenu().AddMenuItem(9, "忘记灵魂", 1, 300+action, "", true);
+                    pMenu->SendGossipMenu(22012, item->GetGUID());
+                    break;
+                case 20:
+                    pMenu->GetGossipMenu().AddMenuItem(1, "分裂新灵魂，输入标签", 2, 21, "", true);
+                    pMenu->SendGossipMenu(22011, item->GetGUID());
+                    break;
+                case 21:
+                    if (code.empty())
+                        break;
+                    
+                    _player->AddTalent(utf8Substr(code.c_str(), 1, 20));
+                    break;
+                case 200 ... 220:
+                    _player->SwitchTalent(action-200);
+                    break;
+                case 300 ... 320:
+                    _player->DeleteTalent(action-300);
+                    break;
+            }
+        }
     }
     else if (guid.IsPlayer())
     {
@@ -452,12 +478,7 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
             sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "WORLD: HandleGossipSelectOptionOpcode - %s not found or you can't interact with it.", guid.GetString().c_str());
             return;
         }
-
-        if (Eluna* e = GetPlayer()->GetEluna())
-            e->HandleGossipSelectOption(GetPlayer(), GetPlayer()->PlayerTalkClass->GetGossipMenu().GetMenuId(), GetPlayer()->PlayerTalkClass->GossipOptionSender(gossipListId), GetPlayer()->PlayerTalkClass->GossipOptionAction(gossipListId), code);
     }
-#endif /* ENABLE_ELUNA */
-
 }
 
 void WorldSession::HandleSpiritHealerActivateOpcode(WorldPacket& recv_data)

@@ -57,26 +57,8 @@
 #include "CreatureGroups.h"
 #include "Geometry.h"
 
-#ifdef ENABLE_ELUNA
-#include "LuaEngine.h"
-#include "ElunaConfig.h"
-#include "ElunaLoader.h"
-#endif /* ENABLE_ELUNA */
-
-
 Map::~Map()
 {
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = GetEluna())
-        e->OnDestroy(this);
-
-    if (Eluna* e = GetEluna())
-        if (Instanceable())
-            e->FreeInstanceId(GetInstanceId());
-
-    delete eluna;
-    eluna = nullptr;
-#endif /* ENABLE_ELUNA */
     UnloadAll(true);
 
     if (!m_scriptSchedule.empty())
@@ -177,54 +159,20 @@ Map::Map(uint32 id, time_t expiry, uint32 InstanceId)
     if (IsContinent())
     {
         int numObjThreads = (int)sWorld.getConfig(CONFIG_UINT32_MAP_OBJECTSUPDATE_THREADS);
-#ifdef ENABLE_ELUNA
-        if (sElunaConfig->IsElunaEnabled() && numObjThreads > 1)
-        {
-            sLog.Out(LOG_ELUNA, LOG_LVL_ERROR, "Object update threads set to %i, when Eluna is enabled only allows 1, changing to 1", numObjThreads);
-            numObjThreads = 1;
-        }
-#endif
         if (numObjThreads > 1)
         {
-            m_objectThreads.reset(new ThreadPool(numObjThreads - 1));
+            m_objectThreads.reset(new ThreadPool(numObjThreads -1));
             m_objectThreads->start<ThreadPool::MySQL<ThreadPool::MultiQueue>>();
         }
-        int numMotionThreads = sWorld.getConfig(CONFIG_UINT32_CONTINENTS_MOTIONUPDATE_THREADS);
-        int numVisabilityThreads = sWorld.getConfig(CONFIG_UINT32_MAP_VISIBILITYUPDATE_THREADS);
-#ifdef ENABLE_ELUNA
-        if (sElunaConfig->IsElunaEnabled() && (numMotionThreads > 0 || numVisabilityThreads > 1))
-        {
-            if (numMotionThreads > 0)
-            {
-                sLog.Out(LOG_ELUNA, LOG_LVL_ERROR, "Motion update threads set to %i, when Eluna is enabled only allows 0, changing to 0", numMotionThreads);
-                numMotionThreads = 0;
-            }
-            if (numVisabilityThreads > 1)
-            {
-                sLog.Out(LOG_ELUNA, LOG_LVL_ERROR, "Visability update threads set to %i, when Eluna is enabled only allows 1, changing to 1", numVisabilityThreads);
-                numVisabilityThreads = 1;
-            }
-        }
-#endif
-        m_motionThreads.reset(new ThreadPool(numMotionThreads));
-        m_visibilityThreads.reset(new ThreadPool(std::max(numVisabilityThreads -1,0)));
+        m_motionThreads.reset(new ThreadPool(sWorld.getConfig(CONFIG_UINT32_CONTINENTS_MOTIONUPDATE_THREADS)));
+        m_visibilityThreads.reset(new ThreadPool(std::max((int)sWorld.getConfig(CONFIG_UINT32_MAP_VISIBILITYUPDATE_THREADS) -1,0)));
         m_cellThreads.reset(new ThreadPool(std::max((int)sWorld.getConfig(CONFIG_UINT32_MTCELLS_THREADS) - 1, 0)));
         m_visibilityThreads->start<ThreadPool::MySQL<ThreadPool::MultiQueue>>();
         m_cellThreads->start();
         m_motionThreads->start();
     }
 
-	LoadElevatorTransports();
-
-#ifdef ENABLE_ELUNA
-    // lua state begins uninitialized
-    eluna = nullptr;
-    if (sElunaConfig->IsElunaEnabled() && !sElunaConfig->IsElunaCompatibilityMode() && sElunaLoader->ShouldMapLoadEluna(id))
-        eluna = new Eluna(this);
-
-    if (Eluna* e = GetEluna())
-        e->OnCreate(this);
-#endif /* ENABLE_ELUNA */
+    LoadElevatorTransports();
 }
 
 // Nostalrius
@@ -478,14 +426,6 @@ bool Map::Add(Player* player)
     NGridType* grid = getNGrid(cell.GridX(), cell.GridY());
     player->GetViewPoint().Event_AddedToWorld(&(*grid)(cell.CellX(), cell.CellY()));
     UpdateObjectVisibility(player, cell, p);
-
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = player->GetEluna())
-        e->OnMapChanged(player);
-
-    if (Eluna* e = GetEluna())
-        e->OnPlayerEnter(this, player);
-#endif /* ENABLE_ELUNA */
 
     if (i_data)
         i_data->OnPlayerEnter(player);
@@ -1076,16 +1016,6 @@ void Map::Update(uint32 t_diff)
 
     ScriptsProcess();
 
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = GetEluna())
-    {
-        if (!sElunaConfig->IsElunaCompatibilityMode())
-            e->UpdateEluna(t_diff);
-
-        e->OnUpdate(this, t_diff);
-    }
-#endif /* ENABLE_ELUNA */
-
     if (i_data)
         i_data->Update(t_diff);
 
@@ -1265,12 +1195,6 @@ void ScriptedEvent::SendEventToAllTargets(uint32 uiData)
 
 void Map::Remove(Player* player, bool remove)
 {
-
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = GetEluna())
-        e->OnPlayerLeave(this, player);
-#endif /* ENABLE_ELUNA */
-
     if (i_data)
         i_data->OnPlayerLeave(player);
 
@@ -1819,17 +1743,6 @@ void Map::AddObjectToRemoveList(WorldObject* obj)
 {
     MANGOS_ASSERT(obj->GetMapId() == GetId() && obj->GetInstanceId() == GetInstanceId());
 
-
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = GetEluna())
-    {
-        if (Creature* creature = obj->ToCreature())
-            e->OnRemove(creature);
-        else if (GameObject* gameobject = obj->ToGameObject())
-            e->OnRemove(gameobject);
-    }
-#endif /* ENABLE_ELUNA */
-
     obj->CleanupsBeforeDelete();                            // remove or simplify at least cross referenced links
     std::lock_guard<std::mutex> lock(i_objectsToRemove_lock);
     i_objectsToRemove.insert(obj);
@@ -2047,11 +1960,6 @@ void Map::CreateInstanceData(bool load)
 {
     if (i_data)
         return;
-
-#ifdef ENABLE_ELUNA
-    if (Eluna* e = GetEluna())
-        i_data = e->GetInstanceData(this);
-#endif /* ENABLE_ELUNA */
 
     if (!i_mapEntry->scriptId)
         return;
@@ -3820,13 +3728,3 @@ Creature* Map::LoadCreatureSpawnWithGroup(uint32 leaderDbGuid, bool delaySpawn)
 
     return pLeader;
 }
-
-#ifdef ENABLE_ELUNA
-Eluna* Map::GetEluna() const
-{
-    if (sElunaConfig->IsElunaCompatibilityMode())
-        return sWorld.GetEluna();
-
-    return eluna;
-}
-#endif

@@ -38,11 +38,7 @@
 #include "Util.h"
 #include "Anticheat.h"
 
-#ifdef ENABLE_ELUNA
-#include "LuaEngine.h"
-#endif /* ENABLE_ELUNA */
-
-void WorldSession::HandleAutostoreLootItemOpcode(WorldPacket & recv_data)
+void WorldSession::HandleAutostoreLootItemOpcode(WorldPacket& recv_data)
 {
     Player  *player =   GetPlayer();
     ObjectGuid lguid = player->GetLootGuid();
@@ -229,11 +225,6 @@ void WorldSession::HandleAutostoreLootItemOpcode(WorldPacket & recv_data)
         }
         player->SendNewItem(newitem, uint32(item->count), false, false, true);
         player->OnReceivedItem(newitem);
-
-#ifdef ENABLE_ELUNA
-        if (Eluna* e = player->GetEluna())
-            e->OnLootItem(player, newitem, uint32(item->count), newitem->GetObjectGuid());
-#endif
     }
     else
         player->SendEquipError(msg, nullptr, nullptr, item->itemid);
@@ -332,11 +323,6 @@ void WorldSession::HandleLootMoneyOpcode(WorldPacket& /*recv_data*/)
         {
             player->LootMoney(pLoot->gold, pLoot);
 
-        // Used by Eluna
-#ifdef ENABLE_ELUNA
-        if (Eluna* e = player->GetEluna())
-            e->OnLootMoney(player, pLoot->gold);
-#endif /* ENABLE_ELUNA */
             // in wotlk and after this should be sent for solo looting too
             //player->SendLootMoneyNotify(pLoot->gold);
         }
@@ -752,12 +738,6 @@ void WorldSession::HandleLootMasterGiveOpcode(WorldPacket& recv_data)
         /// BigData - character_log_item
         CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `count`, `type`, `lootguid`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', 'Master', '%u', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
                 target->GetGUIDLow(), target->GetName(), item.itemid, item.count, lootGuid.GetCounter(), _player->GetGUIDLow(), target->GetZoneId(), target->GetMapId(), target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(), target->GetSession()->GetRemoteAddress().c_str());
-
-            // Used by Eluna
-        #ifdef ENABLE_ELUNA
-        if (Eluna* e = target->GetEluna())
-            e->OnLootItem(target, newitem, item.count, lootGuid);
-        #endif /* ENABLE_ELUNA */
     }
 
     // mark as looted

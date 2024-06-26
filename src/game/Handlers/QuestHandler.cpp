@@ -33,11 +33,7 @@
 #include "ScriptMgr.h"
 #include "Group.h"
 
-#ifdef ENABLE_ELUNA
-#include "LuaEngine.h"
-#endif /* ENABLE_ELUNA */
-
-void WorldSession::HandleQuestgiverStatusQueryOpcode(WorldPacket & recv_data)
+void WorldSession::HandleQuestgiverStatusQueryOpcode(WorldPacket& recv_data)
 {
     ObjectGuid guid;
     recv_data >> guid;
@@ -501,14 +497,6 @@ void WorldSession::HandleQuestLogRemoveQuest(WorldPacket& recv_data)
 {
     uint8 slot;
     recv_data >> slot;
-
-     // Used by Eluna
-#ifdef ENABLE_ELUNA
-    if (slot < MAX_QUEST_LOG_SIZE)
-        if(uint32 quest = _player->GetQuestSlotQuestId(slot))
-            if (Eluna* e = _player->GetEluna())
-                e->OnQuestAbandon(_player, quest);
-#endif /* ENABLE_ELUNA */
 
     _player->RemoveQuestAtSlot(slot);
 }
