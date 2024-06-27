@@ -237,6 +237,9 @@ struct OOWOWInfo
     uint32 activeTalent = 0;
     uint32 displayID = 0;
     time_t cache_HardcoreGossipHello = 0;
+    time_t cache_DualTalentCoolDown = 0;
+    time_t cache_DualTalent_AuraTime_6537 = 0; // 森林的召唤
+    std::unique_ptr<QueryResult> cache_DualTalentList = nullptr;
 };
 
 struct PlayerInfo
@@ -2383,7 +2386,20 @@ class Player final: public Unit
         uint8 GetChatTag() const;
 
         char const* GetName() const final { return m_name.c_str(); }
-        char const*  GetClassColor() const { return "C79C6E"; } //TODO
+        std::string  GetClassColor() const { 
+            std::map<int8, std::string> ClassColor;
+            ClassColor[1] = "C79C6E";
+            ClassColor[2] = "F58CBA";
+            ClassColor[3] = "ABD473";
+            ClassColor[4] = "FFF569";
+            ClassColor[5] = "FFFFFF";
+            ClassColor[7] = "0070DE";
+            ClassColor[8] = "69CCF0";
+            ClassColor[9] = "9482C9";
+            ClassColor[11] = "FF7d0A";
+
+            return ClassColor[GetClass()]; 
+        }
         void SetName(std::string const& newname) { m_name = newname; }
 
         float GetYellRange() const;

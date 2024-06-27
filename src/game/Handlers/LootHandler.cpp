@@ -213,16 +213,15 @@ void WorldSession::HandleAutostoreLootItemOpcode(WorldPacket& recv_data)
 
         --loot->unlootedCount;
 
+        sLog.Player(this, LOG_LOOTS, LOG_LVL_MINIMAL, "%s loots %ux%u [loot from %s]", _player->GetShortDescription().c_str(), item->count, item->itemid, lguid.GetString().c_str());
 
-        // sLog.Player(this, LOG_LOOTS, LOG_LVL_MINIMAL, "%s loots %ux%u [loot from %s]", _player->GetShortDescription().c_str(), item->count, item->itemid, lguid.GetString().c_str());
+        /// BigData - character_log_item Green+ / fish
         ItemPrototype const* itemProto = sObjectMgr.GetItemPrototype(item->itemid);
-        if (itemProto->Quality > 2) {
-            sLog.Player(this, LOG_LOOTS, LOG_LVL_MINIMAL, "%s loots %ux%u [loot from %s]", _player->GetShortDescription().c_str(), item->count, item->itemid, lguid.GetString().c_str());
-
-            /// BigData - character_log_item
+        if (itemProto->Quality >= 2 || itemProto->FoodType == 2) {
             CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `count`, `type`, `lootguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', 'Auto', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
-                    _player->GetGUIDLow(), _player->GetName(), item->itemid, item->count, lguid.GetCounter(), _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
+                _player->GetGUIDLow(), _player->GetName(), item->itemid, item->count, lguid.GetCounter(), _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
         }
+    
         player->SendNewItem(newitem, uint32(item->count), false, false, true);
         player->OnReceivedItem(newitem);
     }

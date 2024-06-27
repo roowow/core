@@ -1051,7 +1051,7 @@ void Unit::Kill(Unit* pVictim, SpellEntry const* spellProto, bool durabilityLoss
     // Hardcore, Bigdata
     if(pPlayerVictim && pPlayerTap)
     {
-        if( pPlayerTap != pPlayerVictim && ! pPlayerVictim->InBattleGround())
+        if( pPlayerTap != pPlayerVictim)
         {
             std::string areaOrZoneName = "未知区域";
             uint32 areaOrZoneId = pPlayerVictim->GetAreaId();
@@ -1065,26 +1065,111 @@ void Unit::Kill(Unit* pVictim, SpellEntry const* spellProto, bool durabilityLoss
             // GM kill
             if (pPlayerVictim->IsHardcore() && ! pPlayerVictim->IsHardcoreRetired() && pPlayerTap->IsGameMaster())
             {
-                CharacterDatabase.PExecute("UPDATE character_hardcore SET status = 0, changed = UNIX_TIMESTAMP(), killedby=%u, killertype=3, area=%u, killedlevel=%u WHERE guid=%u", pPlayerTap->GetGUIDLow(), pPlayerVictim->GetAreaId(), pPlayerVictim->GetLevel(), pPlayerVictim->GetGUIDLow());
+                CharacterDatabase.PExecute("UPDATE character_hardcore SET status = 0, changed = UNIX_TIMESTAMP(), killedby=%u, killertype=3, area=%u, killedlevel=%u, map=%u, pos_x=%f, pos_y=%f, pos_z=%f WHERE guid=%u", 
+                    pPlayerTap->GetGUIDLow(), pPlayerVictim->GetAreaId(), pPlayerVictim->GetLevel(), pPlayerVictim->GetMapId(), pPlayerVictim->GetPositionX(), pPlayerVictim->GetPositionY(), pPlayerVictim->GetPositionZ(), pPlayerVictim->GetGUIDLow());
+
                 pPlayerVictim->SetHardcoreDead(true);
-                ChatHandler(pPlayerVictim).SendSysMessage("勇敢者，您已经死亡。遇险情报将稍后送达世界各地，您会被永远铭记！");
                 
                 std::string message = std::string("勇敢者 |cFF") + pPlayerVictim->GetClassColor() + pPlayerVictim->GetName() + std::string("（等级 ") + std::to_string(pPlayerVictim->GetLevel()) 
                      + std::string("）|r，因违反勇敢者准则被处决于 |cFFFF0000") + areaOrZoneName + std::string("|r。");
                 sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
             }
 
-            // character_log_pvpkill
+            // kill announce
             if (! pPlayerTap->IsGameMaster())
             {
-                std::string message = std::string("|cFF") + pPlayerTap->GetClassColor() + pPlayerTap->GetName() + std::string("（等级 ") + std::to_string(pPlayerTap->GetLevel()) 
-                     + std::string("）|r 在 ") + areaOrZoneName + std::string(" 击杀了 |cFF") 
-                     + pPlayerVictim->GetClassColor() + pPlayerVictim->GetName() + std::string("（等级 ") + std::to_string(pPlayerVictim->GetLevel())  + std::string("）。");
-                sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
+                std::string message;
+                if (pPlayerTap->GetClass() == CLASS_PALADIN)
+                {
+                    message = std::string("圣光已经抛弃了你！|cFF") + pPlayerTap->GetClassColor() + pPlayerTap->GetName() + std::string("（等级 ") + std::to_string(pPlayerTap->GetLevel()) 
+                        + std::string("）|r 在 ") + areaOrZoneName + std::string(" 用 ") + spellProto->SpellName[3] + std::string(" 净化了 |cFF") 
+                        + pPlayerVictim->GetClassColor() + pPlayerVictim->GetName() + std::string("（等级 ") + std::to_string(pPlayerVictim->GetLevel())  + std::string("）的心灵。");
+                }
 
-                CharacterDatabase.PExecute("INSERT INTO `character_log_pvpkill` (`killer`, `killerlevel`, `name`, `victim`, `victimlevel`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%u', '%s', '%u', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
-                    pPlayerTap->GetGUIDLow(), pPlayerTap->GetLevel(), pPlayerTap->GetName(), pPlayerVictim->GetGUIDLow(), pPlayerVictim->GetLevel(), pPlayerTap->GetZoneId(), pPlayerTap->GetMapId(), pPlayerTap->GetPositionX(), pPlayerTap->GetPositionY(), pPlayerTap->GetPositionZ(), pPlayerTap->GetSession()->GetRemoteAddress().c_str());
+                if (pPlayerTap->GetClass() == CLASS_WARLOCK)
+                {
+                    message = std::string("痛苦在黑暗中等着你！|cFF") + pPlayerTap->GetClassColor() + pPlayerTap->GetName() + std::string("（等级 ") + std::to_string(pPlayerTap->GetLevel()) 
+                        + std::string("）|r 在 ") + areaOrZoneName + std::string(" 用 ") + spellProto->SpellName[3] + std::string(" 夺取了 |cFF") 
+                        + pPlayerVictim->GetClassColor() + pPlayerVictim->GetName() + std::string("（等级 ") + std::to_string(pPlayerVictim->GetLevel())  + std::string("）的灵魂。");
+                }
+
+                if (pPlayerTap->GetClass() == CLASS_ROGUE)
+                {
+                    message = std::string("来满足我的饥渴吧！|cFF") + pPlayerTap->GetClassColor() + pPlayerTap->GetName() + std::string("（等级 ") + std::to_string(pPlayerTap->GetLevel()) 
+                        + std::string("）|r 在 ") + areaOrZoneName + std::string(" 用 ") + spellProto->SpellName[3] + std::string(" 偷袭了 |cFF") 
+                        + pPlayerVictim->GetClassColor() + pPlayerVictim->GetName() + std::string("（等级 ") + std::to_string(pPlayerVictim->GetLevel())  + std::string("）的腰子。");
+                }
+
+                if (pPlayerTap->GetClass() == CLASS_DRUID && pPlayerTap->GetTeam() == HORDE)
+                {
+                    message = std::string("敬畏星辰的力量！|cFF") + pPlayerTap->GetClassColor() + pPlayerTap->GetName() + std::string("（等级 ") + std::to_string(pPlayerTap->GetLevel()) 
+                        + std::string("）|r 在 ") + areaOrZoneName + std::string(" 用 ") + spellProto->SpellName[3] + std::string(" 封印了 |cFF") 
+                        + pPlayerVictim->GetClassColor() + pPlayerVictim->GetName() + std::string("（等级 ") + std::to_string(pPlayerVictim->GetLevel())  + std::string("）。");
+                }
+                if (pPlayerTap->GetClass() == CLASS_DRUID && pPlayerTap->GetTeam() == ALLIANCE)
+                {
+                    message = std::string("愿风指引你的道路！|cFF") + pPlayerTap->GetClassColor() + pPlayerTap->GetName() + std::string("（等级 ") + std::to_string(pPlayerTap->GetLevel()) 
+                        + std::string("）|r 在 ") + areaOrZoneName + std::string(" 用 ") + spellProto->SpellName[3] + std::string(" 指引了 |cFF") 
+                        + pPlayerVictim->GetClassColor() + pPlayerVictim->GetName() + std::string("（等级 ") + std::to_string(pPlayerVictim->GetLevel())  + std::string("）上路。");
+                }
+                
+                if (pPlayerTap->GetClass() == CLASS_WARRIOR && pPlayerTap->GetTeam() == HORDE)
+                {
+                    message = std::string("兽人永不为奴！|cFF") + pPlayerTap->GetClassColor() + pPlayerTap->GetName() + std::string("（等级 ") + std::to_string(pPlayerTap->GetLevel()) 
+                        + std::string("）|r 在 ") + areaOrZoneName + std::string(" 用 ") + spellProto->SpellName[3] + std::string(" 击晕了 |cFF") 
+                        + pPlayerVictim->GetClassColor() + pPlayerVictim->GetName() + std::string("（等级 ") + std::to_string(pPlayerVictim->GetLevel())  + std::string("）。");
+                }
+                if (pPlayerTap->GetClass() == CLASS_WARRIOR && pPlayerTap->GetTeam() == ALLIANCE)
+                {
+                    message = std::string("我们以鲜血捍卫荣耀！|cFF") + pPlayerTap->GetClassColor() + pPlayerTap->GetName() + std::string("（等级 ") + std::to_string(pPlayerTap->GetLevel()) 
+                        + std::string("）|r 在 ") + areaOrZoneName + std::string(" 用 ") + spellProto->SpellName[3] + std::string(" 击败了 |cFF") 
+                        + pPlayerVictim->GetClassColor() + pPlayerVictim->GetName() + std::string("（等级 ") + std::to_string(pPlayerVictim->GetLevel())  + std::string("）。");
+                }
+
+                if (pPlayerTap->GetClass() == CLASS_HUNTER)
+                {
+                    message = std::string("让我看看你能跑多快！|cFF") + pPlayerTap->GetClassColor() + pPlayerTap->GetName() + std::string("（等级 ") + std::to_string(pPlayerTap->GetLevel()) 
+                        + std::string("）|r 在 ") + areaOrZoneName + std::string(" 用 ") + spellProto->SpellName[3] + std::string(" 追杀了 |cFF") 
+                        + pPlayerVictim->GetClassColor() + pPlayerVictim->GetName() + std::string("（等级 ") + std::to_string(pPlayerVictim->GetLevel())  + std::string("）。");
+                }
+
+                if (pPlayerTap->GetClass() == CLASS_PRIEST)
+                {
+                    message = std::string("结束了，王权没有永恒！|cFF") + pPlayerTap->GetClassColor() + pPlayerTap->GetName() + std::string("（等级 ") + std::to_string(pPlayerTap->GetLevel()) 
+                        + std::string("）|r 在 ") + areaOrZoneName + std::string(" 用 ") + spellProto->SpellName[3] + std::string(" 给了 |cFF") 
+                        + pPlayerVictim->GetClassColor() + pPlayerVictim->GetName() + std::string("（等级 ") + std::to_string(pPlayerVictim->GetLevel())  + std::string("）一口毒奶，毒死了。");
+                }
+
+                if (pPlayerTap->GetClass() == CLASS_MAGE)
+                {
+                    message = std::string("要明白你的处境，凡人！|cFF") + pPlayerTap->GetClassColor() + pPlayerTap->GetName() + std::string("（等级 ") + std::to_string(pPlayerTap->GetLevel()) 
+                        + std::string("）|r 在 ") + areaOrZoneName + std::string(" 用 ") + spellProto->SpellName[3] + std::string(" 消灭了 |cFF") 
+                        + pPlayerVictim->GetClassColor() + pPlayerVictim->GetName() + std::string("（等级 ") + std::to_string(pPlayerVictim->GetLevel())  + std::string("）。");
+                }
+
+                if (pPlayerTap->GetClass() == CLASS_SHAMAN)
+                {
+                    message = std::string("黑风起，人头落！|cFF") + pPlayerTap->GetClassColor() + pPlayerTap->GetName() + std::string("（等级 ") + std::to_string(pPlayerTap->GetLevel()) 
+                        + std::string("）|r 在 ") + areaOrZoneName + std::string(" 用 ") + spellProto->SpellName[3] + std::string(" 收取了 |cFF") 
+                        + pPlayerVictim->GetClassColor() + pPlayerVictim->GetName() + std::string("（等级 ") + std::to_string(pPlayerVictim->GetLevel())  + std::string("）的大头。");
+                }
+
+                if (! message.empty())
+                {
+                    if (pPlayerTap->InBattleGround())
+                    {
+                        pPlayerTap->Yell(message.c_str(), LANG_UNIVERSAL);
+                    }
+                    else
+                    {
+                        // sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
+                    }
+                }
             }
+
+            // character_log_pvpkill
+            CharacterDatabase.PExecute("INSERT INTO `character_log_pvpkill` (`killer`, `killerlevel`, `name`, `victim`, `victimlevel`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%u', '%s', '%u', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                pPlayerTap->GetGUIDLow(), pPlayerTap->GetLevel(), pPlayerVictim->GetName(), pPlayerVictim->GetGUIDLow(), pPlayerVictim->GetLevel(), pPlayerVictim->GetZoneId(), pPlayerVictim->GetMapId(), pPlayerVictim->GetPositionX(), pPlayerVictim->GetPositionY(), pPlayerVictim->GetPositionZ(), pPlayerVictim->GetSession()->GetRemoteAddress().c_str());
         }
     }
 

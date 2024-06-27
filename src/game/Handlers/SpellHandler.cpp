@@ -171,11 +171,28 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
         }
     }
 
+    // 术士不允许使用灵魂石 5232 16892 16893 16895 16896  先测试下是不是需要
+    // if (pItem->GetEntry() == 5232  || 
+    //     pItem->GetEntry() == 16892 || 
+    //     pItem->GetEntry() == 16893 || 
+    //     pItem->GetEntry() == 16895 || 
+    //     pItem->GetEntry() == 16896)
+    // {
+    //     if (targets.getUnitTarget()->ToPlayer()->IsHardcore() && ! targets.getUnitTarget()->ToPlayer()->IsHardcoreRetired())
+    //     {
+    //         ChatHandler(pUser).SendSysMessage("勇敢者准则：勇敢者无法绑定灵魂石。");
+    //         cancelCast = true;
+    //     }
+    // }
+
     // Party 便携式量子发生器 98623
     if (pItem->GetEntry() == 98623)
     {
+        PlayerMenu* pMenu = pUser->PlayerTalkClass;
+        pMenu->ClearMenus();
+
         std::array<uint32, 100> PartyTexts {22015, 22016, 22017, 22018, 22020, 22021};
-        pUser->PlayerTalkClass->SendGossipMenu(PartyTexts[urand(0, 5)], pItem->GetGUID());
+        pMenu->SendGossipMenu(PartyTexts[urand(0, 5)], pItem->GetGUID());
         pUser->CastSpell(pUser, 26638, true); // Twin Teleport Visual
         cancelCast = true;
     }
@@ -186,48 +203,59 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
         PlayerMenu* pMenu = pUser->PlayerTalkClass;
         pMenu->ClearMenus();
 
-        // local Q = CharDBQuery("SELECT flag, name, active from character_spell_talent WHERE guid = "..guid.." order by flag;")
-        std::unique_ptr<QueryResult> dresult = CharacterDatabase.PQuery("SELECT flag, name, active from character_spell_talent WHERE guid = %u order by flag;", pUser->GetGUIDLow());
-        if (dresult)
+        if (! pUser->oowowInfo.cache_DualTalentList)
+        {
+            pUser->oowowInfo.cache_DualTalentList = CharacterDatabase.PQuery("SELECT flag, name, active from character_spell_talent WHERE guid = %u order by flag;", pUser->GetGUIDLow());
+        }
+        if (pUser->oowowInfo.cache_DualTalentList)
         {
             do
             {
-                Field* fields = dresult->Fetch();
+                Field* fields = pUser->oowowInfo.cache_DualTalentList->Fetch();
                 if (fields[2].GetUInt32())
                 {
-                    // player:GossipMenuAddItem(2, "|cFFFF0000灵魂 "..Q:GetUInt32(0).." - "..Q:GetString(1).."|r ", 1, 99) -- active talent
-                    std::string msg = std::string("|cFFFF0000灵魂 ") + std::to_string(fields[0].GetUInt32()) + fields[1].GetString() + std::string("|r ");
+                    std::string msg = std::string("|cFFFF0000灵魂 ") + std::to_string(fields[0].GetUInt32()) + std::string(" ") +  fields[1].GetString() + std::string("|r ");
                     pMenu->GetGossipMenu().AddMenuItem(2, msg.c_str(), 1, 99); // active talent
                 }
                 else
                 {
-                    // player:GossipMenuAddItem(3, "灵魂 "..Q:GetUInt32(0).." - "..Q:GetString(1), 1, Q:GetUInt32(0)) -- inactive talent
-                    std::string msg = std::string("灵魂 ") + std::to_string(fields[0].GetUInt32()) + fields[1].GetString();
+                    std::string msg = std::string("灵魂 ") + std::to_string(fields[0].GetUInt32()) + std::string(" ") + fields[1].GetString();
                     pMenu->GetGossipMenu().AddMenuItem(3, msg.c_str(), 1, fields[0].GetUInt32()); // inactive talent
                 }
             }
-            while (dresult->NextRow());
+            while (pUser->oowowInfo.cache_DualTalentList->NextRow());
         }
 
-        pMenu->GetGossipMenu().AddMenuItem(4, "分裂灵魂", 1, 20);
+        if (pUser->oowowInfo.cache_DualTalentCoolDown && time(nullptr) > pUser->oowowInfo.cache_DualTalentCoolDown)
+        {
+            int32 time1 = pUser->oowowInfo.cache_DualTalentCoolDown - time(nullptr);
+            std::string time = secsToTimeString(time1);
+            std::string msg = std::string("灵魂凝聚：|cFF4b4bdf") + time + std::string("|r");
+            pMenu->GetGossipMenu().AddMenuItem(0, msg.c_str(), 1, 99);
+        }
+        else
+        {
+            pMenu->GetGossipMenu().AddMenuItem(4, "分裂灵魂", 1, 20);
+        }
 
         pMenu->SendGossipMenu(22011, pItem->GetGUID());
 
         cancelCast = true;
     }
 
-    // if (cancelCast)
-    // {
-    //     // Send equip error that shows no message
-    //     // This is a hack fix to stop spell casting visual bug when a spell is not cast on use
-    //     WorldPacket data(SMSG_INVENTORY_CHANGE_FAILURE, 18);
-    //     data << uint8(59); // EQUIP_ERR_NONE / EQUIP_ERR_CANT_BE_DISENCHANTED
-    //     data << pUser->GetObjectGuid();
-    //     data << ObjectGuid(uint64(0));
-    //     data << uint8(0);
-    //     pUser->GetSession()->SendPacket(&data);
-    //     return;
-    // }
+    if (cancelCast)
+    {
+        ObjectGuid guid = pItem->GetGUID();
+        // Send equip error that shows no message
+        // This is a hack fix to stop spell casting visual bug when a spell is not cast on use
+        WorldPacket data(SMSG_INVENTORY_CHANGE_FAILURE, 18);
+        data << uint8(59); // EQUIP_ERR_NONE / EQUIP_ERR_CANT_BE_DISENCHANTED
+        data << guid;
+        data << ObjectGuid(uint64(0));
+        data << uint8(0);
+        pUser->GetSession()->SendPacket(&data);
+        return;
+    }
 
 	pUser->CastItemUseSpell(pItem, targets);
 }

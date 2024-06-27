@@ -77,6 +77,45 @@ void WorldSession::HandleGroupInviteOpcode(WorldPacket& recv_data)
         return;
     }
 
+    Player* leader = GetPlayer();
+    if (!leader->IsHardcore())
+    {
+        if (player->IsHardcore() && ! player->IsHardcoreRetired())
+        {
+            ChatHandler(leader).SendSysMessage("勇敢者只能与勇敢者组队。");
+            ChatHandler(player).SendSysMessage("勇敢者只能与勇敢者组队。");
+            SendPartyResult(PARTY_OP_INVITE, membername, ERR_IGNORING_YOU_S);
+            return;
+        }
+    }
+
+    if (leader->IsHardcore() && ! leader->IsHardcoreRetired())
+    {
+        if (! player->IsHardcore())
+        {
+            ChatHandler(leader).SendSysMessage("勇敢者只能与勇敢者组队。");
+            ChatHandler(player).SendSysMessage("勇敢者只能与勇敢者组队。");
+            SendPartyResult(PARTY_OP_INVITE, membername, ERR_IGNORING_YOU_S);
+            return;
+        }
+
+        if (leader->GetLevel() > player->GetLevel() && leader->GetLevel() - player->GetLevel() > 5)
+        {
+            ChatHandler(leader).SendSysMessage("勇敢者之间组队不能超过5级。");
+            ChatHandler(player).SendSysMessage("勇敢者之间组队不能超过5级。");
+            SendPartyResult(PARTY_OP_INVITE, membername, ERR_IGNORING_YOU_S);
+            return;
+        }
+
+        if (leader->GetLevel() < player->GetLevel() && player->GetLevel() - leader->GetLevel() > 5)
+        {
+            ChatHandler(leader).SendSysMessage("勇敢者之间组队不能超过5级。");
+            ChatHandler(player).SendSysMessage("勇敢者之间组队不能超过5级。");
+            SendPartyResult(PARTY_OP_INVITE, membername, ERR_IGNORING_YOU_S);
+            return;
+        }
+    }
+
     // Can't group with
     if (!GetPlayer()->IsGameMaster() && !sWorld.getConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_INTERACTION_GROUP) && GetPlayer()->GetTeam() != player->GetTeam())
     {
@@ -194,38 +233,38 @@ void WorldSession::HandleGroupAcceptOpcode(WorldPacket& /*recv_data*/)
     }
 
     // check hardcore
-    if (!leader->IsHardcore())
-    {
-        if (GetPlayer()->IsHardcore() && ! GetPlayer()->IsHardcoreRetired())
-        {
-            ChatHandler(leader).SendSysMessage("勇敢者只能与勇敢者组队。");
-            ChatHandler(GetPlayer()).SendSysMessage("勇敢者只能与勇敢者组队。");
-            return;
-        }
-    }
-    if (leader->IsHardcore() && ! leader->IsHardcoreRetired())
-    {
-        if (! GetPlayer()->IsHardcore())
-        {
-            ChatHandler(leader).SendSysMessage("勇敢者只能与勇敢者组队。");
-            ChatHandler(GetPlayer()).SendSysMessage("勇敢者只能与勇敢者组队。");
-            return;
-        }
+    // if (!leader->IsHardcore())
+    // {
+    //     if (GetPlayer()->IsHardcore() && ! GetPlayer()->IsHardcoreRetired())
+    //     {
+    //         ChatHandler(leader).SendSysMessage("勇敢者只能与勇敢者组队。");
+    //         ChatHandler(GetPlayer()).SendSysMessage("勇敢者只能与勇敢者组队。");
+    //         return;
+    //     }
+    // }
+    // if (leader->IsHardcore() && ! leader->IsHardcoreRetired())
+    // {
+    //     if (! GetPlayer()->IsHardcore())
+    //     {
+    //         ChatHandler(leader).SendSysMessage("勇敢者只能与勇敢者组队。");
+    //         ChatHandler(GetPlayer()).SendSysMessage("勇敢者只能与勇敢者组队。");
+    //         return;
+    //     }
 
-        if (leader->GetLevel() > GetPlayer()->GetLevel() && leader->GetLevel() - GetPlayer()->GetLevel() > 5)
-        {
-            ChatHandler(leader).SendSysMessage("勇敢者之间组队不能超过5级。");
-            ChatHandler(GetPlayer()).SendSysMessage("勇敢者之间组队不能超过5级。");
-            return;
-        }
+    //     if (leader->GetLevel() > GetPlayer()->GetLevel() && leader->GetLevel() - GetPlayer()->GetLevel() > 5)
+    //     {
+    //         ChatHandler(leader).SendSysMessage("勇敢者之间组队不能超过5级。");
+    //         ChatHandler(GetPlayer()).SendSysMessage("勇敢者之间组队不能超过5级。");
+    //         return;
+    //     }
 
-        if (leader->GetLevel() < GetPlayer()->GetLevel() && GetPlayer()->GetLevel() - leader->GetLevel() > 5)
-        {
-            ChatHandler(leader).SendSysMessage("勇敢者之间组队不能超过5级。");
-            ChatHandler(GetPlayer()).SendSysMessage("勇敢者之间组队不能超过5级。");
-            return;
-        }
-    }
+    //     if (leader->GetLevel() < GetPlayer()->GetLevel() && GetPlayer()->GetLevel() - leader->GetLevel() > 5)
+    //     {
+    //         ChatHandler(leader).SendSysMessage("勇敢者之间组队不能超过5级。");
+    //         ChatHandler(GetPlayer()).SendSysMessage("勇敢者之间组队不能超过5级。");
+    //         return;
+    //     }
+    // }
 
     // everything is fine, do it, PLAYER'S GROUP IS SET IN ADDMEMBER!!!
     if (!group->AddMember(GetPlayer()->GetObjectGuid(), GetPlayer()->GetName()))

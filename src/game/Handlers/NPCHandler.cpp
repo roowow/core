@@ -398,6 +398,8 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
 
     uint32 sender = _player->PlayerTalkClass->GossipOptionSender(gossipListId);
     uint32 action = _player->PlayerTalkClass->GossipOptionAction(gossipListId);
+    std::string action1 = std::to_string(action);
+    ChatHandler(_player).SendSysMessage(action1.c_str());
 
     if (guid.IsAnyTypeCreature())
     {
@@ -438,12 +440,17 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
         }
 
         // DualTalent 魂器 922001
+        std::string tname;
         if (item->GetEntry() == 922001)
         {
             PlayerMenu* pMenu = _player->PlayerTalkClass;
             pMenu->ClearMenus();
-            std::string msg = utf8Substr(code.c_str(), 1, 20);
-            ChatHandler(_player).SendSysMessage(msg.c_str());
+
+            if (! code.empty())
+            {
+                tname = utf8Substr(code.c_str(), 0, 10);
+                ChatHandler(_player).SendSysMessage(tname.c_str());
+            }
 
             switch (action)
             {
@@ -459,14 +466,17 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
                 case 21:
                     if (code.empty())
                         break;
-                    
-                    _player->AddTalent(utf8Substr(code.c_str(), 1, 20));
+
+                    _player->AddTalent(code);
+                    pMenu->CloseGossip();
                     break;
                 case 200 ... 220:
                     _player->SwitchTalent(action-200);
+                    pMenu->CloseGossip();
                     break;
                 case 300 ... 320:
                     _player->DeleteTalent(action-300);
+                    pMenu->CloseGossip();
                     break;
             }
         }

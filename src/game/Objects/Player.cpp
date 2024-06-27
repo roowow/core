@@ -1806,6 +1806,13 @@ void Player::Update(uint32 update_diff, uint32 p_time)
         if (cheatAction)
             GetSession()->ProcessAnticheatAction("MovementAnticheat", reason.str().c_str(), cheatAction, sWorld.getConfig(CONFIG_UINT32_AC_MOVEMENT_BAN_DURATION));
     }
+
+    // DualTalent
+    if (oowowInfo.cache_DualTalent_AuraTime_6537 && time(nullptr) > oowowInfo.cache_DualTalent_AuraTime_6537 && HasAura(6537))
+    {
+        RemoveAurasDueToSpell(6537);
+        CastSpell(this, 14867, true); // Untalent Visual Effect
+    }
 }
 
 void Player::OnDisconnected()
@@ -3522,12 +3529,14 @@ void Player::SwitchTalent(uint32 talent)
     if (! IsAllowSwitchTalent())
         return;
 
+    AddAura(6537, 0, this); // 森林的召唤
+    oowowInfo.cache_DualTalent_AuraTime_6537 = time(nullptr) + 10;
+
     ResetTalents();
 
     std::unique_ptr<QueryResult> tresult = CharacterDatabase.PQuery("SELECT talentid, rank from character_spell_extra WHERE flag = %u and guid = %u order by id", talent, GetGUIDLow());
     if (tresult)
     {
-        // auto curTime = sWorld.GetCurrentClockTime();
         do
         {
             Field* fields = tresult->Fetch();
@@ -3544,9 +3553,9 @@ void Player::SwitchTalent(uint32 talent)
     SetPower(POWER_RAGE, 0);
     SetPower(POWER_ENERGY, 0);
 
-	// player:RemoveAura( 6537 ) --森林的召唤
-    CastSpell(this, 14867, true); // Untalent Visual Effect
     ChatHandler(this).SendSysMessage("已切换灵魂，你感到非常的虚弱。。");
+
+    oowowInfo.cache_DualTalentCoolDown = time(nullptr) + 5*60;
 }
 
 bool Player::AddTalent(std::string name)
@@ -3573,7 +3582,14 @@ bool Player::AddTalent(std::string name)
 
         ModifyMoney(-5*100*100);
 
-        CharacterDatabase.PQuery("INSERT INTO `character_spell_talent` (`Flag`, `Guid`, `name`) VALUES ('%u', '%u', '%s');", fields[0].GetUInt32()+1, GetGUIDLow(), name);
+        std::string q1 = "INSERT INTO `character_spell_talent` (`Flag`, `Guid`, `name`) VALUES ('";
+        q1 = q1 + std::to_string(fields[0].GetUInt32()+1) + std::string("', '");
+        q1 = q1 + std::to_string(GetGUIDLow()) + std::string("', '");
+        q1 = q1 + name + std::string("');");
+
+        const char *query = q1.c_str();
+
+        CharacterDatabase.PQuery(query);
 
         ChatHandler(this).SendSysMessage("新灵魂分裂完成。");
         SwitchTalent(fields[0].GetUInt32()+1);
@@ -3589,7 +3605,7 @@ bool Player::DeleteTalent(uint32 talent)
     CharacterDatabase.PQuery("DELETE FROM `character_spell_extra`  WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
     CharacterDatabase.PQuery("DELETE FROM `character_spell_tmp`    WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
 
-    std::unique_ptr<QueryResult> dresult = CharacterDatabase.PQuery("SELECT flag, active from character_spell_talent WHERE guid = %u order by flagu", GetGUIDLow());
+    std::unique_ptr<QueryResult> dresult = CharacterDatabase.PQuery("SELECT flag, active from character_spell_talent WHERE guid = %u order by flag", GetGUIDLow());
     if (dresult)
     {
         do
@@ -3609,6 +3625,8 @@ bool Player::DeleteTalent(uint32 talent)
 
     CastSpell(this, 14867, true); // Untalent Visual Effect
     ChatHandler(this).SendSysMessage("已忘记灵魂。");
+
+    oowowInfo.cache_DualTalentCoolDown = 0;
 }
 //// DualTalent
 
@@ -8221,13 +8239,7 @@ void Player::CastItemUseSpell(Item* item, SpellCastTargets const& targets)
 
         Spell* spell = new Spell(this, spellInfo, ((count > 0) || proto->HasExtraFlag(ITEM_EXTRA_CAST_AS_TRIGGERED)));
         spell->SetCastItem(item);
-        // spell->prepare(targets);
-
-        // Party
-        // if (spellData.SpellId == 20600 && item->GetEntry() == 98623)
-        // {
-        //     RemoveAurasDueToSpell(20600); // not work
-        // }
+        spell->prepare(targets);
 
         ++count;
     }
@@ -15511,7 +15523,7 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
     {
         do
         {
-            Field* fields = tresult->Fetch();
+            Field* fields = bresult->Fetch();
             ChatHandler(this).SendSysMessage(fields[0].GetString());
 
         } while (bresult->NextRow());

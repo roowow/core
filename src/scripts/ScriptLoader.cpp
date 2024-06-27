@@ -17,6 +17,7 @@ void AddSC_zero_scripts();
 void AddSC_ubrs_trash();
 //void AddSC_gmisland();
 //void AddSC_boss_arena_hardog(); // EVENT de TORKIN
+void AddSC_OO_creatures();
 
 // Event
 //void AddSC_event_attack_city();
@@ -253,6 +254,7 @@ void AddScripts()
     AddSC_zero_scripts();
     AddSC_ubrs_trash();
     //AddSC_gmisland();
+    AddSC_OO_creatures();
 
     // Event
     //AddSC_event_attack_city();
