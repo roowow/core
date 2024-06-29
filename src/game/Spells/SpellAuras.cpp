@@ -1737,7 +1737,13 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
 
                         if (Player* pPlayer = ToPlayer(target))
                         {
-                            // for (uint32 i = 1; i < sCreatureDisplayInfoAddonStorage.GetMaxEntry(); ++i)
+                            if (pPlayer->oowowInfo.displayID)
+                            {
+                                pPlayer->SetDisplayId(pPlayer->oowowInfo.displayID);
+
+                                return;
+                            }
+
                             while (true)
                             {
                                 uint32 displayIdIndex = urand(1, sCreatureDisplayInfoAddonStorage.GetMaxEntry());
@@ -1746,8 +1752,10 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
                                 {
                                     pPlayer->SetDisplayId(minfo->display_id);
                                     std::string msg = std::string("派对时间！(") + std::to_string(minfo->display_id) + std::string("）");
-                                    ChatHandler(pPlayer).SendSysMessage(msg.c_str());
+                                    pPlayer->TextEmote(msg.c_str());
                                     pPlayer->oowowInfo.displayID = minfo->display_id;
+                                    CharacterDatabase.PExecute("REPLACE INTO `character_displayid` (`Guid`, `DisplayID`) VALUES ('%u', '%u')", pPlayer->GetGUIDLow(), minfo->display_id);
+
                                     break;
                                 }
                             }

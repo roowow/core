@@ -236,10 +236,14 @@ struct OOWOWInfo
 {
     uint32 activeTalent = 0;
     uint32 displayID = 0;
-    time_t cache_HardcoreGossipHello = 0;
-    time_t cache_DualTalentCoolDown = 0;
-    time_t cache_DualTalent_AuraTime_6537 = 0; // 森林的召唤
-    std::unique_ptr<QueryResult> cache_DualTalentList = nullptr;
+    uint32 cache_PartyCoolDown = 0;
+    uint32 cache_PartyText = 0;
+    uint32 cache_HardcoreGossipHello = 0;
+
+    uint32 DualTalent_CoolDown = 0;
+    uint32 DualTalent_SwitchTalent_Delay = 0;
+    uint32 DualTalent_DeleteTalent_Delay = 0;
+    std::map<int8, std::string> DualTalents;
 };
 
 struct PlayerInfo
@@ -732,6 +736,7 @@ enum PlayerLoginQueryIndex
     PLAYER_LOGIN_QUERY_HARDCORE, /// Hardcore
     PLAYER_LOGIN_QUERY_DUALTALENT, /// DualTalent
     PLAYER_LOGIN_QUERY_BROADCAST, /// Broadcast
+    PLAYER_LOGIN_QUERY_PARTY, /// Party
 
     MAX_PLAYER_LOGIN_QUERY
 };
@@ -1654,8 +1659,10 @@ class Player final: public Unit
         void SetActiveTalent(uint32 talent); 
         bool IsAllowSwitchTalent();
         void SwitchTalent(uint32 talent);
+        void SwitchTalentDelay();
         bool AddTalent(std::string name);
         bool DeleteTalent(uint32 talent);
+        void DeleteTalentDelay();
 
         /*********************************************************/
         /***                    STAT SYSTEM                    ***/
@@ -2273,6 +2280,7 @@ class Player final: public Unit
         void SendMountResult(UnitMountResult result) const;
         void SendDismountResult(UnitDismountResult result) const;
         void UpdateCorpseReclaimDelay();
+        bool FunctionDelay(uint32 functionID, uint32 delay);
     public:
         OOWOWInfo oowowInfo;
         void ScheduleStandUp();

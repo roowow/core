@@ -25,16 +25,19 @@ bool GossipHello_HardcoreNPC(Player *player, Creature *_Creature)
 {
     if (player->IsHardcore())
     {
-        // player:GossipMenuAddItem(0, "我要退役，输入：|cFFFF0000确认|r。", 1, 3, true, nil)
-        if (! player->IsHardcoreRetired())
+        if (! player->IsHardcoreRetired() && player->GetLevel() == 60)
             player->ADD_GOSSIP_ITEM_EXTENDED(0, "我要退役，输入：|cFFFF0000确认|r。", 2, 3, "", true);
 
+        player->PrepareQuestMenu(_Creature->GetGUID());
         player->SEND_GOSSIP_MENU(22004, _Creature->GetGUID());
     }
     else
-    {player->ADD_GOSSIP_ITEM_EXTENDED(0, "我要退役，输入：|cFFFF0000确认|r。", 2, 3, "", true);
-        player->ADD_GOSSIP_ITEM(0, "《勇敢者小队征集令》",               GOSSIP_SENDER_MAIN, 1);
+    {
+        player->ADD_GOSSIP_ITEM(0, "《勇敢者小队征集令》", GOSSIP_SENDER_MAIN, 1);
+
+        player->PrepareQuestMenu(_Creature->GetGUID());
         player->SEND_GOSSIP_MENU(22003, _Creature->GetGUID());
+        
     }
 
     // ALLIANCE
@@ -50,7 +53,12 @@ bool GossipHello_HardcoreNPC(Player *player, Creature *_Creature)
     // HORDE
     else
     {
-        _Creature->PlayDirectSound(6734, player); // Moment-Orgrimmar
+        if (! player->oowowInfo.cache_HardcoreGossipHello || time(nullptr) - player->oowowInfo.cache_HardcoreGossipHello > 300)
+        {
+            _Creature->PlayDirectSound(6734, player); // Moment-Orgrimmar
+
+            player->oowowInfo.cache_HardcoreGossipHello = time(nullptr);
+        }
     }
 
     return true;
@@ -74,30 +82,40 @@ void SendDefaultMenu_HardcoreNPC2(Player *player, Creature *_Creature, uint32 ac
         case 2: 
             if (strcmp(code, "舍生取义") != 0)
             {
-                ChatHandler(player).SendSysMessage("你的签名不正确，希望你是故意的。");
+                _Creature->MonsterSay("你的签名不正确，希望你是故意的。");
 
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
 
-            // player->SetHardcore(true);
-            _Creature->CastSpell(player, 15852, true);
+            if (player->GetLevel() > 5)
+            {
+                _Creature->MonsterSay("我只招募刚刚返回归地球不超过5级的人类。");
+                break;
+            }
+
+            _Creature->CastSpell(player, 15851, true);
             _Creature->MonsterSay("勇敢者，是人类的明灯，是行走的火炬，带来希望与光明。希望你恪守勇敢者准则，不要辱没了这三个字。", 0, 0);
+
+            player->SetHardcore(true);
 
             player->CLOSE_GOSSIP_MENU();
             break;
         case 3: 
             if (strcmp(code, "确认") != 0)
             {
-                ChatHandler(player).SendSysMessage("你的输入不正确。");
+                _Creature->MonsterSay("你的输入不正确。");
 
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
-            
-            // player->SetHardcoreRetired();
+
             _Creature->CastSpell(player, 25823, true); // 艾露恩灯柱
-            _Creature->MonsterSay("勇敢者，你是人类的明灯！", 0, 0);
+            _Creature->CastSpell(player, 461, true); 
+            player->RemoveAurasDueToSpell(7363);
+            _Creature->MonsterSay("勇敢者，你完成了不可能完成的任务，你是人类的明灯！", 0, 0);
+
+            player->SetHardcoreRetired();
 
             player->CLOSE_GOSSIP_MENU();
             break;

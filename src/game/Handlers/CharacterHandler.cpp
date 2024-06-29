@@ -105,8 +105,9 @@ bool LoginQueryHolder::Initialize()
     res &= SetPQuery(PLAYER_LOGIN_QUERY_LOADMAILEDITEMS,     "SELECT `creator_guid`, `gift_creator_guid`, `count`, `duration`, `charges`, `flags`, `enchantments`, `random_property_id`, `durability`, `text`, `mail_id`, `item_guid`, `item_instance`.`item_id`, `generated_loot` FROM `mail_items` JOIN `item_instance` ON `item_guid` = `guid` WHERE `receiver_guid` = '%u'", m_guid.GetCounter());
     res &= SetPQuery(PLAYER_LOGIN_QUERY_FORGOTTEN_SKILLS,    "SELECT `skill`, `value` FROM `character_forgotten_skills` WHERE `guid` = '%u'", m_guid.GetCounter());
     res &= SetPQuery(PLAYER_LOGIN_QUERY_HARDCORE,            "SELECT `status`, `retired`, `pvpflag`, `changed`, `normal` FROM `character_hardcore` WHERE `guid` = '%u'", m_guid.GetCounter());
-    res &= SetPQuery(PLAYER_LOGIN_QUERY_DUALTALENT,          "SELECT `flag` FROM `character_spell_talent` WHERE active = 1 and `guid` = '%u'", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_DUALTALENT,          "SELECT flag, name, active from character_spell_talent WHERE guid = %u order by flag", m_guid.GetCounter());
     res &= SetPQuery(PLAYER_LOGIN_QUERY_BROADCAST,           "SELECT text from world_broadcast WHERE active = 1");
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_PARTY,               "SELECT `Guid`, `DisplayID` FROM `character_displayid` WHERE `Guid` = %u", m_guid.GetCounter());
 
     return res;
 }
@@ -773,14 +774,14 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
     {
         if (GetPlayer()->HasAura(8076) && GetPlayer()->oowowInfo.displayID)
             GetPlayer()->SetDisplayId(GetPlayer()->oowowInfo.displayID);
-        
+
         if (GetPlayer()->IsHardcoreDead() && ! GetPlayer()->IsHardcoreRetired())
             ChatHandler(GetPlayer()).SendSysMessage("[勇敢者] 您已经陨落，宝贵信息已送达队友，并且被永远铭记！");
 
         // 正义火焰
         if (GetPlayer()->IsHardcoreRetired() && GetPlayer()->HasAura(461))
             GetPlayer()->AddAura(461, 0, GetPlayer());
-        
+
         // 火光
         if (GetPlayer()->IsHardcore() && ! GetPlayer()->IsHardcoreRetired() && ! GetPlayer()->HasAura(7363))
             GetPlayer()->AddAura(7363, 0, GetPlayer());

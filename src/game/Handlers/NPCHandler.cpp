@@ -398,8 +398,6 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
 
     uint32 sender = _player->PlayerTalkClass->GossipOptionSender(gossipListId);
     uint32 action = _player->PlayerTalkClass->GossipOptionAction(gossipListId);
-    std::string action1 = std::to_string(action);
-    ChatHandler(_player).SendSysMessage(action1.c_str());
 
     if (guid.IsAnyTypeCreature())
     {
@@ -446,18 +444,15 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
             PlayerMenu* pMenu = _player->PlayerTalkClass;
             pMenu->ClearMenus();
 
-            if (! code.empty())
-            {
-                tname = utf8Substr(code.c_str(), 0, 10);
-                ChatHandler(_player).SendSysMessage(tname.c_str());
-            }
-
             switch (action)
             {
-                case 1 ... 9:
-                    pMenu->GetGossipMenu().AddMenuItem(2, "切换灵魂", 1, 200+action, "", true);
-                    pMenu->GetGossipMenu().AddMenuItem(9, "忘记灵魂", 1, 300+action, "", true);
-                    pMenu->SendGossipMenu(22012, item->GetGUID());
+                case 1 ... 19:
+                    if (_player->oowowInfo.DualTalent_CoolDown < time(nullptr))
+                    {
+                        pMenu->GetGossipMenu().AddMenuItem(2, "切换灵魂", 1, 200+action);
+                        pMenu->GetGossipMenu().AddMenuItem(9, "忘记灵魂", 2, 300+action, "", true);
+                        pMenu->SendGossipMenu(22012, item->GetGUID());
+                    }
                     break;
                 case 20:
                     pMenu->GetGossipMenu().AddMenuItem(1, "分裂新灵魂，输入标签", 2, 21, "", true);
@@ -470,11 +465,18 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
                     _player->AddTalent(code);
                     pMenu->CloseGossip();
                     break;
-                case 200 ... 220:
+                case 200 ... 219:
                     _player->SwitchTalent(action-200);
                     pMenu->CloseGossip();
                     break;
-                case 300 ... 320:
+                case 300 ... 319:
+                    if (code.empty() || code != "确认")
+                    {
+                        ChatHandler(_player).SendSysMessage("输入错误，请输入 确认");
+                        pMenu->CloseGossip();
+                        break;
+                    }
+
                     _player->DeleteTalent(action-300);
                     pMenu->CloseGossip();
                     break;

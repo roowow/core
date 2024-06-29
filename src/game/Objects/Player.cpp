@@ -1165,7 +1165,9 @@ uint32 Player::EnvironmentalDamage(EnvironmentalDamageType type, uint32 damage)
     {
         if (IsHardcore() && ! IsHardcoreRetired() && ! InBattleGround())
         {
-            CharacterDatabase.PExecute("UPDATE character_hardcore SET status = 0, changed = UNIX_TIMESTAMP(), killertype=4, area=%u, killedlevel=%u WHERE guid=%u", GetAreaId(), GetLevel(), GetGUIDLow());
+            CharacterDatabase.PExecute("UPDATE character_hardcore SET status = 0, changed = UNIX_TIMESTAMP(), killertype=4, area=%u, killedlevel=%u, map=%u, pos_x=%f, pos_y=%f, pos_z=%f WHERE guid=%u", 
+                GetAreaId(), GetLevel(), GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetGUIDLow());
+
             SetHardcoreDead(true);
             ChatHandler(this).SendSysMessage("勇敢者，您已经死亡。遇险情报将稍后送达世界各地，您会被永远铭记！");
             
@@ -1178,7 +1180,7 @@ uint32 Player::EnvironmentalDamage(EnvironmentalDamageType type, uint32 damage)
                 sObjectMgr.GetAreaLocaleString(areaEntry->Id, 3, &areaOrZoneName);
             }
 
-            std::string damageReason = "遭遇意外";
+            std::string damageReason = " 遭遇意外";
             if (type == DAMAGE_EXHAUSTED)
             {
                 damageReason = damageReason + std::string("：累死了");
@@ -1808,10 +1810,13 @@ void Player::Update(uint32 update_diff, uint32 p_time)
     }
 
     // DualTalent
-    if (oowowInfo.cache_DualTalent_AuraTime_6537 && time(nullptr) > oowowInfo.cache_DualTalent_AuraTime_6537 && HasAura(6537))
+    FunctionDelay(1, oowowInfo.DualTalent_SwitchTalent_Delay);
+    FunctionDelay(2, oowowInfo.DualTalent_DeleteTalent_Delay);
+
+    // Party
+    if (oowowInfo.cache_PartyText && time(nullptr) > oowowInfo.cache_PartyCoolDown)
     {
-        RemoveAurasDueToSpell(6537);
-        CastSpell(this, 14867, true); // Untalent Visual Effect
+        oowowInfo.cache_PartyText = 0;
     }
 }
 
@@ -3417,11 +3422,6 @@ bool Player::SetHardcore(bool on)
 {
     if (on)
     {
-        if (GetLevel() > 5)
-        {
-            ChatHandler(this).SendSysMessage("勇敢者小队只招募刚刚返回归地球不超过5级的人类。");
-            return false;
-        }
         m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_ON;
         CharacterDatabase.PExecute("INSERT INTO character_hardcore (guid, created, status) VALUES (%u, UNIX_TIMESTAMP(), 1)", GetGUIDLow());
 
@@ -3434,7 +3434,7 @@ bool Player::SetHardcore(bool on)
         if (Group* group = sObjectMgr.GetGroupByMember(GetGUID()))
             RemoveFromGroup(group, GetGUID());
 
-        ChatHandler(this).SendSysMessage("你已加入勇敢者小队，希望你恪守勇敢者准则，不要辱没了这三个字。");
+        TextEmote("很荣幸加入了勇敢者小队，我会勇敢得活着，并且恪守勇敢者准则。");
     }
     else
     {
@@ -3453,10 +3453,6 @@ void Player::SetHardcoreRetired()
 
     SetHardcorePVP(true);
     SetPvP(true);
-
-    CastSpell(this, 26374, true); // 艾露恩的蜡烛 TODO 改成烟花束？
-    CastSpell(this, 461, true); 
-    RemoveAurasDueToSpell(7363);
 
     ChatHandler(this).SendSysMessage("您已经退役，感谢您做出的贡献！");
 }
@@ -3493,13 +3489,19 @@ void Player::SetActiveTalent(uint32 talent)
 {
     oowowInfo.activeTalent = talent;
 
-    CharacterDatabase.PQuery("UPDATE character_spell_talent SET active = 0 WHERE guid = %u", GetGUIDLow()); // must excute first
+    CharacterDatabase.PExecute("UPDATE character_spell_talent SET active = 0 WHERE guid = %u", GetGUIDLow());
 
     CharacterDatabase.PExecute("UPDATE character_spell_talent SET active = 1 WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
 }
 
 bool Player::IsAllowSwitchTalent()
 {
+    if (time(nullptr) < oowowInfo.DualTalent_CoolDown)
+    {
+        ChatHandler(this).SendSysMessage("你还很虚弱，无法凝聚灵魂。");
+        return false;
+    }
+
     // 虚弱
     if (HasAura(15007))
     {
@@ -3529,9 +3531,6 @@ void Player::SwitchTalent(uint32 talent)
     if (! IsAllowSwitchTalent())
         return;
 
-    AddAura(6537, 0, this); // 森林的召唤
-    oowowInfo.cache_DualTalent_AuraTime_6537 = time(nullptr) + 10;
-
     ResetTalents();
 
     std::unique_ptr<QueryResult> tresult = CharacterDatabase.PQuery("SELECT talentid, rank from character_spell_extra WHERE flag = %u and guid = %u order by id", talent, GetGUIDLow());
@@ -3547,15 +3546,24 @@ void Player::SwitchTalent(uint32 talent)
 
     SetActiveTalent(talent);
 
-	// -- 怒气/能量/法力清零
+    AddAura(6537, 0, this); // 森林的召唤
+    oowowInfo.DualTalent_SwitchTalent_Delay = time(nullptr) + 10;
+    oowowInfo.DualTalent_CoolDown = time(nullptr) + 5*60;
+}
+
+void Player::SwitchTalentDelay()
+{
+    RemoveAurasDueToSpell(6537); // 森林的召唤
+    CastSpell(this, 14867, true); // Untalent Visual Effect
+
+    // -- 怒气/能量/法力清零
     SetHealth(GetHealth() * 0.6); // 60% health
     SetPower(POWER_MANA, 0);
     SetPower(POWER_RAGE, 0);
     SetPower(POWER_ENERGY, 0);
 
-    ChatHandler(this).SendSysMessage("已切换灵魂，你感到非常的虚弱。。");
-
-    oowowInfo.cache_DualTalentCoolDown = time(nullptr) + 5*60;
+    TextEmote("重新凝聚了灵魂，此刻非常的虚弱。");
+    oowowInfo.DualTalent_SwitchTalent_Delay = 0;
 }
 
 bool Player::AddTalent(std::string name)
@@ -3563,37 +3571,33 @@ bool Player::AddTalent(std::string name)
     if (! IsAllowSwitchTalent())
         return false;
 
-    std::unique_ptr<QueryResult> tresult = CharacterDatabase.PQuery("SELECT count(*) from character_spell_talent WHERE guid = %u", GetGUIDLow());
-    if (tresult)
+    if (GetMoney() < 5*100*100)
     {
-        Field* fields = tresult->Fetch();
-        // fields[0].GetUInt32()
-        if (GetMoney() < 5*100*100)
-        {
-            ChatHandler(this).SendSysMessage("余额不足，无法驱动魂器。");
-            return false;
-        }
+        ChatHandler(this).SendSysMessage("需要一点点金币来驱动魂器。");
+        return false;
+    }
 
-        if (fields[0].GetUInt32() > 8)
-        {
-            ChatHandler(this).SendSysMessage("无法分裂更多灵魂。");
-            return false;
-        }
-
-        ModifyMoney(-5*100*100);
+    for (int i = 1; i < 20; i++) {
+        if (oowowInfo.DualTalents.count(i))
+            continue;
 
         std::string q1 = "INSERT INTO `character_spell_talent` (`Flag`, `Guid`, `name`) VALUES ('";
-        q1 = q1 + std::to_string(fields[0].GetUInt32()+1) + std::string("', '");
+        q1 = q1 + std::to_string(i) + std::string("', '");
         q1 = q1 + std::to_string(GetGUIDLow()) + std::string("', '");
         q1 = q1 + name + std::string("');");
 
         const char *query = q1.c_str();
+        CharacterDatabase.PExecute(query);
 
-        CharacterDatabase.PQuery(query);
+        oowowInfo.DualTalents[i] = name;
 
-        ChatHandler(this).SendSysMessage("新灵魂分裂完成。");
-        SwitchTalent(fields[0].GetUInt32()+1);
+        ModifyMoney(-5*100*100);
+
+        SwitchTalent(i);
+        break;
     }
+
+    return true;
 }
 
 bool Player::DeleteTalent(uint32 talent)
@@ -3601,32 +3605,23 @@ bool Player::DeleteTalent(uint32 talent)
     if (! IsAllowSwitchTalent())
         return false;
 
-    CharacterDatabase.PQuery("DELETE FROM `character_spell_talent` WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
-    CharacterDatabase.PQuery("DELETE FROM `character_spell_extra`  WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
-    CharacterDatabase.PQuery("DELETE FROM `character_spell_tmp`    WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
+    CharacterDatabase.PExecute("DELETE FROM `character_spell_talent` WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
+    CharacterDatabase.PExecute("DELETE FROM `character_spell_extra`  WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
+    CharacterDatabase.PExecute("DELETE FROM `character_spell_tmp`    WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
 
-    std::unique_ptr<QueryResult> dresult = CharacterDatabase.PQuery("SELECT flag, active from character_spell_talent WHERE guid = %u order by flag", GetGUIDLow());
-    if (dresult)
-    {
-        do
-        {
-            Field* fields = dresult->Fetch();
-            uint32 talent_new = 1;
-            CharacterDatabase.PQuery("UPDATE character_spell_talent SET flag = %u WHERE flag = %u and guid = %u", talent_new, fields[0].GetUInt32(), GetGUIDLow());
-            CharacterDatabase.PQuery("UPDATE character_spell_extra  SET flag = %u WHERE flag = %u and guid = %u", talent_new, fields[0].GetUInt32(), GetGUIDLow());
+    oowowInfo.DualTalents.erase(talent);
 
-            if (fields[1].GetUInt32())
-                oowowInfo.activeTalent = talent_new;
+    AddAura(6537, 0, this); // 森林的召唤
+    oowowInfo.DualTalent_DeleteTalent_Delay = time(nullptr) + 5;
+}
 
-            talent_new = talent_new + 1;
-        }
-        while (dresult->NextRow());
-    }
-
+void Player::DeleteTalentDelay()
+{
+    RemoveAurasDueToSpell(6537); // 森林的召唤
     CastSpell(this, 14867, true); // Untalent Visual Effect
-    ChatHandler(this).SendSysMessage("已忘记灵魂。");
 
-    oowowInfo.cache_DualTalentCoolDown = 0;
+    TextEmote("收回了一部分灵魂，此刻非常的兴奋。");
+    oowowInfo.DualTalent_DeleteTalent_Delay = 0;
 }
 //// DualTalent
 
@@ -5374,7 +5369,7 @@ void Player::BuildPlayerRepop()
 void Player::ResurrectPlayer(float restore_percent, bool applySickness)
 {
     /// Hardcore
-    if (IsHardcore() && !IsHardcoreRetired())
+    if (IsHardcore() && ! IsHardcoreRetired())
     {
         if (GetLevel() < 40 && IsHardcoreDead())
         {
@@ -15510,11 +15505,17 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
     }
 
     /// DualTalent
-    std::unique_ptr<QueryResult> tresult = holder->TakeResult(PLAYER_LOGIN_QUERY_DUALTALENT);
-    if (tresult)
+    std::unique_ptr<QueryResult> dresult = holder->TakeResult(PLAYER_LOGIN_QUERY_DUALTALENT);
+    if (dresult)
     {
-        Field* fields = tresult->Fetch();
-        oowowInfo.activeTalent = fields[0].GetUInt32();
+        do
+        {
+            Field* fields = dresult->Fetch();
+            oowowInfo.DualTalents[fields[0].GetUInt32()] = fields[1].GetString();
+            if (fields[2].GetUInt32())
+                oowowInfo.activeTalent = fields[0].GetUInt32();
+        }
+        while (dresult->NextRow());
     }
 
     /// Braodcast
@@ -15527,6 +15528,14 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
             ChatHandler(this).SendSysMessage(fields[0].GetString());
 
         } while (bresult->NextRow());
+    }
+
+    /// Party
+    std::unique_ptr<QueryResult> presult = holder->TakeResult(PLAYER_LOGIN_QUERY_PARTY);
+    if (presult)
+    {
+        Field* fields = presult->Fetch();
+        oowowInfo.displayID = fields[1].GetUInt32();
     }
 
     if (IsPvPDesired())
@@ -20684,6 +20693,10 @@ uint32 Player::SelectResurrectionSpellId() const
     if (prio < 1 && HasSpell(20608) && IsSpellReady(21169) && HasItemCount(17030, EFFECT_INDEX_1))
         spellId = 21169;
 
+    // Hardcore
+    if (IsHardcore() && ! IsHardcoreRetired())
+        spellId = 0;
+
     return spellId;
 }
 
@@ -23430,4 +23443,24 @@ void Player::ClearTemporaryWarWithFactions()
         }
         m_temporaryAtWarFactions.clear();
     }
+}
+
+bool Player::FunctionDelay(uint32 functionID, uint32 delay)
+{
+    if (! delay || delay > time(nullptr))
+        return false;
+
+    switch (functionID)
+    {
+    case 1:
+        SwitchTalentDelay();
+        break;
+    case 2:
+        DeleteTalentDelay();
+        break;
+    default:
+        break;
+    }
+
+    return true;
 }

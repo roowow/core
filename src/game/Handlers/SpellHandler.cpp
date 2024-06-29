@@ -171,20 +171,6 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
         }
     }
 
-    // 术士不允许使用灵魂石 5232 16892 16893 16895 16896  先测试下是不是需要
-    // if (pItem->GetEntry() == 5232  || 
-    //     pItem->GetEntry() == 16892 || 
-    //     pItem->GetEntry() == 16893 || 
-    //     pItem->GetEntry() == 16895 || 
-    //     pItem->GetEntry() == 16896)
-    // {
-    //     if (targets.getUnitTarget()->ToPlayer()->IsHardcore() && ! targets.getUnitTarget()->ToPlayer()->IsHardcoreRetired())
-    //     {
-    //         ChatHandler(pUser).SendSysMessage("勇敢者准则：勇敢者无法绑定灵魂石。");
-    //         cancelCast = true;
-    //     }
-    // }
-
     // Party 便携式量子发生器 98623
     if (pItem->GetEntry() == 98623)
     {
@@ -192,9 +178,24 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
         pMenu->ClearMenus();
 
         std::array<uint32, 100> PartyTexts {22015, 22016, 22017, 22018, 22020, 22021};
-        pMenu->SendGossipMenu(PartyTexts[urand(0, 5)], pItem->GetGUID());
+        if (! pUser->oowowInfo.cache_PartyText)
+        {
+            pUser->oowowInfo.cache_PartyText = PartyTexts[urand(0, 5)];
+            pUser->oowowInfo.cache_PartyCoolDown = time(nullptr) + 10*60;
+        }
+
+        pMenu->SendGossipMenu(pUser->oowowInfo.cache_PartyText, pItem->GetGUID());
         pUser->CastSpell(pUser, 26638, true); // Twin Teleport Visual
         cancelCast = true;
+    }
+
+    // Party 派对入场券 920413 922413
+    if (pItem->GetEntry() == 920413 || pItem->GetEntry() == 922413)
+    {
+        pUser->oowowInfo.displayID = 0;
+
+        if (pUser->HasAura(8067))
+            pUser->RemoveAurasDueToSpell(8067);
     }
 
     // DualTalent 魂器 922001
@@ -203,34 +204,25 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
         PlayerMenu* pMenu = pUser->PlayerTalkClass;
         pMenu->ClearMenus();
 
-        if (! pUser->oowowInfo.cache_DualTalentList)
+        for (auto i = pUser->oowowInfo.DualTalents.begin(); i != pUser->oowowInfo.DualTalents.end(); i++)
         {
-            pUser->oowowInfo.cache_DualTalentList = CharacterDatabase.PQuery("SELECT flag, name, active from character_spell_talent WHERE guid = %u order by flag;", pUser->GetGUIDLow());
-        }
-        if (pUser->oowowInfo.cache_DualTalentList)
-        {
-            do
+            if (i->first == pUser->ActiveTalent())
             {
-                Field* fields = pUser->oowowInfo.cache_DualTalentList->Fetch();
-                if (fields[2].GetUInt32())
-                {
-                    std::string msg = std::string("|cFFFF0000灵魂 ") + std::to_string(fields[0].GetUInt32()) + std::string(" ") +  fields[1].GetString() + std::string("|r ");
-                    pMenu->GetGossipMenu().AddMenuItem(2, msg.c_str(), 1, 99); // active talent
-                }
-                else
-                {
-                    std::string msg = std::string("灵魂 ") + std::to_string(fields[0].GetUInt32()) + std::string(" ") + fields[1].GetString();
-                    pMenu->GetGossipMenu().AddMenuItem(3, msg.c_str(), 1, fields[0].GetUInt32()); // inactive talent
-                }
+                std::string msg = std::string("|cFFFF0000灵魂 ") + std::to_string(i->first) + std::string(" - ") +  i->second + std::string("|r ");
+                pMenu->GetGossipMenu().AddMenuItem(2, msg.c_str(), 1, 99); // active talent
             }
-            while (pUser->oowowInfo.cache_DualTalentList->NextRow());
+            else
+            {
+                std::string msg = std::string("灵魂 ") + std::to_string(i->first) + std::string(" - ") + i->second;
+                pMenu->GetGossipMenu().AddMenuItem(3, msg.c_str(), 1, i->first); // inactive talent
+            }
         }
 
-        if (pUser->oowowInfo.cache_DualTalentCoolDown && time(nullptr) > pUser->oowowInfo.cache_DualTalentCoolDown)
+        if (time(nullptr) < pUser->oowowInfo.DualTalent_CoolDown)
         {
-            int32 time1 = pUser->oowowInfo.cache_DualTalentCoolDown - time(nullptr);
-            std::string time = secsToTimeString(time1);
-            std::string msg = std::string("灵魂凝聚：|cFF4b4bdf") + time + std::string("|r");
+            int32 time1 = pUser->oowowInfo.DualTalent_CoolDown - time(nullptr);
+            std::string time = secsToTimeString(time1, true);
+            std::string msg = std::string("灵魂虚弱：|cFF4b4bdf") + time + std::string("|r");
             pMenu->GetGossipMenu().AddMenuItem(0, msg.c_str(), 1, 99);
         }
         else
