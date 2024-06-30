@@ -213,6 +213,7 @@ void WorldSession::HandleAutostoreLootItemOpcode(WorldPacket& recv_data)
 
         --loot->unlootedCount;
 
+
         sLog.Player(this, LOG_LOOTS, LOG_LVL_MINIMAL, "%s loots %ux%u [loot from %s]", _player->GetShortDescription().c_str(), item->count, item->itemid, lguid.GetString().c_str());
 
         /// BigData - character_log_item Green+ / fish

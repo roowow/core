@@ -449,7 +449,6 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recv_data)
                 if (AntispamInterface *a = sAnticheatMgr->GetAntispam())
                     a->addMessage(msg, type, GetPlayerPointer(), nullptr);
             }
-
         }
         break;
 

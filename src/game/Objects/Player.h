@@ -1137,7 +1137,6 @@ class Player final: public Unit
         uint8 FindEquipSlot(ItemPrototype const* proto, uint32 slot, bool swap) const;
         uint32 GetItemCount(uint32 item, bool inBankAlso = false, Item const* skipItem = nullptr) const;
         Item* GetItemByGuid(ObjectGuid guid) const;
-
         Item* GetItemByPos(uint16 pos) const;
         Item* GetItemByPos(uint8 bag, uint8 slot) const;
         Item* GetWeaponForAttack(WeaponAttackType attackType) const { return GetWeaponForAttack(attackType,false,false); }

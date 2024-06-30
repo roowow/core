@@ -249,7 +249,7 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
         return;
     }
 
-	pUser->CastItemUseSpell(pItem, targets);
+    pUser->CastItemUseSpell(pItem, targets);
 }
 
 void WorldSession::HandleOpenItemOpcode(WorldPacket& recvPacket)

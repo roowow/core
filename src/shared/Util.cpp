@@ -537,31 +537,6 @@ void vutf8printf(FILE* out, char const* str, va_list* ap)
 #endif
 }
 
-std::string utf8Substr(const std::string& str, unsigned int start, unsigned int leng)
-{
-    if (leng==0) { return ""; }
-    unsigned int c, i, ix, q, min=std::string::npos, max=std::string::npos;
-    for (q=0, i=0, ix=str.length(); i < ix; i++, q++)
-    {
-        if (q==start){ min=i; }
-        if (q<=start+leng || leng==std::string::npos){ max=i; }
-
-        c = (unsigned char) str[i];
-        if      (
-                 //c>=0   &&
-                 c<=127) i+=0;
-        else if ((c & 0xE0) == 0xC0) i+=1;
-        else if ((c & 0xF0) == 0xE0) i+=2;
-        else if ((c & 0xF8) == 0xF0) i+=3;
-        //else if (($c & 0xFC) == 0xF8) i+=4; // 111110bb //byte 5, unnecessary in 4 byte UTF-8
-        //else if (($c & 0xFE) == 0xFC) i+=5; // 1111110b //byte 6, unnecessary in 4 byte UTF-8
-        else return "";//invalid utf8
-    }
-    if (q<=start+leng || leng==std::string::npos){ max=i; }
-    if (min==std::string::npos || max==std::string::npos) { return ""; }
-    return str.substr(min,max);
-}
-
 void hexEncodeByteArray(uint8* bytes, uint32 arrayLen, std::string& result)
 {
     std::ostringstream ss;

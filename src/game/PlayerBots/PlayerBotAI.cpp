@@ -99,7 +99,6 @@ bool PlayerBotAI::SpawnNewPlayer(WorldSession* sess, uint8 class_, uint32 race_,
         name = sObjectMgr.GeneratePetName(1863); // Succubus name
     }
     normalizePlayerName(name);
-
     uint8 gender = pClone ? pClone->GetByteValue(UNIT_FIELD_BYTES_0, UNIT_BYTES_0_OFFSET_GENDER) : urand(0, 1);
     uint8 skin = pClone ? pClone->GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_SKIN_ID) : urand(0, 5);
     uint8 face = pClone ? pClone->GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_FACE_ID) : urand(0, 5);
