@@ -40,7 +40,6 @@
 #include "Policies/SingletonImp.h"
 #include <chrono>
 #include <random>
-#include "PlayerBotMgr.h"
 
 INSTANTIATE_SINGLETON_1(BattleGroundMgr);
 

@@ -12971,7 +12971,6 @@ void Player::SendPreparedGossip(WorldObject* pSource)
 
 void Player::OnGossipSelect(WorldObject* pSource, uint32 gossipListId)
 {
-    printf("gossipListId: %u", gossipListId);
     GossipMenu& gossipmenu = PlayerTalkClass->GetGossipMenu();
 
     if (gossipListId >= gossipmenu.MenuItemCount())

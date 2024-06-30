@@ -1076,7 +1076,7 @@ void Unit::Kill(Unit* pVictim, SpellEntry const* spellProto, bool durabilityLoss
             }
 
             // kill announce
-            if (! pPlayerTap->IsGameMaster())
+            if (! pPlayerTap->IsGameMaster() && !pPlayerTap->IsBot() && !pPlayerVictim->IsBot())
             {
                 std::string message;
                 if (pPlayerTap->GetClass() == CLASS_PALADIN)
@@ -1168,8 +1168,11 @@ void Unit::Kill(Unit* pVictim, SpellEntry const* spellProto, bool durabilityLoss
             }
 
             // character_log_pvpkill
-            CharacterDatabase.PExecute("INSERT INTO `character_log_pvpkill` (`killer`, `killerlevel`, `name`, `victim`, `victimlevel`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%u', '%s', '%u', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
-                pPlayerTap->GetGUIDLow(), pPlayerTap->GetLevel(), pPlayerVictim->GetName(), pPlayerVictim->GetGUIDLow(), pPlayerVictim->GetLevel(), pPlayerVictim->GetZoneId(), pPlayerVictim->GetMapId(), pPlayerVictim->GetPositionX(), pPlayerVictim->GetPositionY(), pPlayerVictim->GetPositionZ(), pPlayerVictim->GetSession()->GetRemoteAddress().c_str());
+            if (!pPlayerTap->IsBot() && !pPlayerVictim->IsBot())
+            {
+                CharacterDatabase.PExecute("INSERT INTO `character_log_pvpkill` (`killer`, `killerlevel`, `name`, `victim`, `victimlevel`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%u', '%s', '%u', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                    pPlayerTap->GetGUIDLow(), pPlayerTap->GetLevel(), pPlayerVictim->GetName(), pPlayerVictim->GetGUIDLow(), pPlayerVictim->GetLevel(), pPlayerVictim->GetZoneId(), pPlayerVictim->GetMapId(), pPlayerVictim->GetPositionX(), pPlayerVictim->GetPositionY(), pPlayerVictim->GetPositionZ(), pPlayerVictim->GetSession()->GetRemoteAddress().c_str());
+            }
         }
     }
 
