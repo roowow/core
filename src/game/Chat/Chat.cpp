@@ -134,6 +134,11 @@ ChatCommand * ChatHandler::getCommandTable()
         { nullptr,        0,                    false, nullptr,                                          "", nullptr },
     };
 
+    static ChatCommand OOCommandTable[] =
+    {
+        { "pvpbroadcast", SEC_ADMINISTRATOR,    true, &ChatHandler::HandleOOPvpBroadcastCommand,       "", nullptr },
+    };
+
     static ChatCommand accountSetCommandTable[] =
     {
         { "addon",          SEC_CONSOLE,        true,  &ChatHandler::HandleAccountSetAddonCommand,     "", nullptr },

@@ -288,7 +288,7 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
         {
             if (pTarget != pExcept &&
                 IsValidHostileTarget(pTarget) &&
-                !pTarget->IsMounted() &&
+                !IsBadPlayer(pTarget) &&
                 me->IsWithinDist(pTarget, VISIBILITY_DISTANCE_NORMAL))
             {
                 if (me->GetTeam() == HORDE)
@@ -376,7 +376,7 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
                 {
                     if (pAttacker != pExcept &&
                         IsValidHostileTarget(pAttacker) &&
-                        !pAttacker->IsMounted() &&
+                        IsBadPlayer(pAttacker) &&
                         me->IsWithinDist(pAttacker, maxAggroDistance * 2.0f) &&
                         me->GetDistanceZ(pAttacker) < 10.0f &&
                         me->IsWithinLOSInMap(pAttacker))
@@ -653,6 +653,23 @@ bool BattleBotAI::CheckForUnreachableTarget()
     return false;
 }
 
+bool BattleBotAI::IsBadPlayer(Unit const* pTarget) const
+{
+    if (!pTarget->ToPlayer())
+        return false;
+
+    if (!pTarget->ToPlayer()->IsBot())
+        return false;
+
+    if (pTarget->IsMounted())
+        return true;
+
+    if (pTarget->HasAura(783))
+        return true;
+
+    return false;
+}
+
 void BattleBotAI::UpdateAI(uint32 const diff)
 {
     m_updateTimer.Update(diff);
@@ -845,7 +862,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
     Unit* pVictim = me->GetVictim();
 
-    if (pVictim && pVictim->IsMounted() && !pVictim->IsWithinDist(me, VISIBILITY_DISTANCE_SMALL))
+    if (pVictim && IsBadPlayer(pVictim) && !pVictim->IsWithinDist(me, VISIBILITY_DISTANCE_SMALL))
     {
         me->AttackStop(false);
         StopMoving();

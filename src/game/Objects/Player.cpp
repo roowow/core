@@ -3531,7 +3531,7 @@ void Player::SwitchTalent(uint32 talent)
     if (! IsAllowSwitchTalent())
         return;
 
-    ResetTalents();
+    ResetTalents(true);
 
     std::unique_ptr<QueryResult> tresult = CharacterDatabase.PQuery("SELECT talentid, rank from character_spell_extra WHERE flag = %u and guid = %u order by id", talent, GetGUIDLow());
     if (tresult)
@@ -23461,5 +23461,18 @@ bool Player::FunctionDelay(uint32 functionID, uint32 delay)
         break;
     }
 
+    return true;
+}
+
+bool ChatHandler::HandleOOPvpBroadcastCommand(char* args)
+{
+    bool value;
+    if (!ExtractOnOff(&args, value))
+    {
+        SendSysMessage(LANG_USE_BOL);
+        SetSentErrorMessage(true);
+        return false;
+    }
+    sWorld.setConfig(CONFIG_BOOL_OO_PVP_BROADCAST, true);
     return true;
 }

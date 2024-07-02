@@ -775,12 +775,8 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
         if (GetPlayer()->HasAura(8076) && GetPlayer()->oowowInfo.displayID)
             GetPlayer()->SetDisplayId(GetPlayer()->oowowInfo.displayID);
 
-        if (GetPlayer()->IsHardcoreDead() && ! GetPlayer()->IsHardcoreRetired())
+        if (GetPlayer()->IsHardcore() && GetPlayer()->IsHardcoreDead() && ! GetPlayer()->IsHardcoreRetired())
             ChatHandler(GetPlayer()).SendSysMessage("[勇敢者] 您已经陨落，宝贵信息已送达队友，并且被永远铭记！");
-
-        // 正义火焰
-        if (GetPlayer()->IsHardcoreRetired() && GetPlayer()->HasAura(461))
-            GetPlayer()->AddAura(461, 0, GetPlayer());
 
         // 火光
         if (GetPlayer()->IsHardcore() && ! GetPlayer()->IsHardcoreRetired() && ! GetPlayer()->HasAura(7363))

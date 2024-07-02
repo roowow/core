@@ -57,6 +57,7 @@ public:
     bool UseMount();
     uint32 GetMountSpellId() const;
     bool CheckForUnreachableTarget();
+    bool IsBadPlayer(Unit const* pTarget) const;
     float GetMaxAggroDistanceForMap() const;
     bool AttackStart(Unit* pVictim);
     Unit* SelectAttackTarget(Unit* pExcept = nullptr) const;

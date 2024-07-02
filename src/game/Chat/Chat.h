@@ -297,6 +297,7 @@ class ChatHandler
         bool HandleBattleBotAutoJoin1Command(char* args);
         bool HandleBattleBotAutoJoin2Command(char* args);
         bool HandleBattleBotAutoJoin3Command(char* args);
+        bool HandleOOPvpBroadcastCommand(char* args);
 
         // spell_disabled
         bool HandleReloadSpellDisabledCommand(char *args);
