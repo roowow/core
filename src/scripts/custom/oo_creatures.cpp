@@ -111,10 +111,10 @@ void SendDefaultMenu_HardcoreNPC2(Player *player, Creature *_Creature, uint32 ac
             }
 
             _Creature->CastSpell(player, 25823, true); // 艾露恩灯柱
-            _Creature->CastSpell(player, 461, true); 
-            player->RemoveAurasDueToSpell(7363);
             _Creature->MonsterSay("勇敢者，你完成了不可能完成的任务，你是人类的明灯！", 0, 0);
 
+            player->AddAura(461, 0, player); // 正义火焰
+            player->RemoveAurasDueToSpell(7363);
             player->SetHardcoreRetired();
 
             player->CLOSE_GOSSIP_MENU();

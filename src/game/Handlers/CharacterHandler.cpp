@@ -781,6 +781,10 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
         // 火光
         if (GetPlayer()->IsHardcore() && ! GetPlayer()->IsHardcoreRetired() && ! GetPlayer()->HasAura(7363))
             GetPlayer()->AddAura(7363, 0, GetPlayer());
+
+        // 正义火焰
+        if (GetPlayer()->IsHardcore() && GetPlayer()->IsHardcoreRetired() && ! GetPlayer()->HasAura(461))
+            GetPlayer()->AddAura(461, 0, GetPlayer());
     }
 }
 

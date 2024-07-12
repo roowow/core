@@ -628,6 +628,9 @@ bool QuestComplete_npc_AQwar_collector(Player* pPlayer, Creature* pQuestGiver, Q
     uint32 stock = sObjectMgr.GetSavedVariable(savedVar, 0);
     stock += pQuest->ReqItemCount[0];
     sObjectMgr.SetSavedVariable(savedVar, stock, true);
+    // log wareffort
+    CharacterDatabase.PExecute("INSERT INTO `character_log_wareffort` (`Time`, `guid`, `name`, `Item`, `Count`, `zone`, `ip`) VALUES (current_timestamp(), '%u', '%s', '%u', '%u', '%u', '%s')",
+        pPlayer->GetGUIDLow(), pPlayer->GetName(), reqItemId, pQuest->ReqItemCount[0], pPlayer->GetZoneId(), pPlayer->GetSession()->GetRemoteAddress().c_str());
 
     if (npc_AQwar_collectorAI* collectorAI = dynamic_cast<npc_AQwar_collectorAI*>(pQuestGiver->AI()))
     {

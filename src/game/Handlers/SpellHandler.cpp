@@ -177,7 +177,7 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
         PlayerMenu* pMenu = pUser->PlayerTalkClass;
         pMenu->ClearMenus();
 
-        std::array<uint32, 100> PartyTexts {22015, 22016, 22017, 22018, 22020, 22021};
+        std::array<uint32, 100> PartyTexts {22015, 22016, 22017, 22018, 22019, 22020, 22021, 22022, 22023, 22024};
         if (! pUser->oowowInfo.cache_PartyText)
         {
             pUser->oowowInfo.cache_PartyText = PartyTexts[urand(0, 5)];
@@ -196,6 +196,79 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
 
         if (pUser->HasAura(8067))
             pUser->RemoveAurasDueToSpell(8067);
+    }
+
+    // Party 大雪球 921038
+    if (pItem->GetEntry() == 921038)
+    {
+        if (targets.getUnitTarget() && targets.getUnitTarget()->ToPlayer() && targets.getUnitTarget()->ToPlayer() != pUser)
+        {
+            itemCastCheckResult = SPELL_FAILED_BAD_TARGETS;
+
+            // free gray item after use fail
+            pUser->SendEquipError(EQUIP_ERR_NONE, pItem, nullptr);
+
+            // send spell error
+            uint32 spellid = proto->Spells[spellSlot].SpellId;
+            if (SpellEntry const* spellInfo = sSpellMgr.GetSpellEntry(spellid))
+                Spell::SendCastResult(pUser, spellInfo, itemCastCheckResult);
+            return;
+        }
+
+        uint32 spawntm = 300;
+
+        float x = pUser->GetPositionX();
+        float y = pUser->GetPositionY();
+        float z = pUser->GetPositionZ();
+        float ang = pUser->GetOrientation();
+
+        float rot2 = sin(ang / 2);
+        float rot3 = cos(ang / 2);
+
+        // 180654 雪堆
+        if (sOOMgr.SnowBallObjects.count(pUser->GetGUIDLow()) > 0)
+        {
+            ChatHandler(pUser).SendSysMessage("大雪球魂力不足，无法生成雪堆。");
+        }
+        else
+        {
+            float x = float(pUser->GetPositionX());
+            float y = float(pUser->GetPositionY());
+            float z = float(pUser->GetPositionZ());
+            float o = float(pUser->GetOrientation());
+            Map* map = pUser->GetMap();
+
+            GameObject* pGameObj = GameObject::CreateGameObject(180654);
+
+            uint32 db_lowGUID = sObjectMgr.GenerateStaticGameObjectLowGuid();
+            if (pGameObj->Create(db_lowGUID, 180654, map, x, y, z, o, 0.0f, 0.0f, 0.0f, 0.0f, GO_ANIMPROGRESS_DEFAULT, GO_STATE_READY))
+            {
+                pGameObj->SetRespawnTime(5);
+
+                // fill the gameobject data and save to the db
+                pGameObj->SaveToDB(map->GetId());
+
+                // this will generate a new guid if the object is in an instance
+                if (!pGameObj->LoadFromDB(db_lowGUID, map))
+                {
+                    delete pGameObj;
+                }
+                else
+                {
+                    map->Add(pGameObj);
+                    sObjectMgr.AddGameobjectToGrid(db_lowGUID, sObjectMgr.GetGOData(db_lowGUID));pGameObj->time
+
+                    WorldDatabase.PExecuteLog("DELETE FROM gameobject WHERE guid = '%u'", pGameObj->GetGUIDLow());
+                }
+            }
+            else
+            {
+                delete pGameObj;
+            }
+
+            sOOMgr.SnowBallObjects[pUser->GetGUIDLow()][pGameObj] = time(nullptr) + 60*60;
+            pUser->TextEmote("打雪仗咯！");
+        }
     }
 
     // DualTalent 魂器 922001
