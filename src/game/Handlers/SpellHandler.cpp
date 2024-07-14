@@ -226,9 +226,16 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
         float rot3 = cos(ang / 2);
 
         // 180654 雪堆
+        if (pUser->GetMap() && pUser->GetMap()->IsRaid())
+        {
+            ChatHandler(pUser).SendSysMessage("副本内无法使用。");
+            cancelCast = true;
+        }
+
         if (sOOMgr.SnowBallObjects.count(pUser->GetGUIDLow()) > 0)
         {
             ChatHandler(pUser).SendSysMessage("大雪球魂力不足，无法生成雪堆。");
+            cancelCast = true;
         }
         else
         {
@@ -256,7 +263,7 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
                 else
                 {
                     map->Add(pGameObj);
-                    sObjectMgr.AddGameobjectToGrid(db_lowGUID, sObjectMgr.GetGOData(db_lowGUID));pGameObj->time
+                    sObjectMgr.AddGameobjectToGrid(db_lowGUID, sObjectMgr.GetGOData(db_lowGUID));
 
                     WorldDatabase.PExecuteLog("DELETE FROM gameobject WHERE guid = '%u'", pGameObj->GetGUIDLow());
                 }
@@ -266,7 +273,7 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
                 delete pGameObj;
             }
 
-            sOOMgr.SnowBallObjects[pUser->GetGUIDLow()][pGameObj] = time(nullptr) + 60*60;
+            sOOMgr.SnowBallObjects[pUser->GetGUIDLow()][pGameObj->GetGUIDLow()] = time(nullptr) + 60*60;
             pUser->TextEmote("打雪仗咯！");
         }
     }

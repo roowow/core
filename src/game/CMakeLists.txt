@@ -19,6 +19,7 @@ set (game_SRCS
     AccountMgr.cpp
     AuraRemovalMgr.cpp
     AutoBroadCastMgr.cpp
+    OO/OOMgr.cpp
     Camera.cpp
     Conditions.cpp
     CreatureGroups.cpp
@@ -220,6 +221,7 @@ set (game_SRCS
     AccountMgr.h
     AuraRemovalMgr.h
     AutoBroadCastMgr.h
+    OO/OOMgr.h
     Camera.h
     ClientDefines.h
     Conditions.h
