@@ -34,6 +34,7 @@
 #include "FollowerReference.h"
 #include "FollowerRefManager.h"
 #include "MotionMaster.h"
+#include "OO/OOMgr.h"
 #include <list>
 
 struct FactionTemplateEntry;
