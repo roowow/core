@@ -22,6 +22,8 @@ OOMgr::~OOMgr()
 
 void OOMgr::Load()
 {
+    // Delete all snowballs
+
     // PVP Text
     std::unique_ptr<QueryResult> presult(CharacterDatabase.Query("SELECT `Race`,`Class`,`Text` FROM `character_pvp_text` ORDER BY `character_pvp_text`.`ID` ASC"));
     uint32 pcount = 0;
@@ -94,14 +96,6 @@ void OOMgr::Load()
 
 void OOMgr::Update(uint32 diff)
 {
-    // for(auto const &ent1 : SnowBallObjects) {
-    //     // ent1.first is the first key
-    //     for(auto const &ent2 : ent1.second) {
-    //         // ent2.first is the second key
-    //         // ent2.second is the data
-    //     }
-    // }
-
     // if (entries.empty())
     //     return;
 

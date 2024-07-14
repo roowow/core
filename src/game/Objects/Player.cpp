@@ -1195,7 +1195,7 @@ uint32 Player::EnvironmentalDamage(EnvironmentalDamageType type, uint32 damage)
             }
             damageReason = damageReason + std::string("。");
 
-            std::string message = std::string("勇敢者 |cFF") + GetClassColor() + GetName() + std::string("（等级 ") + std::to_string(GetLevel()) 
+            std::string message = std::string("勇敢者 |cFF") + sOOMgr.GetClassColor(GetClass()) + GetName() + std::string("（等级 ") + std::to_string(GetLevel()) 
                 + std::string("）|r，我在 ") + areaOrZoneName + damageReason;
             sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
             sWorld.SendServerMessage(SERVER_MSG_CUSTOM, "勇敢者，行走的火炬，燃烧自己，照亮前方。我勇敢一生，无怨而无悔！");
@@ -3943,7 +3943,7 @@ void Player::GiveLevel(uint32 level)
     // Hardcore OnLevelChanged
     if (IsHardcore() && level == 60)
     {
-        std::string message = std::string("勇敢者 |cFF") + GetClassColor() + GetName() + std::string("|r，完成了重重考验，晋升到了60！");
+        std::string message = std::string("勇敢者 |cFF") + sOOMgr.GetClassColor(GetClass()) + GetName() + std::string("|r，完成了重重考验，晋升到了60！");
         sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
     }
 }
@@ -23474,5 +23474,57 @@ bool ChatHandler::HandleOOPvpBroadcastCommand(char* args)
         return false;
     }
     sWorld.setConfig(CONFIG_BOOL_OO_PVP_BROADCAST, true);
+    return true;
+}
+
+bool Player::DeleteGameObject(GameObject* obj)
+{
+    // number or [name] Shift-click form |color|Hgameobject:go_guid|h[name]|h|r
+    // uint32 lowguid;
+    // if (!ExtractUint32KeyFromLink(&args, "Hgameobject", lowguid))
+    //     return false;
+
+    // if (!lowguid)
+    //     return false;
+
+    // GameObject* obj = nullptr;
+
+    // // by DB guid
+    // if (GameObjectData const* go_data = sObjectMgr.GetGOData(lowguid))
+    //     obj = GetGameObjectWithGuid(lowguid, go_data->id);
+
+    if (!obj)
+    {
+        // PSendSysMessage(LANG_COMMAND_OBJNOTFOUND, lowguid);
+        // SetSentErrorMessage(true);
+        return false;
+    }
+
+    if (sScriptMgr.IsGameObjectGuidReferencedInScripts(obj->GetDBTableGUIDLow()))
+    {
+        // SendSysMessage("You cannot delete this spawn because its guid is referenced in a script.");
+        // SetSentErrorMessage(true);
+        return false;
+    }
+
+    if (ObjectGuid ownerGuid = obj->GetOwnerGuid())
+    {
+        Unit* owner = ObjectAccessor::GetUnit(*m_session->GetPlayer(), ownerGuid);
+        if (!owner || !ownerGuid.IsPlayer())
+        {
+            // PSendSysMessage(LANG_COMMAND_DELOBJREFERCREATURE, obj->GetGUIDLow(), ownerGuid.GetString().c_str());
+            // SetSentErrorMessage(true);
+            return false;
+        }
+
+        owner->RemoveGameObject(obj, false);
+    }
+
+    obj->SetRespawnTime(0);                                 // not save respawn time
+    obj->Delete();
+    obj->DeleteFromDB();
+
+    // PSendSysMessage(LANG_COMMAND_DELOBJMESSAGE, obj->GetGUIDLow());
+
     return true;
 }

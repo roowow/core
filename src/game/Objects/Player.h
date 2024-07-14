@@ -2295,6 +2295,7 @@ class Player final: public Unit
         bool CanInteractWithNPC(Creature const* pCreature, uint32 npcflagmask) const;
         GameObject* GetGameObjectIfCanInteractWith(ObjectGuid guid, uint32 gameobject_type = MAX_GAMEOBJECT_TYPE) const;
         bool CanInteractWithGameObject(GameObject const* pGo, uint32 gameobject_type = MAX_GAMEOBJECT_TYPE) const;
+        bool DeleteGameObject(GameObject* pGo);
         bool CanSeeHealthOf(Unit const* pTarget) const;
         bool CanSeeSpecialInfoOf(Unit const* pTarget) const;
 
@@ -2393,20 +2394,7 @@ class Player final: public Unit
         uint8 GetChatTag() const;
 
         char const* GetName() const final { return m_name.c_str(); }
-        std::string  GetClassColor() const { 
-            std::map<int8, std::string> ClassColor;
-            ClassColor[1] = "C79C6E";
-            ClassColor[2] = "F58CBA";
-            ClassColor[3] = "ABD473";
-            ClassColor[4] = "FFF569";
-            ClassColor[5] = "FFFFFF";
-            ClassColor[7] = "0070DE";
-            ClassColor[8] = "69CCF0";
-            ClassColor[9] = "9482C9";
-            ClassColor[11] = "FF7d0A";
 
-            return ClassColor[GetClass()]; 
-        }
         void SetName(std::string const& newname) { m_name = newname; }
 
         float GetYellRange() const;

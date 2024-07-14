@@ -199,7 +199,7 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
     }
 
     // Party 大雪球 921038
-    if (pItem->GetEntry() == 921038)
+    if (pItem->GetEntry() == 921038 && pUser->GetMap())
     {
         if (targets.getUnitTarget() && targets.getUnitTarget()->ToPlayer() && targets.getUnitTarget()->ToPlayer() != pUser)
         {
@@ -215,30 +215,23 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
             return;
         }
 
-        uint32 spawntm = 300;
-
-        float x = pUser->GetPositionX();
-        float y = pUser->GetPositionY();
-        float z = pUser->GetPositionZ();
-        float ang = pUser->GetOrientation();
-
-        float rot2 = sin(ang / 2);
-        float rot3 = cos(ang / 2);
-
         // 180654 雪堆
-        if (pUser->GetMap() && pUser->GetMap()->IsRaid())
+        if (pUser->GetMap()->IsRaid() || pUser->GetMap()->IsDungeon())
         {
             ChatHandler(pUser).SendSysMessage("副本内无法使用。");
             cancelCast = true;
         }
-
-        if (sOOMgr.SnowBallObjects.count(pUser->GetGUIDLow()) > 0)
-        {
-            ChatHandler(pUser).SendSysMessage("大雪球魂力不足，无法生成雪堆。");
-            cancelCast = true;
-        }
+        // else if (sOOMgr.SnowBallObjects.count(pUser->GetGUIDLow()) > 0)
+        // {
+        //     ChatHandler(pUser).SendSysMessage("大雪球魂力不足，无法生成雪堆。");
+        //     cancelCast = true;
+        // }
         else
         {
+            if (sOOMgr.SnowBallObjects.count(pUser->GetGUIDLow()) > 0)
+            {
+                pUser->DeleteGameObject(sOOMgr.SnowBallObjects[pUser->GetGUIDLow()]);
+            }
             float x = float(pUser->GetPositionX());
             float y = float(pUser->GetPositionY());
             float z = float(pUser->GetPositionZ());
@@ -250,7 +243,7 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
             uint32 db_lowGUID = sObjectMgr.GenerateStaticGameObjectLowGuid();
             if (pGameObj->Create(db_lowGUID, 180654, map, x, y, z, o, 0.0f, 0.0f, 0.0f, 0.0f, GO_ANIMPROGRESS_DEFAULT, GO_STATE_READY))
             {
-                pGameObj->SetRespawnTime(5);
+                pGameObj->SetRespawnTime(3);
 
                 // fill the gameobject data and save to the db
                 pGameObj->SaveToDB(map->GetId());
@@ -265,16 +258,17 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
                     map->Add(pGameObj);
                     sObjectMgr.AddGameobjectToGrid(db_lowGUID, sObjectMgr.GetGOData(db_lowGUID));
 
-                    WorldDatabase.PExecuteLog("DELETE FROM gameobject WHERE guid = '%u'", pGameObj->GetGUIDLow());
+                    // WorldDatabase.PExecuteLog("DELETE FROM gameobject WHERE guid = '%u'", pGameObj->GetGUIDLow());
+
+                    // sOOMgr.SnowBallObjects[pUser->GetGUIDLow()][pGameObj->GetGUIDLow()] = time(nullptr) + 1*60;
+                    sOOMgr.SnowBallObjects[pUser->GetGUIDLow()] = pGameObj;
+                    pUser->TextEmote("打雪仗咯！");
                 }
             }
             else
             {
                 delete pGameObj;
             }
-
-            sOOMgr.SnowBallObjects[pUser->GetGUIDLow()][pGameObj->GetGUIDLow()] = time(nullptr) + 60*60;
-            pUser->TextEmote("打雪仗咯！");
         }
     }
 

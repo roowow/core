@@ -4,6 +4,7 @@
 #include "Policies/Singleton.h"
 #include "Platform/Define.h"
 #include "GameObject.h"
+#include "Chat.h"
 
 #include <vector>
 
@@ -30,8 +31,8 @@ class OOMgr
         std::array< std::string, 10000 > BattleBotNames;
         std::map< uint32, std::map< uint32, std::vector<std::string>> >  PVPTexts;
 
-        // player guid, object guid, time
-        std::map< uint32, std::map<uint32, uint32> > SnowBallObjects;
+        // player guid, object GameObject* pGo
+        std::map< uint32, GameObject*> SnowBallObjects;
 
         std::vector<std::string> GetPVPText(uint32 prace, uint32 plass);
 
