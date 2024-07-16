@@ -180,8 +180,8 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
         std::array<uint32, 100> PartyTexts {22015, 22016, 22017, 22018, 22019, 22020, 22021, 22022, 22023, 22024};
         if (! pUser->oowowInfo.cache_PartyText)
         {
-            pUser->oowowInfo.cache_PartyText = PartyTexts[urand(0, 5)];
-            pUser->oowowInfo.cache_PartyCoolDown = time(nullptr) + 10*60;
+            pUser->oowowInfo.cache_PartyText = PartyTexts[urand(0, 9)];
+            pUser->oowowInfo.cache_PartyCoolDown = time(nullptr) + 5*60;
         }
 
         pMenu->SendGossipMenu(pUser->oowowInfo.cache_PartyText, pItem->GetGUID());
