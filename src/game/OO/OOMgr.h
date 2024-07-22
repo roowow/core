@@ -32,9 +32,22 @@ class OOMgr
         std::map< uint32, std::map< uint32, std::vector<std::string>> >  PVPTexts;
 
         // player guid, object GameObject* pGo
-        std::map< uint32, GameObject*> SnowBallObjects;
+        std::map< uint32, GameObject* > SnowBallObjects;
 
-        std::vector<std::string> GetPVPText(uint32 prace, uint32 plass);
+        std::vector<std::string > GetPVPText(uint32 prace, uint32 plass);
+
+        std::map< uint32, uint32 > PartyQuestTexts {
+            {32022, 22015},
+            {32023, 22016},
+            {32024, 22017},
+            {32025, 22018},
+            {32026, 22020},
+            {32027, 22021},
+            {32030, 22022},
+            {32031, 22023},
+            {32032, 22024},
+            {32033, 22019}
+        };
 
         char const* GetClassColor(int8 pclass) {
             std::map<int8, std::string> ClassColor;

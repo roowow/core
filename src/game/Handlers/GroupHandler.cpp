@@ -116,6 +116,21 @@ void WorldSession::HandleGroupInviteOpcode(WorldPacket& recv_data)
         }
     }
 
+    if (leader->IsActiveQuest(32003) && ! leader->GetQuestRewardStatus(32003))
+    {
+        ChatHandler(leader).SendSysMessage("真的猛士需要独自面对深邃的大海。");
+        ChatHandler(player).SendSysMessage("真的猛士需要独自面对深邃的大海。");
+        SendPartyResult(PARTY_OP_INVITE, membername, ERR_IGNORING_YOU_S);
+        return;
+    }
+    if (player->IsActiveQuest(32003) && ! player->GetQuestRewardStatus(32003))
+    {
+        ChatHandler(leader).SendSysMessage("真的猛士需要独自面对深邃的大海。");
+        ChatHandler(player).SendSysMessage("真的猛士需要独自面对深邃的大海。");
+        SendPartyResult(PARTY_OP_INVITE, membername, ERR_IGNORING_YOU_S);
+        return;
+    }
+
     // Can't group with
     if (!GetPlayer()->IsGameMaster() && !sWorld.getConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_INTERACTION_GROUP) && GetPlayer()->GetTeam() != player->GetTeam())
     {

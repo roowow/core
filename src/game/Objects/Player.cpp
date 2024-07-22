@@ -14601,6 +14601,12 @@ void Player::SetQuestStatus(uint32 quest_id, QuestStatus status)
             q_status.uState = QUEST_CHANGED;
 
         UpdateForQuestWorldObjects();
+
+        if (quest_id == 32003 || quest_id == 32005) // 跨越深海
+        {
+            if (Group* group = sObjectMgr.GetGroupByMember(GetGUID()))
+                RemoveFromGroup(group, GetGUID());
+        }
     }
 }
 
@@ -15515,18 +15521,6 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
                 oowowInfo.activeTalent = fields[0].GetUInt32();
         }
         while (dresult->NextRow());
-    }
-
-    /// Braodcast
-    std::unique_ptr<QueryResult> bresult = holder->TakeResult(PLAYER_LOGIN_QUERY_BROADCAST);
-    if (bresult)
-    {
-        do
-        {
-            Field* fields = bresult->Fetch();
-            ChatHandler(this).SendSysMessage(fields[0].GetString());
-
-        } while (bresult->NextRow());
     }
 
     /// Party

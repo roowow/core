@@ -611,6 +611,18 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
         guild->BroadcastEvent(GE_SIGNED_ON, pCurrChar->GetObjectGuid(), pCurrChar->GetName());
     }
 
+    /// Braodcast
+    std::unique_ptr<QueryResult> bresult = holder->TakeResult(PLAYER_LOGIN_QUERY_BROADCAST);
+    if (bresult)
+    {
+        do
+        {
+            Field* fields = bresult->Fetch();
+            ChatHandler(this).SendSysMessage(fields[0].GetString());
+
+        } while (bresult->NextRow());
+    }
+
     if (char const* warning = sAccountMgr.GetWarningText(GetAccountId()))
     {
         ChatHandler(pCurrChar).PSendSysMessage(LANG_ACCOUNT_WARNED, warning);

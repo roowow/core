@@ -332,9 +332,6 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
         if (!IsValidHostileTarget(pTarget))
             continue;
 
-        if (IngoreTargets.count(pTarget->GetGUIDLow()) && !me->IsWithinDist(pTarget, VISIBILITY_DISTANCE_SMALL))
-            continue;
-
         if (me->GetTeam() == HORDE)
         {
             if (pTarget->HasAura(AURA_WARSONG_FLAG))
@@ -376,7 +373,7 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
                 {
                     if (pAttacker != pExcept &&
                         IsValidHostileTarget(pAttacker) &&
-                        IsBadPlayer(pAttacker) &&
+                        !IsBadPlayer(pAttacker) &&
                         me->IsWithinDist(pAttacker, maxAggroDistance * 2.0f) &&
                         me->GetDistanceZ(pAttacker) < 10.0f &&
                         me->IsWithinLOSInMap(pAttacker))
@@ -556,6 +553,10 @@ void BattleBotAI::OnJustDied()
 
 void BattleBotAI::OnJustRevived()
 {
+    SpellAuraHolder* Bholder = me->AddAura(2479, 0, me); // 无荣誉目标
+    Bholder->SetAuraDuration(2*60*1000);
+    Bholder->UpdateAuraDuration();
+
     SummonPetIfNeeded();
     if (!me->SelectRandomUnfriendlyTarget(nullptr, 30.0f))
         DoGraveyardJump();
@@ -659,6 +660,12 @@ bool BattleBotAI::IsBadPlayer(Unit const* pTarget) const
         return false;
 
     if (!pTarget->ToPlayer()->IsBot())
+        return false;
+
+    if (pTarget->HasAura(AURA_WARSONG_FLAG))
+        return false;
+
+    if (pTarget->HasAura(AURA_SILVERWING_FLAG))
         return false;
 
     if (pTarget->IsMounted())
@@ -867,7 +874,6 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         me->AttackStop(false);
         StopMoving();
         me->ClearTarget();
-        IngoreTargets[pVictim->GetGUIDLow()] = pVictim->GetGUIDLow();
     }
 
     if (!me->IsInCombat())

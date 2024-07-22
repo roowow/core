@@ -216,9 +216,9 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
         }
 
         // 180654 雪堆
-        if (pUser->GetMap()->IsRaid() || pUser->GetMap()->IsDungeon())
+        if (pUser->GetMap()->IsRaid() || pUser->GetMap()->IsDungeon() || pUser->InBattleGround())
         {
-            ChatHandler(pUser).SendSysMessage("副本内无法使用。");
+            ChatHandler(pUser).SendSysMessage("这里无法使用。");
             cancelCast = true;
         }
         // else if (sOOMgr.SnowBallObjects.count(pUser->GetGUIDLow()) > 0)
