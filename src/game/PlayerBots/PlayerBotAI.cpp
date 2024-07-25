@@ -25,6 +25,7 @@
 #include "Opcodes.h"
 #include "WorldPacket.h"
 #include "BattleGroundMgr.h"
+#include "OO/OOMgr.h"
 
 bool PlayerBotAI::OnSessionLoaded(PlayerBotEntry* entry, WorldSession* sess)
 {
@@ -79,8 +80,8 @@ bool PlayerBotAI::SpawnNewPlayer(WorldSession* sess, uint8 class_, uint32 race_,
     ASSERT(botEntry);
 
     int32 BattleBotNamesCount = 0;
-    for (int i = 0; i < sBattleGroundMgr.BattleBotNames.size(); i++) {
-        if (!sBattleGroundMgr.BattleBotNames[i].empty())
+    for (int i = 0; i < sOOMgr.BattleBotNames.size(); i++) {
+        if (!sOOMgr.BattleBotNames[i].empty())
         {
             BattleBotNamesCount++;
         }
@@ -91,7 +92,7 @@ bool PlayerBotAI::SpawnNewPlayer(WorldSession* sess, uint8 class_, uint32 race_,
     }
 
     int index = rand() % BattleBotNamesCount;
-    std::string botName = sBattleGroundMgr.BattleBotNames[index];
+    std::string botName = sOOMgr.BattleBotNames[index];
     std::string name = botName;
     Player* tmpPlayer = sObjectMgr.GetPlayer(botName.c_str()); // if name is used
     if (tmpPlayer)

@@ -298,7 +298,7 @@ class BattleGroundMgr
         void PlayerLoggedIn(Player* player);
         void PlayerLoggedOut(Player* player);
 
-        std::array<std::string, 10000> BattleBotNames;
+        // std::array<std::string, 10000> BattleBotNames;
     private:
         //std::mutex    schedulerLock;
         BattleMastersMap    m_battleMastersMap;
