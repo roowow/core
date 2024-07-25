@@ -20751,7 +20751,6 @@ bool Player::IsHonorOrXPTarget(Unit const* pVictim) const
 void Player::RewardSinglePlayerAtKill(Unit const* pVictim)
 {
     bool PvP = pVictim->IsCharmerOrOwnerPlayerOrPlayerItself();
-
     uint32 xp = PvP ? 0 : MaNGOS::XP::Gain(this, static_cast<Creature const*>(pVictim));
 
     // honor can be in PvP and !PvP (racial leader) cases

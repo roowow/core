@@ -49,8 +49,6 @@ class PlayerAI
         // Pointer to controlled by AI player
         Player* me;
         bool enablePositiveSpells;
-
-        std::map<uint32, uint32> IngoreTargets;
 };
 
 class PlayerControlledAI: public PlayerAI
