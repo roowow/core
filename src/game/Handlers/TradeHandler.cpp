@@ -362,8 +362,8 @@ void WorldSession::HandleAcceptTradeOpcode(WorldPacket& recvPacket)
                 {
                     ItemPrototype const* itemProto = sObjectMgr.GetItemPrototype(item->GetEntry());
                     if (itemProto->Quality > 2) {
-                        CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `count`, `type`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', 'Trade', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
-                            trader->GetGUIDLow(), trader->GetName(), item->GetEntry(), item->GetCount(), _player->GetGUIDLow(), trader->GetZoneId(), trader->GetMapId(), trader->GetPositionX(), trader->GetPositionY(), trader->GetPositionZ(), trader->GetSession()->GetRemoteAddress().c_str());
+                        CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Trade', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                            trader->GetGUIDLow(), trader->GetName(), item->GetEntry(), item->GetGUIDLow(), item->GetCount(), _player->GetGUIDLow(), trader->GetZoneId(), trader->GetMapId(), trader->GetPositionX(), trader->GetPositionY(), trader->GetPositionZ(), trader->GetSession()->GetRemoteAddress().c_str());
                     }
                 }
             }
@@ -374,8 +374,8 @@ void WorldSession::HandleAcceptTradeOpcode(WorldPacket& recvPacket)
                 {
                     ItemPrototype const* itemProto = sObjectMgr.GetItemPrototype(item->GetEntry());
                     if (itemProto->Quality > 2) {
-                        CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `count`, `type`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', 'Trade', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
-                            _player->GetGUIDLow(), _player->GetName(), item->GetEntry(), item->GetCount(), trader->GetGUIDLow(), _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
+                        CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Trade', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                            _player->GetGUIDLow(), _player->GetName(), item->GetEntry(), item->GetGUIDLow(), item->GetCount(), trader->GetGUIDLow(), _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
                     }
                 }
             }

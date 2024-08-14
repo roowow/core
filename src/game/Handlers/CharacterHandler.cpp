@@ -367,6 +367,16 @@ void WorldSession::HandleCharDeleteOpcode(WorldPacket& recv_data)
         return;
     }
 
+    // > 59
+    std::unique_ptr<QueryResult> hresult0 = CharacterDatabase.PQuery("SELECT guid FROM characters where level > 59 and guid = %u", guid);
+    if (hresult0)
+    {
+        WorldPacket data(SMSG_CHAR_DELETE, 1);
+        data << (uint8)CHAR_DELETE_FAILED;
+        SendPacket(&data);
+        return;
+    }
+
     //// Hardcore check
     std::unique_ptr<QueryResult> hresult = CharacterDatabase.PQuery("SELECT ch.guid FROM character_hardcore ch join characters c on ch.guid = c.guid where c.level >20 and ch.guid = %u", guid);
     if (hresult)

@@ -23491,35 +23491,21 @@ bool Player::FunctionDelay(uint32 functionID, uint32 delay)
     return true;
 }
 
-bool ChatHandler::HandleOOPvpBroadcastCommand(char* args)
-{
-    bool value;
-    if (!ExtractOnOff(&args, value))
-    {
-        SendSysMessage(LANG_USE_BOL);
-        SetSentErrorMessage(true);
-        return false;
-    }
-    sWorld.setConfig(CONFIG_BOOL_OO_PVP_BROADCAST, true);
-    return true;
-}
+// bool ChatHandler::HandleOOPvpBroadcastCommand(char* args)
+// {
+//     bool value;
+//     if (!ExtractOnOff(&args, value))
+//     {
+//         SendSysMessage(LANG_USE_BOL);
+//         SetSentErrorMessage(true);
+//         return false;
+//     }
+//     sWorld.setConfig(CONFIG_BOOL_OO_PVP_BROADCAST, true);
+//     return true;
+// }
 
 bool Player::DeleteGameObject(GameObject* obj)
 {
-    // number or [name] Shift-click form |color|Hgameobject:go_guid|h[name]|h|r
-    // uint32 lowguid;
-    // if (!ExtractUint32KeyFromLink(&args, "Hgameobject", lowguid))
-    //     return false;
-
-    // if (!lowguid)
-    //     return false;
-
-    // GameObject* obj = nullptr;
-
-    // // by DB guid
-    // if (GameObjectData const* go_data = sObjectMgr.GetGOData(lowguid))
-    //     obj = GetGameObjectWithGuid(lowguid, go_data->id);
-
     if (!obj)
     {
         // PSendSysMessage(LANG_COMMAND_OBJNOTFOUND, lowguid);
