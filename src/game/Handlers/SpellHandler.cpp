@@ -208,8 +208,8 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
             PlayerMenu* pMenu = pUser->PlayerTalkClass;
             pMenu->ClearMenus();
 
-            pMenu->GetGossipMenu().AddMenuItem(3, "随机变身", 1, 10);
-            pMenu->GetGossipMenu().AddMenuItem(2, "指定模型", 2, 20, "", true);
+            pMenu->GetGossipMenu().AddMenuItem(3, "随机变形", 1, 10);
+            pMenu->GetGossipMenu().AddMenuItem(2, "指定变形", 2, 20, "", true);
             pMenu->SendGossipMenu(22026, pItem->GetGUID());
 
             cancelCast = true;
