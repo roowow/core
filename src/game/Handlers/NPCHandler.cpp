@@ -437,6 +437,51 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
             return;
         }
 
+        // Party 派对入场券 920413
+        if (item->GetEntry() == 920413)
+        {
+            PlayerMenu* pMenu = _player->PlayerTalkClass;
+            pMenu->ClearMenus();
+
+            switch (action)
+            {
+                case 10:
+                    _player->CastSpell(_player, 8067, true);
+                    _player->DestroyItemCount(920413, 1, true);
+                    pMenu->CloseGossip();
+                    break;
+
+                case 20:
+                    if (code.empty())
+                    {
+                        ChatHandler(_player).SendSysMessage("输入错误，请输入 确认");
+                        pMenu->CloseGossip();
+                        break;
+                    }
+
+                    CreatureDisplayInfoAddon const* minfo = sCreatureDisplayInfoAddonStorage.LookupEntry<CreatureDisplayInfoAddon>(std::stoi(code));
+                    if (minfo)
+                    {
+                        _player->CastSpell(_player, 8067, true);
+                        _player->DestroyItemCount(920413, 1, true);
+                        _player->SetDisplayId(minfo->display_id);
+                        std::string msg = std::string("派对时间！(") + std::to_string(minfo->display_id) + std::string("）");
+                        _player->TextEmote(msg.c_str());
+                        _player->oowowInfo.displayID = minfo->display_id;
+                        CharacterDatabase.PExecute("REPLACE INTO `character_displayid` (`Guid`, `DisplayID`) VALUES ('%u', '%u')", _player->GetGUIDLow(), minfo->display_id);
+
+                        pMenu->CloseGossip();
+                        break;
+                    }
+                    else
+                    {
+                        ChatHandler(_player).SendSysMessage("输入错误，请输入 确认");
+                        pMenu->CloseGossip();
+                        break;
+                    }
+            }
+        }
+
         // DualTalent 魂器 922001
         std::string tname;
         if (item->GetEntry() == 922001)

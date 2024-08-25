@@ -177,25 +177,48 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
         PlayerMenu* pMenu = pUser->PlayerTalkClass;
         pMenu->ClearMenus();
 
-        std::array<uint32, 100> PartyTexts {22015, 22016, 22017, 22018, 22019, 22020, 22021, 22022, 22023, 22024};
-        if (! pUser->oowowInfo.cache_PartyText)
+        Quest const* pNewQuest = sObjectMgr.GetQuestTemplate(32053);
+        if (pUser->CanTakeQuest(pNewQuest, false) || pUser->GetQuestStatus(32053) == QUEST_STATUS_COMPLETE)
         {
-            pUser->oowowInfo.cache_PartyText = PartyTexts[urand(0, 9)];
-            pUser->oowowInfo.cache_PartyCoolDown = time(nullptr) + 5*60;
+            pMenu->SendGossipMenu(22025, pItem->GetGUID());
+        }
+        else
+        {
+            std::array<uint32, 100> PartyTexts {22015, 22016, 22017, 22018, 22019, 22020, 22021, 22022, 22023, 22024};
+            if (! pUser->oowowInfo.cache_PartyText)
+            {
+                pUser->oowowInfo.cache_PartyText = PartyTexts[urand(0, 9)];
+                pUser->oowowInfo.cache_PartyCoolDown = time(nullptr) + 5*60;
+            }
+
+            pMenu->SendGossipMenu(pUser->oowowInfo.cache_PartyText, pItem->GetGUID());
         }
 
-        pMenu->SendGossipMenu(pUser->oowowInfo.cache_PartyText, pItem->GetGUID());
         pUser->CastSpell(pUser, 26638, true); // Twin Teleport Visual
         cancelCast = true;
     }
 
-    // Party 派对入场券 920413 922413
-    if (pItem->GetEntry() == 920413 || pItem->GetEntry() == 922413)
+    // Party 派对入场券 920413
+    if (pItem->GetEntry() == 920413)
     {
         pUser->oowowInfo.displayID = 0;
 
-        if (pUser->HasAura(8067))
-            pUser->RemoveAurasDueToSpell(8067);
+        if (pUser->GetQuestStatus(32053) == QUEST_STATUS_COMPLETE)
+        {
+            PlayerMenu* pMenu = pUser->PlayerTalkClass;
+            pMenu->ClearMenus();
+
+            pMenu->GetGossipMenu().AddMenuItem(3, "随机变身", 1, 10);
+            pMenu->GetGossipMenu().AddMenuItem(2, "指定模型", 2, 20, "", true);
+            pMenu->SendGossipMenu(22026, pItem->GetGUID());
+
+            cancelCast = true;
+        }
+        else
+        {
+            if (pUser->HasAura(8067))
+                pUser->RemoveAurasDueToSpell(8067);
+        }
     }
 
     // Party 大雪球 921038
