@@ -6721,9 +6721,9 @@ void Aura::PeriodicDummyTick()
                 }
                 case 8067:                                  // Party Time!
                 {
-                    if (target->IsMoving())
+                    //if (target->IsMoving())
                         //target->HandleEmoteCommand(PickRandomValue(EMOTE_ONESHOT_APPLAUD, EMOTE_ONESHOT_CHEER, EMOTE_ONESHOT_CHICKEN, EMOTE_ONESHOT_LAUGH));
-                    else
+                    //else
                         //target->HandleEmoteCommand(PickRandomValue(EMOTE_ONESHOT_APPLAUD, EMOTE_ONESHOT_CHEER, EMOTE_ONESHOT_CHICKEN, EMOTE_ONESHOT_LAUGH, EMOTE_ONESHOT_DANCE));
                     return;
                 }
