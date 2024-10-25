@@ -465,7 +465,7 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
                         _player->CastSpell(_player, 8067, true);
                         _player->DestroyItemCount(920413, 1, true);
                         _player->SetDisplayId(minfo->display_id);
-                        std::string msg = std::string("派对时间！(") + std::to_string(minfo->display_id) + std::string("）");
+                        std::string msg = std::string("阿尼马格斯变形！(") + std::to_string(minfo->display_id) + std::string("）");
                         _player->TextEmote(msg.c_str());
                         _player->oowowInfo.displayID = minfo->display_id;
                         CharacterDatabase.PExecute("REPLACE INTO `character_displayid` (`Guid`, `DisplayID`) VALUES ('%u', '%u')", _player->GetGUIDLow(), minfo->display_id);
