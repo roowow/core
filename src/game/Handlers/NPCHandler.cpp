@@ -454,7 +454,7 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
                 case 20:
                     if (code.empty())
                     {
-                        ChatHandler(_player).SendSysMessage("输入错误，请输入 确认");
+                        ChatHandler(_player).SendSysMessage("输入错误，请输入正确的模型ID");
                         pMenu->CloseGossip();
                         break;
                     }
@@ -475,7 +475,7 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
                     }
                     else
                     {
-                        ChatHandler(_player).SendSysMessage("输入错误，请输入 确认");
+                        ChatHandler(_player).SendSysMessage("输入错误，请输入正确的模型ID");
                         pMenu->CloseGossip();
                         break;
                     }
