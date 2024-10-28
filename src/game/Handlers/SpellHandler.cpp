@@ -251,47 +251,47 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
         // }
         else
         {
-            if (sOOMgr.SnowBallObjects.count(pUser->GetGUIDLow()) > 0)
-            {
-                pUser->DeleteGameObject(sOOMgr.SnowBallObjects[pUser->GetGUIDLow()]);
-            }
-            float x = float(pUser->GetPositionX());
-            float y = float(pUser->GetPositionY());
-            float z = float(pUser->GetPositionZ());
-            float o = float(pUser->GetOrientation());
-            Map* map = pUser->GetMap();
+            // if (sOOMgr.SnowBallObjects.count(pUser->GetGUIDLow()) > 0)
+            // {
+            //     pUser->DeleteGameObject(sOOMgr.SnowBallObjects[pUser->GetGUIDLow()]);
+            // }
+            // float x = float(pUser->GetPositionX());
+            // float y = float(pUser->GetPositionY());
+            // float z = float(pUser->GetPositionZ());
+            // float o = float(pUser->GetOrientation());
+            // Map* map = pUser->GetMap();
 
-            GameObject* pGameObj = GameObject::CreateGameObject(180654);
+            // GameObject* pGameObj = GameObject::CreateGameObject(180654);
 
-            uint32 db_lowGUID = sObjectMgr.GenerateStaticGameObjectLowGuid();
-            if (pGameObj->Create(db_lowGUID, 180654, map, x, y, z, o, 0.0f, 0.0f, 0.0f, 0.0f, GO_ANIMPROGRESS_DEFAULT, GO_STATE_READY))
-            {
-                pGameObj->SetRespawnTime(3);
+            // uint32 db_lowGUID = sObjectMgr.GenerateStaticGameObjectLowGuid();
+            // if (pGameObj->Create(db_lowGUID, 180654, map, x, y, z, o, 0.0f, 0.0f, 0.0f, 0.0f, GO_ANIMPROGRESS_DEFAULT, GO_STATE_READY))
+            // {
+            //     pGameObj->SetRespawnTime(3);
 
-                // fill the gameobject data and save to the db
-                pGameObj->SaveToDB(map->GetId());
+            //     // fill the gameobject data and save to the db
+            //     pGameObj->SaveToDB(map->GetId());
 
-                // this will generate a new guid if the object is in an instance
-                if (!pGameObj->LoadFromDB(db_lowGUID, map))
-                {
-                    delete pGameObj;
-                }
-                else
-                {
-                    map->Add(pGameObj);
-                    sObjectMgr.AddGameobjectToGrid(db_lowGUID, sObjectMgr.GetGOData(db_lowGUID));
+            //     // this will generate a new guid if the object is in an instance
+            //     if (!pGameObj->LoadFromDB(db_lowGUID, map))
+            //     {
+            //         delete pGameObj;
+            //     }
+            //     else
+            //     {
+            //         map->Add(pGameObj);
+            //         sObjectMgr.AddGameobjectToGrid(db_lowGUID, sObjectMgr.GetGOData(db_lowGUID));
 
-                    // WorldDatabase.PExecuteLog("DELETE FROM gameobject WHERE guid = '%u'", pGameObj->GetGUIDLow());
+            //         // WorldDatabase.PExecuteLog("DELETE FROM gameobject WHERE guid = '%u'", pGameObj->GetGUIDLow());
 
-                    // sOOMgr.SnowBallObjects[pUser->GetGUIDLow()][pGameObj->GetGUIDLow()] = time(nullptr) + 1*60;
-                    sOOMgr.SnowBallObjects[pUser->GetGUIDLow()] = pGameObj;
-                    pUser->TextEmote("打雪仗咯！");
-                }
-            }
-            else
-            {
-                delete pGameObj;
-            }
+            //         // sOOMgr.SnowBallObjects[pUser->GetGUIDLow()][pGameObj->GetGUIDLow()] = time(nullptr) + 1*60;
+            //         sOOMgr.SnowBallObjects[pUser->GetGUIDLow()] = pGameObj;
+            //         pUser->TextEmote("打雪仗咯！");
+            //     }
+            // }
+            // else
+            // {
+            //     delete pGameObj;
+            // }
         }
     }
 
