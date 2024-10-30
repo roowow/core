@@ -15573,6 +15573,15 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
         oowowInfo.displayID = fields[1].GetUInt32();
     }
 
+    /// Wareffort
+    std::unique_ptr<QueryResult> wresult = holder->TakeResult(PLAYER_LOGIN_QUERY_WAREFFORT);
+    if (wresult)
+    {
+        Field* fields = wresult->Fetch();
+        oowowInfo.wareffort_count = fields[0].GetUInt32();
+        oowowInfo.wareffort_used  = fields[1].GetUInt32();
+    }
+
     if (IsPvPDesired())
     {
         UpdatePvP(true);
@@ -19291,6 +19300,17 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
             return false;
         }
 
+        if (pCreature->GetEntry() == 299018)
+        {
+            if (oowowInfo.wareffort_used >= oowowInfo.wareffort_count)
+            {
+                SendBuyError(BUY_ERR_NOT_ENOUGHT_MONEY, pCreature, item, 0);
+                return false;
+            }
+
+            oowowInfo.wareffort_used = oowowInfo.wareffort_used + 1;
+            CharacterDatabase.PExecute("UPDATE `character_wareffort` SET `Used` = '%u' WHERE `guid` = '%u'", oowowInfo.wareffort_used, GetGUIDLow());
+        }
         LogModifyMoney(-int32(price), "BuyItem", vendorGuid, item);
 
         pItem = StoreNewItem(dest, item, true, Item::GenerateItemRandomPropertyId(item));
@@ -19311,6 +19331,17 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
             return false;
         }
 
+        if (pCreature->GetEntry() == 299018)
+        {
+            if (oowowInfo.wareffort_used >= oowowInfo.wareffort_count)
+            {
+                SendBuyError(BUY_ERR_NOT_ENOUGHT_MONEY, pCreature, item, 0);
+                return false;
+            }
+
+            oowowInfo.wareffort_used = oowowInfo.wareffort_used + 1;
+            CharacterDatabase.PExecute("UPDATE `character_wareffort` SET `Used` = '%u' WHERE `guid` = '%u'", oowowInfo.wareffort_used, GetGUIDLow());
+        }
         LogModifyMoney(-int32(price), "BuyItem", vendorGuid, item);
 
         pItem = EquipNewItem(dest, item, true);

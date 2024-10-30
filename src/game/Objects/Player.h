@@ -244,6 +244,9 @@ struct OOWOWInfo
     uint32 DualTalent_SwitchTalent_Delay = 0;
     uint32 DualTalent_DeleteTalent_Delay = 0;
     std::map<int8, std::string> DualTalents;
+
+    uint32 wareffort_count = 0;
+    uint32 wareffort_used = 0;
 };
 
 struct PlayerInfo
@@ -737,6 +740,7 @@ enum PlayerLoginQueryIndex
     PLAYER_LOGIN_QUERY_DUALTALENT, /// DualTalent
     PLAYER_LOGIN_QUERY_BROADCAST, /// Broadcast
     PLAYER_LOGIN_QUERY_PARTY, /// Party
+    PLAYER_LOGIN_QUERY_WAREFFORT, /// Wareffort
 
     MAX_PLAYER_LOGIN_QUERY
 };

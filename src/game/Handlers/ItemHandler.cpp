@@ -764,6 +764,11 @@ void WorldSession::SendListInventory(ObjectGuid vendorguid, uint8 menu_type)
         return;
     }
 
+    if (pCreature->GetEntry() == 299018)
+    {
+        ChatHandler(GetPlayer()).PSendSysMessage("我的战争物质贡献值：%u, 已使用：%u。", GetPlayer()->oowowInfo.wareffort_count, GetPlayer()->oowowInfo.wareffort_used);
+    }
+
     // remove fake death
     if (GetPlayer()->HasUnitState(UNIT_STAT_FEIGN_DEATH))
         GetPlayer()->RemoveSpellsCausingAura(SPELL_AURA_FEIGN_DEATH);

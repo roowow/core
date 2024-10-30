@@ -698,7 +698,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "evade",          SEC_GAMEMASTER,     false, &ChatHandler::HandleNpcEvadeCommand,            "", nullptr },
         { "follow",         SEC_GAMEMASTER,     false, &ChatHandler::HandleNpcFollowCommand,           "", nullptr },
         { "unfollow",       SEC_GAMEMASTER,     false, &ChatHandler::HandleNpcUnFollowCommand,         "", nullptr },
-        { "info",           SEC_DEVELOPER,      false, &ChatHandler::HandleNpcInfoCommand,             "", nullptr },
+        { "info",           SEC_PLAYER,         false, &ChatHandler::HandleNpcInfoCommand,             "", nullptr },
         { "move",           SEC_GAMEMASTER,     false, &ChatHandler::HandleNpcMoveCommand,             "", nullptr },
         { "playemote",      SEC_DEVELOPER,   false, &ChatHandler::HandleNpcPlayEmoteCommand,        "", nullptr },
         { "say",            SEC_DEVELOPER,   false, &ChatHandler::HandleNpcSayCommand,              "", nullptr },

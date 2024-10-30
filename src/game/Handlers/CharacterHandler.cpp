@@ -108,6 +108,7 @@ bool LoginQueryHolder::Initialize()
     res &= SetPQuery(PLAYER_LOGIN_QUERY_DUALTALENT,          "SELECT flag, name, active from character_spell_talent WHERE guid = %u order by flag", m_guid.GetCounter());
     res &= SetPQuery(PLAYER_LOGIN_QUERY_BROADCAST,           "SELECT text from world_broadcast WHERE active = 1");
     res &= SetPQuery(PLAYER_LOGIN_QUERY_PARTY,               "SELECT `Guid`, `DisplayID` FROM `character_displayid` WHERE `Guid` = %u", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_WAREFFORT,           "SELECT `Count`,`Used` FROM `character_wareffort` WHERE `Guid` = %u", m_guid.GetCounter());
 
     return res;
 }
