@@ -25,7 +25,6 @@
 #include "Common.h"
 #include "Duration.h"
 
-#include <cctype>
 #include <string>
 #include <vector>
 
@@ -336,18 +335,12 @@ inline bool isLeapYear(int year)
 
 inline void strToUpper(std::string& str)
 {
-    std::transform(str.begin(), str.end(), str.begin(), [](unsigned char c)
-    {
-        return std::toupper(c);
-    });
+    std::transform(str.begin(), str.end(), str.begin(), toupper);
 }
 
 inline void strToLower(std::string& str)
 {
-    std::transform(str.begin(), str.end(), str.begin(), [](unsigned char c)
-    {
-        return std::tolower(c);
-    });
+    std::transform(str.begin(), str.end(), str.begin(), tolower);
 }
 
 inline wchar_t wcharToUpper(wchar_t wchar)
