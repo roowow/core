@@ -553,9 +553,9 @@ void BattleBotAI::OnJustDied()
 
 void BattleBotAI::OnJustRevived()
 {
-    SpellAuraHolder* Bholder = me->AddAura(2479, 0, me); // 无荣誉目标
-    Bholder->SetAuraDuration(2*60*1000);
-    Bholder->UpdateAuraDuration();
+    //SpellAuraHolder* Bholder = me->AddAura(2479, 0, me); // 无荣誉目标
+    //Bholder->SetAuraDuration(2*60*1000);
+    //Bholder->UpdateAuraDuration();
 
     SummonPetIfNeeded();
     if (!me->SelectRandomUnfriendlyTarget(nullptr, 30.0f))
