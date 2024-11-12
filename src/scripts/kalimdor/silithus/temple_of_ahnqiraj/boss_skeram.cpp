@@ -212,7 +212,7 @@ struct boss_skeramAI : public ScriptedAI
             if (players.size() > m_maxMeleeAllowed)
             {
                 if (DoCastSpellIfCan(m_creature->GetVictim(), SPELL_ARCANE_EXPLOSION) == CAST_OK)
-                    ArcaneExplosion_Timer = urand(6000, 14000);
+                    ArcaneExplosion_Timer = urand(3000, 7000);
             }
             // Recheck in 1 second
             else
