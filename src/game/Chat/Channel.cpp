@@ -635,6 +635,13 @@ void Channel::Say(ObjectGuid guid, char const* text, uint32 lang, bool skipCheck
     uint32 const sec = pPlayer ? pPlayer->GetSession()->GetSecurity() : 0;
     uint8  const honor_rank = pPlayer ? pPlayer->ToPlayer()->GetHonorMgr().GetCurrentHonorRank() : 0;
 
+    std::string tmp1 = "";
+    if (pPlayer && pPlayer->ToPlayer()->IsHardcore())
+    {
+        tmp1 = "|cFFFF0000勇|r：";
+    }
+    tmp1 += text;
+
     if (!skipCheck)
     {
         if (!IsOn(guid))
@@ -667,7 +674,7 @@ void Channel::Say(ObjectGuid guid, char const* text, uint32 lang, bool skipCheck
         lang = LANG_UNIVERSAL;
 
     WorldPacket data;
-    ChatHandler::BuildChatPacket(data, CHAT_MSG_CHANNEL, text, Language(lang), pPlayer ? pPlayer->GetChatTag() : 0, guid, nullptr, ObjectGuid(), "", m_name.c_str(), honor_rank);
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_CHANNEL, tmp1.c_str(), Language(lang), pPlayer ? pPlayer->GetChatTag() : 0, guid, nullptr, ObjectGuid(), "", m_name.c_str(), honor_rank);
 
     if (!skipCheck && pPlayer &&
         pPlayer->GetSession()->GetAccountFlags() & ACCOUNT_FLAG_MUTED_FROM_PUBLIC_CHANNELS &&
