@@ -55,7 +55,7 @@ enum blySpells
     SPELL_REVENGE              = 12170
 };
 
-#define GOSSIP_BLY                  "That's it! I'm tired of helping you out.  It's time we settled things on the battlefield!"
+#define GOSSIP_BLY                  "就这样！我受够了帮你的忙了。是时候在战场上解决一切了！"
 
 
 struct npc_sergeant_blyAI : public ScriptedAI
