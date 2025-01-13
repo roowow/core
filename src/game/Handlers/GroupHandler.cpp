@@ -251,6 +251,31 @@ void WorldSession::HandleGroupAcceptOpcode(WorldPacket& /*recv_data*/)
     if (!group->AddMember(GetPlayer()->GetObjectGuid(), GetPlayer()->GetName()))
         return;
     group->BroadcastGroupUpdate();
+
+    // Hardcore
+    if (group && !group->isBGGroup() && !group->isRaidGroup() && leader->IsHardcore() && ! leader->IsHardcoreRetired())
+    {
+        int8 min_level = 0;
+        int8 max_level = 0;
+        for (const auto& itr : group->GetMemberSlots())
+        {
+            Player* pl = sObjectMgr.GetPlayer(itr.guid);
+            if (pl)
+            {
+                if (!min_level || pl->GetLevel() < min_level)
+                    min_level = pl->GetLevel();
+
+                if (!max_level || pl->GetLevel() > max_level)
+                    max_level = pl->GetLevel();
+            }
+        }
+        if (max_level - min_level > 10)
+        {
+            GetPlayer()->RemoveFromGroup(group, GetPlayer()->GetGUID());
+            ChatHandler(GetPlayer()).SendSysMessage("勇敢者队伍内等级不能超过10级。");
+            ChatHandler(leader).SendSysMessage("勇敢者队伍内等级不能超过10级。");
+        }
+    }
 }
 
 void WorldSession::HandleGroupDeclineOpcode(WorldPacket& /*recv_data*/)
