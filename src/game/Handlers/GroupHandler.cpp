@@ -253,7 +253,7 @@ void WorldSession::HandleGroupAcceptOpcode(WorldPacket& /*recv_data*/)
     group->BroadcastGroupUpdate();
 
     // Hardcore
-    if (group && !group->isBGGroup() && !group->isRaidGroup() && leader->IsHardcore() && ! leader->IsHardcoreRetired())
+    if (group && !group->isBGGroup() && !group->isRaidGroup() && leader && leader->IsHardcore() && ! leader->IsHardcoreRetired())
     {
         int8 min_level = 0;
         int8 max_level = 0;
