@@ -1504,7 +1504,14 @@ uint32 Player::GetMirrorTimerMaxDuration(MirrorTimer::Type timer) const
     switch (timer)
     {
         case MirrorTimer::FATIGUE:
-            return (sWorld.getConfig(CONFIG_UINT32_MIRRORTIMER_FATIGUE_MAX) * IN_MILLISECONDS);
+            if (HasAura(8067))
+            {
+                return (sWorld.getConfig(CONFIG_UINT32_MIRRORTIMER_FATIGUE_MAX) * IN_MILLISECONDS * 1.5);
+            }
+            else
+            {
+                return (sWorld.getConfig(CONFIG_UINT32_MIRRORTIMER_FATIGUE_MAX) * IN_MILLISECONDS);
+            }
         case MirrorTimer::BREATH:
             return GetWaterBreathingInterval();
         case MirrorTimer::FEIGNDEATH:
