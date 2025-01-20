@@ -68,7 +68,7 @@ void boss_omenAI::SpellHit(SpellCaster* /*pCaster*/, SpellEntry const* pSpellEnt
 void boss_omenAI::JustDied(Unit* /*pKiller*/)
 {
     DoCastSpellIfCan(m_creature, SPELL_OMENS_MOONLIGHT);
-    OmenData.m_uiNextRespawn = time(nullptr) + 15 * MINUTE;
+    OmenData.m_uiNextRespawn = time(nullptr) + 5 * MINUTE;
     OmenData.m_bOmenAlive = false;
     m_creature->DespawnOrUnsummon(5 * MINUTE * IN_MILLISECONDS);
 }
