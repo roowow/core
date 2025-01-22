@@ -163,7 +163,7 @@ namespace MaNGOS
                 xp_gain *= sWorld.getConfig(CONFIG_FLOAT_RATE_XP_KILL);
 
             // 经验石
-            if (pPlayer->HasItemCount(91705, 1))
+            if (pPlayer && pPlayer->HasItemCount(91705, 1))
                 xp_gain *= 2;
 
             return std::nearbyint(xp_gain);
