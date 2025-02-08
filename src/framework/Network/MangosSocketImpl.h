@@ -24,6 +24,7 @@
 template <typename SessionType, typename SocketName, typename Crypt>
 MangosSocket<SessionType, SocketName, Crypt>::MangosSocket() :
     WorldHandler(),
+    m_createTime(ACE_OS::gettimeofday()),
     m_lastPingTime(ACE_Time_Value::zero),
     m_overSpeedPings(0),
     m_session(0),
@@ -77,7 +78,7 @@ void MangosSocket<SessionType, SocketName, Crypt>::CloseSocket(void)
 }
 
 template <typename SessionType, typename SocketName, typename Crypt>
-int MangosSocket<SessionType, SocketName, Crypt>::SendPacket(const WorldPacket& pct)
+int MangosSocket<SessionType, SocketName, Crypt>::SendPacket(WorldPacket const& pct)
 {
     GuardType lock(m_outBufferLock);
 
@@ -283,6 +284,13 @@ int MangosSocket<SessionType, SocketName, Crypt>::Update(void)
 {
     if (closing_)
         return -1;
+    
+    if (!m_session && m_isServerSocket && ((ACE_OS::gettimeofday() - m_createTime) > ACE_Time_Value(10)))
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "Disconnecting idle connection from %s.", m_address.c_str());
+        CloseSocket();
+        return -1;
+    }
 
     if (m_outActive || m_outBuffer->length() == 0)
         return 0;

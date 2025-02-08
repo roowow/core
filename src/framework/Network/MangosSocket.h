@@ -121,12 +121,12 @@ class MangosSocket : public WorldHandler
         virtual int close(int);
 
         // Get address of connected peer.
-        const std::string& GetRemoteAddress () const { return m_address; }
+        std::string const& GetRemoteAddress () const { return m_address; }
 
         // Send A packet on the socket, this function is reentrant.
         // @param pct packet to send
         // @return -1 of failure
-        int SendPacket (const WorldPacket& pct);
+        int SendPacket (WorldPacket const& pct);
 
         // Add reference to this object.
         long AddReference() { return static_cast<long>(add_reference()); }
@@ -179,7 +179,10 @@ class MangosSocket : public WorldHandler
         // to mark the socket for output ).
         bool iFlushPacketQueue ();
 
-        // Time in which the last ping was received
+        // Time at which the socket was created.
+        ACE_Time_Value m_createTime;
+
+        // Time at which the last ping was received.
         ACE_Time_Value m_lastPingTime;
 
         // Keep track of over-speed pings ,to prevent ping flood.
