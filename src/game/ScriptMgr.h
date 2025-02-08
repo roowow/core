@@ -170,7 +170,7 @@ struct Script
         pProcessEventId(nullptr), pItemQuestAccept(nullptr), pGOQuestAccept(nullptr),
         pItemUse(nullptr), pEffectDummyCreature(nullptr), pEffectDummyGameObj(nullptr),
         pEffectAuraDummy(nullptr), GOOpen(nullptr),
-        GOGetAI(nullptr), GetAI(nullptr), GetInstanceData(nullptr)
+        GOGetAI(nullptr), GetAI(nullptr), GetInstanceData(nullptr), GetSpellScript(nullptr)
     {}
 
     std::string Name;
