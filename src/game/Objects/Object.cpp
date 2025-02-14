@@ -1564,7 +1564,7 @@ float WorldObject::GetSizeFactorForDistance(WorldObject const* obj, SizeFactor d
     return sizefactor;
 }
 
-float WorldObject::GetDistance(const WorldObject* obj, SizeFactor distcalc) const
+float WorldObject::GetDistance(WorldObject const* obj, SizeFactor distcalc) const
 {
     ASSERT(obj);
     float dx = GetPositionX() - obj->GetPositionX();
@@ -1644,7 +1644,7 @@ bool WorldObject::IsInMap(WorldObject const* obj) const
     return IsInWorld() && obj->IsInWorld() && (FindMap() == obj->FindMap());
 }
 
-bool WorldObject::_IsWithinDist(WorldObject const* obj, float const dist2compare, const bool is3D, SizeFactor distcalc) const
+bool WorldObject::_IsWithinDist(WorldObject const* obj, float const dist2compare, bool const is3D, SizeFactor distcalc) const
 {
     ASSERT(obj);
     float const dx = GetPositionX() - obj->GetPositionX();
