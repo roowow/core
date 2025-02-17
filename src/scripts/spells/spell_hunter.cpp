@@ -40,7 +40,7 @@ struct HunterWyvernStingScript : public AuraScript
                     spellId = 24135;
                     break;
                 default:
-                    sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Unknown wyvern sting rank with spell id %u!", aura->GetId());
+                    sLog.Out(LOG_SCRIPTS, LOG_LVL_ERROR, "Unknown wyvern sting rank with spell id %u!", aura->GetId());
                     return;
             }
 
