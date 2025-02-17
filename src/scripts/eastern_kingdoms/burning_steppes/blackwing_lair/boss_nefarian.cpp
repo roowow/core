@@ -110,7 +110,7 @@ struct boss_nefarianAI : ScriptedAI
         m_uiTailLashTimer       = 10000;
         m_uiClassCallTimer      = urand(25000, 35000);                            // 25-35 seconds
         m_bPhase3               = false;
-        m_bTransitionDone       = false;
+        m_bTransitionDone       = m_creature->GetMapId() != MAP_BLACKWING_LAIR;
         m_bWarriorStance        = false;
         m_uiTransitionStage     = 0;
         m_uiTransitionTimer     = 100;
@@ -478,7 +478,7 @@ struct npc_corrupted_totemAI : ScriptedAI
 
     void Reset() override
     {
-        m_creature->AddUnitState(UNIT_STAT_ROOT);
+        m_creature->AddUnitState(UNIT_STATE_ROOT);
 
         if (!m_creature->HasAura(SPELL_ROOT_SELF))
             m_creature->AddAura(SPELL_ROOT_SELF);
