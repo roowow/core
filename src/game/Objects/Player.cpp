@@ -12198,8 +12198,8 @@ void Player::SendPreparedGossip(WorldObject* pSource)
     if (!pSource)
         return;
 
-    GossipMenu gossipMenu = PlayerTalkClass->GetGossipMenu();
-    QuestMenu questMenu = PlayerTalkClass->GetQuestMenu();
+    GossipMenu const& gossipMenu = PlayerTalkClass->GetGossipMenu();
+    QuestMenu const& questMenu = PlayerTalkClass->GetQuestMenu();
 
     if (pSource->GetTypeId() == TYPEID_UNIT)
     {
