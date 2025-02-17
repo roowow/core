@@ -54,6 +54,49 @@ AuraScript* GetScript_HunterWyvernSting(SpellEntry const*)
     return new HunterWyvernStingScript();
 }
 
+struct HunterReadinessScript : SpellScript
+{
+    void OnEffectExecute(Spell* spell, SpellEffectIndex effIdx) const final
+    {
+        if (effIdx == EFFECT_INDEX_0)
+        {
+            if (Player* pPlayer = spell->m_caster->ToPlayer())
+            {
+                // immediately finishes the cooldown for hunter abilities
+                auto cdCheck = [](SpellEntry const & spellEntry) -> bool { return (spellEntry.SpellFamilyName == SPELLFAMILY_HUNTER && spellEntry.Id != 23989 && spellEntry.GetRecoveryTime() > 0); };
+                pPlayer->RemoveSomeCooldown(cdCheck);
+            }
+        }
+    }
+};
+
+SpellScript* GetScript_HunterReadiness(SpellEntry const*)
+{
+    return new HunterReadinessScript();
+}
+
+struct HunterRefocusScript : SpellScript
+{
+    void OnEffectExecute(Spell* spell, SpellEffectIndex effIdx) const final
+    {
+        if (effIdx == EFFECT_INDEX_0)
+        {
+            if (Player* pPlayer = spell->m_caster->ToPlayer())
+            {
+                // Refocus : "Instantly clears the cooldowns of Aimed Shot, Multishot, Volley, and Arcane Shot."
+                uint32 spellid = spell->m_spellInfo->Id;
+                auto cdCheck = [spellid](SpellEntry const & spellEntry) -> bool { return (spellEntry.IsFitToFamily<SPELLFAMILY_HUNTER, CF_HUNTER_ARCANE_SHOT, CF_HUNTER_MULTI_SHOT, CF_HUNTER_VOLLEY, CF_HUNTER_AIMED_SHOT>() && spellEntry.Id != spellid && spellEntry.GetRecoveryTime() > 0); };
+                pPlayer->RemoveSomeCooldown(cdCheck);
+            }
+        }
+    }
+};
+
+SpellScript* GetScript_HunterRefocus(SpellEntry const*)
+{
+    return new HunterRefocusScript();
+}
+
 void AddSC_hunter_spell_scripts()
 {
     Script* newscript;
@@ -61,5 +104,15 @@ void AddSC_hunter_spell_scripts()
     newscript = new Script;
     newscript->Name = "spell_hunter_wyvern_sting";
     newscript->GetAuraScript = &GetScript_HunterWyvernSting;
+    newscript->RegisterSelf();
+
+    newscript = new Script;
+    newscript->Name = "spell_hunter_readiness";
+    newscript->GetSpellScript = &GetScript_HunterReadiness;
+    newscript->RegisterSelf();
+
+    newscript = new Script;
+    newscript->Name = "spell_hunter_refocus";
+    newscript->GetSpellScript = &GetScript_HunterRefocus;
     newscript->RegisterSelf();
 }
