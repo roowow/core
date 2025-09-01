@@ -49,11 +49,11 @@
 #include "MovementGenerator.h"
 #include "Transport.h"
 #include "CreatureGroups.h"
+#include "ScriptMgr.h"
 #include "ZoneScript.h"
 #include "MoveSplineInit.h"
 #include "MoveSpline.h"
 #include "packet_builder.h"
-#include "Chat.h"
 #include "Anticheat.h"
 #include "InstanceStatistics.h"
 #include "MovementPacketSender.h"
@@ -2023,7 +2023,7 @@ void Unit::CalculateDamageAbsorbAndResist(SpellCaster* pCaster, SpellSchoolMask 
         schoolMask = spell->m_spellSchoolMask;
 
     // Nostalrius : immune ?
-    if (IsImmuneToSchoolMask(schoolMask) && !(spellProto && (spellProto->Attributes & SPELL_ATTR_NO_IMMUNITIES)))
+    if (IsImmuneToSchoolMask(schoolMask) && !(spellProto && spellProto->HasAttribute(SPELL_ATTR_NO_IMMUNITIES)))
     {
         (*absorb) = damage;
         return;
@@ -2351,6 +2351,8 @@ void Unit::AttackerStateUpdate(Unit* pVictim, WeaponAttackType attType, bool ext
     // melee attack spell casted at main hand attack only
     if (attType == BASE_ATTACK && m_currentSpells[CURRENT_MELEE_SPELL] && !extra)
     {
+        // we need to override the target otherwise its possible to hit a far away target with client modifications since melee spells skip range checks
+        m_currentSpells[CURRENT_MELEE_SPELL]->m_targets.setUnitTarget(pVictim);
         m_currentSpells[CURRENT_MELEE_SPELL]->cast();
         Spell* spell = m_currentSpells[CURRENT_MELEE_SPELL];
         if (!spell || !spell->m_spellInfo->IsNextMeleeSwingSpell() || spell->isSuccessCast())
@@ -3287,9 +3289,23 @@ namespace Movement
 
 bool Unit::ExtrapolateMovement(MovementInfo const& mi, uint32 diffMs, float &x, float &y, float &z, float &outOrientation) const
 {
+    // Currently moved by server.
+    if (!movespline->Finalized())
+    {
+        std::unique_lock<std::mutex> guard(asyncMovesplineLock, std::try_to_lock);
+        if (!guard.owns_lock())
+            return false;
+
+        auto loc = movespline->ComputePositionAfterTime(diffMs);
+        x = loc.x;
+        y = loc.y;
+        z = loc.z;
+        outOrientation = loc.orientation;
+        return true;
+    }
+
     // Not currently handled cases.
-    if ((mi.moveFlags & (MOVEFLAG_PITCH_UP | MOVEFLAG_PITCH_DOWN | MOVEFLAG_FALLINGFAR | MOVEFLAG_ONTRANSPORT)) ||
-        !movespline->Finalized() || (mi.ctime == 0) || !IsMovedByPlayer())
+    if ((mi.moveFlags & (MOVEFLAG_PITCH_UP | MOVEFLAG_PITCH_DOWN | MOVEFLAG_FALLINGFAR | MOVEFLAG_ONTRANSPORT)) || (mi.ctime == 0) || !IsMovedByPlayer())
         return false;
 
     x = mi.pos.x;
@@ -4638,10 +4654,11 @@ typedef std::list<RemovedSpellData> RemoveSpellList;
 
 void Unit::HandleTriggers(Unit* pVictim, uint32 procExtra, uint32 amount, uint32 originalAmount, SpellEntry const* procSpell, ProcTriggeredList const& procTriggered)
 {
-    RemoveSpellList removedSpells;
     // Nothing found
     if (procTriggered.empty())
         return;
+
+    RemoveSpellList removedSpells;
 
     // Handle effects proceed this time
     for (const auto& itr : procTriggered)
@@ -5291,8 +5308,12 @@ void Unit::Uncharm()
     if (Unit* charm = GetCharm())
     {
         charm->RemoveCharmAuras();
+
         // Pet posses is not a typical charm
         charm->RemoveSpellsCausingAura(SPELL_AURA_MOD_POSSESS_PET);
+
+        // This effect uses a dummy on the caster
+        RemoveSummonPossessedAuras();
     }
 }
 
@@ -5301,6 +5322,22 @@ void Unit::RemoveCharmAuras(AuraRemoveMode mode)
     RemoveSpellsCausingAura(SPELL_AURA_MOD_POSSESS, mode);
     RemoveSpellsCausingAura(SPELL_AURA_MOD_CHARM, mode);
     RemoveSpellsCausingAura(SPELL_AURA_AOE_CHARM, mode);
+}
+
+void  Unit::RemoveSummonPossessedAuras(AuraRemoveMode mode)
+{
+    // these spells use dummy aura
+    for (AuraList::const_iterator iter = m_modAuras[SPELL_AURA_DUMMY].begin(); iter != m_modAuras[SPELL_AURA_DUMMY].end();)
+    {
+        if (!(*iter)->GetSpellProto()->HasEffect(SPELL_EFFECT_SUMMON_POSSESSED))
+        {
+            ++iter;
+            continue;
+        }
+
+        RemoveAurasDueToSpell((*iter)->GetId(), nullptr, mode);
+        iter = m_modAuras[SPELL_AURA_DUMMY].begin();
+    }
 }
 
 void Unit::SetPet(Pet* pet)
@@ -5587,7 +5624,7 @@ float Unit::SpellDamageBonusTaken(SpellCaster const* pCaster, SpellEntry const* 
     float takenFlatMod = SpellBaseDamageBonusTaken(spellProto->GetSpellSchoolMask());
 
     // apply benefit affected by spell power implicit coeffs and spell level penalties
-    takenFlatMod = SpellBonusWithCoeffs(spellProto, effectIndex, 0, takenFlatMod, 0, damagetype, false, pCaster, spell) * int32(stack);
+    takenFlatMod = SpellBonusWithCoeffs(spellProto, effectIndex, 0, takenFlatMod, damagetype, false, pCaster, spell) * int32(stack);
 
     if ((takenFlatMod < 0) && (-takenFlatMod > (pdamage / 2)))
         takenFlatMod = -(pdamage / 2);
@@ -5772,7 +5809,7 @@ float Unit::SpellHealingBonusTaken(SpellCaster const* pCaster, SpellEntry const*
     }
 
     // apply benefit affected by spell power implicit coeffs and spell level penalties
-    takenFlatMod = SpellBonusWithCoeffs(spellProto, effectIndex, 0, takenFlatMod, 0, damagetype, false, pCaster, spell) * int32(stack);
+    takenFlatMod = SpellBonusWithCoeffs(spellProto, effectIndex, 0, takenFlatMod, damagetype, false, pCaster, spell) * int32(stack);
 
     if ((takenFlatMod < 0) && (-takenFlatMod > (healamount / 2)))
         takenFlatMod = -(healamount / 2);
@@ -5833,7 +5870,7 @@ bool Unit::IsImmuneToDamage(SpellSchoolMask shoolMask, SpellEntry const* spellIn
 
 bool Unit::IsImmuneToSpell(SpellEntry const* spellInfo, bool /*castOnSelf*/) const
 {
-    if (!spellInfo || spellInfo->IsIgnoringCasterAndTargetRestrictions())
+    if (!spellInfo || spellInfo->HasAttribute(SPELL_ATTR_NO_IMMUNITIES) || spellInfo->IsIgnoringCasterAndTargetRestrictions())
         return false;
 
     // Venomhide Ravasaur (6508) is immune to being poisoned by others, but has passive poison aura 14108.
@@ -5858,8 +5895,7 @@ bool Unit::IsImmuneToSpell(SpellEntry const* spellInfo, bool /*castOnSelf*/) con
         }
     }
 
-    if (!spellInfo->HasAttribute(SPELL_ATTR_NO_IMMUNITIES)             // ignore invulnerability
-     && !spellInfo->HasAttribute(SPELL_ATTR_EX_IMMUNITY_PURGES_EFFECT) // can remove immune (by dispell or immune it)
+    if (!spellInfo->HasAttribute(SPELL_ATTR_EX_IMMUNITY_PURGES_EFFECT) // can remove immune (by dispell or immune it)
      && !spellInfo->HasAttribute(SPELL_ATTR_EX2_NO_SCHOOL_IMMUNITIES))
     {
         SpellImmuneList const& schoolList = m_spellImmune[IMMUNITY_SCHOOL];
@@ -6124,7 +6160,7 @@ float Unit::MeleeDamageBonusTaken(SpellCaster const* pCaster, float pdamage, Wea
     if (!isWeaponDamageBasedSpell)
     {
         // apply benefit affected by spell power implicit coeffs and spell level penalties
-        TakenFlat = SpellBonusWithCoeffs(spellProto, effectIndex, 0, TakenFlat, 0, damagetype, false, pCaster, spell);
+        TakenFlat = SpellBonusWithCoeffs(spellProto, effectIndex, 0, TakenFlat, damagetype, false, pCaster, spell);
     }
 
     if (!flat)
@@ -7710,8 +7746,10 @@ void Unit::SetDeathState(DeathState s)
         }
 
         RemoveAllAurasOnDeath();
-        UnsummonAllTotems();
-
+        // Only unsummon totems for non-creature units (creature-owned totems should persist)
+        if (GetTypeId() != TYPEID_UNIT)
+            UnsummonAllTotems();
+            
         m_motionMaster.Clear(false, true);
         m_motionMaster.MoveIdle();
 
@@ -9319,7 +9357,7 @@ void Unit::ProcDamageAndSpellFor(bool isVictim, Unit* pTarget, ProcSystemArgumen
 
         // prevent delayed procs from removing auras applied after the proc happened
         // fixes Frostbite being removed by the Frostbolt that applied it
-        if (isVictim && itr.second->GetAuraApplyTime() >= data.procTime && pTarget->GetObjectGuid() == itr.second->GetCasterGuid())
+        if (itr.second->GetAuraApplyTime() >= data.procTime && (isVictim && pTarget->GetObjectGuid() == itr.second->GetCasterGuid() || !isVictim && GetObjectGuid() == itr.second->GetCasterGuid()))
             continue;
 
         // Aura that applies a modifier with charges. Gere? otherwise.
@@ -10142,7 +10180,7 @@ void Unit::RemoveAurasAtMechanicImmunity(uint32 mechMask, uint32 exceptSpellId, 
             ++iter;
         else if (non_positive && iter->second->IsPositive())
             ++iter;
-        else if (spell->Attributes & SPELL_ATTR_NO_IMMUNITIES)
+        else if (spell->HasAttribute(SPELL_ATTR_NO_IMMUNITIES))
             ++iter;
         else if (iter->second->HasMechanicMask(mechMask))
         {
@@ -10645,18 +10683,23 @@ bool Unit::GetRandomAttackPoint(Unit const* attacker, float &x, float &y, float 
 
     angle += (attackerCount ? ((float(M_PI / 2) - float(M_PI) * rand_norm_f()) * attackerCount / sizeFactor) * 0.3f : 0);
 
-    float dist = GetCombatReachToTarget(attacker, false, 0.0f, true) - 0.5f;
-    float initialPosX, initialPosY, initialPosZ, o;
-    GetPosition(initialPosX, initialPosY, initialPosZ);
+    float dist;
+    Position initialPos;
+    GetPosition(initialPos.x, initialPos.y, initialPos.z);
 
-    // Moving player: try to extrapolate movement a bit
-    if (IsPlayer() && IsMoving())
-        if (!ExtrapolateMovement(m_movementInfo, 200, initialPosX, initialPosY, initialPosZ, o))
-            GetPosition(initialPosX, initialPosY, initialPosZ);
+    // Moving unit: try to extrapolate movement a bit
+    if (IsMoving())
+    {
+        dist = DEFAULT_COMBAT_REACH;
+        if (!ExtrapolateMovement(m_movementInfo, 200, initialPos.x, initialPos.y, initialPos.z, initialPos.o))
+            GetPosition(initialPos.x, initialPos.y, initialPos.z);
+    }
+    else
+        dist = GetCombatReachToTarget(attacker, false, 0.0f, true) - 0.5f;
 
-    float attackerTargetDistance = sqrt(pow(initialPosX - attacker->GetPositionX(), 2) +
-        pow(initialPosY - attacker->GetPositionY(), 2) +
-        pow(initialPosZ - attacker->GetPositionZ(), 2));
+    float attackerTargetDistance = sqrt(pow(initialPos.x - attacker->GetPositionX(), 2) +
+        pow(initialPos.y - attacker->GetPositionY(), 2) +
+        pow(initialPos.z - attacker->GetPositionZ(), 2));
     if (dist > attackerTargetDistance)
     {
         // We're not moving, we're already within range. 
@@ -10664,15 +10707,15 @@ bool Unit::GetRandomAttackPoint(Unit const* attacker, float &x, float &y, float 
         return true;
     }
 
-    float normalizedVectZ = (attacker->GetPositionZ() - initialPosZ) / attackerTargetDistance;
+    float normalizedVectZ = (attacker->GetPositionZ() - initialPos.z) / attackerTargetDistance;
     float normalizedVectXY = sqrt(1 - normalizedVectZ * normalizedVectZ);
-    x = initialPosX + dist * cos(angle) * normalizedVectXY;
-    y = initialPosY + dist * sin(angle) * normalizedVectXY;
-    z = initialPosZ + dist * normalizedVectZ;
+    x = initialPos.x + dist * cos(angle) * normalizedVectXY;
+    y = initialPos.y + dist * sin(angle) * normalizedVectXY;
+    z = initialPos.z + dist * normalizedVectZ;
 
     if (attacker->CanFly() || (attacker->CanSwim() && reachableBySwiming) || !HasMMapsForCurrentMap())
     {
-        GetMap()->GetLosHitPosition(initialPosX, initialPosY, initialPosZ, x, y, z, -0.2f);
+        GetMap()->GetLosHitPosition(initialPos.x, initialPos.y, initialPos.z, x, y, z, -0.2f);
         if (attacker->CanSwim() && reachableBySwiming)
         {
             float ground = 0.0f;
@@ -10716,7 +10759,7 @@ bool Unit::GetRandomAttackPoint(Unit const* attacker, float &x, float &y, float 
             nav |= NAV_MAGMA | NAV_SLIME;
 
         // Try mmaps. On fail, use target position (but should not fail)
-        if (GetMap()->GetWalkHitPosition(GetTransport(), initialPosX, initialPosY, initialPosZ, x, y, z, nav))
+        if (GetMap()->GetWalkHitPosition(GetTransport(), initialPos.x, initialPos.y, initialPos.z, x, y, z, nav))
             return true;
     }
 
@@ -11185,9 +11228,9 @@ void Unit::DoResetThreat()
     ThreatList const& tList = GetThreatManager().getThreatList();
     for (const auto itr : tList)
     {
-        Unit* pUnit = GetMap()->GetUnit(itr->getUnitGuid());
+        Unit* pUnit = itr->getTarget();
 
-        if (pUnit && GetThreatManager().getThreat(pUnit))
+        if (pUnit && itr->getThreat())
             GetThreatManager().modifyThreatPercent(pUnit, -100);
     }
 }

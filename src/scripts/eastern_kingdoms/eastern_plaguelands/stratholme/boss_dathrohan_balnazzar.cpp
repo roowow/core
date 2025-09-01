@@ -45,7 +45,11 @@ enum
     NPC_BALNAZZAR                   = 10813,
     //NPC_ZOMBIE                      = 10698                 //probably incorrect
     NPC_SKEL_BERSERKER              = 10391,
-    NPC_SKEL_GUARDIAN               = 10390
+    NPC_SKEL_GUARDIAN               = 10390,
+
+    SAY_DATHROHAN_AGGRO     = 6441,
+    SAY_DATHROHAN_TRANSFORM = 6447,
+    SAY_DATHROHAN_DEATH     = 6442
 };
 
 struct SummonDef
@@ -144,7 +148,7 @@ struct boss_dathrohan_balnazzarAI : public ScriptedAI
 
     void JustDied(Unit* Victim) override
     {
-        m_creature->MonsterSay("你们这些凡人该死！我所有的复仇计划，所有的仇恨……全部化为灰烬……");
+        DoScriptText(SAY_DATHROHAN_DEATH, m_creature);
         
         static uint32 uiCount = sizeof(m_aSummonPoint) / sizeof(SummonDef);
 
@@ -168,7 +172,7 @@ struct boss_dathrohan_balnazzarAI : public ScriptedAI
 
     void Aggro(Unit* /*pWho*/) override
     {
-        m_creature->MonsterYell("今天你毁掉了我花了几年时间创造的东西！为此，你们都要死在我手上！");
+        DoScriptText(SAY_DATHROHAN_AGGRO, m_creature);
     }
 
     void UpdateAI(uint32 const uiDiff) override
@@ -231,7 +235,7 @@ struct boss_dathrohan_balnazzarAI : public ScriptedAI
             {
                 if (m_uiTransform_Timer <= uiDiff)
                 {
-                    m_creature->MonsterYell("你们这些蠢货以为你们能轻易打败我吗？面对纳斯雷兹姆的真正力量！");
+                    DoScriptText(SAY_DATHROHAN_TRANSFORM, m_creature);
                     m_uiTransform_Timer = 0;
                 }
                 else

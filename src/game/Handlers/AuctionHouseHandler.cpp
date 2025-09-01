@@ -296,7 +296,7 @@ void WorldSession::HandleAuctionSellItem(WorldPacket& recv_data)
     uint32 limit = sWorld.getConfig(CONFIG_UINT32_ACCOUNT_CONCURRENT_AUCTION_LIMIT);
     if (!!limit && auctionHouse->GetAccountAuctionCount(GetAccountId()) >= limit)
     {
-        ChatHandler(this).SendSysMessage("您的账号已达到拍卖物品数上限。");
+        pl->SendSysMessage("您的账号已达到拍卖物品数上限。");
         SendAuctionCommandResult(nullptr, AUCTION_STARTED, AUCTION_ERR_DATABASE);
         return;
     }

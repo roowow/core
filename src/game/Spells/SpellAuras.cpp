@@ -45,7 +45,7 @@
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
 #include "CellImpl.h"
-#include "MapManager.h"
+#include "Geometry.h"
 #include "MoveSpline.h"
 #include "MovementPacketSender.h"
 #include "ZoneScript.h"
@@ -1276,7 +1276,7 @@ void Aura::TriggerSpell()
                         else
                             newAngle -= M_PI_F / 40;
 
-                        newAngle = MapManager::NormalizeOrientation(newAngle);
+                        newAngle = Geometry::NormalizeOrientation(newAngle);
                         target->SetFacingTo(newAngle);
                         target->CastSpell(target, 26029, true);
                         return;
@@ -1289,7 +1289,6 @@ void Aura::TriggerSpell()
 //                    case 27177: break;
 //                    // Teleport: IF/UC
 //                    case 27601: break;
-//                    // Five Fat Finger Exploding Heart Technique
 //                    case 27673: break;
                     // Nitrous Boost
                     case 27746:
@@ -1844,16 +1843,18 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
                         }
                         return;
                     }
-                    case 7057:  // Haunting Spirits
-                    case 16336: // Haunting Phantoms
-                    {
-                        m_isPeriodic = true;
-                        m_modifier.periodictime = 5 * IN_MILLISECONDS; // expected to tick with 5 sec period
-                        return;
-                    }
                     case 16739: // Orb of Deception (before patch 1.7)
                     {
                         return HandleAuraTransform(apply, Real);
+                    }
+                    case 21094: // Separation Anxiety (Majordomo Executus)
+                    case 23487: // Separation Anxiety (Garr)
+                    {
+                        // expected to tick with 5 sec period (tick part see in Aura::PeriodicTick)
+                        m_isPeriodic = true;
+                        m_modifier.periodictime = 5 * IN_MILLISECONDS;
+                        m_periodicTimer = m_modifier.periodictime;
+                        return;
                     }
                     case 21051: // Melodious Rapture Visual (DND)
                     case 21827: // Frostwolf Aura DND
@@ -1873,12 +1874,6 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
                         }
                         return;
                     }
-                    case 20556: // Golemagg's Trust
-                    {
-                            m_isPeriodic = true;
-                            m_modifier.periodictime = 1000;
-                            return;
-                    }
                     case 22646:                             // Goblin Rocket Helmet
                     {
                         if (Unit* caster = GetCaster())
@@ -1893,13 +1888,6 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
                             m_modifier.periodictime = 1000;
                         }
                         return;
-                    }
-                    case 29153: // Gargoyle Stoneform Visual
-                    {
-                        // using stand state 9 in sniff
-                        target->SetStandState(MAX_UNIT_STAND_STATE);
-                        target->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
-                        break;
                     }
                     case 29705: // Midsummer Pole Dancing
                     case 29726:
@@ -2135,26 +2123,7 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
                 }
                 return;
             }
-            case 28169:                                     // Mutating Injection
-            {
-                if (Unit* caster = GetCaster())
-                {
-                    // Mutagen Explosion
-                    if (m_removeMode == AuraRemoveMode::AURA_REMOVE_BY_DISPEL)
-                    {
-                        caster->CastSpell(target, 28206, true);
-                    }
-                    else
-                    {
-                        caster->CastSpell(target, 28206, true, nullptr, this);
-                    }
-                }
-
-                // Summons Poison Cloud creature
-                target->CastSpell(target, 28240, true, nullptr, this);
-                return;
-            }
-            case 24324:  // Ivina < Nostalrius > : Hakkar's Blood Siphon
+            case 24324: // Ivina < Nostalrius > : Hakkar's Blood Siphon
             {
                 target->RemoveAurasDueToSpell(24321); // Poisonous Blood
                 return;
@@ -2169,12 +2138,6 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
             {
                 if (target->HasAura(29660))
                     target->RemoveAurasDueToSpell(29660);
-                break;
-            }
-            case 29153: // Gargoyle Stoneform Visual
-            {
-                target->SetStandState(UNIT_STAND_STATE_STAND);
-                target->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
                 break;
             }
         }
@@ -2201,6 +2164,8 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
             switch (GetId())
             {
                 case 6606:                                  // Self Visual - Sleep Until Cancelled (DND)
+                case 16093:
+                case 14915:
                 {
                     if (apply)
                     {
@@ -2213,6 +2178,7 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
 
                     return;
                 }
+				
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_9_4
                 case 24658:                                 // Unstable Power
                 {
@@ -4388,7 +4354,7 @@ void Aura::HandleAuraModSchoolImmunity(bool apply, bool Real)
                 ++next;
                 SpellEntry const* spell = iter->second->GetSpellProto();
                 if ((spell->GetSpellSchoolMask() & school_mask) // Check for school mask
-                    && !(spell->Attributes & SPELL_ATTR_NO_IMMUNITIES) // Spells unaffected by invulnerability
+                    && !spell->HasAttribute(SPELL_ATTR_NO_IMMUNITIES) // Spells unaffected by invulnerability
                     && !iter->second->IsPositive()          // Don't remove positive spells
                     && spell->Id != GetId())                // Don't remove self
                 {
@@ -6119,13 +6085,10 @@ void Aura::PeriodicTick(SpellEntry const* sProto, AuraType auraType, uint32 data
             }
             
             // Check for immune (not use charges)
-            if (!spellProto->HasAttribute(SPELL_ATTR_NO_IMMUNITIES)) // confirmed Impaling spine goes through immunity
+            if (target->IsImmuneToDamage(spellProto->GetSpellSchoolMask(), spellProto))
             {
-                if (target->IsImmuneToDamage(spellProto->GetSpellSchoolMask(), spellProto))
-                {
-                    pCaster->SendSpellOrDamageImmune(target, spellProto->Id);
-                    return;
-                }
+                pCaster->SendSpellOrDamageImmune(target, spellProto->Id);
+                return;
             }
 
             uint32 absorb = 0;
@@ -6235,13 +6198,10 @@ void Aura::PeriodicTick(SpellEntry const* sProto, AuraType auraType, uint32 data
             }       
 
             // Check for immune
-            if (!spellProto->HasAttribute(SPELL_ATTR_NO_IMMUNITIES))
+            if (target->IsImmuneToDamage(spellProto->GetSpellSchoolMask(), spellProto))
             {
-                if (target->IsImmuneToDamage(spellProto->GetSpellSchoolMask(), spellProto))
-                {
-                    pCaster->SendSpellOrDamageImmune(target, spellProto->Id);
-                    return;
-                }
+                pCaster->SendSpellOrDamageImmune(target, spellProto->Id);
+                return;
             }
 
             uint32 absorb = 0;
@@ -6435,13 +6395,10 @@ void Aura::PeriodicTick(SpellEntry const* sProto, AuraType auraType, uint32 data
             }
 
             // Check for immune (not use charges)
-            if (!spellProto->HasAttribute(SPELL_ATTR_NO_IMMUNITIES)) // confirmed Impaling spine goes through immunity
+            if (target->IsImmuneToDamage(spellProto->GetSpellSchoolMask(), spellProto))
             {
-                if (target->IsImmuneToDamage(spellProto->GetSpellSchoolMask(), spellProto))
-                {
-                    pCaster->SendSpellOrDamageImmune(target, spellProto->Id);
-                    return;
-                }
+                pCaster->SendSpellOrDamageImmune(target, spellProto->Id);
+                return;
             }
 
             // ignore non positive values (can be result apply spellmods to aura damage
@@ -6600,13 +6557,10 @@ void Aura::PeriodicTick(SpellEntry const* sProto, AuraType auraType, uint32 data
                 return;
 
             // Check for immune (not use charges)
-            if (!spellProto->HasAttribute(SPELL_ATTR_NO_IMMUNITIES)) // confirmed Impaling spine goes through immunity
+            if (target->IsImmuneToDamage(spellProto->GetSpellSchoolMask(), spellProto))
             {
-                if (target->IsImmuneToDamage(spellProto->GetSpellSchoolMask(), spellProto))
-                {
-                    pCaster->SendSpellOrDamageImmune(target, spellProto->Id);
-                    return;
-                }
+                pCaster->SendSpellOrDamageImmune(target, spellProto->Id);
+                return;
             }
 
             Powers powerType = Powers(m_modifier.m_miscvalue);
@@ -6753,25 +6707,6 @@ void Aura::PeriodicDummyTick()
                         //target->HandleEmoteCommand(PickRandomValue(EMOTE_ONESHOT_APPLAUD, EMOTE_ONESHOT_CHEER, EMOTE_ONESHOT_CHICKEN, EMOTE_ONESHOT_LAUGH, EMOTE_ONESHOT_DANCE));
                     return;
                 }
-                case 7057:                                  // Haunting Spirits
-                {
-                    if (roll_chance_i(5))
-                    {
-                        target->CastSpell(target, 7067, true, nullptr, this); // Summon Haunting Spirit
-                    }
-                    return;
-                }
-                case 16336:                                 // Haunting Phantoms
-                {
-                    if (roll_chance_i(5))
-                    {
-                        if (urand(0, 1))
-                            target->CastSpell(target, 16334, true); // Summon Spiteful Phantom
-                        else
-                            target->CastSpell(target, 16335, true); // Summon Wrath Phantom
-                    }
-                    return;
-                }
                 case 21051: // Melodious Rapture Visual (DND)
                 {
                     if (Creature* pRat = target->ToCreature())
@@ -6781,6 +6716,17 @@ void Aura::PeriodicDummyTick()
                             // lost track of player
                             pRat->DespawnOrUnsummon(1);
                         }
+                    }
+                    return;
+                }
+                case 21094:
+                case 23487:
+                {
+                    if (Unit* caster = GetCaster())
+                    {
+                        float m_radius = GetSpellRadius(sSpellRadiusStore.LookupEntry(spell->EffectRadiusIndex[m_effIndex]));
+                        if (caster->IsAlive() && !caster->IsWithinDistInMap(target, m_radius))
+                            target->CastSpell(target, (spell->Id == 21094 ? 21095 : 23492), true, nullptr); // Spell 21095: Separation Anxiety for Majordomo Executus' adds, 23492: Separation Anxiety for Garr's adds
                     }
                     return;
                 }
@@ -6852,29 +6798,6 @@ void Aura::PeriodicDummyTick()
                     if (ribbonCount > 1)
                         target->CastSpell(GetCaster(), 29175, true); // Midsummer Pole Buff
 
-                    return;
-                }
-                case 20556: // Golemagg's Trust
-                {
-                    if (Unit* pCaster = GetCaster())
-                    {
-                        if (pCaster->IsDead() && !pCaster->IsInCombat())
-                        {
-                            return;
-                        }
-                        // Golemagg's Core Ragers will deal increased damage
-                        // and have 50% increased attack speed if tanked too close to Golemagg.
-                        std::list<Creature*> addList;
-                        pCaster->GetCreatureListWithEntryInGrid(addList, 11672, 30.0f);
-                        if (!addList.empty())
-                        {
-                            for (const auto& itr : addList)
-                            {
-                                // Golemagg's Trust Buff
-                                pCaster->CastSpell(itr, 20553, true, nullptr, this);
-                            }
-                        }
-                    }
                     return;
                 }
             }
@@ -8082,18 +8005,16 @@ void SpellAuraHolder::CalculateForDebuffLimit()
         case 4069: // Big Iron Bomb
         case 4507: // Target Dummy Spawn Effect
         case 5246: // Intimidating Shout
-        case 5530: // Mace Stun Effect
+        case 5530: // Mace Stun Effect (Rank 1)
         case 6358: // Seduction
         case 6788: // Weakened Soul
         case 9672: // Frostbolt (npc spell)
-        case 339: // Entangling Roots
-        case 2908: // Soothe Animal
-        case 8056: // Frost Shock
-        case 8122: // Psychic Scream
-        case 605: // Mind Control
-        case 6770: // Sap (Rank 1)
-        case 2070: // Sap (Rank 2)
-        case 11297: // Sap (rank 3)
+        case 339: // Entangling Roots (Ranks 1 to 6)
+        case 2908: // Soothe Animal (Ranks 1 to 3)
+        case 8056: // Frost Shock (Ranks 1 to 4)
+        case 8122: // Psychic Scream (Ranks 1 to 4)
+        case 605: // Mind Control (Ranks 1 to 3)
+        case 6770: // Sap (Ranks 1 to 3)
         case 18202: // Rend (item spell)
         case 18075: // Rend (item spell)
         case 17511: // Poison
@@ -8103,21 +8024,21 @@ void SpellAuraHolder::CalculateForDebuffLimit()
         case 17407: // Wound
         case 17196: // Seeping Willow
         case 16406: // Rend (item spell)
-        case 14914: // Holy Fire
+        case 14914: // Holy Fire (Ranks 1 to 8)
         case 21162: // Fireball (item spell)
-        case 13752: // Faerie Fire (item spell)
+        case 13752: // Faerie Fire (Rank 2) (item spell)
         case 12328: // Death Wish
         case 13526: // Corrosive Poison
         case 13318: // Rend (item spell)
-        case 11366: // Pyroblast
-        case 133: // Fireball
+        case 11366: // Pyroblast (Ranks 1 to 8)
+        case 133: // Fireball (Ranks 1 to 12)
         case 12721: // Deep Wound
         case 24388: // Brain Damage
         case 21159: // Fireball (item spell)
         case 21151: // Gutgore Ripper
         case 12421: // Mithril Frag Bomb
         case 12562: // The Big One
-        case 118: // Polymorph
+        case 118: // Polymorph (Ranks 1 to 4)
         case 13237: // Goblin Mortar
         case 13327: // Reckless Charge
         case 13747: // Slow
@@ -8128,21 +8049,26 @@ void SpellAuraHolder::CalculateForDebuffLimit()
         case 14309: // Freezing Trap Effect (Rank 3)
         case 15235: // Crystal Yield
         case 15487: // Silence
-        case 8034: // Frost Brand Attack
+        case 8034: // Frostbrand Attack (Ranks 1 to 5)
         case 16454: // Searing Blast
         case 17153: // Rend (item spell)
-        case 5484: // Howl of Terror
+        case 5484: // Howl of Terror (Ranks 1 to 2)
         case 18093: // Pyroclasm
         case 18118: // Aftermath
         case 18223: // Curse of Exhaustion
-        case 710: // Banish
+        case 710: // Banish (Ranks 1 to 2)
         case 18798: // Freeze
         case 19229: // Improved Wing Clip
         case 19410: // Improved Concussive Shot
         case 19755: // Frightalon
         case 19784: // Dark Iron Bomb
         case 19872: // Calm Dragonkin
-        case 19970: // Entangling Roots
+        case 19975: // Entangling Roots (Rank 1) (Proc from Nature's Grasp)
+        case 19974: // Entangling Roots (Rank 2) (Proc from Nature's Grasp)
+        case 19973: // Entangling Roots (Rank 3) (Proc from Nature's Grasp)
+        case 19972: // Entangling Roots (Rank 4) (Proc from Nature's Grasp)
+        case 19971: // Entangling Roots (Rank 5) (Proc from Nature's Grasp)
+        case 19970: // Entangling Roots (Rank 6) (Proc from Nature's Grasp)
         case 20066: // Repentance
         case 20586: // Windreaper
         case 24375: // War Stomp
@@ -8151,21 +8077,17 @@ void SpellAuraHolder::CalculateForDebuffLimit()
             return;
         // Category 1 below
         case 1833: // Cheap Shot
-        case 5917: // Fumble
+        case 5917: // Fumble (Rank 1)
         case 7922: // Charge Stun
         case 9658: // Flame Buffet
         case 10578: // Fireball (item spell)
-        case 2096: // Mind Vision
-        case 453: // Mind Soothe
-        case 1714: // Curse of Tongues
-        case 11103: // Impact (Rank 1)
-        case 12357: // Impact (Rank 2)
-        case 12358: // Impact (Rank 3)
-        case 12359: // Impact (Rank 4)
-        case 12360: // Impact (Rank 5)
-        case 11113: // Blast Wave
-        case 2974: // Wing Clip
-        case 3043: // Scorpid Sting
+        case 2096: // Mind Vision (Ranks 1 to 2)
+        case 453: // Mind Soothe (Ranks 1 to 3)
+        case 1714: // Curse of Tongues (Ranks 1 to 2)
+        case 11103: // Impact (Ranks 1 to 5)
+        case 11113: // Blast Wave (Ranks 1 to 5)
+        case 2974: // Wing Clip (Ranks 1 to 3)
+        case 3043: // Scorpid Sting (Ranks 1 to 4)
         case 16413: // Fireball (item spell)
         case 16415: // Fireball (item spell)
         case 17330: // Poison
@@ -8176,11 +8098,11 @@ void SpellAuraHolder::CalculateForDebuffLimit()
         case 18469: // Counterspell - Silenced
         case 18498: // Shield Bash - Silenced
         case 19821: // Arcane Bomb
-        case 20184: // Judgement of Justice
+        case 20184: // Judgement of Justice (Rank 1)
         case 20511: // Intimidating Shout
         case 22639: // Eskhandar's Rake
         case 23023: // Conflagration
-        case 28272: // Polymorph Pig
+        case 28272: // Polymorph: Pig
             m_visibleSlotLimitScore = 1;
             return;
         // Category 2 below
@@ -8189,27 +8111,24 @@ void SpellAuraHolder::CalculateForDebuffLimit()
         case 26017: // Vindication (Rank 2)
         case 26018: // Vindication (Rank 3)
         case 23605: // Spell Vulnerability
-        case 702: // Curse of Weakness
+        case 702: // Curse of Weakness (Ranks 1 to 6)
         case 11374: // Gift of Arthas
-        case 8921: // Moonfire
-        case 18265: // Siphon Life
-        case 980: // Curse of Agony
-        case 13797: // Immolation Trap Effect
-        case 1978: // Serpent Sting
+        case 8921: // Moonfire (Ranks 1 to 10)
+        case 18265: // Siphon Life (Ranks 1 to 4)
+        case 980: // Curse of Agony (Ranks 1 to 6)
+        case 13797: // Immolation Trap Effect (Ranks 1 to 5)
+        case 1978: // Serpent Sting (Ranks 1 to 9)
         case 21992: // Thunderfury
-        case 2818: // Deadly Poison
-        case 348: // Immolate
+        case 2818: // Deadly Poison (Ranks 1 to 5)
+        case 348: // Immolate (Ranks 1 to 8)
         case 23577: // Expose Weakness
         case 17315: // Puncture Armor
         case 16928: // Armor Shatter
-        case 17877: // Shadowburn
+        case 17877: // Shadowburn (Ranks 1 to 6)
         case 23415: // Improved Blessing of Protection
-        case 9035: // Hex of Weakness
-        case 2944: // Devouring Plague
-        case 24640: // Scorpid Poison (Rank 1)
-        case 24583: // Scorpid Poison (Rank 2)
-        case 24586: // Scorpid Poison (Rank 3)
-        case 24587: // Scorpid Poison (Rank 4)
+        case 9035: // Hex of Weakness (Ranks 1 to 6)
+        case 2944: // Devouring Plague (Ranks 1 to 6)
+        case 24640: // Scorpid Poison (Ranks 1 to 4)
         case 12766: // Poison Cloud
         case 2943: // Touch of Weakness (Rank 1)
         case 19249: // Touch of Weakness (Rank 2)
@@ -8217,12 +8136,12 @@ void SpellAuraHolder::CalculateForDebuffLimit()
         case 19252: // Touch of Weakness (Rank 4)
         case 19253: // Touch of Weakness (Rank 5)
         case 19254: // Touch of Weakness (Rank 6)
-        case 8050: // Flame Shock
-        case 172: // Corruption
+        case 8050: // Flame Shock (Ranks 1 to 6)
+        case 172: // Corruption (Ranks 1 to 7)
         case 16528: // Numbing Pain
-        case 15258: // Shadow Vulnerability
+        case 15258: // Shadow Vulnerability (Rank 1)
         case 13003: // Shrink Ray
-        case 589: // Shadow Word: Pain
+        case 589: // Shadow Word: Pain (Ranks 1 to 8)
         case 12654: // Ignite
             m_visibleSlotLimitScore = 2;
             return;
@@ -8236,57 +8155,47 @@ void SpellAuraHolder::CalculateForDebuffLimit()
         case 4068: // Iron Grenade
         case 5116: // Concussive Shot
         case 5209: // Challenging Roar
-        case 5782: // Fear
-        case 770: // Faerie Fire
-        case 16857: // Faerie Fire (Feral)
-        case 120: // Cone of Cold
-        case 10: // Blizzard
-        case 2120: // Flamestrike
-        case 122: // Frost Nova
-        case 853: // Hammer of Justice
-        case 5760: // Mind-numbing Poison
-        case 8692: // Mind-numbing Poison II
-        case 11398: // Mind-numbing Poison III
-        case 1120: // Drain Soul
-        case 5740: // Rain of Fire
-        case 689: // Drain Life
-        case 5138: // Drain Mana
-        case 704: // Curse of Reclessness
-        case 1490: // Curse of the Elements
+        case 5782: // Fear (Ranks 1 to 3)
+        case 770: // Faerie Fire (Ranks 1 to 4)
+        case 16857: // Faerie Fire (Feral) (Ranks 1 to 4)
+        case 120: // Cone of Cold (Ranks 1 to 5)
+        case 10: // Blizzard (Ranks 1 to 6)
+        case 2120: // Flamestrike (Ranks 1 to 6)
+        case 122: // Frost Nova (Ranks 1 to 4)
+        case 853: // Hammer of Justice (Ranks 1 to 4)
+        case 5760: // Mind-numbing Poison (Rank 1)
+        case 8692: // Mind-numbing Poison II (Rank 2)
+        case 11398: // Mind-numbing Poison III (Rank 3)
+        case 1120: // Drain Soul (Ranks 1 to 4)
+        case 5740: // Rain of Fire (Ranks 1 to 4)
+        case 689: // Drain Life (Ranks 1 to 6)
+        case 5138: // Drain Mana (Ranks 1 to 4)
+        case 704: // Curse of Recklessness (Ranks 1 to 4)
+        case 1490: // Curse of the Elements (Ranks 1 to 3)
         case 12323: // Piercing Howl
-        case 11071: // Forstbite (Rank 1)
-        case 12496: // Frostbite (Rank 2)
-        case 12497: // Frostbite (Rank 3)
+        case 11071: // Frostbite (Ranks 1 to 3)
         case 12543: // Hi-Explosive Bomb
-        case 12798: // Revenge
+        case 12798: // Revenge Stun (Rank 1)
         case 12809: // Concussion Blow
-        case 13218: // Wound Poison
+        case 13218: // Wound Poison (Ranks 1 to 4)
         case 13810: // Frost Trap Aura
-        case 3034: // Viper Sting
-        case 1510: // Volley
-        case 13812: // Explosive Trap Effect
-        case 1130: // Hunter's Mark
+        case 3034: // Viper Sting (Ranks 1 to 3)
+        case 1510: // Volley (Ranks 1 to 3)
+        case 13812: // Explosive Trap Effect (Ranks 1 to 3)
+        case 1130: // Hunter's Mark (Ranks 1 to 4)
         case 15286: // Vampiric Embrace
-        case 15268: // Blackout (Rank 1)
-        case 15323: // Blackout (Rank 2)
-        case 15324: // Blackout (Rank 3)
-        case 15325: // Blackout (Rank 4)
-        case 15326: // Blackout (Rank 5)
-        case 15407: // Mind Flay
+        case 15268: // Blackout (Ranks 1 to 5)
+        case 15407: // Mind Flay (Ranks 1 to 6)
         case 16922: // Starfire Stun
-        case 17364: // Stormstrike
-        case 16914: // Hurricane
-        case 17794: // Shadow Vulnerability (Rank 1)
-        case 17798: // Shadow Vulnerability (Rank 2)
-        case 17797: // Shadow Vulnerability (Rank 3)
-        case 17799: // Shadow Vulnerability (Rank 4)
-        case 17800: // Shadow Vulnerability (Rank 5)
-        case 6789: // Death Coil
-        case 17862: // Curse of Shadow
+        case 17364: // Stormstrike (Rank 1)
+        case 16914: // Hurricane (Ranks 1 to 3)
+        case 17794: // Shadow Vulnerability (Ranks 1 to 5)
+        case 6789: // Death Coil (Ranks 1 to 3)
+        case 17862: // Curse of Shadow (Ranks 1 to 2)
         case 18656: // Corruption (item spell)
-        case 2637: // Hibernate
+        case 2637: // Hibernate (Ranks 1 to 3)
         case 19185: // Entrapment
-        case 10797: // Starshards
+        case 10797: // Starshards (Ranks 1 to 7)
         case 19503: // Scatter Shot
         case 19675: // Feral Charge Effect
         case 19769: // Thorium Grenade
@@ -8304,22 +8213,19 @@ void SpellAuraHolder::CalculateForDebuffLimit()
         case 20186: // Judgement of Wisdom (Rank 1)
         case 20354: // Judgement of Wisdom (Rank 2)
         case 20355: // Judgement of Wisdom (Rank 3)
-        case 20549: // War Stomp
+        case 20549: // War Stomp (Racial)
         case 20253: // Intercept Stun (Rank 1)
         case 20614: // Intercept Stun (Rank 2)
         case 20615: // Intercept Stun (Rank 3)
         case 20116: // Consecration (-1.8)
-        case 26573: // Consecration (1.9+)
+        case 26573: // Consecration (1.9+) (Ranks 1 to 5)
         case 21152: // Earthshaker
         case 22959: // Fire Vulnerability
         case 23454: // Stun
         case 23694: // Improved Hamstring
-        case 24423: // Screech (Rank 1)
-        case 24577: // Screech (Rank 2)
-        case 24578: // Screech (Rank 3)
-        case 24579: // Screech (Rank 4)
-        case 5570: // Insect Swarm
-        case 116: // Frostbolt
+        case 24423: // Screech (Ranks 1 to 4)
+        case 5570: // Insect Swarm (Ranks 1 to 5)
+        case 116: // Frostbolt (Ranks 1 to 11)
         case 25999: // Boar Charge
             m_visibleSlotLimitScore = 3;
             return;
@@ -8489,7 +8395,7 @@ void SpellAuraHolder::CalculateHeartBeat(Unit* caster, Unit* target)
                 || m_spellProto->Id == 13327) // Reckless Charge
         {
             // Only update the random value if a player is involved
-            if (target->GetCharmerOrOwnerPlayerOrPlayerItself())
+            if (target->IsCharmerOrOwnerPlayerOrPlayerItself())
                 _heartBeatRandValue = rand_norm_f() * 100.0f;
         }
         // For PvE/effects on NPCs. Doesn't affect certain spells with DR (For example: Fear being dispelled by damage).

@@ -1545,7 +1545,9 @@ void BattleGround::SpawnBGObject(ObjectGuid guid, uint32 respawnTime)
         if (obj->getLootState() == GO_JUST_DEACTIVATED)
             obj->SetLootState(GO_READY);
 
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_5_1
         if (obj->GetGOInfo()->type != GAMEOBJECT_TYPE_FLAGSTAND)
+#endif
             obj->SetGoState(GO_STATE_READY);
 
         obj->SetRespawnTime(respawnTime);
@@ -1559,7 +1561,9 @@ void BattleGround::SpawnBGObject(ObjectGuid guid, uint32 respawnTime)
     {
         if (obj)
         {
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_5_1
             if (obj->GetGOInfo()->type != GAMEOBJECT_TYPE_FLAGSTAND)
+#endif
                 obj->SetGoState(GO_STATE_ACTIVE_ALTERNATIVE);
 
             obj->SetRespawnTime(respawnTime);
