@@ -166,6 +166,14 @@ namespace MaNGOS
             if (pPlayer && pPlayer->HasItemCount(91705, 1))
                 xp_gain *= 2;
 
+            // Hardcore
+            if (sWorld.getConfig(CONFIG_FLOAT_RATE_XP_KILL) == 1 
+            && pPlayer 
+            && pPlayer->IsHardcore() 
+            && !pPlayer->IsHardcoreDead() 
+            && !pPlayer->IsHardcoreRetired())
+                xp_gain *= 2;
+
             return std::nearbyint(xp_gain);
         }
 
