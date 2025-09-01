@@ -34,6 +34,7 @@
 #include "WorldPacket.h"
 #include "Weather.h"
 #include "Player.h"
+#include "TransactionLog.h"
 #include "Group.h"
 #include "AccountMgr.h"
 #include "AuctionHouseMgr.h"
@@ -82,7 +83,7 @@
 #include "InstanceStatistics.h"
 #include "GuardMgr.h"
 #include "TransportMgr.h"
-
+#include "RealmZone.h"
 #include <chrono>
 
 INSTANTIATE_SINGLETON_1(World);
@@ -1096,7 +1097,7 @@ void World::LoadConfigSettings(bool reload)
     setConfig(CONFIG_BOOL_UNLINKED_AUCTION_HOUSES, "Progression.UnlinkedAuctionHouses", true);
 
     // Movement Anticheat
-    setConfig(CONFIG_BOOL_AC_MOVEMENT_ENABLED, "Anticheat.Enable", true);
+    setConfig(CONFIG_BOOL_AC_MOVEMENT_ENABLED, "Anticheat.Enable", false);
     setConfig(CONFIG_BOOL_AC_MOVEMENT_PLAYERS_ONLY, "Anticheat.PlayersOnly", true);
     setConfig(CONFIG_BOOL_AC_MOVEMENT_NOTIFY_CHEATERS, "Anticheat.NotifyCheaters", false);
     setConfig(CONFIG_UINT32_AC_MOVEMENT_BAN_DURATION, "Anticheat.BanDuration", 86400);
@@ -1223,8 +1224,8 @@ void World::LoadConfigSettings(bool reload)
     setConfig(CONFIG_UINT32_AC_MOVEMENT_CHEAT_BOTTING_PENALTY, "Anticheat.Botting.Penalty", CHEAT_ACTION_LOG | CHEAT_ACTION_REPORT_GMS);
 
     // Warden Anticheat
-    setConfig(CONFIG_BOOL_AC_WARDEN_WIN_ENABLED, "Warden.WinEnabled", true);
-    setConfig(CONFIG_BOOL_AC_WARDEN_OSX_ENABLED, "Warden.OSXEnabled", true);
+    setConfig(CONFIG_BOOL_AC_WARDEN_WIN_ENABLED, "Warden.WinEnabled", false);
+    setConfig(CONFIG_BOOL_AC_WARDEN_OSX_ENABLED, "Warden.OSXEnabled", false);
     setConfig(CONFIG_BOOL_AC_WARDEN_PLAYERS_ONLY, "Warden.PlayersOnly", false);
     setConfig(CONFIG_UINT32_AC_WARDEN_NUM_SCANS, "Warden.NumScans", 10);
     setConfig(CONFIG_UINT32_AC_WARDEN_CLIENT_RESPONSE_DELAY, "Warden.ClientResponseDelay", 30);
@@ -1351,6 +1352,9 @@ void World::SetInitialWorldSettings()
     // Remove the bones (they should not exist in DB though) and old corpses after a restart
     CharacterDatabase.PExecute("DELETE FROM `corpse` WHERE `corpse_type` = '0' OR `time` < (UNIX_TIMESTAMP()-'%u')", 3 * DAY);
 
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading Script Names...");
+    sScriptMgr.LoadScriptNames();
+
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading spells ...");
     sSpellMgr.LoadSpells();
 
@@ -1389,9 +1393,6 @@ void World::SetInitialWorldSettings()
     LoadDBCStores(dbcPath);
     DetectDBCLang();
     sObjectMgr.SetDBCLocaleIndex(GetDefaultDbcLocale());    // Get once for all the locale index of DBC language (console/broadcasts)
-
-    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading Script Names...");
-    sScriptMgr.LoadScriptNames();
 
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading MapTemplate...");
     sObjectMgr.LoadMapTemplate();
@@ -1945,16 +1946,16 @@ void World::DetectDBCLang()
 // Only processes packets while session update, the messager, and cli commands processing are NOT running
 void World::ProcessAsyncPackets()
 {
-    while (!IsStopped())
+    do
     {
-        do
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        std::lock_guard<std::mutex> lock(m_asyncPacketsMutex);
 
-            if (IsStopped())
-                return;
+        if (IsStopped())
+            return;
 
-        } while (!m_canProcessAsyncPackets);
+        if (!m_canProcessAsyncPackets)
+            continue;
 
         for (auto const& itr : m_sessions)
         {
@@ -1967,7 +1968,7 @@ void World::ProcessAsyncPackets()
             if (!m_canProcessAsyncPackets)
                 break;
         }
-    }
+    } while (!IsStopped());
 }
 
 // Update the World !
@@ -2002,18 +2003,21 @@ void World::Update(uint32 diff)
         sAuctionMgr.Update();
     }
 
-    m_canProcessAsyncPackets = false;
+    {
+        m_canProcessAsyncPackets = false;
+        std::lock_guard<std::mutex> lock(m_asyncPacketsMutex);
 
-    GetMessager().Execute(this);
+        GetMessager().Execute(this);
 
-    // <li> Handle session updates
-    uint32 updateSessionsTime = WorldTimer::getMSTime();
-    UpdateSessions(diff);
-    updateSessionsTime = WorldTimer::getMSTimeDiffToNow(updateSessionsTime);
-    if (getConfig(CONFIG_UINT32_PERFLOG_SLOW_SESSIONS_UPDATE) && updateSessionsTime > getConfig(CONFIG_UINT32_PERFLOG_SLOW_SESSIONS_UPDATE))
-        sLog.Out(LOG_PERFORMANCE, LOG_LVL_MINIMAL, "Update sessions: %ums", updateSessionsTime);
+        // <li> Handle session updates
+        uint32 updateSessionsTime = WorldTimer::getMSTime();
+        UpdateSessions(diff);
+        updateSessionsTime = WorldTimer::getMSTimeDiffToNow(updateSessionsTime);
+        if (getConfig(CONFIG_UINT32_PERFLOG_SLOW_SESSIONS_UPDATE) && updateSessionsTime > getConfig(CONFIG_UINT32_PERFLOG_SLOW_SESSIONS_UPDATE))
+            sLog.Out(LOG_PERFORMANCE, LOG_LVL_MINIMAL, "Update sessions: %ums", updateSessionsTime);
 
-    m_canProcessAsyncPackets = true;
+        m_canProcessAsyncPackets = true;
+    }
 
     // <li> Update uptime table
     if (m_timers[WUPDATE_UPTIME].Passed())
@@ -2125,12 +2129,15 @@ void World::Update(uint32 diff)
     // Update ban list if necessary
     sAccountMgr.Update(diff);
 
-    m_canProcessAsyncPackets = false;
+    {
+        m_canProcessAsyncPackets = false;
+        std::lock_guard<std::mutex> lock(m_asyncPacketsMutex);
 
-    // And last, but not least handle the issued cli commands
-    ProcessCliCommands();
+        // And last, but not least handle the issued cli commands
+        ProcessCliCommands();
 
-    m_canProcessAsyncPackets = true;
+        m_canProcessAsyncPackets = true;
+    }
 
     //cleanup unused GridMap objects as well as VMaps
     if (getConfig(CONFIG_BOOL_CLEANUP_TERRAIN))
@@ -3112,7 +3119,7 @@ void World::AddAsyncTask(std::function<void()> task) {
     _asyncTasks.push_back(std::move(task));
 }
 
-void World::LogMoneyTrade(ObjectGuid sender, ObjectGuid receiver, uint32 amount, const char* type, uint32 dataInt)
+void World::LogMoneyTrade(ObjectGuid sender, ObjectGuid receiver, uint32 amount, char const* type, uint32 dataInt)
 {
     if (!LogsDatabase || !getConfig(CONFIG_BOOL_LOGSDB_TRADES))
         return;
