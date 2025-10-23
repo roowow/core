@@ -340,6 +340,9 @@ void WorldSession::CheckPlayedTimeLimit(time_t now)
             GetPlayer()->SetFlag(PLAYER_FLAGS, PLAYER_FLAGS_NO_PLAY_TIME);
             GetPlayer()->RemoveFlag(PLAYER_FLAGS, PLAYER_FLAGS_PARTIAL_PLAY_TIME);
             m_exhaustionState = PLAY_TIME_LIMIT_FULL;
+
+            if (GetPlayer()->InBattleGround())
+                GetPlayer()->LeaveBattleground();
         }
     }
     else if (currentPlayed >= PLAY_TIME_LIMIT_APPROCHING_FULL)
