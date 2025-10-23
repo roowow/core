@@ -78,9 +78,9 @@ void WorldSession::HandleGroupInviteOpcode(WorldPacket& recv_data)
     }
 
     Player* leader = GetPlayer();
-    if (!leader->IsHardcore())
+    if (player->IsHardcore() && ! player->IsHardcoreRetired())
     {
-        if (player->IsHardcore() && ! player->IsHardcoreRetired())
+        if (! leader->IsHardcore() || leader->IsHardcoreRetired())
         {
             ChatHandler(leader).SendSysMessage("勇敢者只能与勇敢者组队。");
             ChatHandler(player).SendSysMessage("勇敢者只能与勇敢者组队。");
