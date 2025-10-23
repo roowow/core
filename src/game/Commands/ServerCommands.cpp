@@ -307,7 +307,7 @@ bool ChatHandler::HandleServerInfoCommand(char* /*args*/)
     uint32 maxQueuedClientsNum = sWorld.GetMaxQueuedSessionCount();
     std::string str = secsToTimeString(sWorld.GetUptime());
 
-    SendSysMessage("版本：OOWOW v60.0.2 / 2023-06-10");
+    SendSysMessage("版本：OOWOW v60.1.0 / 2025-09-01");
     PSendSysMessage("系统：Solaris 10 / SPARC T4-2 / 8 x 2.85 GHz / 512 GB");
     PSendSysMessage(LANG_UPTIME, str.c_str());
 
