@@ -13085,9 +13085,9 @@ bool Player::CanRewardQuest(Quest const* pQuest, bool msg) const
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_7_1
     if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_NO_PLAY_TIME))
     {
-        if (msg)
-            GetSession()->SendPlayTimeWarning(PTF_UNHEALTHY_TIME, 0);
-        return false;
+        // if (msg)
+        //     GetSession()->SendPlayTimeWarning(PTF_UNHEALTHY_TIME, 0);
+        // return false;
     }
 #endif
 
@@ -22243,10 +22243,10 @@ std::string Player::GetShortDescription() const
 void Player::LootMoney(int32 money, Loot* loot)
 {
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_7_1
-    if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_NO_PLAY_TIME))
+    if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_NO_PLAY_TIME) && !GetMap()->IsRaid())
         return;
 
-    if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_PARTIAL_PLAY_TIME))
+    if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_PARTIAL_PLAY_TIME) && !GetMap()->IsRaid())
         money /= 2;
 #endif
 

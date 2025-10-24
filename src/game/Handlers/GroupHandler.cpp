@@ -480,10 +480,10 @@ void WorldSession::HandleLootRoll(WorldPacket& recv_data)
         return;
 
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_7_1
-    if (GetPlayer()->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_NO_PLAY_TIME))
+    if (GetPlayer()->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_NO_PLAY_TIME) && !GetPlayer()->GetMap()->IsRaid())
     {
-        // SendPlayTimeWarning(PTF_UNHEALTHY_TIME, 0);
-        // rollType = ROLL_PASS;
+        SendPlayTimeWarning(PTF_UNHEALTHY_TIME, 0);
+        rollType = ROLL_PASS;
     }
 #endif
 

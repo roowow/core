@@ -232,6 +232,20 @@ void WorldSession::HandleAutostoreLootItemOpcode(WorldPacket& recv_data)
 
         /// BigData - character_log_item Green+ / fish
         ItemPrototype const* itemProto = sObjectMgr.GetItemPrototype(item->itemid);
+
+        /// 防沉迷, 铜矿 2770 7 0, 宁神花 2447 7 0
+        if (itemProto->Class == 7 && itemProto->SubClass == 0)
+        {
+        #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_7_1
+            if (player->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_NO_PLAY_TIME))
+            {
+                player->GetSession()->SendPlayTimeWarning(PTF_UNHEALTHY_TIME, 0);
+                player->SendLootError(lguid, LOOT_ERROR_PLAY_TIME_EXCEEDED);
+                return;
+            }
+        #endif
+        }
+
         if (itemProto->Quality >= 2 || itemProto->FoodType == 2) {
             CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `lootguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Auto', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
                 _player->GetGUIDLow(), _player->GetName(), item->itemid, newitem->GetGUIDLow(), item->count, lguid.GetCounter(), _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
@@ -368,7 +382,7 @@ void WorldSession::HandleLootOpcode(WorldPacket& recv_data)
     }
 
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_7_1
-    if (_player->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_NO_PLAY_TIME))
+    if (_player->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_NO_PLAY_TIME) && !_player->GetMap()->IsRaid())
     {
         _player->SendLootError(guid, LOOT_ERROR_PLAY_TIME_EXCEEDED);
         return;
@@ -658,9 +672,9 @@ void WorldSession::HandleLootMasterGiveOpcode(WorldPacket& recv_data)
     }
 
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_7_1
-    if (target->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_NO_PLAY_TIME))
+    if (target->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_NO_PLAY_TIME)  && !_player->GetMap()->IsRaid())
     {
-        _player->SendLootError(lootGuid, LOOT_ERROR_MASTER_OTHER);
+        _player->SendLootError(lootGuid, LOOT_ERROR_PLAY_TIME_EXCEEDED);
         return;
     }
 #endif
