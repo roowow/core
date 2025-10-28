@@ -2585,7 +2585,9 @@ void ChatHandler::BuildChatPacket(WorldPacket& data, ChatMsg msgtype, char const
         case CHAT_MSG_CHANNEL:
             MANGOS_ASSERT(channelName);
             data << channelName;
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_5_1
             data << uint32(playerRank);
+#endif
             data << ObjectGuid(senderGuid);
             break;
 
@@ -4084,3 +4086,4 @@ char const* NullChatHandler::GetMangosString(int32 entry) const
 {
     return sObjectMgr.GetMangosStringForDBCLocale(entry);
 }
+

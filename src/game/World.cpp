@@ -572,6 +572,7 @@ void World::LoadConfigSettings(bool reload)
     setConfig(CONFIG_UINT32_COMPRESSION_MOVEMENT_COUNT, "Compression.Movement.Count", 300);
     setConfig(CONFIG_BOOL_ADDON_CHANNEL, "AddonChannel", true);
     setConfig(CONFIG_BOOL_CLEAN_CHARACTER_DB, "CleanCharacterDB", true);
+    setConfig(CONFIG_UINT32_REUSABLE_GUID_POOL_SIZE, "ReusableGuidPoolSize", 100000);
     setConfig(CONFIG_BOOL_GRID_UNLOAD, "GridUnload", true);
     setConfig(CONFIG_BOOL_CLEANUP_TERRAIN, "CleanupTerrain", true);
     setConfigPos(CONFIG_UINT32_INTERVAL_SAVE, "PlayerSave.Interval", 15 * MINUTE * IN_MILLISECONDS);
@@ -1222,6 +1223,7 @@ void World::LoadConfigSettings(bool reload)
     setConfig(CONFIG_UINT32_AC_MOVEMENT_CHEAT_BOTTING_MIN_TURNS_KEYBOARD, "Anticheat.Botting.MinTurnsKeyboard", 80);
     setConfig(CONFIG_UINT32_AC_MOVEMENT_CHEAT_BOTTING_MIN_TURNS_ABNORMAL, "Anticheat.Botting.MinTurnsAbnormal", 5);
     setConfig(CONFIG_UINT32_AC_MOVEMENT_CHEAT_BOTTING_PENALTY, "Anticheat.Botting.Penalty", CHEAT_ACTION_LOG | CHEAT_ACTION_REPORT_GMS);
+    MovementAnticheat::InitWallClimbLimits();
 
     // Warden Anticheat
     setConfig(CONFIG_BOOL_AC_WARDEN_WIN_ENABLED, "Warden.WinEnabled", false);
