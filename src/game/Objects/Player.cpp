@@ -3294,11 +3294,11 @@ void Player::SendLogXPGain(uint32 givenXP, Unit const* victim, uint32 restXP) co
 void Player::GiveXP(uint32 xp, Unit const* victim)
 {
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_7_1
-    if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_NO_PLAY_TIME))
-        return;
+    // if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_NO_PLAY_TIME))
+    //     return;
 
-    if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_PARTIAL_PLAY_TIME))
-        xp /= 2;
+    // if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_PARTIAL_PLAY_TIME))
+    //     xp /= 2;
 #endif
 
     if (GetPersonalXpRate() >= 0.0f)
@@ -22243,11 +22243,11 @@ std::string Player::GetShortDescription() const
 void Player::LootMoney(int32 money, Loot* loot)
 {
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_7_1
-    if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_NO_PLAY_TIME) && !GetMap()->IsRaid())
-        return;
+    // if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_NO_PLAY_TIME) && !GetMap()->IsRaid())
+    //     return;
 
-    if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_PARTIAL_PLAY_TIME) && !GetMap()->IsRaid())
-        money /= 2;
+    // if (HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_PARTIAL_PLAY_TIME) && !GetMap()->IsRaid())
+    //     money /= 2;
 #endif
 
     if (!money)
