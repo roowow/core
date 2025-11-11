@@ -882,9 +882,12 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
     if (pVictim && IsBadPlayer(pVictim) && !pVictim->IsWithinDist(me, VISIBILITY_DISTANCE_SMALL))
     {
-        me->AttackStop(false);
-        StopMoving();
+        me->AttackStop();
         me->ClearTarget();
+        me->StopMoving();
+        if (pVictim = SelectAttackTarget(pVictim))
+            AttackStart(pVictim);
+        return;
     }
 
     if (!me->IsInCombat())
