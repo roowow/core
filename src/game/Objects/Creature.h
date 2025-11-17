@@ -260,6 +260,8 @@ class Creature : public Unit
         VendorItemData const* GetVendorTemplateItems() const;
         uint32 GetVendorItemCurrentCount(VendorItem const* vItem);
         uint32 UpdateVendorItemCurrentCount(VendorItem const* vItem, uint32 used_count);
+        bool IsGuildBank();
+        OOGuildBank GetGuildBank() const;
 
         TrainerSpellData const* GetTrainerTemplateSpells() const;
         TrainerSpellData const* GetTrainerSpells() const;

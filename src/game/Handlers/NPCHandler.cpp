@@ -527,6 +527,24 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
                     break;
             }
         }
+
+        // Guild Bank
+        if (item->GetEntry() == 918232)
+        {
+            PlayerMenu* pMenu = _player->PlayerTalkClass;
+            pMenu->ClearMenus();
+            pMenu->CloseGossip();
+
+            _player->DestroyItemCount(918232, 1, true);
+            Creature* pCreature = _player->SummonCreature(action, _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetOrientation(), TEMPSUMMON_TIMED_DESPAWN, 20*60*1000);
+            std::string msg = "尊敬的";
+            msg += _player->GetName();
+            msg += "荣耀贵宾，";
+            msg += std::to_string(urand(1, 10));
+            msg += "号智能机器人很荣耀为您服务！我的服务时间为20分钟。";
+            if (pCreature)
+                pCreature->MonsterSay(msg.c_str(), 0, 0);
+        }
     }
     else if (guid.IsPlayer())
     {

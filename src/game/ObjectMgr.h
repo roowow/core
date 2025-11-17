@@ -948,6 +948,7 @@ class ObjectMgr
 
         void LoadVendorTemplates();
         void LoadVendors() { LoadVendors("npc_vendor", false); }
+
         void LoadTrainerTemplates();
         void LoadTrainers() { LoadTrainers("npc_trainer", false); }
 
@@ -1272,6 +1273,7 @@ class ObjectMgr
 
         void AddVendorItem(uint32 entry,uint32 item, uint32 maxcount, uint32 incrtime, uint32 itemflags);
         bool RemoveVendorItem(uint32 entry,uint32 item);
+        bool RemoveVendorItemCache(uint32 entry,uint32 item);
         bool IsVendorItemValid(bool isTemplate, char const* tableName, uint32 vendor_entry, uint32 item, uint32 maxcount, uint32 incrtime, uint32 conditionId, Player* pl = nullptr) const;
 
         int GetOrNewIndexForLocale(LocaleConstant loc);

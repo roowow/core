@@ -31,6 +31,7 @@
 #include "GameObject.h"
 #include "Map.h"
 #include "Chat.h"
+#include "ScriptedGossip.h"
 
 using namespace Spells;
 
@@ -328,6 +329,28 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
         }
 
         pMenu->SendGossipMenu(22011, pItem->GetGUID());
+
+        cancelCast = true;
+    }
+
+    // Guild Bank
+    if (pItem->GetEntry() == 918232)
+    {
+        if (pUser->GetGuildId())
+        {
+            for (auto i = sOOMgr.OOGuildBanks.begin(); i != sOOMgr.OOGuildBanks.end(); i++)
+            {
+                OOGuildBank OOGuildBank = i->second;
+
+                if (pUser->GetGuildId() == OOGuildBank.guild_id && pUser->GetRank() <= OOGuildBank.guild_rank)
+                {
+                    std::string msg = std::string("接入仓库《") +  OOGuildBank.name + std::string("》") ;
+                    pUser->ADD_GOSSIP_ITEM(GOSSIP_ICON_TAXI, msg.c_str(), GOSSIP_SENDER_SEC_BANK, OOGuildBank.vendor_id);
+                }
+            }
+        }
+
+        pUser->SEND_GOSSIP_MENU(22030, pItem->GetGUID());
 
         cancelCast = true;
     }

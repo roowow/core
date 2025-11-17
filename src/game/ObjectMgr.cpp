@@ -10528,14 +10528,12 @@ void ObjectMgr::LoadVendors(char const* tableName, bool isTemplates)
 
         vList.AddItem(item_id, maxcount, incrtime, itemflags, conditionId);
         ++count;
-
     }
     while (result->NextRow());
 
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u vendor %sitems", count, isTemplates ? "template " : "");
 }
-
 
 void ObjectMgr::LoadVendorTemplates()
 {
@@ -10917,9 +10915,20 @@ void ObjectMgr::LoadGossipMenuItems(std::set<uint32>& gossipScriptSet)
 void ObjectMgr::AddVendorItem(uint32 entry, uint32 item, uint32 maxcount, uint32 incrtime, uint32 itemflags)
 {
     VendorItemData& vList = m_CacheVendorItemMap[entry];
-    vList.AddItem(item, maxcount, incrtime, itemflags, 0);
+    VendorItem const* vItem = vList.FindItem(item);
+    if (vItem)
+    {
+        // remove vendor item without db IO
+        CacheVendorItemMap::iterator  iter = m_CacheVendorItemMap.find(entry);
+        if (iter != m_CacheVendorItemMap.end())
+        {
+            if (iter->second.FindItem(item))
+                iter->second.RemoveItem(item);
+        }
+    }
 
-    WorldDatabase.PExecuteLog("INSERT INTO `npc_vendor` (`entry`, `item`, `maxcount`, `incrtime`, `itemflags`) VALUES('%u','%u','%u','%u','%u')", entry, item, maxcount, incrtime, itemflags);
+    vList.AddItem(item, maxcount, incrtime, itemflags, 0);
+    WorldDatabase.PExecuteLog("REPLACE INTO `npc_vendor` (`entry`, `item`, `maxcount`, `incrtime`, `itemflags`) VALUES('%u','%u','%u','%u','%u')", entry, item, maxcount, incrtime, itemflags);
 }
 
 bool ObjectMgr::RemoveVendorItem(uint32 entry, uint32 item)
@@ -10933,6 +10942,20 @@ bool ObjectMgr::RemoveVendorItem(uint32 entry, uint32 item)
 
     iter->second.RemoveItem(item);
     WorldDatabase.PExecuteLog("DELETE FROM `npc_vendor` WHERE `entry`='%u' AND `item`='%u'", entry, item);
+    return true;
+}
+
+bool ObjectMgr::RemoveVendorItemCache(uint32 entry, uint32 item)
+{
+    CacheVendorItemMap::iterator  iter = m_CacheVendorItemMap.find(entry);
+    if (iter == m_CacheVendorItemMap.end())
+        return false;
+
+    if (!iter->second.FindItem(item))
+        return false;
+
+    iter->second.RemoveItem(item);
+    // WorldDatabase.PExecuteLog("DELETE FROM `npc_vendor` WHERE `entry`='%u' AND `item`='%u'", entry, item);
     return true;
 }
 

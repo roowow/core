@@ -3436,6 +3436,22 @@ uint32 Creature::UpdateVendorItemCurrentCount(VendorItem const* vItem, uint32 us
     return vCount->count;
 }
 
+bool Creature::IsGuildBank()
+{
+    std::map< uint32, OOGuildBank >::iterator OObank = sOOMgr.OOGuildBankVendors.find(GetEntry());
+    if (OObank != sOOMgr.OOGuildBankVendors.end())
+        return true;
+
+    return false;
+}
+
+// Guild Bank
+OOGuildBank Creature::GetGuildBank() const
+{
+    std::map< uint32, OOGuildBank >::iterator OObank = sOOMgr.OOGuildBankVendors.find(GetEntry());
+    return OObank->second;
+}
+
 TrainerSpellData const* Creature::GetTrainerTemplateSpells() const
 {
     uint32 trainerId = GetCreatureInfo()->trainer_id;

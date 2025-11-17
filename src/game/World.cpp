@@ -1828,9 +1828,6 @@ void World::SetInitialWorldSettings()
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading auto broadcast");
     sAutoBroadCastMgr.Load();
 
-    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading OO");
-    sOOMgr.Load();
-
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading AH bot");
     sAuctionHouseBotMgr.Load();
 
@@ -1862,6 +1859,9 @@ void World::SetInitialWorldSettings()
 
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading spell group stack rules ...");
     sSpellMgr.LoadSpellGroupStackRules();
+
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading OO");
+    sOOMgr.Load();
 
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading RBAC for chat commands...");
     ChatHandler::LoadRbacPermissions();

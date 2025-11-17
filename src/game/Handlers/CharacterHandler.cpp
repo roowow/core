@@ -408,6 +408,17 @@ void WorldSession::HandleCharDeleteOpcode(WorldPacket& recv_data)
 
     Player::DeleteFromDB(guid, GetAccountId());
 
+    /// character deletion
+    CharacterDatabase.PExecute("DELETE FROM character_hardcore WHERE guid=%u", guid);
+    CharacterDatabase.PExecute("DELETE FROM character_spell_extra WHERE guid=%u", guid);
+    CharacterDatabase.PExecute("DELETE FROM character_spell_talent WHERE guid=%u", guid);
+    CharacterDatabase.PExecute("DELETE FROM character_log_levelup WHERE guid=%u", guid);
+    CharacterDatabase.PExecute("DELETE FROM character_log_wareffort WHERE guid=%u", guid);
+    CharacterDatabase.PExecute("DELETE FROM character_log_money WHERE guid=%u", guid);
+    CharacterDatabase.PExecute("DELETE FROM character_log_pvpkill WHERE guid=%u", guid);
+    CharacterDatabase.PExecute("DELETE FROM character_log_guildbank WHERE guid=%u", guid);
+    CharacterDatabase.PExecute("DELETE FROM character_displayid WHERE guid=%u", guid);
+
     WorldPacket data(SMSG_CHAR_DELETE, 1);
     data << (uint8)CHAR_DELETE_SUCCESS;
     SendPacket(&data);

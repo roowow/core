@@ -40,6 +40,8 @@ set (SCRIPTS_SRCS
     custom/custom.cpp
     custom/custom_creatures.cpp
     custom/oo_creatures.cpp
+    custom/oo_guild_bank.cpp
+    custom/oo_guild_bank_bot.cpp
     custom/event_attack_city.cpp
     custom/gmisland.cpp
     custom/npc_escort.cpp
