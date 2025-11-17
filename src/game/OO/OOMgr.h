@@ -19,6 +19,20 @@ struct OOBroadCastEntry
     int32 stringId;
 };
 
+class OOGuildBank
+{
+    public:
+        uint32 guid;
+        uint32 guild_id;
+        uint32 guild_rank;
+        uint32 vendor_id;
+        uint32 withdraw_item;
+        uint32 withdraw_cod;
+        uint32 withdraw_cod_total;
+        std::string name;
+        uint32 cod;
+};
+
 class OOMgr
 {
     public :
@@ -33,6 +47,16 @@ class OOMgr
 
         // player guid, object GameObject* pGo
         std::map< uint32, GameObject* > SnowBallObjects;
+
+        std::map< uint32, OOGuildBank > OOGuildBanks; // character id, OOGuildBank
+        std::map< uint32, OOGuildBank > OOGuildBankVendors; // vendor id, OOGuildBank
+
+        std::map< uint32, std::map< uint32, uint32 > > OOPlayerGuildBankCount; // player_guid, < guild_id, player fetched count >
+        std::map< uint32, std::map< uint32, uint32 > > OOGuildBankVendorItems; // vendor id, < item id, count >
+        std::map< uint32, uint32 > OOGuildBankVendorLocks; // vendor id, timestamp
+        std::map< uint32, std::map< uint32, uint32 > > OOGuildBankCreatureBots; // creature guid (npc summon bot), < creature entry (bot) , timestamp >
+
+        std::map< std::string, uint32 > OOItems;
 
         std::vector<std::string > GetPVPText(uint32 prace, uint32 plass);
 
