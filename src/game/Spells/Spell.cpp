@@ -6417,8 +6417,8 @@ SpellCastResult Spell::CheckCast(bool strict)
                     return SPELL_FAILED_BAD_TARGETS;
 
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_7_1
-                if (m_caster->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_NO_PLAY_TIME))
-                    return SPELL_FAILED_PLAY_TIME;
+                // if (m_caster->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_NO_PLAY_TIME))
+                    // return SPELL_FAILED_PLAY_TIME;
 #endif
 
                 // we need a go target in case of TARGET_GAMEOBJECT (for other targets acceptable GO and items)
