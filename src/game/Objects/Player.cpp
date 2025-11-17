@@ -18993,7 +18993,7 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
         }
 
         // vendor lock; raid check
-        if (sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] + 5 < time(nullptr) && !GetMap()->IsRaid())
+        if (sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] + 5 > time(nullptr) && !GetMap()->IsRaid())
         {
             if (urand(0,2))
             {

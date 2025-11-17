@@ -618,6 +618,106 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recv_data)
         }
     }
 
+    // Guild Bank
+    uint32 latestCount = pItem->GetCount();
+    if (pCreature->IsGuildBank())
+    {
+        OOGuildBank oobank = pCreature->GetGuildBank();
+
+        if (!pItem->CanBeTraded())
+        {
+            std::string msg = "抱歉！";
+            msg += _player->GetName();
+            msg += "，此类货物不接收。";
+            pCreature->MonsterSay(msg.c_str(), 0, 0);
+            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, itemGuid, 0);
+            return;
+        }
+
+        // is raid
+        if (_player->GetMap()->IsRaid())
+        {
+            std::string msg = "抱歉！";
+            msg += _player->GetName();
+            msg += "，危险区域不收货物。";
+            pCreature->MonsterSay(msg.c_str(), 0, 0);
+            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, itemGuid, 0);
+            return;
+        }
+
+        // check guild
+        if (_player->GetGuildId() != oobank.guild_id)
+        {
+            std::string msg = "抱歉！";
+            msg += _player->GetName();
+            msg += "，您不属于该公会。";
+            pCreature->MonsterSay(msg.c_str(), 0, 0);
+            _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, pCreature, itemGuid, 0);
+            return;
+        }
+
+        // check rank
+        if (_player->GetRank() > oobank.guild_rank && _player->GetRank() > 0)
+        {
+            std::string msg = "抱歉！";
+            msg += _player->GetName();
+            msg += "，您的公会等级不够。";
+            pCreature->MonsterSay(msg.c_str(), 0, 0);
+            _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, pCreature, itemGuid, 0);
+            return;
+        }
+
+        // vendor lock
+        if (sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] + 5 > time(nullptr))
+        {
+            if (urand(0,2))
+            {
+                pCreature->MonsterSay("正在存入区块链账本，算力有限，请耐心等待...", 0, 0);
+            }
+            else
+            {
+                pCreature->MonsterSay("如果您希望更便捷的服务，欢迎去我们总行咨询荣耀尊享服务。", 0, 0);
+            }
+            _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, pCreature, itemGuid, 0);
+            return;
+        }
+
+        // single item total < 100, total item types < 255
+        uint32 totalItemTypes = 0;
+        std::map< uint32, std::map< uint32, uint32 > >::iterator it1 = sOOMgr.OOGuildBankVendorItems.find(pCreature->GetEntry());
+        if (it1 != sOOMgr.OOGuildBankVendorItems.end())
+        {
+            std::map< uint32, uint32 >::iterator it2 = it1->second.find(pItem->GetEntry());
+            if (it2 != it1->second.end())
+            {
+                latestCount += it2->second;
+            }
+
+            for (auto i = it1->second.begin(); i != it1->second.end(); i++)
+            {
+                totalItemTypes++;
+            }
+        }
+        if (latestCount > 100)
+        {
+            std::string msg = "抱歉！";
+            msg += _player->GetName();
+            msg += "，单个货物最多只能存放100个。";
+            pCreature->MonsterSay(msg.c_str(), 0, 0);
+            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, itemGuid, 0);
+            return;
+        }
+        if (totalItemTypes > 255)
+        {
+            std::string msg = "抱歉！";
+            msg += _player->GetName();
+            msg += "，货物品类只能存放255个。";
+            pCreature->MonsterSay(msg.c_str(), 0, 0);
+            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, itemGuid, 0);
+            return;
+        }
+    }
+
     if (count < pItem->GetCount())              // need split items
     {
         Item *pNewItem = pItem->CloneItem(count, _player);
@@ -634,7 +734,8 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recv_data)
             pItem->SendCreateUpdateToPlayer(_player);
         pItem->SetState(ITEM_CHANGED, _player);
 
-        _player->AddItemToBuyBackSlot(pNewItem, money, vendorGuid);
+        if (!pCreature->IsGuildBank()) // Guild Bank
+            _player->AddItemToBuyBackSlot(pNewItem, money, vendorGuid);
         if (_player->IsInWorld())
             pNewItem->SendCreateUpdateToPlayer(_player);
     }
@@ -644,10 +745,29 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recv_data)
         _player->RemoveItem(pItem->GetBagSlot(), pItem->GetSlot(), true);
         _player->InterruptSpellsWithCastItem(pItem);
         pItem->RemoveFromUpdateQueueOf(_player);
-        _player->AddItemToBuyBackSlot(pItem, money, vendorGuid);
+        if (!pCreature->IsGuildBank()) // Guild Bank
+            _player->AddItemToBuyBackSlot(pItem, money, vendorGuid);
     }
 
-    _player->LogModifyMoney(money, "SellItem", pCreature->GetObjectGuid(), pItem->GetEntry());
+    // Guild Bank
+    if (pCreature->IsGuildBank())
+    {
+        OOGuildBank oobank = pCreature->GetGuildBank();
+        std::string msg = _player->GetName();
+        msg += "，已收到您的货物，正在存入...";
+        pCreature->MonsterSay(msg.c_str(), 0, 0);
+
+        CharacterDatabase.PExecute("INSERT INTO `character_log_guildbank` (`guid`, `name`, `vendor`, `item`, `count`, `type`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Deposit', '%u', '%u', '%f', '%f', '%f', '%s')",
+            _player->GetGUIDLow(), _player->GetName(), oobank.vendor_id, pItem->GetEntry(), pItem->GetCount(), _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
+
+        sObjectMgr.AddVendorItem(pCreature->GetEntry(), pItem->GetEntry(), latestCount, 999999, 0);
+        sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][pItem->GetEntry()] = latestCount;
+        sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] = time(nullptr);
+    }
+    else
+    {
+        _player->LogModifyMoney(money, "SellItem", pCreature->GetObjectGuid(), pItem->GetEntry());
+    }
 }
 
 void WorldSession::HandleBuybackItem(WorldPacket& recv_data)
@@ -768,6 +888,7 @@ void WorldSession::SendListInventory(ObjectGuid vendorguid, uint8 menu_type)
         return;
     }
 
+    // Wareffort
     if (pCreature->GetEntry() == 299018)
     {
         ChatHandler(GetPlayer()).PSendSysMessage("我的战争物质贡献值：%u, 已使用：%u。", GetPlayer()->oowowInfo.wareffort_count, GetPlayer()->oowowInfo.wareffort_used);

@@ -39,7 +39,7 @@ void OOMgr::Load()
     }
 
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
-    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u PVP texts", pcount);
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u OO PVP texts", pcount);
 
     // for (auto & element : GetPVPText(2, 2)) {
     //     printf("dd %s \n", element.c_str());
@@ -57,6 +57,67 @@ void OOMgr::Load()
             bindex++;
         }
         while (bresult->NextRow());
+    }
+
+    /// Build Bank
+    // SELECT `guild_id`, `guild_rank`, `withdraw_item`, `withdraw_cod` FROM `character_guild_bank`
+    std::unique_ptr<QueryResult> gresult(CharacterDatabase.Query("SELECT guid, guild_id, vendor_id, guild_rank, withdraw_item, withdraw_cod, withdraw_cod_total, vendor_name FROM `character_guild_bank`"));
+    if (gresult)
+    {
+        do
+        {
+            Field* fields = gresult->Fetch();
+
+            OOGuildBank OOGuildBank;
+            OOGuildBank.guid                = fields[0].GetUInt32();
+            OOGuildBank.guild_id            = fields[1].GetUInt32();
+            OOGuildBank.vendor_id           = fields[2].GetUInt32();
+            OOGuildBank.guild_rank          = fields[3].GetUInt32();
+            OOGuildBank.withdraw_item       = fields[4].GetUInt32();
+            OOGuildBank.withdraw_cod        = fields[5].GetUInt32();
+            OOGuildBank.withdraw_cod_total  = fields[6].GetUInt32();
+            OOGuildBank.name                = fields[7].GetString();
+
+            OOGuildBanks[fields[0].GetUInt32()]       = OOGuildBank;
+            OOGuildBankVendors[fields[2].GetUInt32()] = OOGuildBank;
+        }
+        while (gresult->NextRow());
+    }
+
+    std::unique_ptr<QueryResult> vresult(WorldDatabase.PQuery("SELECT `entry`, `item`, `maxcount`, `incrtime`, `itemflags`, `condition_id` FROM npc_vendor"));
+    pcount = 0;
+    if (vresult)
+    {
+        do
+        {
+            Field* fields = vresult->Fetch();
+
+            uint32 entry        = fields[0].GetUInt32();
+            uint32 item_id      = fields[1].GetUInt32();
+            uint32 maxcount     = fields[2].GetUInt32();
+            uint32 incrtime     = fields[3].GetUInt32();
+            uint32 itemflags    = fields[4].GetUInt32();
+            uint32 conditionId  = fields[5].GetUInt32();
+
+            OOGuildBankVendorItems[entry][item_id] = maxcount; // guild bank, vendor entry / item entry / count
+            OOGuildBankVendorLocks[entry] = 0; // vendor id, timestamp
+            ++pcount;
+        }
+        while (vresult->NextRow());
+    }
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u OO Guild Bank Items", pcount);
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
+
+    /// Items
+    std::unique_ptr<QueryResult> iresult(WorldDatabase.Query("SELECT l.entry, l.name_loc4 FROM `locales_item` l join item_template i on i.entry = l.entry where i.max_count = 0 and i.bonding in (0,2) and i.flags != 2 and l.name_loc4 is not null and TRIM(l.name_loc4) <> ''"));
+    if (iresult)
+    {
+        do
+        {
+            Field* fields = iresult->Fetch();
+            OOItems[fields[1].GetString()] = fields[0].GetUInt32();
+        }
+        while (iresult->NextRow());
     }
 
     // entries.clear();
