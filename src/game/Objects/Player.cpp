@@ -18914,7 +18914,101 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
     // reputation discount
     price = uint32(price * GetReputationPriceDiscount(pCreature) + 0.5f);
 
-    if (GetMoney() < price)
+    // Guild bank
+    if (pCreature->IsGuildBank())
+    {
+        OOGuildBank oobank = pCreature->GetGuildBank();
+
+        // check guild
+        if (GetGuildId() != oobank.guild_id)
+        {
+            std::string msg = "抱歉！";
+            msg += GetName();
+            msg += "，您不属于该公会。";
+            pCreature->MonsterSay(msg.c_str(), 0, 0);
+            SendBuyError(BUY_ERR_SELLER_DONT_LIKE_YOU, pCreature, item, 0);
+            return false;
+        }
+
+        // check rank
+        if (GetRank() > oobank.guild_rank && GetRank() > 0)
+        {
+            std::string msg = "抱歉！";
+            msg += GetName();
+            msg += "，您的公会等级不够。";
+            pCreature->MonsterSay(msg.c_str(), 0, 0);
+            SendBuyError(BUY_ERR_SELLER_DONT_LIKE_YOU, pCreature, item, 0);
+            return false;
+        }
+
+        // check real left
+        if (sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][item] <= 0)
+        {
+            std::string msg = "抱歉！";
+            msg += GetName();
+            msg += "，货物已经被取完。";
+            pCreature->MonsterSay(msg.c_str(), 0, 0);
+            sObjectMgr.RemoveVendorItemCache(pCreature->GetEntry(), item);
+            SendBuyError(BUY_ERR_ITEM_ALREADY_SOLD, pCreature, item, 0);
+            return false;
+        }
+
+        if (count > 5)
+        {
+            std::string msg = "抱歉！";
+            msg += GetName();
+            msg += "，每次最多提取5个。";
+            pCreature->MonsterSay(msg.c_str(), 0, 0);
+            SendBuyError(BUY_ERR_CANT_CARRY_MORE, pCreature, item, 0);
+            return false;
+        }
+
+        // check quota
+        std::map< uint32, std::map< uint32, uint32 > >::iterator OOPlayerGuildBankCount = sOOMgr.OOPlayerGuildBankCount.find(GetGUIDLow());
+        if (OOPlayerGuildBankCount == sOOMgr.OOPlayerGuildBankCount.end())
+        {
+            sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.guild_id] = 0;
+        }
+        else
+        {
+            std::map< uint32, uint32 >::iterator OOPlayerGuildBankCount_c = sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()].find(oobank.guild_id);
+            if (OOPlayerGuildBankCount_c == sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()].end())
+            {
+                sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.guild_id] = 0;
+            }
+            else
+            {
+                if (sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.guild_id] >= oobank.withdraw_item)
+                {
+                    std::string msg = "抱歉！";
+                    msg += GetName();
+                     msg += "，每天只能提取";
+                    msg += std::to_string(oobank.withdraw_item);
+                    msg += "次，你已经使用完今日次数。";
+                    pCreature->MonsterSay(msg.c_str(), 0, 0);
+                    SendBuyError(BUY_ERR_CANT_CARRY_MORE, pCreature, item, 0);
+                    return false;
+                }
+            }
+        }
+
+        // vendor lock; raid check
+        if (sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] + 5 < time(nullptr) && !GetMap()->IsRaid())
+        {
+            if (urand(0,2))
+            {
+                pCreature->MonsterSay("正在存入区块链账本，算力有限，请耐心等待...", 0, 0);
+            }
+            else
+            {
+                pCreature->MonsterSay("如果您希望更便捷的服务，欢迎去我们总行咨询荣耀尊享服务。", 0, 0);
+            }
+            SendBuyError(BUY_ERR_SELLER_DONT_LIKE_YOU, pCreature, item, 0);
+            return false;
+        }
+    }
+
+    if (GetMoney() < price && !pCreature->IsGuildBank()) // Guild bank
     {
         SendBuyError(BUY_ERR_NOT_ENOUGHT_MONEY, pCreature, item, 0);
         return false;
@@ -18932,6 +19026,7 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
             return false;
         }
 
+        // Wareffort
         if (pCreature->GetEntry() == 299018)
         {
             if (oowowInfo.wareffort_used >= oowowInfo.wareffort_count)
@@ -18943,7 +19038,8 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
             oowowInfo.wareffort_used = oowowInfo.wareffort_used + 1;
             CharacterDatabase.PExecute("UPDATE `character_wareffort` SET `Used` = '%u' WHERE `guid` = '%u'", oowowInfo.wareffort_used, GetGUIDLow());
         }
-        LogModifyMoney(-int32(price), "BuyItem", vendorGuid, item);
+        if (!pCreature->IsGuildBank()) // Guild bank
+            LogModifyMoney(-int32(price), "BuyItem", vendorGuid, item);
 
         pItem = StoreNewItem(dest, item, true, Item::GenerateItemRandomPropertyId(item));
     }
@@ -18963,6 +19059,7 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
             return false;
         }
 
+        // Wareffort
         if (pCreature->GetEntry() == 299018)
         {
             if (oowowInfo.wareffort_used >= oowowInfo.wareffort_count)
@@ -18974,7 +19071,8 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
             oowowInfo.wareffort_used = oowowInfo.wareffort_used + 1;
             CharacterDatabase.PExecute("UPDATE `character_wareffort` SET `Used` = '%u' WHERE `guid` = '%u'", oowowInfo.wareffort_used, GetGUIDLow());
         }
-        LogModifyMoney(-int32(price), "BuyItem", vendorGuid, item);
+        if (!pCreature->IsGuildBank()) // Guild bank
+            LogModifyMoney(-int32(price), "BuyItem", vendorGuid, item);
 
         pItem = EquipNewItem(dest, item, true);
 
@@ -18990,7 +19088,26 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
     if (!pItem)
         return false;
 
-    uint32 new_count = pCreature->UpdateVendorItemCurrentCount(crItem, totalCount);
+    uint32 new_count;
+    uint32 latestCount = 0;
+    // Guild bank
+    if (pCreature->IsGuildBank())
+    {
+        if (sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][item] <= totalCount)
+        {
+            latestCount = 0;
+        }
+        else
+        {
+            latestCount = sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][item] - totalCount;
+        }
+        sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][item] = latestCount;
+        new_count =pCreature->UpdateVendorItemCurrentCount(crItem, crItem->maxcount - latestCount);
+    }
+    else
+    {
+        new_count =pCreature->UpdateVendorItemCurrentCount(crItem, totalCount);
+    }
 
     WorldPacket data(SMSG_BUY_ITEM, 8 + 4 + 4 + 4);
     data << pCreature->GetObjectGuid();
@@ -19000,6 +19117,36 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
     GetSession()->SendPacket(&data);
 
     SendNewItem(pItem, totalCount, true, false, false);
+
+    // Guild Bank  911482 《公会银行使用手册》
+    if (pCreature->IsGuildBank() && item != 911482)
+    {
+        OOGuildBank oobank = pCreature->GetGuildBank();
+        sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.guild_id]++;
+        uint32 leftcount;
+        if (oobank.withdraw_item <= sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.guild_id])
+        {
+            leftcount = 0;
+        }
+        else
+        {
+            leftcount = oobank.withdraw_item - sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.guild_id];
+        }
+        if (GetRank() > 0)
+        {
+            std::string msg = GetName();
+            msg += "，您已成功提取货物，剩余次数：";
+            msg += std::to_string(leftcount);
+            msg += "。";
+            pCreature->MonsterSay(msg.c_str(), 0, 0);
+        }
+
+        sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] = time(nullptr);
+        CharacterDatabase.PExecute("INSERT INTO `character_log_guildbank` (`guid`, `name`, `vendor`, `item`, `count`, `type`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Withdraw', '%u', '%u', '%f', '%f', '%f', '%s')",
+            GetGUIDLow(), GetName(), pCreature->GetEntry(), item, totalCount, GetZoneId(), GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetSession()->GetRemoteAddress().c_str());
+
+        WorldDatabase.PExecute("UPDATE `npc_vendor` SET `maxcount` = '%u' WHERE `npc_vendor`.`entry` = %u AND `npc_vendor`.`item` = %u;", latestCount, pCreature->GetEntry(), item);
+    }
 
     return crItem->maxcount != 0;
 }
