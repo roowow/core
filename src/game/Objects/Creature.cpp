@@ -3391,6 +3391,20 @@ uint32 Creature::GetVendorItemCurrentCount(VendorItem const* vItem)
 
     return vCount->count;
 }
+uint32 Creature::GetVendorItemCurrentCountofGuildBank(uint32 item)
+{
+    std::map< uint32, std::map< uint32, uint32 > >::iterator it1 = sOOMgr.OOGuildBankVendorItems.find(GetEntry());
+    if (it1 != sOOMgr.OOGuildBankVendorItems.end())
+    {
+        std::map< uint32, uint32 >::iterator it2 = it1->second.find(item);
+        if (it2 != it1->second.end())
+        {
+            return it2->second;
+        }
+    }
+
+    return 0;
+}
 
 uint32 Creature::UpdateVendorItemCurrentCount(VendorItem const* vItem, uint32 used_count)
 {
@@ -3435,6 +3449,16 @@ uint32 Creature::UpdateVendorItemCurrentCount(VendorItem const* vItem, uint32 us
     vCount->restockDelay = restockDelay;
     return vCount->count;
 }
+
+// uint32 UpdateVendorItemCurrentCount(uint32 item, uint32 used_count)
+// {
+//     VendorItemData& vList = m_CacheVendorItemMap[GetEntry()];
+//     VendorItem const* vItem = vList.FindItem(item);
+//     if (vItem)
+//     {
+//         UpdateVendorItemCurrentCount(vItem, used_count);
+//     }
+// }
 
 bool Creature::IsGuildBank()
 {

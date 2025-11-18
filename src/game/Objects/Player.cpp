@@ -18891,10 +18891,8 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
         return false;
     }
 
-    // auto playerRank = (sWorld.GetWowPatch() < WOW_PATCH_107) && sWorld.getConfig(CONFIG_BOOL_ACCURATE_PVP_PURCHASE_REQUIREMENTS) ?
-    //     m_honorMgr.GetHighestRank().rank : m_honorMgr.GetRank().rank;
-    auto playerRank = sWorld.getConfig(CONFIG_BOOL_ACCURATE_PVP_PURCHASE_REQUIREMENTS) ?
-        m_honorMgr.GetRank().rank : m_honorMgr.GetHighestRank().rank;
+    auto playerRank = (sWorld.GetWowPatch() < WOW_PATCH_107) && sWorld.getConfig(CONFIG_BOOL_ACCURATE_PVP_PURCHASE_REQUIREMENTS) ?
+        m_honorMgr.GetHighestRank().rank : m_honorMgr.GetRank().rank;
 
     // do not check level requirement for normal items (PvP related bonus items is another case)
     if (pProto->RequiredHonorRank && (playerRank < (uint8)pProto->RequiredHonorRank || GetLevel() < pProto->RequiredLevel))
@@ -18914,101 +18912,7 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
     // reputation discount
     price = uint32(price * GetReputationPriceDiscount(pCreature) + 0.5f);
 
-    // Guild bank
-    if (pCreature->IsGuildBank())
-    {
-        OOGuildBank oobank = pCreature->GetGuildBank();
-
-        // check guild
-        if (GetGuildId() != oobank.guild_id)
-        {
-            std::string msg = "抱歉！";
-            msg += GetName();
-            msg += "，您不属于该公会。";
-            pCreature->MonsterSay(msg.c_str(), 0, 0);
-            SendBuyError(BUY_ERR_SELLER_DONT_LIKE_YOU, pCreature, item, 0);
-            return false;
-        }
-
-        // check rank
-        if (GetRank() > oobank.guild_rank && GetRank() > 0)
-        {
-            std::string msg = "抱歉！";
-            msg += GetName();
-            msg += "，您的公会等级不够。";
-            pCreature->MonsterSay(msg.c_str(), 0, 0);
-            SendBuyError(BUY_ERR_SELLER_DONT_LIKE_YOU, pCreature, item, 0);
-            return false;
-        }
-
-        // check real left
-        if (sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][item] <= 0)
-        {
-            std::string msg = "抱歉！";
-            msg += GetName();
-            msg += "，货物已经被取完。";
-            pCreature->MonsterSay(msg.c_str(), 0, 0);
-            sObjectMgr.RemoveVendorItemCache(pCreature->GetEntry(), item);
-            SendBuyError(BUY_ERR_ITEM_ALREADY_SOLD, pCreature, item, 0);
-            return false;
-        }
-
-        if (count > 5)
-        {
-            std::string msg = "抱歉！";
-            msg += GetName();
-            msg += "，每次最多提取5个。";
-            pCreature->MonsterSay(msg.c_str(), 0, 0);
-            SendBuyError(BUY_ERR_CANT_CARRY_MORE, pCreature, item, 0);
-            return false;
-        }
-
-        // check quota
-        std::map< uint32, std::map< uint32, uint32 > >::iterator OOPlayerGuildBankCount = sOOMgr.OOPlayerGuildBankCount.find(GetGUIDLow());
-        if (OOPlayerGuildBankCount == sOOMgr.OOPlayerGuildBankCount.end())
-        {
-            sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.guild_id] = 0;
-        }
-        else
-        {
-            std::map< uint32, uint32 >::iterator OOPlayerGuildBankCount_c = sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()].find(oobank.guild_id);
-            if (OOPlayerGuildBankCount_c == sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()].end())
-            {
-                sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.guild_id] = 0;
-            }
-            else
-            {
-                if (sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.guild_id] >= oobank.withdraw_item)
-                {
-                    std::string msg = "抱歉！";
-                    msg += GetName();
-                     msg += "，每天只能提取";
-                    msg += std::to_string(oobank.withdraw_item);
-                    msg += "次，你已经使用完今日次数。";
-                    pCreature->MonsterSay(msg.c_str(), 0, 0);
-                    SendBuyError(BUY_ERR_CANT_CARRY_MORE, pCreature, item, 0);
-                    return false;
-                }
-            }
-        }
-
-        // vendor lock; raid check
-        if (sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] + 5 > time(nullptr) && !GetMap()->IsRaid())
-        {
-            if (urand(0,2))
-            {
-                pCreature->MonsterSay("正在存入区块链账本，算力有限，请耐心等待...", 0, 0);
-            }
-            else
-            {
-                pCreature->MonsterSay("如果您希望更便捷的服务，欢迎去我们总行咨询荣耀尊享服务。", 0, 0);
-            }
-            SendBuyError(BUY_ERR_SELLER_DONT_LIKE_YOU, pCreature, item, 0);
-            return false;
-        }
-    }
-
-    if (GetMoney() < price && !pCreature->IsGuildBank()) // Guild bank
+    if (GetMoney() < price)
     {
         SendBuyError(BUY_ERR_NOT_ENOUGHT_MONEY, pCreature, item, 0);
         return false;
@@ -19026,20 +18930,7 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
             return false;
         }
 
-        // Wareffort
-        if (pCreature->GetEntry() == 299018)
-        {
-            if (oowowInfo.wareffort_used >= oowowInfo.wareffort_count)
-            {
-                SendBuyError(BUY_ERR_NOT_ENOUGHT_MONEY, pCreature, item, 0);
-                return false;
-            }
-
-            oowowInfo.wareffort_used = oowowInfo.wareffort_used + 1;
-            CharacterDatabase.PExecute("UPDATE `character_wareffort` SET `Used` = '%u' WHERE `guid` = '%u'", oowowInfo.wareffort_used, GetGUIDLow());
-        }
-        if (!pCreature->IsGuildBank()) // Guild bank
-            LogModifyMoney(-int32(price), "BuyItem", vendorGuid, item);
+        LogModifyMoney(-int32(price), "BuyItem", vendorGuid, item);
 
         pItem = StoreNewItem(dest, item, true, Item::GenerateItemRandomPropertyId(item));
     }
@@ -19059,20 +18950,240 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
             return false;
         }
 
-        // Wareffort
-        if (pCreature->GetEntry() == 299018)
+        LogModifyMoney(-int32(price), "BuyItem", vendorGuid, item);
+
+        pItem = EquipNewItem(dest, item, true);
+
+        if (pItem)
+            AutoUnequipOffhandIfNeed();
+    }
+    else
+    {
+        SendEquipError(EQUIP_ERR_ITEM_DOESNT_GO_TO_SLOT, nullptr, nullptr);
+        return false;
+    }
+
+    if (!pItem)
+        return false;
+
+    uint32 new_count = pCreature->UpdateVendorItemCurrentCount(crItem, totalCount);
+
+    WorldPacket data(SMSG_BUY_ITEM, 8 + 4 + 4 + 4);
+    data << pCreature->GetObjectGuid();
+    data << uint32(vendorslot + 1);                 // numbered from 1 at client
+    data << uint32(crItem->maxcount > 0 ? new_count : 0xFFFFFFFF);
+    data << uint32(count);
+    GetSession()->SendPacket(&data);
+
+    SendNewItem(pItem, totalCount, true, false, false);
+
+    return crItem->maxcount != 0;
+}
+
+bool Player::BuyItemFromGuildVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, uint8 bag, uint8 slot)
+{
+    // cheating attempt
+    if (count < 1) count = 1;
+
+    if (!IsAlive())
+        return false;
+
+    ItemPrototype const* pProto = sObjectMgr.GetItemPrototype(item);
+    if (!pProto)
+    {
+        SendBuyError(BUY_ERR_CANT_FIND_ITEM, nullptr, item, 0);
+        return false;
+    }
+
+    Creature* pCreature = GetNPCIfCanInteractWith(vendorGuid, UNIT_NPC_FLAG_VENDOR);
+    if (!pCreature)
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "WORLD: BuyItemFromVendor - %s not found or you can't interact with him.", vendorGuid.GetString().c_str());
+        SendBuyError(BUY_ERR_DISTANCE_TOO_FAR, nullptr, item, 0);
+        return false;
+    }
+
+    OOGuildBank oobank = pCreature->GetGuildBank();
+    VendorItemData const* vItems = pCreature->GetVendorItems();
+    VendorItemData const* tItems = pCreature->GetVendorTemplateItems();
+    
+    if ((!vItems || vItems->Empty()) && (!tItems || tItems->Empty()))
+    {
+        SendBuyError(BUY_ERR_CANT_FIND_ITEM, pCreature, item, 0);
+        return false;
+    }
+
+    uint32 vCount = vItems ? vItems->GetItemCount() : 0;
+    uint32 tCount = tItems ? tItems->GetItemCount() : 0;
+
+    size_t vendorslot = vItems ? vItems->FindItemSlot(item) : vCount;
+
+    // If item was not found in npc_vendor, check npc_vendor_template.
+    if (vendorslot >= vCount)
+    {
+        vendorslot = tItems ? tItems->FindItemSlot(item) + vCount : tCount + vCount;
+    }
+
+    if (vendorslot >= vCount + tCount)
+    {
+        SendBuyError(BUY_ERR_CANT_FIND_ITEM, pCreature, item, 0);
+        return false;
+    }
+
+    VendorItem const* crItem = vendorslot < vCount ? vItems->GetItem(vendorslot) : tItems->GetItem(vendorslot - vCount);
+    if (!crItem || crItem->item != item)                    // store diff item (cheating)
+    {
+        SendBuyError(BUY_ERR_CANT_FIND_ITEM, pCreature, item, 0);
+        return false;
+    }
+
+    uint32 totalCount = pProto->BuyCount * count;
+
+    // vendor lock; raid check
+    if (sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] + 5 > time(nullptr) && !GetMap()->IsRaid())
+    {
+        if (urand(0,4))
         {
-            if (oowowInfo.wareffort_used >= oowowInfo.wareffort_count)
+            PSendSysMessage("正在更新区块链账本，算力有限，请耐心等待...");
+        }
+        else
+        {
+            PSendSysMessage("如果您希望更便捷的服务，欢迎去我们总行咨询荣耀尊享服务。");
+        }
+        SendBuyError(BUY_ERR_SELLER_DONT_LIKE_YOU, pCreature, item, 0);
+        return false;
+    }
+
+    // check current item amount if it limited
+    if (crItem->maxcount != 0)
+    {
+        if (pCreature->GetVendorItemCurrentCount(crItem) < totalCount)
+        {
+            SendBuyError(BUY_ERR_ITEM_ALREADY_SOLD, pCreature, item, 0);
+            return false;
+        }
+
+        if (pCreature->GetVendorItemCurrentCountofGuildBank(item) < totalCount)
+        {
+            SendBuyError(BUY_ERR_ITEM_ALREADY_SOLD, pCreature, item, 0);
+            return false;
+        }
+    }
+
+    // check guild
+    if (GetGuildId() != oobank.guild_id)
+    {
+        std::string msg = "抱歉！";
+        msg += GetName();
+        msg += "，您不属于该公会。";
+        pCreature->MonsterSay(msg.c_str(), 0, 0);
+        SendBuyError(BUY_ERR_SELLER_DONT_LIKE_YOU, pCreature, item, 0);
+        return false;
+    }
+
+    // check rank
+    if (GetRank() > oobank.guild_rank && GetRank() > 0)
+    {
+        std::string msg = "抱歉！";
+        msg += GetName();
+        msg += "，您的公会等级不够。";
+        pCreature->MonsterSay(msg.c_str(), 0, 0);
+        SendBuyError(BUY_ERR_SELLER_DONT_LIKE_YOU, pCreature, item, 0);
+        return false;
+    }
+
+    // check real left
+    if (sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][item] <= 0)
+    {
+        sObjectMgr.RemoveVendorItemCache(pCreature->GetEntry(), item);
+        SendBuyError(BUY_ERR_ITEM_ALREADY_SOLD, pCreature, item, 0);
+        return false;
+    }
+
+    if (totalCount > 5)
+    {
+        std::string msg = "抱歉！";
+        msg += GetName();
+        msg += "，每次最多提取5个。";
+        pCreature->MonsterSay(msg.c_str(), 0, 0);
+        SendBuyError(BUY_ERR_CANT_CARRY_MORE, pCreature, item, 0);
+        return false;
+    }
+
+    // item withdraw lock
+    std::map< uint32, std::map< uint32, uint32 > >::iterator OOPlayerGuildBankDepositItem = sOOMgr.OOPlayerGuildBankDepositItem.find(GetGUIDLow());
+    if (OOPlayerGuildBankDepositItem != sOOMgr.OOPlayerGuildBankDepositItem.end())
+    {
+        std::map< uint32, uint32 >::iterator OOPlayerGuildBankDepositItem_c = sOOMgr.OOPlayerGuildBankDepositItem[GetGUIDLow()].find(item);
+        if (OOPlayerGuildBankDepositItem_c != sOOMgr.OOPlayerGuildBankDepositItem[GetGUIDLow()].end())
+        {
+            std::string msg = "抱歉！";
+            msg += GetName();
+            msg += "，当日存入的货物只能隔日提取。";
+            pCreature->MonsterSay(msg.c_str(), 0, 0);
+            SendBuyError(BUY_ERR_CANT_CARRY_MORE, pCreature, item, 0);
+            return false;
+        }
+    }
+
+    // check quota // player_guid, < vendor_id, player withdraw count >
+    std::map< uint32, std::map< uint32, uint32 > >::iterator OOPlayerGuildBankCount = sOOMgr.OOPlayerGuildBankCount.find(GetGUIDLow());
+    if (OOPlayerGuildBankCount == sOOMgr.OOPlayerGuildBankCount.end())
+    {
+        sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.vendor_id] = 0;
+    }
+    else
+    {
+        std::map< uint32, uint32 >::iterator OOPlayerGuildBankCount_c = sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()].find(oobank.vendor_id);
+        if (OOPlayerGuildBankCount_c == sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()].end())
+        {
+            sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.vendor_id] = 0;
+        }
+        else
+        {
+            if (sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.vendor_id] >= oobank.withdraw_item)
             {
-                SendBuyError(BUY_ERR_NOT_ENOUGHT_MONEY, pCreature, item, 0);
+                std::string msg = "抱歉！";
+                msg += GetName();
+                    msg += "，每天只能提取";
+                msg += std::to_string(oobank.withdraw_item);
+                msg += "次，你已经使用完今日次数。";
+                pCreature->MonsterSay(msg.c_str(), 0, 0);
+                SendBuyError(BUY_ERR_CANT_CARRY_MORE, pCreature, item, 0);
                 return false;
             }
-
-            oowowInfo.wareffort_used = oowowInfo.wareffort_used + 1;
-            CharacterDatabase.PExecute("UPDATE `character_wareffort` SET `Used` = '%u' WHERE `guid` = '%u'", oowowInfo.wareffort_used, GetGUIDLow());
         }
-        if (!pCreature->IsGuildBank()) // Guild bank
-            LogModifyMoney(-int32(price), "BuyItem", vendorGuid, item);
+    }
+
+    Item* pItem = nullptr;
+
+    if ((bag == NULL_BAG && slot == NULL_SLOT) || IsInventoryPos(bag, slot))
+    {
+        ItemPosCountVec dest;
+        InventoryResult msg = CanStoreNewItem(bag, slot, dest, item, totalCount);
+        if (msg != EQUIP_ERR_OK)
+        {
+            SendEquipError(msg, nullptr, nullptr, item);
+            return false;
+        }
+
+        pItem = StoreNewItem(dest, item, true, Item::GenerateItemRandomPropertyId(item));
+    }
+    else if (IsEquipmentPos(bag, slot))
+    {
+        if (totalCount != 1)
+        {
+            SendEquipError(EQUIP_ERR_ITEM_CANT_BE_EQUIPPED, nullptr, nullptr);
+            return false;
+        }
+
+        uint16 dest;
+        InventoryResult msg = CanEquipNewItem(slot, dest, item, false);
+        if (msg != EQUIP_ERR_OK)
+        {
+            SendEquipError(msg, nullptr, nullptr, item);
+            return false;
+        }
 
         pItem = EquipNewItem(dest, item, true);
 
@@ -19090,24 +19201,17 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
 
     uint32 new_count;
     uint32 latestCount = 0;
-    // Guild bank
-    if (pCreature->IsGuildBank())
+
+    if (sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][item] <= totalCount)
     {
-        if (sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][item] <= totalCount)
-        {
-            latestCount = 0;
-        }
-        else
-        {
-            latestCount = sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][item] - totalCount;
-        }
-        sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][item] = latestCount;
-        new_count =pCreature->UpdateVendorItemCurrentCount(crItem, crItem->maxcount - latestCount);
+        latestCount = 0;
     }
     else
     {
-        new_count =pCreature->UpdateVendorItemCurrentCount(crItem, totalCount);
+        latestCount = sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][item] - totalCount;
     }
+    sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][item] = latestCount; // update latest count
+    new_count =pCreature->UpdateVendorItemCurrentCount(crItem, crItem->maxcount - latestCount);
 
     WorldPacket data(SMSG_BUY_ITEM, 8 + 4 + 4 + 4);
     data << pCreature->GetObjectGuid();
@@ -19118,19 +19222,17 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
 
     SendNewItem(pItem, totalCount, true, false, false);
 
-    // Guild Bank  911482 《公会银行使用手册》
-    if (pCreature->IsGuildBank() && item != 911482)
+    if (item != 911482) // 911482 《公会银行使用手册》
     {
-        OOGuildBank oobank = pCreature->GetGuildBank();
-        sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.guild_id]++;
+        sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.vendor_id]++;
         uint32 leftcount;
-        if (oobank.withdraw_item <= sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.guild_id])
+        if (oobank.withdraw_item <= sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.vendor_id])
         {
             leftcount = 0;
         }
         else
         {
-            leftcount = oobank.withdraw_item - sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.guild_id];
+            leftcount = oobank.withdraw_item - sOOMgr.OOPlayerGuildBankCount[GetGUIDLow()][oobank.vendor_id];
         }
         if (GetRank() > 0)
         {
@@ -19141,7 +19243,8 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
             pCreature->MonsterSay(msg.c_str(), 0, 0);
         }
 
-        sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] = time(nullptr);
+        sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] = time(nullptr); // vendor lock
+        sOOMgr.OOPlayerGuildBankWithdrawItem[GetGUIDLow()][item] = 1; // item deposit lock
         CharacterDatabase.PExecute("INSERT INTO `character_log_guildbank` (`guid`, `name`, `vendor`, `item`, `count`, `type`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Withdraw', '%u', '%u', '%f', '%f', '%f', '%s')",
             GetGUIDLow(), GetName(), pCreature->GetEntry(), item, totalCount, GetZoneId(), GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetSession()->GetRemoteAddress().c_str());
 

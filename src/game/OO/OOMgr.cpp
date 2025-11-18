@@ -61,7 +61,7 @@ void OOMgr::Load()
 
     /// Build Bank
     // SELECT `guild_id`, `guild_rank`, `withdraw_item`, `withdraw_cod` FROM `character_guild_bank`
-    std::unique_ptr<QueryResult> gresult(CharacterDatabase.Query("SELECT guid, guild_id, vendor_id, guild_rank, withdraw_item, withdraw_cod, withdraw_cod_total, vendor_name FROM `character_guild_bank`"));
+    std::unique_ptr<QueryResult> gresult(CharacterDatabase.Query("SELECT guid, guild_id, vendor_id, guild_rank, withdraw_item, withdraw_cod, withdraw_cod_total, vendor_name FROM `character_guild_bank` ORDER BY `guild_id`, `weight` ASC"));
     if (gresult)
     {
         do

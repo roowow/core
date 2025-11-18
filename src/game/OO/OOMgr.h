@@ -51,7 +51,10 @@ class OOMgr
         std::map< uint32, OOGuildBank > OOGuildBanks; // character id, OOGuildBank
         std::map< uint32, OOGuildBank > OOGuildBankVendors; // vendor id, OOGuildBank
 
-        std::map< uint32, std::map< uint32, uint32 > > OOPlayerGuildBankCount; // player_guid, < guild_id, player fetched count >
+        std::map< uint32, std::map< uint32, uint32 > > OOPlayerGuildBankCount; // player_guid, < vendor_id, player withdraw count >
+        std::map< uint32, std::map< uint32, uint32 > > OOPlayerGuildBankDepositCount; // player_guid, < vendor_id, player deposit count >
+        std::map< uint32, std::map< uint32, uint32 > > OOPlayerGuildBankDepositItem; // player_guid, < item, 1 >
+        std::map< uint32, std::map< uint32, uint32 > > OOPlayerGuildBankWithdrawItem; // player_guid, < item, 1 >
         std::map< uint32, std::map< uint32, uint32 > > OOGuildBankVendorItems; // vendor id, < item id, count >
         std::map< uint32, uint32 > OOGuildBankVendorLocks; // vendor id, timestamp
         std::map< uint32, std::map< uint32, uint32 > > OOGuildBankCreatureBots; // creature guid (npc summon bot), < creature entry (bot) , timestamp >

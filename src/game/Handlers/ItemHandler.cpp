@@ -619,17 +619,52 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recv_data)
     }
 
     // Guild Bank
-    uint32 latestCount = pItem->GetCount();
+    uint32 latestCount = pItem->GetCount() + pCreature->GetVendorItemCurrentCountofGuildBank(pItem->GetEntry());
     if (pCreature->IsGuildBank())
     {
         OOGuildBank oobank = pCreature->GetGuildBank();
 
+        // vendor lock 存入限制时间
+        if (sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] + 15 > time(nullptr))
+        {
+            if (urand(0,4))
+            {
+                _player->PSendSysMessage("正在更新区块链账本，算力有限，请耐心等待...");
+            }
+            else
+            {
+                _player->PSendSysMessage("如果您希望更便捷的服务，欢迎去我们总行咨询荣耀尊享服务。");
+            }
+            _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, pCreature, itemGuid, 0);
+            return;
+        }
+
+        // deposit 50 max // player_guid, < vendor_id, player deposit count >
+        std::map< uint32, std::map< uint32, uint32 > >::iterator OOPlayerGuildBankDepositCount = sOOMgr.OOPlayerGuildBankDepositCount.find(_player->GetGUIDLow());
+        if (OOPlayerGuildBankDepositCount == sOOMgr.OOPlayerGuildBankDepositCount.end())
+        {
+            sOOMgr.OOPlayerGuildBankDepositCount[_player->GetGUIDLow()][oobank.vendor_id] = 0;
+        }
+        else
+        {
+            std::map< uint32, uint32 >::iterator OOPlayerGuildBankDepositCount_c = sOOMgr.OOPlayerGuildBankDepositCount[_player->GetGUIDLow()].find(oobank.vendor_id);
+            if (OOPlayerGuildBankDepositCount_c == sOOMgr.OOPlayerGuildBankDepositCount[_player->GetGUIDLow()].end())
+            {
+                sOOMgr.OOPlayerGuildBankDepositCount[_player->GetGUIDLow()][oobank.vendor_id] = 0;
+            }
+            else
+            {
+                if (sOOMgr.OOPlayerGuildBankDepositCount[_player->GetGUIDLow()][oobank.vendor_id] >= 50)
+                {
+                    _player->PSendSysMessage("单日最多存入50次。");
+                    _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, pCreature, itemGuid, 0);
+                    return;
+                }
+            }
+        }
+
         if (!pItem->CanBeTraded())
         {
-            std::string msg = "抱歉！";
-            msg += _player->GetName();
-            msg += "，此类货物不接收。";
-            pCreature->MonsterSay(msg.c_str(), 0, 0);
             _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, itemGuid, 0);
             return;
         }
@@ -667,19 +702,20 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recv_data)
             return;
         }
 
-        // vendor lock
-        if (sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] + 5 > time(nullptr))
+        // item deposit lock
+        std::map< uint32, std::map< uint32, uint32 > >::iterator OOPlayerGuildBankWithdrawItem = sOOMgr.OOPlayerGuildBankWithdrawItem.find(_player->GetGUIDLow());
+        if (OOPlayerGuildBankWithdrawItem != sOOMgr.OOPlayerGuildBankWithdrawItem.end())
         {
-            if (urand(0,2))
+            std::map< uint32, uint32 >::iterator OOPlayerGuildBankWithdrawItem_c = sOOMgr.OOPlayerGuildBankWithdrawItem[_player->GetGUIDLow()].find(pItem->GetEntry());
+            if (OOPlayerGuildBankWithdrawItem_c != sOOMgr.OOPlayerGuildBankWithdrawItem[_player->GetGUIDLow()].end())
             {
-                pCreature->MonsterSay("正在存入区块链账本，算力有限，请耐心等待...", 0, 0);
+                std::string msg = "抱歉！";
+                msg += _player->GetName();
+                msg += "，当日取过的货物只能隔日存入。";
+                pCreature->MonsterSay(msg.c_str(), 0, 0);
+                _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, pCreature, itemGuid, 0);
+                return;
             }
-            else
-            {
-                pCreature->MonsterSay("如果您希望更便捷的服务，欢迎去我们总行咨询荣耀尊享服务。", 0, 0);
-            }
-            _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, pCreature, itemGuid, 0);
-            return;
         }
 
         // single item total < 100, total item types < 255
@@ -687,12 +723,6 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recv_data)
         std::map< uint32, std::map< uint32, uint32 > >::iterator it1 = sOOMgr.OOGuildBankVendorItems.find(pCreature->GetEntry());
         if (it1 != sOOMgr.OOGuildBankVendorItems.end())
         {
-            std::map< uint32, uint32 >::iterator it2 = it1->second.find(pItem->GetEntry());
-            if (it2 != it1->second.end())
-            {
-                latestCount += it2->second;
-            }
-
             for (auto i = it1->second.begin(); i != it1->second.end(); i++)
             {
                 totalItemTypes++;
@@ -718,35 +748,45 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recv_data)
         }
     }
 
-    if (count < pItem->GetCount())              // need split items
+    // Guild Bank
+    if (!pCreature->IsGuildBank())
     {
-        Item *pNewItem = pItem->CloneItem(count, _player);
-        if (!pNewItem)
+        if (count < pItem->GetCount())              // need split items
         {
-            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "WORLD: HandleSellItemOpcode - could not create clone of item %u; count = %u", pItem->GetEntry(), count);
-            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, itemGuid, 0);
-            return;
-        }
+            Item *pNewItem = pItem->CloneItem(count, _player);
+            if (!pNewItem)
+            {
+                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "WORLD: HandleSellItemOpcode - could not create clone of item %u; count = %u", pItem->GetEntry(), count);
+                _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, itemGuid, 0);
+                return;
+            }
 
-        pItem->SetCount(pItem->GetCount() - count);
-        _player->ItemRemovedQuestCheck(pItem->GetEntry(), count);
-        if (_player->IsInWorld())
-            pItem->SendCreateUpdateToPlayer(_player);
-        pItem->SetState(ITEM_CHANGED, _player);
-
-        if (!pCreature->IsGuildBank()) // Guild Bank
+            pItem->SetCount(pItem->GetCount() - count);
+            _player->ItemRemovedQuestCheck(pItem->GetEntry(), count);
+            if (_player->IsInWorld())
+                pItem->SendCreateUpdateToPlayer(_player);
+            pItem->SetState(ITEM_CHANGED, _player);
             _player->AddItemToBuyBackSlot(pNewItem, money, vendorGuid);
-        if (_player->IsInWorld())
-            pNewItem->SendCreateUpdateToPlayer(_player);
+            if (_player->IsInWorld())
+                pNewItem->SendCreateUpdateToPlayer(_player);
+        }
+        else
+        {
+            _player->ItemRemovedQuestCheck(pItem->GetEntry(), pItem->GetCount());
+            _player->RemoveItem(pItem->GetBagSlot(), pItem->GetSlot(), true);
+            _player->InterruptSpellsWithCastItem(pItem);
+            pItem->RemoveFromUpdateQueueOf(_player);
+            _player->AddItemToBuyBackSlot(pItem, money, vendorGuid);
+        }
     }
     else
     {
-        _player->ItemRemovedQuestCheck(pItem->GetEntry(), pItem->GetCount());
-        _player->RemoveItem(pItem->GetBagSlot(), pItem->GetSlot(), true);
-        _player->InterruptSpellsWithCastItem(pItem);
-        pItem->RemoveFromUpdateQueueOf(_player);
-        if (!pCreature->IsGuildBank()) // Guild Bank
-            _player->AddItemToBuyBackSlot(pItem, money, vendorGuid);
+        // _player->ItemRemovedQuestCheck(pItem->GetEntry(), pItem->GetCount());
+        // _player->RemoveItem(pItem->GetBagSlot(), pItem->GetSlot(), true);
+        // _player->InterruptSpellsWithCastItem(pItem);
+        // pItem->RemoveFromUpdateQueueOf(_player);
+        // _player->AddItemToBuyBackSlot(pItem, money, vendorGuid);
+        _player->DestroyItemCount(pItem->GetEntry(), pItem->GetCount(), true);
     }
 
     // Guild Bank
@@ -760,9 +800,12 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recv_data)
         CharacterDatabase.PExecute("INSERT INTO `character_log_guildbank` (`guid`, `name`, `vendor`, `item`, `count`, `type`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Deposit', '%u', '%u', '%f', '%f', '%f', '%s')",
             _player->GetGUIDLow(), _player->GetName(), oobank.vendor_id, pItem->GetEntry(), pItem->GetCount(), _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
 
-        sObjectMgr.AddVendorItem(pCreature->GetEntry(), pItem->GetEntry(), latestCount, 999999, 0);
-        sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][pItem->GetEntry()] = latestCount;
-        sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] = time(nullptr);
+        sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] = time(nullptr); // vendor lock
+        sOOMgr.OOPlayerGuildBankDepositItem[_player->GetGUIDLow()][pItem->GetEntry()] = 1; // item withdraw lock
+
+        sObjectMgr.AddVendorItem(pCreature->GetEntry(), pItem->GetEntry(), latestCount, 999999, 0); // add item
+        sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][pItem->GetEntry()] = latestCount; // update latest count
+        // pCreature->UpdateVendorItemCurrentCount(pItem->GetEntry(), latestCount); // update current vendor item
     }
     else
     {
@@ -852,7 +895,22 @@ void WorldSession::HandleBuyItemInSlotOpcode(WorldPacket& recv_data)
     if (bag == NULL_BAG)
         return;
 
-    GetPlayer()->BuyItemFromVendor(vendorGuid, item, count, bag, bagslot);
+    Creature* pCreature = GetPlayer()->GetNPCIfCanInteractWith(vendorGuid, UNIT_NPC_FLAG_VENDOR);
+    if (pCreature)
+    {
+        if (pCreature->IsGuildBank())
+        {
+            GetPlayer()->BuyItemFromGuildVendor(vendorGuid, item, count, bag, bagslot);
+        }
+        else
+        {
+            GetPlayer()->BuyItemFromVendor(vendorGuid, item, count, bag, bagslot);
+        }
+    }
+    else
+    {
+        return;
+    }
 }
 
 void WorldSession::HandleBuyItemOpcode(WorldPacket& recv_data)
@@ -863,7 +921,22 @@ void WorldSession::HandleBuyItemOpcode(WorldPacket& recv_data)
 
     recv_data >> vendorGuid >> item >> count >> unk1;
 
-    GetPlayer()->BuyItemFromVendor(vendorGuid, item, count, NULL_BAG, NULL_SLOT);
+    Creature* pCreature = GetPlayer()->GetNPCIfCanInteractWith(vendorGuid, UNIT_NPC_FLAG_VENDOR);
+    if (pCreature)
+    {
+        if (pCreature->IsGuildBank())
+        {
+            GetPlayer()->BuyItemFromGuildVendor(vendorGuid, item, count, NULL_BAG, NULL_SLOT);
+        }
+        else
+        {
+            GetPlayer()->BuyItemFromVendor(vendorGuid, item, count, NULL_BAG, NULL_SLOT);
+        }
+    }
+    else
+    {
+        return;
+    }
 }
 
 void WorldSession::HandleListInventoryOpcode(WorldPacket& recv_data)

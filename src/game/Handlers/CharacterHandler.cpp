@@ -415,7 +415,6 @@ void WorldSession::HandleCharDeleteOpcode(WorldPacket& recv_data)
     CharacterDatabase.PExecute("DELETE FROM character_log_levelup WHERE guid=%u", guid);
     CharacterDatabase.PExecute("DELETE FROM character_log_wareffort WHERE guid=%u", guid);
     CharacterDatabase.PExecute("DELETE FROM character_log_money WHERE guid=%u", guid);
-    CharacterDatabase.PExecute("DELETE FROM character_log_pvpkill WHERE guid=%u", guid);
     CharacterDatabase.PExecute("DELETE FROM character_log_guildbank WHERE guid=%u", guid);
     CharacterDatabase.PExecute("DELETE FROM character_displayid WHERE guid=%u", guid);
 

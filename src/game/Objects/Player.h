@@ -1028,6 +1028,7 @@ class Player final: public Unit
         }
         void SendNewItem(Item const* item, uint32 count, bool received, bool created, bool broadcast = false, bool showInChat = true);
         bool BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, uint8 bag, uint8 slot);
+        bool BuyItemFromGuildVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, uint8 bag, uint8 slot);
         void OnReceivedItem(Item const* item);
 
         float GetReputationPriceDiscount(Creature const* pCreature, bool taxi = false) const;
