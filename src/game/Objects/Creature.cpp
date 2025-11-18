@@ -3450,15 +3450,22 @@ uint32 Creature::UpdateVendorItemCurrentCount(VendorItem const* vItem, uint32 us
     return vCount->count;
 }
 
-// uint32 UpdateVendorItemCurrentCount(uint32 item, uint32 used_count)
-// {
-//     VendorItemData& vList = m_CacheVendorItemMap[GetEntry()];
-//     VendorItem const* vItem = vList.FindItem(item);
-//     if (vItem)
-//     {
-//         UpdateVendorItemCurrentCount(vItem, used_count);
-//     }
-// }
+uint32 Creature::UpdateVendorItemCurrentCount(uint32 item, uint32 used_count)
+{
+    VendorItemData const* vItems = GetVendorItems();
+
+    if ((vItems && !vItems->Empty()))
+    {
+        uint32 vCount = vItems ? vItems->GetItemCount() : 0;
+        size_t vendorslot = vItems ? vItems->FindItemSlot(item) : vCount;
+
+        VendorItem const* crItem = vItems->GetItem(vendorslot);
+        if (crItem && crItem->item == item)
+        {
+            UpdateVendorItemCurrentCount(crItem, used_count);
+        }
+    }
+}
 
 bool Creature::IsGuildBank()
 {

@@ -19063,11 +19063,19 @@ bool Player::BuyItemFromGuildVendor(ObjectGuid vendorGuid, uint32 item, uint8 co
             return false;
         }
 
-        if (pCreature->GetVendorItemCurrentCountofGuildBank(item) < totalCount)
+        if (pCreature->GetVendorItemCurrentCountofGuildBank(item) < totalCount) // check real left
         {
             SendBuyError(BUY_ERR_ITEM_ALREADY_SOLD, pCreature, item, 0);
             return false;
         }
+    }
+    // check real left
+    if (sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][item] <= 0)
+    {
+        sObjectMgr.RemoveVendorItemCache(pCreature->GetEntry(), item);
+        pCreature->UpdateVendorItemCurrentCount(crItem, crItem->maxcount);
+        SendBuyError(BUY_ERR_ITEM_ALREADY_SOLD, pCreature, item, 0);
+        return false;
     }
 
     // check guild
@@ -19089,14 +19097,6 @@ bool Player::BuyItemFromGuildVendor(ObjectGuid vendorGuid, uint32 item, uint8 co
         msg += "，您的公会等级不够。";
         pCreature->MonsterSay(msg.c_str(), 0, 0);
         SendBuyError(BUY_ERR_SELLER_DONT_LIKE_YOU, pCreature, item, 0);
-        return false;
-    }
-
-    // check real left
-    if (sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][item] <= 0)
-    {
-        sObjectMgr.RemoveVendorItemCache(pCreature->GetEntry(), item);
-        SendBuyError(BUY_ERR_ITEM_ALREADY_SOLD, pCreature, item, 0);
         return false;
     }
 

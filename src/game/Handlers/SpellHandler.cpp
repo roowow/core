@@ -336,6 +336,10 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
     // Guild Bank
     if (pItem->GetEntry() == 918232)
     {
+        PlayerMenu* pMenu = pUser->PlayerTalkClass;
+        pMenu->ClearMenus();
+
+        bool hasBank = false;
         if (pUser->GetGuildId())
         {
             for (auto i = sOOMgr.OOGuildBanks.begin(); i != sOOMgr.OOGuildBanks.end(); i++)
@@ -345,12 +349,17 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
                 if (pUser->GetGuildId() == OOGuildBank.guild_id && pUser->GetRank() <= OOGuildBank.guild_rank)
                 {
                     std::string msg = std::string("接入仓库《") +  OOGuildBank.name + std::string("》") ;
-                    pUser->ADD_GOSSIP_ITEM(GOSSIP_ICON_TAXI, msg.c_str(), GOSSIP_SENDER_SEC_BANK, OOGuildBank.vendor_id);
+                    pMenu->GetGossipMenu().AddMenuItem(GOSSIP_ICON_TAXI, msg.c_str(), GOSSIP_SENDER_SEC_BANK, OOGuildBank.vendor_id);
+
+                    hasBank = true;
                 }
             }
         }
 
-        pUser->SEND_GOSSIP_MENU(22030, pItem->GetGUID());
+        if (!hasBank)
+            pMenu->GetGossipMenu().AddMenuItem(GOSSIP_ICON_CHAT, "您还没有仓库。", GOSSIP_SENDER_SEC_BANK, 999);
+
+        pMenu->SendGossipMenu(22030, pItem->GetGUID());
 
         cancelCast = true;
     }

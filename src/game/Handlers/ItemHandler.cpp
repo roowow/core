@@ -625,7 +625,7 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recv_data)
         OOGuildBank oobank = pCreature->GetGuildBank();
 
         // vendor lock 存入限制时间
-        if (sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] + 15 > time(nullptr))
+        if (sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] + 10 > time(nullptr))
         {
             if (urand(0,4))
             {
@@ -664,6 +664,13 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recv_data)
         }
 
         if (!pItem->CanBeTraded())
+        {
+            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, itemGuid, 0);
+            return;
+        }
+
+        // buycount > 1
+        if (pProto->BuyCount > 1)
         {
             _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, itemGuid, 0);
             return;
@@ -781,12 +788,7 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recv_data)
     }
     else
     {
-        // _player->ItemRemovedQuestCheck(pItem->GetEntry(), pItem->GetCount());
-        // _player->RemoveItem(pItem->GetBagSlot(), pItem->GetSlot(), true);
-        // _player->InterruptSpellsWithCastItem(pItem);
-        // pItem->RemoveFromUpdateQueueOf(_player);
-        // _player->AddItemToBuyBackSlot(pItem, money, vendorGuid);
-        _player->DestroyItemCount(pItem->GetEntry(), pItem->GetCount(), true);
+        _player->DestroyItemCount(pItem->GetEntry(), pItem->GetCount() ? pItem->GetCount() : 1, true);
     }
 
     // Guild Bank
@@ -805,7 +807,7 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recv_data)
 
         sObjectMgr.AddVendorItem(pCreature->GetEntry(), pItem->GetEntry(), latestCount, 999999, 0); // add item
         sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][pItem->GetEntry()] = latestCount; // update latest count
-        // pCreature->UpdateVendorItemCurrentCount(pItem->GetEntry(), latestCount); // update current vendor item
+        pCreature->UpdateVendorItemCurrentCount(pItem->GetEntry(), latestCount - pCreature->GetVendorItemCurrentCountofGuildBank(pItem->GetEntry())); // update current vendor item
     }
     else
     {
