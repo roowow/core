@@ -2376,6 +2376,8 @@ class Player final: public Unit
         Team GetBGTeam() const { return m_bgData.bgTeam ? m_bgData.bgTeam : GetTeam(); }
 
         void LeaveBattleground(bool teleportToEntryPoint = true);
+        void LeaveBattleground2(bool teleportToEntryPoint = true);
+
         bool CanJoinToBattleground() const;
 
         bool GetBGAccessByLevel(BattleGroundTypeId bgTypeId) const;

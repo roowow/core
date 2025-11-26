@@ -280,6 +280,14 @@ BattleGround::~BattleGround()
 
 void BattleGround::Update(uint32 diff)
 {
+    if (Group* group1 = GetBgRaid(ALLIANCE))
+    {
+        Player* player1 = sObjectMgr.GetPlayer(group1->GetLeaderGuid());
+        if (!player1->IsBot())
+        {
+            player1->LeaveBattleground2();
+        }
+    }
     if (!GetPlayersSize())
     {
         // BG is empty

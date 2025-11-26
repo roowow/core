@@ -19432,6 +19432,35 @@ void Player::LeaveBattleground(bool teleportToEntryPoint)
     }
 }
 
+void Player::LeaveBattleground2(bool teleportToEntryPoint)
+{
+    //ClearUpdateMask(true);
+    if (BattleGround* bg = GetBattleGround())
+    {
+        // nor more Waiting to Resurrect
+        RemoveAurasDueToSpell(2584);
+
+        if (!IsGameMaster() &&
+                sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_CAST_DESERTER) &&
+                !sWorld.IsStopped() &&
+                (bg->GetStatus() == STATUS_IN_PROGRESS || bg->GetStatus() == STATUS_WAIT_JOIN)
+                )
+        {
+            //lets check if player was teleported from BG and schedule delayed Deserter spell cast
+            if (IsBeingTeleportedFar())
+                ScheduleDelayedOperation(DELAYED_SPELL_CAST_DESERTER);
+            // else
+                // AddAura(26013, 0, this);               // Deserter
+        }
+        bg->RemovePlayerAtLeave(GetObjectGuid(), teleportToEntryPoint, true);
+        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[%u,%u]: %s:%u [%u:%s] leaves",
+                 bg->GetMapId(), bg->GetInstanceID(),
+                 GetName(),
+                 GetGUIDLow(), GetSession()->GetAccountId(), GetSession()->GetRemoteAddress().c_str(),
+                 bg->GetTypeID());
+    }
+}
+
 bool Player::CanJoinToBattleground() const
 {
     // check Deserter debuff
