@@ -397,7 +397,14 @@ bool WorldSession::ForcePlayerLogoutDelay()
         {
             sLog.Player(this, LOG_CHAR, "LostSocket", LOG_LVL_BASIC, "");
             SetDisconnectedSession();
-            m_disconnectTimer = 120000;
+            if (!GetPlayer()->IsInCombat() && GetPlayer()->IsHardcore() && !GetPlayer()->IsHardcoreRetired())
+            {
+                m_disconnectTimer = 6000;
+            }
+            else
+            {
+                m_disconnectTimer = 120000;
+            }
             GetPlayer()->OnDisconnected();
             GetPlayer()->SaveToDB();
             return true;
