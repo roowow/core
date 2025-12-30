@@ -111,7 +111,7 @@ ElevatorTransport* Map::GetElevatorTransport(ObjectGuid guid)
 
 void Map::LoadMapAndVMap(int gx, int gy)
 {
-    if (m_bLoadedGrids[gx][gx])
+    if (m_bLoadedGrids[gx][gy])
         return;
 
     GridMap * pInfo = m_terrainData->Load(gx, gy);
@@ -172,6 +172,7 @@ Map::Map(uint32 id, time_t expiry, uint32 InstanceId)
         m_motionThreads->start();
     }
 
+    sTransportMgr.SpawnTransportsOnMap(this);
     LoadElevatorTransports();
 }
 
