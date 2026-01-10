@@ -179,9 +179,12 @@ void WorldSession::HandleUseItemOpcode(WorldPacket& recvPacket)
         pMenu->ClearMenus();
 
         Quest const* pNewQuest = sObjectMgr.GetQuestTemplate(32053);
-        if (pUser->CanTakeQuest(pNewQuest, false) || pUser->GetQuestStatus(32053) == QUEST_STATUS_COMPLETE)
+        if (pNewQuest)
         {
-            pMenu->SendGossipMenu(22025, pItem->GetGUID());
+            if (pUser->CanTakeQuest(pNewQuest, false) || pUser->GetQuestStatus(32053) == QUEST_STATUS_COMPLETE)
+            {
+                pMenu->SendGossipMenu(22025, pItem->GetGUID());
+            }
         }
         else
         {
