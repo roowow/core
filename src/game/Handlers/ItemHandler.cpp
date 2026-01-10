@@ -622,7 +622,7 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recv_data)
     }
 
     // Guild Bank
-    uint32 latestCount = pItem->GetCount() + pCreature->GetVendorItemCurrentCountofGuildBank(pItem->GetEntry());
+    uint32 latestCount = count + pCreature->GetVendorItemCurrentCountofGuildBank(pItem->GetEntry());
     if (pCreature->IsGuildBank())
     {
         OOGuildBank oobank = pCreature->GetGuildBank();
@@ -791,7 +791,8 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recv_data)
     }
     else
     {
-        _player->DestroyItemCount(pItem->GetEntry(), pItem->GetCount() ? pItem->GetCount() : 1, true);
+        if (count)
+            _player->DestroyItemCount(pItem->GetEntry(), count, true);
     }
 
     // Guild Bank
@@ -803,7 +804,7 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recv_data)
         pCreature->MonsterSay(msg.c_str(), 0, 0);
 
         CharacterDatabase.PExecute("INSERT INTO `character_log_guildbank` (`guid`, `name`, `vendor`, `item`, `count`, `type`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Deposit', '%u', '%u', '%f', '%f', '%f', '%s')",
-            _player->GetGUIDLow(), _player->GetName(), oobank.vendor_id, pItem->GetEntry(), pItem->GetCount(), _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
+            _player->GetGUIDLow(), _player->GetName(), oobank.vendor_id, pItem->GetEntry(), count, _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
 
         sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] = time(nullptr); // vendor lock
         sOOMgr.OOPlayerGuildBankDepositItem[_player->GetGUIDLow()][pItem->GetEntry()] = 1; // item withdraw lock
