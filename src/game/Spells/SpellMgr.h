@@ -31,6 +31,7 @@
 #include "DBCStores.h"
 #include "SQLStorages.h"
 #include "SpellEntry.h"
+#include "Errors.h"
 
 #include <map>
 #include <memory>
@@ -99,6 +100,7 @@ struct SpellThreatEntry
 
 typedef std::map<uint32, uint8> SpellElixirMap;
 typedef std::map<uint32, uint32> SpellEnchantChargesMap;
+typedef std::map<uint32, float> SpellConeMap;
 typedef std::map<uint32, float> SpellProcItemEnchantMap;
 typedef std::map<uint32, SpellThreatEntry> SpellThreatMap;
 
@@ -418,6 +420,15 @@ class SpellMgr
                 return SPELL_NORMAL;
         }
 
+        float GetSpellCone(uint32 spellid) const
+        {
+            auto itr = mSpellCones.find(spellid);
+            if (itr == mSpellCones.end())
+                return (60.0f * M_PI_F / 180.0f);
+
+            return itr->second;
+        }
+
         uint32 GetSpellEnchantCharges(uint32 spellid) const
         {
             auto itr = mSpellEnchantChargesMap.find(spellid);
@@ -672,6 +683,7 @@ class SpellMgr
         void CheckUsedSpells(char const* table);
 
         // Loading data at server startup
+        void LoadSpellCones();
         void LoadSpellChains();
         void LoadSpellEnchantCharges();
         void LoadSpellLearnSkills();
@@ -719,6 +731,7 @@ class SpellMgr
 
     private:
         SpellScriptTarget  mSpellScriptTarget;
+        SpellConeMap       mSpellCones;
         SpellChainMap      mSpellChains;
         SpellChainMapNext  mSpellChainsNext;
         SpellLearnSkillMap mSpellLearnSkills;

@@ -86,7 +86,7 @@ bool ChatHandler::HandleNpcSpawnInfoCommand(char* /*args*/)
     }
     PSendSysMessage("Movement Type: %s", movementType.c_str());
     PSendSysMessage("Wander Distance: %g", pData->wander_distance);
-    PSendSysMessage(LANG_NPCINFO_ACTIVE_VISIBILITY, target->isActiveObject(), target->GetVisibilityModifier());
+    PSendSysMessage(LANG_NPCINFO_ACTIVE_VISIBILITY, target->IsActiveObject(), target->GetVisibilityModifier());
     ShowNpcOrGoSpawnInformation<Creature>(target->GetGUIDLow());
 
     return true;

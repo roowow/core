@@ -28,13 +28,7 @@
 #include "ObjectGuid.h"
 #include "LootMgr.h"
 #include "Player.h"
-
-#ifdef USE_STANDARD_MALLOC
 #include <vector>
-#else
-#include "tbb/concurrent_vector.h"
-#endif
-
 #include <memory>
 
 
@@ -63,10 +57,7 @@ enum SpellCastFlags
 
 enum SpellNotifyPushType
 {
-    PUSH_IN_FRONT,
-    PUSH_IN_FRONT_90,
-    PUSH_IN_FRONT_15,
-    PUSH_IN_BACK,
+    PUSH_IN_CONE,
     PUSH_SELF_CENTER,
     PUSH_SRC_CENTER,
     PUSH_DEST_CENTER,
@@ -612,15 +603,9 @@ class Spell
             bool   deleted:1;
         };
 
-#ifndef USE_STANDARD_MALLOC
-        typedef tbb::concurrent_vector<TargetInfo>     TargetList;
-        typedef tbb::concurrent_vector<GOTargetInfo>   GOTargetList;
-        typedef tbb::concurrent_vector<ItemTargetInfo> ItemTargetList;
-#else
         typedef std::vector<TargetInfo> TargetList;
         typedef std::vector<GOTargetInfo> GOTargetList;
         typedef std::vector<ItemTargetInfo> ItemTargetList;
-#endif
 
         TargetList     m_UniqueTargetInfo;
         GOTargetList   m_UniqueGOTargetInfo;

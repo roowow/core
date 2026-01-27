@@ -161,12 +161,12 @@ Map::Map(uint32 id, time_t expiry, uint32 InstanceId)
         int numObjThreads = (int)sWorld.getConfig(CONFIG_UINT32_MAP_OBJECTSUPDATE_THREADS);
         if (numObjThreads > 1)
         {
-            m_objectThreads.reset(new ThreadPool(numObjThreads -1));
+            m_objectThreads.reset(new ThreadPool("MapObj", numObjThreads -1));
             m_objectThreads->start<ThreadPool::MySQL<ThreadPool::MultiQueue>>();
         }
-        m_motionThreads.reset(new ThreadPool(sWorld.getConfig(CONFIG_UINT32_CONTINENTS_MOTIONUPDATE_THREADS)));
-        m_visibilityThreads.reset(new ThreadPool(std::max((int)sWorld.getConfig(CONFIG_UINT32_MAP_VISIBILITYUPDATE_THREADS) -1,0)));
-        m_cellThreads.reset(new ThreadPool(std::max((int)sWorld.getConfig(CONFIG_UINT32_MTCELLS_THREADS) - 1, 0)));
+        m_motionThreads.reset(new ThreadPool("MapMotion", sWorld.getConfig(CONFIG_UINT32_CONTINENTS_MOTIONUPDATE_THREADS)));
+        m_visibilityThreads.reset(new ThreadPool("MapVis", std::max((int)sWorld.getConfig(CONFIG_UINT32_MAP_VISIBILITYUPDATE_THREADS) -1,0)));
+        m_cellThreads.reset(new ThreadPool("MapCell", std::max((int)sWorld.getConfig(CONFIG_UINT32_MTCELLS_THREADS) - 1, 0)));
         m_visibilityThreads->start<ThreadPool::MySQL<ThreadPool::MultiQueue>>();
         m_cellThreads->start();
         m_motionThreads->start();
@@ -494,7 +494,7 @@ Map::Add(T* obj)
     obj->SetMap(this);
 
     Cell cell(p);
-    if (obj->isActiveObject() && !IsUnloading())
+    if (obj->IsActiveObject() && !IsUnloading())
         EnsureGridLoadedAtEnter(cell);
     else
         EnsureGridCreated(GridPair(cell.GridX(), cell.GridY()));
@@ -505,7 +505,7 @@ Map::Add(T* obj)
     AddToGrid(obj, grid, cell);
     obj->AddToWorld();
 
-    if (obj->isActiveObject() && !IsUnloading())
+    if (obj->IsActiveObject() && !IsUnloading())
         AddToActive(obj);
 
     sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "%s enters grid[%u,%u]", obj->GetObjectGuid().GetString().c_str(), cell.GridX(), cell.GridY());
@@ -1300,7 +1300,7 @@ Map::Remove(T* obj, bool remove)
     m_mCreatureSummonCount.erase(obj->GetGUID());
     m_mCreatureSummonLimit.erase(obj->GetGUID());
 
-    if (obj->isActiveObject())
+    if (obj->IsActiveObject())
         RemoveFromActive(obj);
 
     if (remove)
@@ -1326,7 +1326,7 @@ Map::Remove(T* obj, bool remove)
 template<>
 void Map::Remove(GenericTransport* obj, bool remove)
 {
-    if (obj->isActiveObject())
+    if (obj->IsActiveObject())
         RemoveFromActive(obj);
     if (remove)
         obj->CleanupsBeforeDelete();
@@ -1484,7 +1484,7 @@ bool Map::CreatureCellRelocation(Creature* c, Cell const& new_cell)
     Cell const& old_cell = c->GetCurrentCell();
     if (old_cell.DiffGrid(new_cell))
     {
-        if ((!c->isActiveObject() || IsUnloading()) && !loaded(new_cell.gridPair()))
+        if ((!c->IsActiveObject() || IsUnloading()) && !loaded(new_cell.gridPair()))
         {
             DEBUG_FILTER_LOG(LOG_FILTER_CREATURE_MOVES, "Creature (GUID: %u Entry: %u) attempt move from grid[%u,%u]cell[%u,%u] to unloaded grid[%u,%u]cell[%u,%u].", c->GetGUIDLow(), c->GetEntry(), old_cell.GridX(), old_cell.GridY(), old_cell.CellX(), old_cell.CellY(), new_cell.GridX(), new_cell.GridY(), new_cell.CellX(), new_cell.CellY());
             return false;

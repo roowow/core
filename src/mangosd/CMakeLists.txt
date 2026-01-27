@@ -18,25 +18,22 @@
 set(EXECUTABLE_NAME mangosd)
 set(EXECUTABLE_SRCS
   CliRunnable.h
-  MaNGOSsoap.h
   Master.h
-  RASocket.h
   WorldRunnable.h
   CliRunnable.cpp
   Main.cpp
-  MaNGOSsoap.cpp
   Master.cpp
-  RASocket.cpp
   WorldRunnable.cpp
+  remote/RemoteAccess/RASocket.h
+  remote/RemoteAccess/RASocket.cpp
+  remote/soap/MaNGOSsoap.h
+  remote/soap/MaNGOSsoap.cpp
 )
-
 
 if(WIN32)
   list(APPEND EXECUTABLE_SRCS
     mangosd.rc
   )
-
-  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /D__ACE_INLINE__")
 endif()
 
 include_directories(
@@ -68,7 +65,6 @@ include_directories(
   ${CMAKE_SOURCE_DIR}/src/game/Threat
   ${CMAKE_SOURCE_DIR}/src/game/Transports
   ${CMAKE_SOURCE_DIR}/src/game/vmap
-  ${ACE_INCLUDE_DIR}
   ${MYSQL_INCLUDE_DIR}
   ${OPENSSL_INCLUDE_DIR}
 )
@@ -80,10 +76,6 @@ if(WIN32)
 endif()
 
 # Display some debug informations at server startup
-set(DEFINITIONS
-  ${DEFINITIONS}
-  MANGOS_ALLOC_LIB="${ALLOC_LIB_INFO_STRING}"
-)
 set_directory_properties(PROPERTIES COMPILE_DEFINITIONS "${DEFINITIONS}")
 
 add_executable(${EXECUTABLE_NAME}
@@ -98,7 +90,6 @@ if(USE_SCRIPTS)
     framework
     g3dlite
     gsoap
-    ${ACE_LIBRARIES}
   )
 else()
   target_link_libraries(${EXECUTABLE_NAME}
@@ -108,7 +99,6 @@ else()
     framework
     g3dlite
     gsoap
-    ${ACE_LIBRARIES}
   )
 endif()
 
