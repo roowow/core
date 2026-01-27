@@ -621,6 +621,17 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recv_data)
         }
     }
 
+    // Wareffort
+    if (pCreature->GetEntry() == 299018)
+    {
+        if (_player->oowowInfo.wareffort_used >= _player->oowowInfo.wareffort_count)
+        {
+            ChatHandler(GetPlayer()).PSendSysMessage("我的战争物质贡献值：%u, 已使用：%u。", _player->oowowInfo.wareffort_count, _player->oowowInfo.wareffort_used);
+            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, itemGuid, 0);
+            return;
+        }
+    }
+
     // Guild Bank
     uint32 latestCount = count + pCreature->GetVendorItemCurrentCountofGuildBank(pItem->GetEntry());
     if (pCreature->IsGuildBank())
@@ -816,6 +827,14 @@ void WorldSession::HandleSellItemOpcode(WorldPacket& recv_data)
     else
     {
         _player->LogModifyMoney(money, "SellItem", pCreature->GetObjectGuid(), pItem->GetEntry());
+
+        // Wareffort
+        if (pCreature->GetEntry() == 299018)
+        {
+            _player->oowowInfo.wareffort_count++;
+            ChatHandler(GetPlayer()).PSendSysMessage("我的战争物质贡献值：%u, 已使用：%u。", GetPlayer()->oowowInfo.wareffort_count, GetPlayer()->oowowInfo.wareffort_used);
+            CharacterDatabase.PExecute("UPDATE character_wareffort SET Used = %u WHERE guid=%u", _player->oowowInfo.wareffort_count, _player->GetGUIDLow());
+        }
     }
 }
 

@@ -14262,7 +14262,7 @@ void Player::SetQuestStatus(uint32 questId, QuestStatus status)
 
         UpdateForQuestWorldObjects();
 
-        if (quest_id == 32003 || quest_id == 32005) // 跨越深海
+        if (questId == 32003 || questId == 32005) // 跨越深海
         {
             if (Group* group = sObjectMgr.GetGroupByMember(GetGUID()))
                 RemoveFromGroup(group, GetGUID());
