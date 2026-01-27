@@ -18882,6 +18882,17 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
         return false;
     }
 
+    // Wareffort
+    if (pCreature->GetEntry() == 299018)
+    {
+        if (!oowowInfo.wareffort_count || oowowInfo.wareffort_used >= oowowInfo.wareffort_count)
+        {
+            ChatHandler(this).PSendSysMessage("我的战争物质贡献值：%u, 已使用：%u。", oowowInfo.wareffort_count, oowowInfo.wareffort_used);
+            SendBuyError(BUY_ERR_NOT_ENOUGHT_MONEY, nullptr, item, 0);
+            return false;
+        }
+    }
+
     VendorItemData const* vItems = pCreature->GetVendorItems();
     VendorItemData const* tItems = pCreature->GetVendorTemplateItems();
 
@@ -19022,6 +19033,14 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
     GetSession()->SendPacket(&data);
 
     SendNewItem(pItem, totalCount, true, false, false);
+
+    // Wareffort
+    if (pCreature->GetEntry() == 299018)
+    {
+        oowowInfo.wareffort_used++;
+        ChatHandler(this).PSendSysMessage("我的战争物质贡献值：%u, 已使用：%u。", oowowInfo.wareffort_count, oowowInfo.wareffort_used);
+        CharacterDatabase.PExecute("UPDATE character_wareffort SET Used = %u WHERE guid=%u", oowowInfo.wareffort_used, GetGUIDLow());
+    }
 
     return crItem->maxcount != 0;
 }
