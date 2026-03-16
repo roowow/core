@@ -11422,14 +11422,31 @@ void Unit::RestoreMovement()
     }
 }
 
+// void Unit::SetTransformScale(float scale)
+// {
+//     if (!scale || !m_nativeScaleOverride)
+//     {
+//         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Attempt to set transform scale to 0!");
+//         return;
+//     }
+//     ApplyPercentModFloatValue(OBJECT_FIELD_SCALE_X,(scale/m_nativeScaleOverride -1)*100,true);
+//     m_nativeScaleOverride = scale;
+// }
+
 void Unit::SetTransformScale(float scale)
 {
-    if (!scale || !m_nativeScaleOverride)
+    if (!scale)  // 只保留原来的检查，去掉 !m_nativeScaleOverride
     {
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Attempt to set transform scale to 0!");
         return;
     }
-    ApplyPercentModFloatValue(OBJECT_FIELD_SCALE_X,(scale/m_nativeScaleOverride -1)*100,true);
+    // m_nativeScaleOverride 为 0 时也要防止除零
+    if (!m_nativeScaleOverride)
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "SetTransformScale: m_nativeScaleOverride is 0, resetting to 1!");
+        m_nativeScaleOverride = 1.0f;
+    }
+    ApplyPercentModFloatValue(OBJECT_FIELD_SCALE_X, (scale/m_nativeScaleOverride - 1)*100, true);
     m_nativeScaleOverride = scale;
 }
 
