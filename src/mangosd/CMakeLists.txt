@@ -60,7 +60,8 @@ include_directories(
   ${CMAKE_SOURCE_DIR}/src/game/Objects
   ${CMAKE_SOURCE_DIR}/src/game/OutdoorPvP
   ${CMAKE_SOURCE_DIR}/src/game/PlayerBots
-  ${CMAKE_SOURCE_DIR}/src/game/Protocol
+  ${CMAKE_SOURCE_DIR}/src/game/Server
+  ${CMAKE_SOURCE_DIR}/src/game/Server/Protocol
   ${CMAKE_SOURCE_DIR}/src/game/Spells
   ${CMAKE_SOURCE_DIR}/src/game/Threat
   ${CMAKE_SOURCE_DIR}/src/game/Transports
@@ -104,7 +105,6 @@ endif()
 
 if(WIN32)
   target_link_libraries(${EXECUTABLE_NAME}
-    zlib
     optimized ${MYSQL_LIBRARY}
     optimized ${OPENSSL_LIBRARIES}
     debug ${MYSQL_DEBUG_LIBRARY}
@@ -125,7 +125,6 @@ if(UNIX)
     ${MYSQL_LIBRARY}
     ${OPENSSL_LIBRARIES}
     ${OPENSSL_EXTRA_LIBRARIES}
-    ${ZLIB_LIBRARIES}
   )
 endif()
 

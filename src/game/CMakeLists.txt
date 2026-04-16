@@ -47,7 +47,6 @@ set (game_SRCS
     UnitAuraProcHandler.cpp
     Weather.cpp
     World.cpp
-    WorldSession.cpp
     AI/BasicAI.cpp
     AI/CreatureAI.cpp
     AI/CreatureAIRegistry.cpp
@@ -197,13 +196,37 @@ set (game_SRCS
     PlayerBots/BattleBotWaypoints.cpp
     PlayerBots/PlayerBotAI.cpp
     PlayerBots/PlayerBotMgr.cpp
-    Protocol/Opcodes.cpp
-    Protocol/WorldSocket.h
-    Protocol/WorldSocket.cpp
-    Protocol/WorldSocketMgr.h
-    Protocol/WorldSocketMgr.cpp
+    Server/Protocol/Opcodes.cpp
+    Server/Packets/Battleground.cpp
+    Server/Packets/AuctionHouse.cpp
+    Server/Packets/Channel.cpp
+    Server/Packets/Character.cpp
+    Server/Packets/Chat.cpp
+    Server/Packets/Combat.cpp
+    Server/Packets/Duel.cpp
+    Server/Packets/GmTicket.cpp
+    Server/Packets/Group.cpp
+    Server/Packets/Guild.cpp
+    Server/Packets/Item.cpp
+    Server/Packets/Loot.cpp
+    Server/Packets/Mail.cpp
+    Server/Packets/Misc.cpp
+    Server/Packets/Movement.cpp
+    Server/Packets/Npc.cpp
+    Server/Packets/Pet.cpp
+    Server/Packets/Petition.cpp
+    Server/Packets/Query.cpp
+    Server/Packets/Quest.cpp
+    Server/Packets/Skill.cpp
+    Server/Packets/Spell.cpp
+    Server/Packets/Taxi.cpp
+    Server/Packets/Trade.cpp
+    Server/WorldSession.cpp
+    Server/WorldSocket.cpp
+    Server/WorldSocketMgr.cpp
     Spells/Spell.cpp
     Spells/SpellAuras.cpp
+    Spells/SpellCastTargetsInfo.cpp
     Spells/SpellEffects.cpp
     Spells/SpellEntry.cpp
     Spells/SpellMgr.cpp
@@ -261,7 +284,6 @@ set (game_SRCS
     UnitEvents.h
     Weather.h
     World.h
-    WorldSession.h
     WorldStates.h
     AI/BasicAI.h
     AI/CreatureAI.h
@@ -423,10 +445,41 @@ set (game_SRCS
     PlayerBots/BattleBotWaypoints.h
     PlayerBots/PlayerBotAI.h
     PlayerBots/PlayerBotMgr.h
-    Protocol/Opcodes.h
+    Server/Protocol/Opcodes.h
+    Server/Protocol/Opcodes_active.h
+    Server/Packet.h
+    Server/Packets/Battleground.h
+    Server/Packets/AuctionHouse.h
+    Server/Packets/Channel.h
+    Server/Packets/Character.h
+    Server/Packets/Chat.h
+    Server/Packets/Combat.h
+    Server/Packets/Duel.h
+    Server/Packets/GmTicket.h
+    Server/Packets/Group.h
+    Server/Packets/Guild.h
+    Server/Packets/Item.h
+    Server/Packets/Loot.h
+    Server/Packets/Mail.h
+    Server/Packets/Misc.h
+    Server/Packets/Movement.h
+    Server/Packets/Npc.h
+    Server/Packets/Pet.h
+    Server/Packets/Petition.h
+    Server/Packets/Query.h
+    Server/Packets/Quest.h
+    Server/Packets/Skill.h
+    Server/Packets/Spell.h
+    Server/Packets/Taxi.h
+    Server/Packets/Trade.h
+    Server/WorldPacket.h
+    Server/WorldSession.h
+    Server/WorldSocket.h
+    Server/WorldSocketMgr.h
     Spells/Spell.h
     Spells/SpellAuraDefines.h
     Spells/SpellAuras.h
+    Spells/SpellCastTargetsInfo.h
     Spells/SpellClassMask.h
     Spells/SpellDefines.h
     Spells/SpellEntry.h
@@ -506,7 +559,8 @@ include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/OutdoorPvP
   ${CMAKE_CURRENT_SOURCE_DIR}/PacketBroadcast
   ${CMAKE_CURRENT_SOURCE_DIR}/PlayerBots
-  ${CMAKE_CURRENT_SOURCE_DIR}/Protocol
+  ${CMAKE_CURRENT_SOURCE_DIR}/Server
+  ${CMAKE_CURRENT_SOURCE_DIR}/Server/Protocol
   ${CMAKE_CURRENT_SOURCE_DIR}/Spells
   ${CMAKE_CURRENT_SOURCE_DIR}/Threat
   ${CMAKE_CURRENT_SOURCE_DIR}/Transports
@@ -526,12 +580,6 @@ include_directories(
   ${OPENSSL_INCLUDE_DIR}
   ${ZLIB_INCLUDE_DIRS}
 )
-
-if(NOT USE_STD_MALLOC)
-  include_directories(
-    ${TBB_INCLUDE_DIRS}
-  )
-endif()
 
 if(WIN32)
   include_directories(
@@ -603,15 +651,14 @@ if((${CMAKE_VERSION} VERSION_LESS "3.16") OR USE_PCH_OLD)
 else()
   if(USE_PCH)
       target_precompile_headers(game PRIVATE
-      Protocol/WorldSocket.h
+      Server/WorldSocket.h
       ../shared/Common.h
-
       Maps/MapManager.h
       ../shared/Log.h
       ObjectAccessor.h
       ObjectGuid.h
       Database/SQLStorages.h
-      Protocol/Opcodes.h
+      Server/Protocol/Opcodes.h
       SharedDefines.h
       Guild/GuildMgr.h
       ObjectMgr.h

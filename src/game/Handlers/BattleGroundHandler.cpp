@@ -38,12 +38,9 @@
 #include "Anticheat.h"
 #include "PlayerBotMgr.h"
 
-void WorldSession::HandleBattlemasterHelloOpcode(WorldPacket& recv_data)
+void WorldSession::HandleBattlemasterHelloOpcode(WorldPackets::Battleground::BattlemasterHello const& packet)
 {
-    ObjectGuid guid;
-    recv_data >> guid;
-
-    Creature* pCreature = GetPlayer()->GetMap()->GetCreature(guid);
+    Creature* pCreature = GetPlayer()->GetMap()->GetCreature(packet.guid);
 
     if (!pCreature)
         return;
@@ -69,7 +66,7 @@ void WorldSession::HandleBattlemasterHelloOpcode(WorldPacket& recv_data)
 
     _player->InterruptSpellsWithChannelFlags(AURA_INTERRUPT_INTERACTING_CANCELS);
     _player->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_INTERACTING_CANCELS);
-    SendBattleGroundList(guid, bgTypeId);
+    SendBattleGroundList(packet.guid, bgTypeId);
 }
 
 void WorldSession::SendBattleGroundList(ObjectGuid guid, BattleGroundTypeId bgTypeId)
@@ -79,37 +76,26 @@ void WorldSession::SendBattleGroundList(ObjectGuid guid, BattleGroundTypeId bgTy
     SendPacket(&data);
 }
 
-void WorldSession::HandleBattlefieldJoinOpcode(WorldPacket& recv_data)
+void WorldSession::HandleBattlefieldJoinOpcode(WorldPackets::Battleground::BattlefieldJoin const& packet)
 {
-    uint32 mapId;
-    recv_data >> mapId;
-
-    WorldPacket data(recv_data.GetOpcode());
-    data << uint64(0);
-    data << uint32(mapId);
-    data << uint32(0);
-    data << uint8(0);
-
-    HandleBattlemasterJoinOpcode(data);
+    RequestBgJoinQueue(ObjectGuid{}, 0, packet.mapId, false);
 }
 
-void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recv_data)
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_6_1
+void WorldSession::HandleBattlemasterJoinOpcode(WorldPackets::Battleground::BattlemasterJoin const& packet)
 {
-    ObjectGuid guid;
-    uint32 instanceId;
-    uint32 mapId;
-    uint8 joinAsGroup;
+    RequestBgJoinQueue(packet.guid, packet.instanceId, packet.mapId, packet.joinAsGroup);
+}
+#endif
+
+void WorldSession::RequestBgJoinQueue(ObjectGuid battlemaster, uint32 instanceId, uint32 mapId, bool joinAsGroup)
+{
     bool queuedAtBGPortal = false;
     bool isPremade = false;
     Group* grp;
 
-    recv_data >> guid;                                      // battlemaster guid, or player guid if joining queue from BG portal
-    recv_data >> mapId;
-    recv_data >> instanceId;                                // instance id, 0 if First Available selected
-    recv_data >> joinAsGroup;                               // join as group
-
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_6_1
-    if (guid == GetPlayer()->GetObjectGuid())
+    if (battlemaster == GetPlayer()->GetObjectGuid())
         queuedAtBGPortal = true;
 #endif
 
@@ -144,7 +130,7 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recv_data)
     }
     else
     {
-        if (!_player->GetNPCIfCanInteractWith(guid, UNIT_NPC_FLAG_BATTLEMASTER))
+        if (!_player->GetNPCIfCanInteractWith(battlemaster, UNIT_NPC_FLAG_BATTLEMASTER))
         {
             ProcessAnticheatAction("PassiveAnticheat", "Attempt to queue for BG through invalid creature", CHEAT_ACTION_LOG | CHEAT_ACTION_REPORT_GMS);
             return;
@@ -172,7 +158,7 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recv_data)
     // ignore if player is already in BG
     if (_player->InBattleGround())
         return;
-    
+
     // get bg instance or bg template if instance not found
     BattleGround *bg = nullptr;
     if (instanceId)
@@ -195,9 +181,11 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recv_data)
         // check Deserter debuff
         if (!_player->CanJoinToBattleground())
         {
-            WorldPacket data(SMSG_GROUP_JOINED_BATTLEGROUND, 4);
-            data << uint32(0xFFFFFFFE);
-            _player->GetSession()->SendPacket(&data);
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_4_2
+            auto bgPacket = std::make_unique<WorldPackets::Battleground::GroupJoinedBattleground>();
+            bgPacket->result = BG_GROUPJOIN_DESERTERS;
+            _player->GetSession()->SendPacket(std::move(bgPacket));
+#endif
             return;
         }
         // check if already in queue
@@ -239,9 +227,9 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recv_data)
 
         if (err == BG_JOIN_ERR_GROUP_DESERTER)
         {
-            WorldPacket data;
-            sBattleGroundMgr.BuildGroupJoinedBattlegroundPacket(&data, BG_GROUPJOIN_DESERTERS);
-            _player->GetSession()->SendPacket(&data);
+            auto bgJoined = std::make_unique<WorldPackets::Battleground::GroupJoinedBattleground>();
+            bgJoined->result = BG_GROUPJOIN_DESERTERS;
+            _player->GetSession()->SendPacket(std::move(bgJoined));
             SendBattleGroundJoinError(err);
             return;
         }
@@ -262,12 +250,12 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recv_data)
         {
             Player* member = itr->getSource();
             if (!member) continue;  // this should never happen
-            
+
             if (std::find(excludedMembers.begin(), excludedMembers.end(), member->GetGUIDLow()) != excludedMembers.end())
             {
-                WorldPacket data;
-                sBattleGroundMgr.BuildGroupJoinedBattlegroundPacket(&data, BG_GROUPJOIN_FAILED);
-                member->GetSession()->SendPacket(&data);
+                auto bgJoined = std::make_unique<WorldPackets::Battleground::GroupJoinedBattleground>();
+                bgJoined->result = BG_GROUPJOIN_FAILED;
+                member->GetSession()->SendPacket(std::move(bgJoined));
                 SendBattleGroundJoinError(err);
                 continue;
             }
@@ -279,8 +267,9 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recv_data)
             // send status packet (in queue)
             sBattleGroundMgr.BuildBattleGroundStatusPacket(&data, bg, queueSlot, STATUS_WAIT_QUEUE, avgTime, 0);
             member->GetSession()->SendPacket(&data);
-            sBattleGroundMgr.BuildGroupJoinedBattlegroundPacket(&data, bg->GetMapId());
-            member->GetSession()->SendPacket(&data);
+            auto bgJoined = std::make_unique<WorldPackets::Battleground::GroupJoinedBattleground>();
+            bgJoined->result = bg->GetMapId();
+            member->GetSession()->SendPacket(std::move(bgJoined));
             sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Battleground: player joined queue for bg queue type %u bg type %u: GUID %u, NAME %s", bgQueueTypeId, bgTypeId, member->GetGUIDLow(), member->GetName());
         }
         sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Battleground: group end");
@@ -289,8 +278,9 @@ void WorldSession::HandleBattlemasterJoinOpcode(WorldPacket& recv_data)
     sBattleGroundMgr.ScheduleQueueUpdate(bgQueueTypeId, bgTypeId, bgBracketId);
 }
 
-void WorldSession::HandleBattleGroundPlayerPositionsOpcode(WorldPacket& /*recv_data*/)
+void WorldSession::HandleBattleGroundPlayerPositionsOpcode(NullClientPacket const& /*packet*/)
 {
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_4_2
     // empty opcode
     BattleGround *bg = _player->GetBattleGround();
     if (!bg)                                                // can't be received if player not in battleground
@@ -317,7 +307,7 @@ void WorldSession::HandleBattleGroundPlayerPositionsOpcode(WorldPacket& /*recv_d
         }
     }
     data.put<uint32>(countPos, count);
-    
+
     switch (bg->GetTypeID())
     {
         case BATTLEGROUND_WS:
@@ -347,9 +337,10 @@ void WorldSession::HandleBattleGroundPlayerPositionsOpcode(WorldPacket& /*recv_d
     }
 
     SendPacket(&data);
+#endif
 }
 
-void WorldSession::HandlePVPLogDataOpcode(WorldPacket& /*recv_data*/)
+void WorldSession::HandlePVPLogDataOpcode(NullClientPacket const& /*packet*/)
 {
     BattleGround *bg = _player->GetBattleGround();
     if (!bg)
@@ -365,13 +356,10 @@ void WorldSession::HandlePVPLogDataOpcode(WorldPacket& /*recv_data*/)
         SendPacket(bg->GetFinalScorePacket());
 }
 
-void WorldSession::HandleBattlefieldListOpcode(WorldPacket& recv_data)
+void WorldSession::HandleBattlefieldListOpcode(WorldPackets::Battleground::BattlefieldListRequest const& packet)
 {
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_8_4
-    uint32 mapId;
-    recv_data >> mapId;
-
-    BattleGroundTypeId bgTypeId = GetBattleGroundTypeIdByMapId(mapId);
+    BattleGroundTypeId bgTypeId = GetBattleGroundTypeIdByMapId(packet.mapId);
 #else
     BattleGroundTypeId bgTypeId = BattleGroundTypeId(_player->GetQueuedBattleground());
 #endif
@@ -387,18 +375,14 @@ void WorldSession::HandleBattlefieldListOpcode(WorldPacket& recv_data)
     SendPacket(&data);
 }
 
-void WorldSession::HandleBattleFieldPortOpcode(WorldPacket& recv_data)
+void WorldSession::HandleBattleFieldPortOpcode(WorldPackets::Battleground::BattleFieldPort const& packet)
 {
-    uint8 action = 0; // enter battle 0x1, leave queue 0x0
-    uint32 mapId = 0;
-
+    uint8 action = packet.action; // enter battle 0x1, leave queue 0x0
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_8_4
-    recv_data >> mapId >> action;
-
+    uint32 mapId = packet.mapId;
     BattleGroundTypeId bgTypeId = GetBattleGroundTypeIdByMapId(mapId);
 #else
-    recv_data >> action;
-
+    uint32 mapId = 0;
     BattleGroundTypeId bgTypeId = BattleGroundTypeId(_player->GetQueuedBattleground());
 #endif
 
@@ -456,9 +440,11 @@ void WorldSession::HandleBattleFieldPortOpcode(WorldPacket& recv_data)
         if (!_player->CanJoinToBattleground())
         {
             //send bg command result to show nice message
-            WorldPacket data2(SMSG_GROUP_JOINED_BATTLEGROUND, 4);
-            data2 << uint32(0xFFFFFFFE);
-            _player->GetSession()->SendPacket(&data2);
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_4_2
+            auto bgJoined = std::make_unique<WorldPackets::Battleground::GroupJoinedBattleground>();
+            bgJoined->result = BG_GROUPJOIN_DESERTERS;
+            _player->GetSession()->SendPacket(std::move(bgJoined));
+#endif
             action = 0;
             sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Battleground: player %s (%u) has a deserter debuff, do not port him to battleground!", _player->GetName(), _player->GetGUIDLow());
         }
@@ -544,7 +530,7 @@ void WorldSession::HandleBattleFieldPortOpcode(WorldPacket& recv_data)
             sBattleGroundMgr.ScheduleQueueUpdate(bgQueueTypeId, bgTypeId, _player->GetBattleGroundBracketIdFromLevel(bgTypeId));
             SendPacket(&data);
             sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Battleground: player %s (%u) left queue for bgtype %u, queue type %u.", _player->GetName(), _player->GetGUIDLow(), bg->GetTypeID(), bgQueueTypeId);
-            sLog.Out(LOG_BG, LOG_LVL_DETAIL, "[%u,%u] %s:%u [%u:%s] leaves queue",
+            sLog.Out(LOG_BG, LOG_LVL_DETAIL, "[%u,%u] %s:%u [%u:%s] leaves queue, bgTypeId: %u",
                      bg->GetMapId(), bg->GetInstanceID(),
                      _player->GetName(),
                      _player->GetGUIDLow(),
@@ -557,12 +543,11 @@ void WorldSession::HandleBattleFieldPortOpcode(WorldPacket& recv_data)
     }
 }
 
-void WorldSession::HandleLeaveBattlefieldOpcode(WorldPacket& recv_data)
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_4_2
+void WorldSession::HandleLeaveBattlefieldOpcode(WorldPackets::Battleground::LeaveBattlefield const& packet)
 {
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_8_4
-    uint32 mapId;
-    recv_data >> mapId;
-    if (_player->GetMapId() != mapId)
+    if (_player->GetMapId() != packet.mapId)
         return;
 #endif
 
@@ -574,8 +559,9 @@ void WorldSession::HandleLeaveBattlefieldOpcode(WorldPacket& recv_data)
 
     _player->LeaveBattleground();
 }
+#endif
 
-void WorldSession::HandleBattlefieldStatusOpcode(WorldPacket& /*recv_data*/)
+void WorldSession::HandleBattlefieldStatusOpcode(NullClientPacket const& /*packet*/)
 {
     // empty opcode
     WorldPacket data;
@@ -630,16 +616,14 @@ void WorldSession::HandleBattlefieldStatusOpcode(WorldPacket& /*recv_data*/)
     }
 }
 
-void WorldSession::HandleAreaSpiritHealerQueryOpcode(WorldPacket& recv_data)
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_4_2
+void WorldSession::HandleAreaSpiritHealerQueryOpcode(WorldPackets::Battleground::AreaSpiritHealerQuery const& packet)
 {
     BattleGround *bg = _player->GetBattleGround();
     if (!bg)
         return;
 
-    ObjectGuid guid;
-    recv_data >> guid;
-
-    Creature* unit = GetPlayer()->GetMap()->GetCreature(guid);
+    Creature* unit = GetPlayer()->GetMap()->GetCreature(packet.guid);
     if (!unit)
         return;
 
@@ -648,17 +632,16 @@ void WorldSession::HandleAreaSpiritHealerQueryOpcode(WorldPacket& recv_data)
 
     unit->SendAreaSpiritHealerQueryOpcode(GetPlayer());
 }
+#endif
 
-void WorldSession::HandleAreaSpiritHealerQueueOpcode(WorldPacket& recv_data)
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_4_2
+void WorldSession::HandleAreaSpiritHealerQueueOpcode(WorldPackets::Battleground::AreaSpiritHealerQueue const& packet)
 {
     BattleGround *bg = _player->GetBattleGround();
     if (!bg)
         return;
 
-    ObjectGuid guid;
-    recv_data >> guid;
-
-    Creature* unit = GetPlayer()->GetMap()->GetCreature(guid);
+    Creature* unit = GetPlayer()->GetMap()->GetCreature(packet.guid);
     if (!unit)
         return;
 
@@ -667,6 +650,7 @@ void WorldSession::HandleAreaSpiritHealerQueueOpcode(WorldPacket& recv_data)
 
     sScriptMgr.OnGossipHello(GetPlayer(), unit);
 }
+#endif
 
 void WorldSession::SendBattleGroundJoinError(uint8 err)
 {

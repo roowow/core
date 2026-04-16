@@ -557,7 +557,7 @@ enum BuyBackSlots                                           // 12 slots after 1.
 #endif
 };
 
-enum KeyRingSlots                                           // 32 slots
+enum KeyRingSlots                                           // 32 slots (only 16 are visible/accessible in UI)
 {
     KEYRING_SLOT_START          = 81,
     KEYRING_SLOT_END            = 97
@@ -763,6 +763,14 @@ struct ScheduledTeleportData
     std::function<void()> recover = std::function<void()>();
 };
 
+struct QuestShareInfo
+{
+    explicit QuestShareInfo(ObjectGuid guid, uint32 questId) : PlayerGuid(guid), QuestId(questId) {}
+
+    ObjectGuid PlayerGuid;
+    uint32 QuestId;
+};
+
 class Player final: public Unit
 {
     friend class WorldSession;
@@ -822,7 +830,7 @@ class Player final: public Unit
         void SetPvPDeath(bool on) { if (on) m_ExtraFlags |= PLAYER_EXTRA_PVP_DEATH; else m_ExtraFlags &= ~PLAYER_EXTRA_PVP_DEATH; }
         bool IsGMVisible() const { return !(m_ExtraFlags & PLAYER_EXTRA_GM_INVISIBLE); }
         void SetGMVisible(bool on, bool notify = false);
-        
+
         void SetCheatFly(bool on, bool notify = false);
         void SetCheatFixedZ(bool on, bool notify = false);
         void SetCheatBeastmaster(bool on, bool notify = false);
@@ -1012,7 +1020,14 @@ class Player final: public Unit
 #endif
 
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_10_2
-        uint32 GetMaxKeyringSize() const { return GetLevel() < 40 ? 4 : (GetLevel() < 50 ? 8 : 12); }
+        uint32 GetMaxKeyringSize() const
+        {
+            uint32 level = GetLevel();
+            if (level > 60) return 16;
+            if (level >= 50) return 12;
+            if (level >= 40) return 8;
+            return 4;
+        }
 #else
         uint32 GetMaxKeyringSize() const { return 0; }
 #endif
@@ -1105,7 +1120,8 @@ class Player final: public Unit
         typedef std::set<uint32> QuestSet;
         QuestSet m_timedquests;
 
-        ObjectGuid m_dividerGuid;
+        nonstd::optional<QuestShareInfo> m_questShareInfo;
+
         uint32 m_ingametime;
         QuestStatusMap mQuestStatus;
         void AdjustQuestReqItemCount(Quest const* pQuest, QuestStatusData& questStatusData);
@@ -1217,9 +1233,9 @@ class Player final: public Unit
         void SendQuestUpdateAddItem(Quest const* pQuest, uint32 item_idx, uint32 current, uint32 count);
         void SendQuestUpdateAddCreatureOrGo(Quest const* pQuest, ObjectGuid guid, uint32 creatureOrGO_idx, uint32 count);
 
-        ObjectGuid GetDividerGuid() const { return m_dividerGuid; }
-        void SetDividerGuid(ObjectGuid guid) { m_dividerGuid = guid; }
-        void ClearDividerGuid() { m_dividerGuid.Clear(); }
+        auto const& GetQuestShareInfo() const { return m_questShareInfo; }
+        void SetQuestShareInfo(ObjectGuid guid, uint32 questId) { m_questShareInfo.emplace(guid, questId); }
+        void ClearQuestShareInfo() { m_questShareInfo.reset(); }
 
         uint32 GetInGameTime() const { return m_ingametime; }
         void SetInGameTime(uint32 time) { m_ingametime = time; }
@@ -1271,7 +1287,7 @@ class Player final: public Unit
         /*********************************************************/
         /***                   SAVE SYSTEM                     ***/
         /*********************************************************/
-        
+
     private:
         void _SaveAuras();
         void _SaveInventory();
@@ -1335,7 +1351,7 @@ class Player final: public Unit
         void UnsummonPetTemporaryIfAny();
         void ResummonPetTemporaryUnSummonedIfAny();
         bool IsPetNeedBeTemporaryUnsummoned() const;
-        
+
         /*********************************************************/
         /***                   SPELL SYSTEM                    ***/
         /*********************************************************/
@@ -1437,7 +1453,7 @@ class Player final: public Unit
         uint32 GetResetTalentsCost() const;
         void UpdateResetTalentsMultiplier() const;
         uint32 CalculateTalentsPoints() const;
-        void SendTalentWipeConfirm(ObjectGuid guid) const;
+        void SendTalentWipeConfirm(ObjectGuid trainerGuid) const;
     public:
         uint32 GetFreeTalentPoints() const { return GetUInt32Value(PLAYER_CHARACTER_POINTS1); }
         void SetFreeTalentPoints(uint32 points) { SetUInt32Value(PLAYER_CHARACTER_POINTS1, points); }
@@ -1863,7 +1879,7 @@ class Player final: public Unit
         /***              ENVIRONMENTAL SYSTEM                 ***/
         /*********************************************************/
 
-    protected: 
+    protected:
         uint8 m_environmentFlags = ENVIRONMENT_FLAG_NONE;
         float m_environmentBreathingMultiplier = 1.0f;
         MirrorTimer m_mirrorTimers[MirrorTimer::NUM_TIMERS] = { MirrorTimer::FATIGUE, MirrorTimer::BREATH, MirrorTimer::FEIGNDEATH, MirrorTimer::ENVIRONMENTAL };
@@ -1888,7 +1904,6 @@ class Player final: public Unit
         bool IsUnderwater() const override { return (m_environmentFlags & ENVIRONMENT_FLAG_UNDERWATER); }
         bool IsInWater() const override { return (m_environmentFlags & ENVIRONMENT_FLAG_IN_WATER); }
         inline bool IsInMagma() const { return (m_environmentFlags & ENVIRONMENT_FLAG_IN_MAGMA); }
-        inline bool IsInSlime() const { return (m_environmentFlags & ENVIRONMENT_FLAG_IN_SLIME); }
         inline bool IsInHighSea() const { return (m_environmentFlags & ENVIRONMENT_FLAG_HIGH_SEA); }
         inline bool IsInHighLiquid() const { return (m_environmentFlags & ENVIRONMENT_FLAG_HIGH_LIQUID); }
 
@@ -1933,7 +1948,7 @@ class Player final: public Unit
         /*********************************************************/
         /***                    TAXI SYSTEM                    ***/
         /*********************************************************/
-        
+
     private:
         PlayerTaxi m_taxi;
     public:
@@ -1943,7 +1958,7 @@ class Player final: public Unit
         bool ActivateTaxiPathTo(std::vector<uint32> const& nodes, Creature const* npc = nullptr, uint32 spellid = 0, bool nocheck = false);
         bool ActivateTaxiPathTo(uint32 taxi_path_id, uint32 spellid = 0, bool nocheck = false);
         void TaxiStepFinished(bool lastPointReached);
-        void ContinueTaxiFlight() const;
+        void ContinueTaxiFlight();
 
         /*********************************************************/
         /***                 CINEMATIC SYSTEM                  ***/
@@ -2100,10 +2115,10 @@ class Player final: public Unit
             m_resurrectData.mana = mana;
         }
         void ClearResurrectRequestData() { SetResurrectRequestData(ObjectGuid(), 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0); }
-        bool IsRessurectRequestedBy(ObjectGuid guid) const { return m_resurrectData.resurrectorGuid == guid; }
+        bool IsRessurectRequestedBy(ObjectGuid guid) const { return !m_resurrectData.resurrectorGuid.IsEmpty() && m_resurrectData.resurrectorGuid == guid; }
         bool IsRessurectRequested() const { return !m_resurrectData.resurrectorGuid.IsEmpty(); }
         ObjectGuid const& GetResurrector() const { return m_resurrectData.resurrectorGuid; }
-        void ResurectUsingRequestData();
+        void ResurrectUsingRequestData();
 
         static bool IsActionButtonDataValid(uint8 button, uint32 action, uint8 type, Player const* player);
         void RefreshBitsForVisibleUnits(UpdateMask* mask, uint32 objectTypeMask = TYPEMASK_UNIT);
@@ -2211,7 +2226,7 @@ class Player final: public Unit
         ReputationRank GetReputationRank(uint32 faction_id) const;
         void RewardReputation(Unit const* pVictim, float rate);
         void RewardReputation(Quest const* pQuest);
-        int32 CalculateReputationGain(ReputationSource source, int32 rep, int32 faction, uint32 creatureOrQuestLevel = 0, bool noAuraBonus = false);
+        int32 CalculateReputationGain(ReputationSource source, int32 rep, int32 faction, uint32 creatureOrQuestLevel = 0);
         void SetTemporaryAtWarWithFaction(uint32 factionId) { m_temporaryAtWarFactions.insert(factionId); }
         void ClearTemporaryWarWithFactions();
 
@@ -2431,7 +2446,7 @@ class Player final: public Unit
     public:
         void SendTransferAborted(uint8 reason) const;
         void SendInstanceResetWarning(uint32 mapId, uint32 resetTime) const;
-        
+
         void ResetInstances(InstanceResetMethod method);
         void ResetPersonalInstanceOnLeaveDungeon(uint32 mapId);
         void SendResetInstanceSuccess(uint32 MapId) const;

@@ -38,17 +38,16 @@ void PlayerBotAI::UpdateAI(uint32 const diff)
 {
     if (me->IsBeingTeleportedNear())
     {
-        WorldPacket data(MSG_MOVE_TELEPORT_ACK, 10);
-        data << me->GetObjectGuid();
+        WorldPackets::Movement::MoveTeleportAck packet;
+        packet.guid = me->GetObjectGuid();
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_9_4
-        data << uint32(0) << uint32(0);
-#else
-        data << uint32(0);
+        packet.movementCounter = 0;
 #endif
-        me->GetSession()->HandleMoveTeleportAckOpcode(data);
+        packet.time = 0;
+        me->GetSession()->HandleMoveTeleportAckOpcode(packet);
     }
     if (me->IsBeingTeleportedFar())
-        me->GetSession()->HandleMoveWorldportAckOpcode();
+        me->GetSession()->HandleMoveWorldportAck();
 }
 
 void PlayerBotAI::Remove()
@@ -153,7 +152,6 @@ bool PlayerBotAI::SpawnNewPlayer(WorldSession* sess, uint8 class_, uint32 race_,
         return false;
     }
     newChar->Relocate(x, y, z, o);
-    sObjectMgr.InsertPlayerInCache(newChar);
     newChar->SetMap(map);
     newChar->SaveRecallPosition();
     newChar->CreatePacketBroadcaster();
@@ -166,6 +164,7 @@ bool PlayerBotAI::SpawnNewPlayer(WorldSession* sess, uint8 class_, uint32 race_,
         delete newChar;
         return false;
     }
+    sObjectMgr.InsertPlayerInCache(newChar);
     sess->SetPlayer(newChar);
     sess->SetMasterPlayer(mPlayer);
     sObjectAccessor.AddObject(newChar);

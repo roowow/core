@@ -37,6 +37,7 @@
 #include "GridNotifiersImpl.h"
 #include "Chat.h"
 #include "PlayerBotMgr.h"
+#include "ScriptMgr.h"
 
 namespace MaNGOS
 {
@@ -711,7 +712,7 @@ void BattleGround::EndBattleGround(Team winner)
         if (team == winner)
             RewardMark(pPlayer, true);
         // World of Warcraft Client Patch 1.8.4 (2005-12-06)
-        // - Battles must now last at least ten minutes after the start of the 
+        // - Battles must now last at least ten minutes after the start of the
         //   battle in order for the losing team to receive a Mark of honor.
         else if (GetStartTime() > 10 * MINUTE * IN_MILLISECONDS)
             RewardMark(pPlayer, false);
@@ -719,6 +720,10 @@ void BattleGround::EndBattleGround(Team winner)
         pPlayer->CombatStopWithPets(true);
 
         BlockMovement(pPlayer);
+
+        // handler removed in 1.9
+        data.Initialize(team == winner ? SMSG_BATTLEFIELD_WIN : SMSG_BATTLEFIELD_LOSE, 0);
+        pPlayer->GetSession()->SendPacket(&data);
 
         // Send final scoreboard
         pPlayer->GetSession()->SendPacket(&m_finalScore);
@@ -1220,7 +1225,7 @@ void BattleGround::DecreaseInvitedCount(Team team)
     }
 }
 void BattleGround::IncreaseInvitedCount(Team team)
-{ 
+{
     switch (team)
     {
         case ALLIANCE:
@@ -1304,7 +1309,7 @@ bool BattleGround::AddObject(uint32 type, uint32 entry, float x, float y, float 
         delete go;
         return false;
     }
-    
+
     // add to world, so it can be later looked up from HashMapHolder
     go->AddToWorld();
     m_bgObjects[type] = go->GetObjectGuid();

@@ -452,7 +452,9 @@ bool Map::Add(Player* player)
     if (!player->GetSession()->PlayerLoading())
         player->GetSession()->ClearIncomingPacketsByType(PACKET_PROCESS_MOVEMENT);
 
-    player->m_broadcaster->SetInstanceId(GetInstanceId());
+    if (player->m_broadcaster)
+        player->m_broadcaster->SetInstanceId(GetInstanceId());
+
     return true;
 }
 
@@ -461,7 +463,8 @@ void Map::ExistingPlayerLogin(Player* player)
     // Reset visibility list
     for (ObjectGuidSet::const_iterator it = player->m_visibleGUIDs.begin(); it != player->m_visibleGUIDs.end(); ++it)
         if (Player* other = GetPlayer(*it))
-            other->m_broadcaster->RemoveListener(player);
+            if (other->m_broadcaster)
+                other->m_broadcaster->RemoveListener(player);
     player->m_visibleGUIDs.clear();
 
     SendInitTransports(player);
@@ -1271,7 +1274,8 @@ void Map::Remove(Player* player, bool remove)
 
     for (ObjectGuidSet::const_iterator it = player->m_visibleGUIDs.begin(); it != player->m_visibleGUIDs.end(); ++it)
         if (Player* other = GetPlayer(*it))
-            other->m_broadcaster->RemoveListener(player);
+            if (other->m_broadcaster)
+                other->m_broadcaster->RemoveListener(player);
 
     player->ResetMap();
     if (remove)
@@ -2128,7 +2132,7 @@ bool DungeonMap::CanEnter(Player* player)
 
     if (m_resetAfterUnload)
     {
-        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[DungeonReset] %s attempted to enter map %u, instance %u during reset", player->GetName(), m_instanceId);
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[DungeonReset] %s attempted to enter map %u, instance %u during reset", player->GetName(), GetId(), m_instanceId);
         player->SendTransferAborted(TRANSFER_ABORT_NOT_FOUND);
         return false;
     }
@@ -3482,8 +3486,7 @@ void Map::CrashUnload()
 
 
             // Go back to character selection
-            WorldPacket data(SMSG_LOGOUT_COMPLETE, 0);
-            session->SendPacket(&data);
+            session->SendPacket(std::make_unique<WorldPackets::Misc::LogoutComplete>());
             session->LogoutPlayer(false);
         }
     }
@@ -3638,6 +3641,7 @@ void Map::RemoveCorpses(bool unload)
             // add bones in grid store if grid loaded where corpse placed
             Add(bones);
 
+#if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_4_2
             if (looterGuid)
             {
                 // Now we must make bones lootable, and send player loot
@@ -3649,6 +3653,7 @@ void Map::RemoveCorpses(bool unload)
                     looter->SendLoot(bones->GetObjectGuid(), LOOT_INSIGNIA, owner);
                 }
             }
+#endif
 
             // Only take the lock for a second
             {

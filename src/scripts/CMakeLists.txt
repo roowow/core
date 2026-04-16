@@ -4,7 +4,6 @@ set(LIBRARY_NAME scripts)
 set (SCRIPTS_SRCS
     ScriptLoader.h
     custom/custom.h
-    custom/npc_j_eevee.h
     eastern_kingdoms/burning_steppes/blackrock_depths/blackrock_depths.h
     eastern_kingdoms/burning_steppes/blackrock_spire/blackrock_spire.h
     eastern_kingdoms/burning_steppes/blackwing_lair/blackwing_lair.h
@@ -32,11 +31,11 @@ set (SCRIPTS_SRCS
     kalimdor/the_barrens/wailing_caverns/def_wailing_caverns.h
     PrecompiledHeaders/scriptPCH.h
     world/dragons_of_nightmare/boss_dragon_of_nightmare.h
+    world/npc_j_eevee.h
     ScriptLoader.cpp
     ScriptLoader_noscripts.cpp
     battlegrounds/battleground.cpp
     battlegrounds/battleground_alterac.cpp
-    custom/boss_arena_hardog.cpp
     custom/custom.cpp
     custom/custom_creatures.cpp
     custom/oo_creatures.cpp
@@ -252,6 +251,7 @@ set (SCRIPTS_SRCS
     world/elemental_invasions.cpp
     world/fireworks_show.cpp
     world/go_scripts.cpp
+    world/npc_j_eevee.cpp
     world/npcs_special.cpp
     world/totems.cpp
     world/scourge_invasion.cpp
@@ -322,7 +322,8 @@ include_directories(
   ${CMAKE_SOURCE_DIR}/src/game/Objects
   ${CMAKE_SOURCE_DIR}/src/game/OutdoorPvP
   ${CMAKE_SOURCE_DIR}/src/game/PlayerBots
-  ${CMAKE_SOURCE_DIR}/src/game/Protocol
+  ${CMAKE_SOURCE_DIR}/src/game/Server
+  ${CMAKE_SOURCE_DIR}/src/game/Server/Protocol
   ${CMAKE_SOURCE_DIR}/src/game/Spells
   ${CMAKE_SOURCE_DIR}/src/game/Threat
   ${CMAKE_SOURCE_DIR}/src/game/Transports
@@ -335,12 +336,6 @@ include_directories(
   ${CMAKE_BINARY_DIR}/src/shared
   ${MYSQL_INCLUDE_DIR}
 )
-
-if(NOT USE_STD_MALLOC)
-  include_directories(
-    ${TBB_INCLUDE_DIRS}
-  )
-endif()
 
 add_library(${LIBRARY_NAME} STATIC
   ${SCRIPTS_SRCS}

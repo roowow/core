@@ -633,17 +633,6 @@ enum RealmType
                                                             // replaced by REALM_PVP in realm list
 };
 
-class SessionPacketSendTask
-{
-public:
-    SessionPacketSendTask(SessionPacketSendTask const&) = delete;
-    SessionPacketSendTask(uint32 accountId, WorldPacket& data) : m_accountId(accountId), m_data(data) {}
-    void operator ()();
-private:
-    uint32 m_accountId;
-    WorldPacket m_data;
-};
-
 // Storage class for commands issued for delayed execution
 struct CliCommandHolder
 {
@@ -653,7 +642,7 @@ struct CliCommandHolder
     uint32 m_cliAccountId;                                  // 0 for console and real account id for RA/soap
     AccountTypes m_cliAccessLevel;
     void* m_callbackArg;
-    char *m_command;
+    char* m_command;
     Print* m_print;
     CommandFinished* m_commandFinished;
 
@@ -897,6 +886,8 @@ class World
         void SetWorldUpdateTimer(WorldTimers timer, uint32 current);
         time_t GetWorldUpdateTimer(WorldTimers timer);
         time_t GetWorldUpdateTimerInterval(WorldTimers timer);
+
+        uint32 GetDelayUntilNextSpellBatchingInterval();
 
         Messager<World>& GetMessager() { return m_messager; }
 

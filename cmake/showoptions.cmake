@@ -34,10 +34,28 @@ else()
   message(STATUS "Build scripts         : No")
 endif()
 
+if(BUILD_EXTRACTORS)
+  message(STATUS "Build extractors      : Yes")
+else()
+  message(STATUS "Build extractors      : No (default)")
+endif()
+
+if(BUILD_REALMMERGE)
+  message(STATUS "Build realm merge     : Yes")
+else()
+  message(STATUS "Build realm merge     : No (default)")
+endif()
+
 if(ENABLE_MAILSENDER)
   message(STATUS "Mailsender enabled    : Yes")
 else()
   message(STATUS "Mailsender enabled    : No (default)")
+endif()
+
+if(ENABLE_CPPTRACE)
+  message(STATUS "Cpptrace enabled      : Yes (default)")
+else()
+  message(STATUS "Cpptrace enabled      : No")
 endif()
 
 if(UNIX)
