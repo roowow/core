@@ -1227,6 +1227,8 @@ class Player final: public Unit
         void AddTimedQuest(uint32 questId) { m_timedquests.insert(questId); }
         void RemoveTimedQuest(uint32 questId) { m_timedquests.erase(questId); }
 
+        void SendAddonMessage(std::string prefix, std::string message);
+        void SendAddonMessage(std::string prefix, std::string message, Player* from);
         /*********************************************************/
         /***                   LOAD SYSTEM                     ***/
         /*********************************************************/

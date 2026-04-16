@@ -5878,3 +5878,27 @@ bool ChatHandler::HandleListVisibleGuidsCommand(char* args)
 
     return true;
 }
+
+bool ChatHandler::HandleQuestQueryCommand(char* args)
+{
+   Player* player = m_session->GetPlayer();
+
+   const uint32 MaxMessageSize = 2000;
+   const uint32 ReserveSize = 2048;
+
+   std::string msg;
+   msg.reserve(ReserveSize);
+   for (const auto& elem : player->GetQuestStatusMap())    // 老版本是 getQuestStatusMap()
+   {
+       if (elem.second.m_rewarded && elem.second.m_status != QUEST_STATUS_NONE)
+           msg += std::to_string(elem.first) + " ";
+
+       if (msg.length() >= MaxMessageSize)
+       {
+           player->SendAddonMessage("QList", std::move(msg));
+           msg.clear();
+       }
+   }
+   player->SendAddonMessage("QList", std::move(msg));
+   return true;
+}

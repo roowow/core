@@ -1038,6 +1038,8 @@ class ChatHandler
         bool HandleStableCommand(char* args);
         bool HandleQuitCommand(char* args);
 
+        bool HandleQuestQueryCommand(char* args);
+
         //! Development Commands
         bool HandleSaveAllCommand(char* args);
         bool HandleDebugMoveCommand(char* args);

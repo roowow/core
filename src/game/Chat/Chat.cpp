@@ -776,8 +776,9 @@ ChatCommand * ChatHandler::getCommandTable()
     {
         { "add",            SEC_BASIC_ADMIN,    false, &ChatHandler::HandleQuestAddCommand,            "", nullptr },
         { "complete",       SEC_BASIC_ADMIN,    false, &ChatHandler::HandleQuestCompleteCommand,       "", nullptr },
-        { "status",         SEC_ADMINISTRATOR,     false, &ChatHandler::HandleQuestStatusCommand,         "", nullptr },
-        { "remove",         SEC_ADMINISTRATOR,     false, &ChatHandler::HandleQuestRemoveCommand,         "", nullptr },
+        { "status",         SEC_ADMINISTRATOR,  false, &ChatHandler::HandleQuestStatusCommand,         "", nullptr },
+        { "remove",         SEC_ADMINISTRATOR,  false, &ChatHandler::HandleQuestRemoveCommand,         "", nullptr },
+        { "query",          SEC_PLAYER,         false, &ChatHandler::HandleQuestQueryCommand,          "", nullptr },
         { nullptr,          0,                  false, nullptr,                                        "", nullptr }
     };
 

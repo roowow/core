@@ -23569,19 +23569,6 @@ bool Player::FunctionDelay(uint32 functionID, uint32 delay)
     return true;
 }
 
-// bool ChatHandler::HandleOOPvpBroadcastCommand(char* args)
-// {
-//     bool value;
-//     if (!ExtractOnOff(&args, value))
-//     {
-//         SendSysMessage(LANG_USE_BOL);
-//         SetSentErrorMessage(true);
-//         return false;
-//     }
-//     sWorld.setConfig(CONFIG_BOOL_OO_PVP_BROADCAST, true);
-//     return true;
-// }
-
 // bool Player::DeleteGameObject(GameObject* obj)
 // {
 //     if (!obj)
@@ -23619,3 +23606,23 @@ bool Player::FunctionDelay(uint32 functionID, uint32 delay)
 
 //     return true;
 // }
+
+void Player::SendAddonMessage(std::string prefix, std::string message)
+{
+    WorldPacket data;
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_GUILD,
+        (prefix + "\t" + message).c_str(), Language(LANG_ADDON), GetChatTag(),
+        GetObjectGuid(), GetName());
+
+    GetSession()->SendPacket(&data);
+}
+
+void Player::SendAddonMessage(std::string prefix, std::string message, Player* from)
+{
+    WorldPacket data;
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_GUILD,
+        (prefix + "\t" + message).c_str(), Language(LANG_ADDON), GetChatTag(),
+        from->GetObjectGuid(), from->GetName());
+
+    GetSession()->SendPacket(&data);
+}
