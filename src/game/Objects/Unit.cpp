@@ -1228,7 +1228,7 @@ void Unit::Kill(Unit* pVictim, SpellEntry const* spellProto, bool durabilityLoss
                     }
                     else
                     {
-                        sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
+                        // sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
                     }
                 }
             }

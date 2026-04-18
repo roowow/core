@@ -349,7 +349,7 @@ void WorldSession::HandleCharDeleteOpcode(WorldPackets::Character::CharDelete co
     }
 
     // > 59
-    std::unique_ptr<QueryResult> hresult0 = CharacterDatabase.PQuery("SELECT guid FROM characters where level > 59 and guid = %u", guid);
+    std::unique_ptr<QueryResult> hresult0 = CharacterDatabase.PQuery("SELECT guid FROM characters where level > 59 and guid = %u", packet.guid);
     if (hresult0)
     {
         WorldPacket data(SMSG_CHAR_DELETE, 1);
@@ -359,7 +359,7 @@ void WorldSession::HandleCharDeleteOpcode(WorldPackets::Character::CharDelete co
     }
 
     //// Hardcore check
-    std::unique_ptr<QueryResult> hresult = CharacterDatabase.PQuery("SELECT ch.guid FROM character_hardcore ch join characters c on ch.guid = c.guid where c.level >20 and ch.guid = %u", guid);
+    std::unique_ptr<QueryResult> hresult = CharacterDatabase.PQuery("SELECT ch.guid FROM character_hardcore ch join characters c on ch.guid = c.guid where c.level >20 and ch.guid = %u", packet.guid);
     if (hresult)
     {
         WorldPacket data(SMSG_CHAR_DELETE, 1);
@@ -391,14 +391,14 @@ void WorldSession::HandleCharDeleteOpcode(WorldPackets::Character::CharDelete co
     Player::DeleteFromDB(packet.guid, GetAccountId());
 
     /// character deletion
-    CharacterDatabase.PExecute("DELETE FROM character_hardcore WHERE guid=%u", guid);
-    CharacterDatabase.PExecute("DELETE FROM character_spell_extra WHERE guid=%u", guid);
-    CharacterDatabase.PExecute("DELETE FROM character_spell_talent WHERE guid=%u", guid);
-    CharacterDatabase.PExecute("DELETE FROM character_log_levelup WHERE guid=%u", guid);
-    CharacterDatabase.PExecute("DELETE FROM character_log_wareffort WHERE guid=%u", guid);
-    CharacterDatabase.PExecute("DELETE FROM character_log_money WHERE guid=%u", guid);
-    CharacterDatabase.PExecute("DELETE FROM character_log_guildbank WHERE guid=%u", guid);
-    CharacterDatabase.PExecute("DELETE FROM character_displayid WHERE guid=%u", guid);
+    CharacterDatabase.PExecute("DELETE FROM character_hardcore WHERE guid=%u", packet.guid);
+    CharacterDatabase.PExecute("DELETE FROM character_spell_extra WHERE guid=%u", packet.guid);
+    CharacterDatabase.PExecute("DELETE FROM character_spell_talent WHERE guid=%u", packet.guid);
+    CharacterDatabase.PExecute("DELETE FROM character_log_levelup WHERE guid=%u", packet.guid);
+    CharacterDatabase.PExecute("DELETE FROM character_log_wareffort WHERE guid=%u", packet.guid);
+    CharacterDatabase.PExecute("DELETE FROM character_log_money WHERE guid=%u", packet.guid);
+    CharacterDatabase.PExecute("DELETE FROM character_log_guildbank WHERE guid=%u", packet.guid);
+    CharacterDatabase.PExecute("DELETE FROM character_displayid WHERE guid=%u", packet.guid);
 
     sendResponse(CHAR_DELETE_SUCCESS);
 }

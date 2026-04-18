@@ -10919,17 +10919,6 @@ void ObjectMgr::LoadGossipMenuItems(std::set<uint32>& gossipScriptSet)
 void ObjectMgr::AddVendorItem(uint32 entry, uint32 item, uint32 maxcount, uint32 incrtime, uint32 itemflags)
 {
     VendorItemData& vList = m_CacheVendorItemMap[entry];
-    VendorItem const* vItem = vList.FindItem(item);
-    if (vItem)
-    {
-        // remove vendor item without db IO
-        CacheVendorItemMap::iterator  iter = m_CacheVendorItemMap.find(entry);
-        if (iter != m_CacheVendorItemMap.end())
-        {
-            if (iter->second.FindItem(item))
-                iter->second.RemoveItem(item);
-        }
-    }
 
     vList.AddItem(item, maxcount, incrtime, itemflags, 0);
     WorldDatabase.PExecuteLog("REPLACE INTO `npc_vendor` (`entry`, `item`, `maxcount`, `incrtime`, `itemflags`) VALUES('%u','%u','%u','%u','%u')", entry, item, maxcount, incrtime, itemflags);

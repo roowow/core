@@ -80,7 +80,7 @@ void WorldSession::HandleGroupInviteOpcode(WorldPackets::Group::GroupInvite cons
         {
             ChatHandler(leader).SendSysMessage("勇敢者只能与勇敢者组队。");
             ChatHandler(player).SendSysMessage("勇敢者只能与勇敢者组队。");
-            SendPartyResult(PARTY_OP_INVITE, membername, ERR_IGNORING_YOU_S);
+            SendPartyResult(PARTY_OP_INVITE, packet.memberName, ERR_IGNORING_YOU_S);
             return;
         }
     }
@@ -91,7 +91,7 @@ void WorldSession::HandleGroupInviteOpcode(WorldPackets::Group::GroupInvite cons
         {
             ChatHandler(leader).SendSysMessage("勇敢者只能与勇敢者组队。");
             ChatHandler(player).SendSysMessage("勇敢者只能与勇敢者组队。");
-            SendPartyResult(PARTY_OP_INVITE, membername, ERR_IGNORING_YOU_S);
+            SendPartyResult(PARTY_OP_INVITE, packet.memberName, ERR_IGNORING_YOU_S);
             return;
         }
 
@@ -99,7 +99,7 @@ void WorldSession::HandleGroupInviteOpcode(WorldPackets::Group::GroupInvite cons
         {
             ChatHandler(leader).SendSysMessage("勇敢者之间组队不能超过5级。");
             ChatHandler(player).SendSysMessage("勇敢者之间组队不能超过5级。");
-            SendPartyResult(PARTY_OP_INVITE, membername, ERR_IGNORING_YOU_S);
+            SendPartyResult(PARTY_OP_INVITE, packet.memberName, ERR_IGNORING_YOU_S);
             return;
         }
 
@@ -107,7 +107,7 @@ void WorldSession::HandleGroupInviteOpcode(WorldPackets::Group::GroupInvite cons
         {
             ChatHandler(leader).SendSysMessage("勇敢者之间组队不能超过5级。");
             ChatHandler(player).SendSysMessage("勇敢者之间组队不能超过5级。");
-            SendPartyResult(PARTY_OP_INVITE, membername, ERR_IGNORING_YOU_S);
+            SendPartyResult(PARTY_OP_INVITE, packet.memberName, ERR_IGNORING_YOU_S);
             return;
         }
     }
@@ -116,14 +116,14 @@ void WorldSession::HandleGroupInviteOpcode(WorldPackets::Group::GroupInvite cons
     {
         ChatHandler(leader).SendSysMessage("真的猛士需要独自面对深邃的大海。");
         ChatHandler(player).SendSysMessage("真的猛士需要独自面对深邃的大海。");
-        SendPartyResult(PARTY_OP_INVITE, membername, ERR_IGNORING_YOU_S);
+        SendPartyResult(PARTY_OP_INVITE, packet.memberName, ERR_IGNORING_YOU_S);
         return;
     }
     if (player->IsActiveQuest(32003) && ! player->GetQuestRewardStatus(32003))
     {
         ChatHandler(leader).SendSysMessage("真的猛士需要独自面对深邃的大海。");
         ChatHandler(player).SendSysMessage("真的猛士需要独自面对深邃的大海。");
-        SendPartyResult(PARTY_OP_INVITE, membername, ERR_IGNORING_YOU_S);
+        SendPartyResult(PARTY_OP_INVITE, packet.memberName, ERR_IGNORING_YOU_S);
         return;
     }
 
