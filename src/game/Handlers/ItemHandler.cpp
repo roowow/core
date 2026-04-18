@@ -591,7 +591,7 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem const& pack
             {
                 _player->PSendSysMessage("如果您希望更便捷的服务，欢迎去我们总行咨询荣耀尊享服务。");
             }
-            _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, pCreature, itemGuid, 0);
+            _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, pCreature, packet.itemGuid, 0);
             return;
         }
 
@@ -613,7 +613,7 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem const& pack
                 if (sOOMgr.OOPlayerGuildBankDepositCount[_player->GetGUIDLow()][oobank.vendor_id] >= 50)
                 {
                     _player->PSendSysMessage("单日最多存入50次。");
-                    _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, pCreature, itemGuid, 0);
+                    _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, pCreature, packet.itemGuid, 0);
                     return;
                 }
             }
@@ -621,14 +621,14 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem const& pack
 
         if (!pItem->CanBeTraded())
         {
-            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, itemGuid, 0);
+            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, packet.itemGuid, 0);
             return;
         }
 
         // buycount > 1
         if (pProto->BuyCount > 1)
         {
-            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, itemGuid, 0);
+            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, packet.itemGuid, 0);
             return;
         }
 
@@ -639,7 +639,7 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem const& pack
             msg += _player->GetName();
             msg += "，危险区域不收货物。";
             pCreature->MonsterSay(msg.c_str(), 0, 0);
-            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, itemGuid, 0);
+            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, packet.itemGuid, 0);
             return;
         }
 
@@ -650,7 +650,7 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem const& pack
             msg += _player->GetName();
             msg += "，您不属于该公会。";
             pCreature->MonsterSay(msg.c_str(), 0, 0);
-            _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, pCreature, itemGuid, 0);
+            _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, pCreature, packet.itemGuid, 0);
             return;
         }
 
@@ -661,7 +661,7 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem const& pack
             msg += _player->GetName();
             msg += "，您的公会等级不够。";
             pCreature->MonsterSay(msg.c_str(), 0, 0);
-            _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, pCreature, itemGuid, 0);
+            _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, pCreature, packet.itemGuid, 0);
             return;
         }
 
@@ -676,7 +676,7 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem const& pack
                 msg += _player->GetName();
                 msg += "，当日取过的货物只能隔日存入。";
                 pCreature->MonsterSay(msg.c_str(), 0, 0);
-                _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, pCreature, itemGuid, 0);
+                _player->SendSellError(SELL_ERR_CANT_FIND_VENDOR, pCreature, packet.itemGuid, 0);
                 return;
             }
         }
@@ -697,7 +697,7 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem const& pack
             msg += _player->GetName();
             msg += "，单个货物最多只能存放100个。";
             pCreature->MonsterSay(msg.c_str(), 0, 0);
-            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, itemGuid, 0);
+            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, packet.itemGuid, 0);
             return;
         }
         if (totalItemTypes > 255)
@@ -706,14 +706,13 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem const& pack
             msg += _player->GetName();
             msg += "，货物品类只能存放255个。";
             pCreature->MonsterSay(msg.c_str(), 0, 0);
-            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, itemGuid, 0);
+            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, packet.itemGuid, 0);
             return;
         }
 
         if (actualCount)
             _player->DestroyItemCount(pItem->GetEntry(), actualCount, true);
 
-        OOGuildBank oobank = pCreature->GetGuildBank();
         std::string msg = _player->GetName();
         msg += "，已收到您的货物，正在存入...";
         pCreature->MonsterSay(msg.c_str(), 0, 0);
@@ -837,7 +836,7 @@ void WorldSession::HandleBuyItemInSlotOpcode(WorldPackets::Item::BuyItemInSlot c
     if (bag == NULL_BAG)
         return;
 
-    Creature* pCreature = GetPlayer()->GetNPCIfCanInteractWith(vendorGuid, UNIT_NPC_FLAG_VENDOR);
+    Creature* pCreature = GetPlayer()->GetNPCIfCanInteractWith(packet.vendorGuid, UNIT_NPC_FLAG_VENDOR);
     if (pCreature)
     {
         if (pCreature->IsGuildBank())

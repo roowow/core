@@ -763,7 +763,7 @@ void WorldSession::HandleLootMasterGiveOpcode(WorldPackets::Loot::LootMasterGive
 
         /// BigData - character_log_item
         CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `count`, `type`, `lootguid`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', 'Master', '%u', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
-                target->GetGUIDLow(), target->GetName(), item.itemid, item.count, lootGuid.GetCounter(), _player->GetGUIDLow(), target->GetZoneId(), target->GetMapId(), target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(), target->GetSession()->GetRemoteAddress().c_str());
+                target->GetGUIDLow(), target->GetName(), item.itemid, item.count, packet.lootGuid.GetCounter(), _player->GetGUIDLow(), target->GetZoneId(), target->GetMapId(), target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(), target->GetSession()->GetRemoteAddress().c_str());
     }
 
     // mark as looted

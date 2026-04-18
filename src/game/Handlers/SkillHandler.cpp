@@ -32,9 +32,8 @@
 void WorldSession::HandleLearnTalentOpcode(WorldPackets::Skill::LearnTalent const& packet)
 {
     uint32 talent_id, requested_rank;
-    recv_data >> talent_id >> requested_rank;
 
-    if (_player->LearnTalent(talent_id, requested_rank))
+    if (_player->LearnTalent(packet.talent_id, packet.requested_rank))
     {
         // DualTalent
         _player->oowowInfo.DualTalent_CoolDown = time(nullptr) + 5*60;

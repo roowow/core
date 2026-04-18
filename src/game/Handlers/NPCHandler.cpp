@@ -411,12 +411,12 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::Npc::GossipSelec
         if (!sScriptMgr.OnGossipSelect(_player, pGo, sender, action, code))
             _player->OnGossipSelect(pGo, packet.gossipListId);
     }
-    else if (guid.IsItem())
+    else if (packet.guid.IsItem())
     {
-        Item* item = GetPlayer()->GetItemByGuid(guid);
+        Item* item = GetPlayer()->GetItemByGuid(packet.guid);
         if (!item)
         {
-            sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "WORLD: HandleGossipSelectOptionOpcode - %s not found or you can't interact with it.", guid.GetString().c_str());
+            sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "WORLD: HandleGossipSelectOptionOpcode - %s not found or you can't interact with it.", packet.guid.GetString().c_str());
             return;
         }
 
@@ -435,7 +435,7 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::Npc::GossipSelec
                     break;
 
                 case 20:
-                    if (code.empty())
+                    if (!code)
                     {
                         ChatHandler(_player).SendSysMessage("输入错误，请输入正确的模型ID");
                         pMenu->CloseGossip();
@@ -487,7 +487,7 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::Npc::GossipSelec
                     pMenu->SendGossipMenu(22011, item->GetGUID());
                     break;
                 case 21:
-                    if (code.empty())
+                    if (!code)
                         break;
 
                     _player->AddTalent(code);
@@ -498,7 +498,7 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::Npc::GossipSelec
                     pMenu->CloseGossip();
                     break;
                 case 300 ... 319:
-                    if (code.empty() || code != "确认")
+                    if (!code || code != "确认")
                     {
                         ChatHandler(_player).SendSysMessage("输入错误，请输入 确认");
                         pMenu->CloseGossip();
@@ -532,11 +532,11 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::Npc::GossipSelec
             }
         }
     }
-    else if (guid.IsPlayer())
+    else if (packet.guid.IsPlayer())
     {
-        if (GetPlayer()->GetGUIDLow() != guid)
+        if (GetPlayer()->GetGUIDLow() != packet.guid)
         {
-            sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "WORLD: HandleGossipSelectOptionOpcode - %s not found or you can't interact with it.", guid.GetString().c_str());
+            sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "WORLD: HandleGossipSelectOptionOpcode - %s not found or you can't interact with it.", packet.guid.GetString().c_str());
             return;
         }
     }
