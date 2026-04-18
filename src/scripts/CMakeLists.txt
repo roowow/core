@@ -41,10 +41,6 @@ set (SCRIPTS_SRCS
     custom/oo_creatures.cpp
     custom/oo_guild_bank.cpp
     custom/oo_guild_bank_bot.cpp
-    custom/event_attack_city.cpp
-    custom/gmisland.cpp
-    custom/npc_escort.cpp
-    custom/npc_j_eevee.cpp
     eastern_kingdoms/alterac_mountains/alterac_mountains.cpp
     eastern_kingdoms/arathi_highlands/arathi_highlands.cpp
     eastern_kingdoms/blasted_lands/blasted_lands.cpp

@@ -575,7 +575,7 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem const& pack
     }
 
     // Guild Bank
-    uint32 latestCount = count + pCreature->GetVendorItemCurrentCountofGuildBank(pItem->GetEntry());
+    uint32 latestCount = actualCount + pCreature->GetVendorItemCurrentCountofGuildBank(pItem->GetEntry());
     if (pCreature->IsGuildBank())
     {
         OOGuildBank oobank = pCreature->GetGuildBank();
@@ -709,56 +709,17 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem const& pack
             _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, itemGuid, 0);
             return;
         }
-    }
 
-    // Guild Bank
-    if (!pCreature->IsGuildBank())
-    {
-        if (actualCount < pItem->GetCount())              // need split items
-        {
-            Item *pNewItem = pItem->CloneItem(actualCount, _player);
-            if (!pNewItem)
-            {
-                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "WORLD: HandleSellItemOpcode - could not create clone of item %u; count = %u", pItem->GetEntry(), actualCount);
-                _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, packet.itemGuid, 0);
-                return;
-            }
+        if (actualCount)
+            _player->DestroyItemCount(pItem->GetEntry(), actualCount, true);
 
-            pItem->SetCount(pItem->GetCount() - actualCount);
-            _player->ItemRemovedQuestCheck(pItem->GetEntry(), actualCount);
-            if (_player->IsInWorld())
-                pItem->SendCreateUpdateToPlayer(_player);
-            pItem->SetState(ITEM_CHANGED, _player);
-
-            _player->AddItemToBuyBackSlot(pNewItem, money, packet.vendorGuid);
-            if (_player->IsInWorld())
-                pNewItem->SendCreateUpdateToPlayer(_player);
-        }
-        else
-        {
-            _player->ItemRemovedQuestCheck(pItem->GetEntry(), pItem->GetCount());
-            _player->RemoveItem(pItem->GetBagSlot(), pItem->GetSlot(), true);
-            _player->InterruptSpellsWithCastItem(pItem);
-            pItem->RemoveFromUpdateQueueOf(_player);
-            _player->AddItemToBuyBackSlot(pItem, money, packet.vendorGuid);
-        }
-    }
-    else
-    {
-        if (count)
-            _player->DestroyItemCount(pItem->GetEntry(), count, true);
-    }
-
-    // Guild Bank
-    if (pCreature->IsGuildBank())
-    {
         OOGuildBank oobank = pCreature->GetGuildBank();
         std::string msg = _player->GetName();
         msg += "，已收到您的货物，正在存入...";
         pCreature->MonsterSay(msg.c_str(), 0, 0);
 
         CharacterDatabase.PExecute("INSERT INTO `character_log_guildbank` (`guid`, `name`, `vendor`, `item`, `count`, `type`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Deposit', '%u', '%u', '%f', '%f', '%f', '%s')",
-            _player->GetGUIDLow(), _player->GetName(), oobank.vendor_id, pItem->GetEntry(), count, _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
+            _player->GetGUIDLow(), _player->GetName(), oobank.vendor_id, pItem->GetEntry(), actualCount, _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
 
         sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] = time(nullptr); // vendor lock
         sOOMgr.OOPlayerGuildBankDepositItem[_player->GetGUIDLow()][pItem->GetEntry()] = 1; // item withdraw lock
@@ -766,11 +727,40 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem const& pack
         sObjectMgr.AddVendorItem(pCreature->GetEntry(), pItem->GetEntry(), latestCount, 999999, 0); // add item
         sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][pItem->GetEntry()] = latestCount; // update latest count
         pCreature->UpdateVendorItemCurrentCount(pItem->GetEntry(), latestCount - pCreature->GetVendorItemCurrentCountofGuildBank(pItem->GetEntry())); // update current vendor item
+    
+        return;
+    }
+
+    if (actualCount < pItem->GetCount())              // need split items
+    {
+        Item *pNewItem = pItem->CloneItem(actualCount, _player);
+        if (!pNewItem)
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "WORLD: HandleSellItemOpcode - could not create clone of item %u; count = %u", pItem->GetEntry(), actualCount);
+            _player->SendSellError(SELL_ERR_CANT_SELL_ITEM, pCreature, packet.itemGuid, 0);
+            return;
+        }
+
+        pItem->SetCount(pItem->GetCount() - actualCount);
+        _player->ItemRemovedQuestCheck(pItem->GetEntry(), actualCount);
+        if (_player->IsInWorld())
+            pItem->SendCreateUpdateToPlayer(_player);
+        pItem->SetState(ITEM_CHANGED, _player);
+
+        _player->AddItemToBuyBackSlot(pNewItem, money, packet.vendorGuid);
+        if (_player->IsInWorld())
+            pNewItem->SendCreateUpdateToPlayer(_player);
     }
     else
     {
-        _player->LogModifyMoney(money, "SellItem", pCreature->GetObjectGuid(), pItem->GetEntry());
+        _player->ItemRemovedQuestCheck(pItem->GetEntry(), pItem->GetCount());
+        _player->RemoveItem(pItem->GetBagSlot(), pItem->GetSlot(), true);
+        _player->InterruptSpellsWithCastItem(pItem);
+        pItem->RemoveFromUpdateQueueOf(_player);
+        _player->AddItemToBuyBackSlot(pItem, money, packet.vendorGuid);
     }
+
+    _player->LogModifyMoney(money, "SellItem", pCreature->GetObjectGuid(), pItem->GetEntry());
 }
 
 void WorldSession::HandleBuybackItem(WorldPackets::Item::BuybackItem const& packet)
