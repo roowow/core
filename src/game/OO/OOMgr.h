@@ -45,8 +45,7 @@ class OOMgr
         std::array< std::string, 10000 > BattleBotNames;
         std::map< uint32, std::map< uint32, std::vector<std::string>> >  PVPTexts;
 
-        // player guid, object GameObject* pGo
-        std::map< uint32, GameObject* > SnowBallObjects;
+        std::map< uint32, uint32 > SnowBallObjects;
 
         std::map< uint32, OOGuildBank > OOGuildBanks; // character id, OOGuildBank
         std::map< uint32, OOGuildBank > OOGuildBankVendors; // vendor id, OOGuildBank
