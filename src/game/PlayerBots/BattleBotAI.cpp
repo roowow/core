@@ -142,11 +142,20 @@ bool BattleBotAI::UseMount()
     if (me->IsMoving())
         return false;
 
+    // --- 德鲁伊核心优化：上马前主动解除变形状态（猫/熊/旅行形态等） ---
+    // 必须放在模型检查之前，否则变身的德鲁伊会被直接拦截
+    if (me->GetClass() == CLASS_DRUID && me->GetShapeshiftForm() != FORM_NONE)
+    {
+        me->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
+    }
+    // ---------------------------------------------------------------
+
+    // 现在的德鲁伊已经恢复人型了，可以顺利通过这行检查
     if (me->GetDisplayId() != me->GetNativeDisplayId())
         return false;
 
-    if (me->GetClass() == CLASS_ROGUE)
-        return false;
+    // if (me->GetClass() == CLASS_ROGUE)
+    //     return false;
 
     if (BattleGround* bg = me->GetBattleGround())
         if (bg->GetStatus() == STATUS_WAIT_JOIN)
@@ -156,8 +165,10 @@ bool BattleBotAI::UseMount()
         me->HasAura(AURA_SILVERWING_FLAG))
         return false;
 
+    // --- 核心优化：如果可以上马，主动破除潜行状态 ---
     if (me->HasAura(SPELL_AURA_MOD_STEALTH))
-        return false;
+        me->RemoveSpellsCausingAura(SPELL_AURA_MOD_STEALTH);
+    // --------------------------------------------------
 
     uint32 spellId = GetMountSpellId();
     if (!spellId)
@@ -2750,6 +2761,12 @@ void BattleBotAI::UpdateInCombatAI_Warrior()
 
 void BattleBotAI::UpdateOutOfCombatAI_Rogue()
 {
+    // --- 在这里插入拦截逻辑 ---
+    // 只有在【没有目标】且【骑马】时才拦截，防止骑马时尝试潜行导致下马
+    if (me->IsMounted() && !me->GetVictim())
+        return;
+    // -----------------------
+
     if (m_spells.rogue.pMainHandPoison &&
         CanTryToCastSpell(me, m_spells.rogue.pMainHandPoison))
     {
@@ -2765,6 +2782,7 @@ void BattleBotAI::UpdateOutOfCombatAI_Rogue()
     }
 
     if (m_spells.rogue.pStealth &&
+        !me->IsMounted() &&               // <--- 新增：如果已经骑在马上，绝对不要再尝试潜行
         CanTryToCastSpell(me, m_spells.rogue.pStealth) &&
        !me->HasAura(AURA_WARSONG_FLAG) &&
        !me->HasAura(AURA_SILVERWING_FLAG))
@@ -2970,6 +2988,15 @@ void BattleBotAI::UpdateInCombatAI_Rogue()
 
 void BattleBotAI::UpdateOutOfCombatAI_Druid()
 {
+    // 1. 如果正在读条（比如正在上马），绝对不要做任何动作打断自己
+    if (me->IsNonMeleeSpellCasted(false))
+        return;
+
+    // 2. 核心优化：如果你骑着马，且【没有】攻击目标，才拦截后续的变身和加Buff逻辑
+    // 这样如果一旦有了 Victim（被怪打了或者决定开怪），逻辑就能向下走，正常触发战斗
+    if (me->IsMounted() && !me->GetVictim())
+        return;
+
     BattleGround* bg = me->GetBattleGround();
     if (bg && bg->GetStatus() == STATUS_WAIT_JOIN)
     {
@@ -3043,6 +3070,7 @@ void BattleBotAI::UpdateOutOfCombatAI_Druid()
         if (m_role == ROLE_MELEE_DPS || m_role == ROLE_TANK)
         {
             if (m_spells.druid.pCatForm &&
+                !me->IsMounted() &&               // <--- 新增：如果已经骑在马上，绝不变猫
                 CanTryToCastSpell(me, m_spells.druid.pCatForm))
             {
                 if (DoCastSpell(me, m_spells.druid.pCatForm) == SPELL_CAST_OK)
@@ -3066,6 +3094,7 @@ void BattleBotAI::UpdateOutOfCombatAI_Druid()
     else if (me->GetShapeshiftForm() == FORM_CAT)
     {
         if (m_spells.druid.pProwl &&
+            !me->IsMounted() &&               // <--- 新增：如果已经骑在马上，绝不潜行
             CanTryToCastSpell(me, m_spells.druid.pProwl) &&
             !me->HasAura(AURA_WARSONG_FLAG) &&
             !me->HasAura(AURA_SILVERWING_FLAG))
