@@ -471,17 +471,17 @@ void Warden::ApplyPenalty(std::string message, WardenActions penalty, std::share
             message = "failed an internal warden check";
     }
 
-    if (WorldSession* session = sWorld.FindSession(GetAccountId()))
-    {
-        Player* pPlayer = session->GetPlayer();
-        if (pPlayer && ! pPlayer->IsBot())
-        {
-            // printf("[Warden] (Name %s, Id %u, IP %s) ", warden->GetAccountName(), warden->GetAccountId(), warden->GetSessionIP());
-            // 2024-02-28 17:06:42 [Warden] (Name BIGDRADON9, Id 3571, IP 182.200.76.12) failed check 92 (FoV Hack)
-            CharacterDatabase.PExecute("INSERT INTO `character_log_anticheat` (`guid`, `name`, `cheat`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%s', '%u', '%u', '%f', '%f', '%f', '%s')",
-                pPlayer->GetGUIDLow(), pPlayer->GetName(), message.c_str(), pPlayer->GetZoneId(), pPlayer->GetMapId(), pPlayer->GetPositionX(), pPlayer->GetPositionY(), pPlayer->GetPositionZ(), pPlayer->GetSession()->GetRemoteAddress().c_str());
-        }
-    }
+    // if (WorldSession* session = sWorld.FindSession(GetAccountId()))
+    // {
+    //     Player* pPlayer = session->GetPlayer();
+    //     if (pPlayer && ! pPlayer->IsBot())
+    //     {
+    //         // printf("[Warden] (Name %s, Id %u, IP %s) ", warden->GetAccountName(), warden->GetAccountId(), warden->GetSessionIP());
+    //         // 2024-02-28 17:06:42 [Warden] (Name BIGDRADON9, Id 3571, IP 182.200.76.12) failed check 92 (FoV Hack)
+    //         CharacterDatabase.PExecute("INSERT INTO `character_log_anticheat` (`guid`, `name`, `cheat`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%s', '%u', '%u', '%f', '%f', '%f', '%s')",
+    //             pPlayer->GetGUIDLow(), pPlayer->GetName(), message.c_str(), pPlayer->GetZoneId(), pPlayer->GetMapId(), pPlayer->GetPositionX(), pPlayer->GetPositionY(), pPlayer->GetPositionZ(), pPlayer->GetSession()->GetRemoteAddress().c_str());
+    //     }
+    // }
 
     switch (penalty)
     {

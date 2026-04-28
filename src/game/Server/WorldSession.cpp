@@ -1285,11 +1285,11 @@ void WorldSession::ProcessAnticheatAction(char const* detector, char const* reas
     sLog.Player(this, LOG_ANTICHEAT, detector, LOG_LVL_MINIMAL, "[%s] Player %s, Cheat %s, Penalty: %s",
         detector, playerDesc.c_str(), reason, action);
 
-    if (GetPlayer() && ! GetPlayer()->IsBot())
-    {
-        CharacterDatabase.PExecute("INSERT INTO `character_log_anticheat` (`guid`, `name`, `cheat`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%s', '%u', '%u', '%f', '%f', '%f', '%s')",
-            GetPlayer()->GetGUIDLow(), GetPlayer()->GetName(), reason, GetPlayer()->GetZoneId(), GetPlayer()->GetMapId(), GetPlayer()->GetPositionX(), GetPlayer()->GetPositionY(), GetPlayer()->GetPositionZ(), GetPlayer()->GetSession()->GetRemoteAddress().c_str());
-    }
+    // if (GetPlayer() && ! GetPlayer()->IsBot())
+    // {
+    //     CharacterDatabase.PExecute("INSERT INTO `character_log_anticheat` (`guid`, `name`, `cheat`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%s', '%u', '%u', '%f', '%f', '%f', '%s')",
+    //         GetPlayer()->GetGUIDLow(), GetPlayer()->GetName(), reason, GetPlayer()->GetZoneId(), GetPlayer()->GetMapId(), GetPlayer()->GetPositionX(), GetPlayer()->GetPositionY(), GetPlayer()->GetPositionZ(), GetPlayer()->GetSession()->GetRemoteAddress().c_str());
+    // }
 }
 
 bool WorldSession::HasUsedClickToMove() const

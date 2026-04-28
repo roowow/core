@@ -147,11 +147,11 @@ uint32 MovementAnticheat::Finalize(Player* pPlayer, std::stringstream& reason)
         sLog.Player(m_session, LOG_ANTICHEAT, "Movement", LOG_LVL_BASIC, "DesyncMs %d DesyncDist %f Cheats %s",
             m_clientDesync, m_overspeedDistance, reason.rdbuf()->in_avail() ? reason.str().c_str() : "");
 
-        if (reason.rdbuf()->in_avail() && pPlayer && ! pPlayer->IsBot())
-        {
-            CharacterDatabase.PExecute("INSERT INTO `character_log_anticheat` (`guid`, `name`, `cheat`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%s', '%u', '%u', '%f', '%f', '%f', '%s')",
-                pPlayer->GetGUIDLow(), pPlayer->GetName(), reason.str().c_str(), pPlayer->GetZoneId(), pPlayer->GetMapId(), pPlayer->GetPositionX(), pPlayer->GetPositionY(), pPlayer->GetPositionZ(), pPlayer->GetSession()->GetRemoteAddress().c_str());
-        }
+        // if (reason.rdbuf()->in_avail() && pPlayer && ! pPlayer->IsBot())
+        // {
+        //     CharacterDatabase.PExecute("INSERT INTO `character_log_anticheat` (`guid`, `name`, `cheat`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%s', '%u', '%u', '%f', '%f', '%f', '%s')",
+        //         pPlayer->GetGUIDLow(), pPlayer->GetName(), reason.str().c_str(), pPlayer->GetZoneId(), pPlayer->GetMapId(), pPlayer->GetPositionX(), pPlayer->GetPositionY(), pPlayer->GetPositionZ(), pPlayer->GetSession()->GetRemoteAddress().c_str());
+        // }
     }
 
     if ((result & (CHEAT_ACTION_KICK | CHEAT_ACTION_BAN_ACCOUNT | CHEAT_ACTION_BAN_IP_ACCOUNT)) && !m_packetLog.empty())
