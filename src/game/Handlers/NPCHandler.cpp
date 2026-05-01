@@ -381,6 +381,7 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::Npc::GossipSelec
 
     // Only forward a non-null code to scripts for coded gossip options.
     const char* code = (isCoded && !packet.code.empty()) ? packet.code.c_str() : nullptr;
+    // sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "code: %s", code ? code : "nullptr");
 
     if (packet.guid.IsAnyTypeCreature())
     {
@@ -498,7 +499,7 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::Npc::GossipSelec
                     pMenu->CloseGossip();
                     break;
                 case 300 ... 319:
-                    if (!code || code != "确认")
+                    if (packet.code.empty() || packet.code != "确认")
                     {
                         ChatHandler(_player).SendSysMessage("输入错误，请输入 确认");
                         pMenu->CloseGossip();
