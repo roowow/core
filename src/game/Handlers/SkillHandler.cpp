@@ -31,16 +31,13 @@
 
 void WorldSession::HandleLearnTalentOpcode(WorldPackets::Skill::LearnTalent const& packet)
 {
-    uint32 talent_id, requested_rank;
-
     if (_player->LearnTalent(packet.talent_id, packet.requested_rank))
     {
         // DualTalent
         _player->oowowInfo.DualTalent_CoolDown = time(nullptr) + 5*60;
         if (_player->ActiveTalent())
-            CharacterDatabase.PExecute("INSERT INTO `character_spell_tmp` (`ID`, `TalentID`, `Rank`, `Guid`, `Flag`, `Changed`) VALUES (NULL, %u, %u, %u, %u, UNIX_TIMESTAMP())", talent_id, requested_rank, _player->GetGUIDLow(), _player->ActiveTalent());
+            CharacterDatabase.PExecute("INSERT INTO `character_spell_tmp` (`ID`, `TalentID`, `Rank`, `Guid`, `Flag`, `Changed`) VALUES (NULL, %u, %u, %u, %u, UNIX_TIMESTAMP())", packet.talent_id, packet.requested_rank, _player->GetGUIDLow(), _player->ActiveTalent());
     }
-    _player->LearnTalent(packet.talent_id, packet.requested_rank);
 }
 
 void WorldSession::HandleTalentWipeConfirmOpcode(WorldPackets::Skill::TalentWipeConfirm const& packet)
