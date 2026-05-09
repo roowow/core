@@ -688,7 +688,8 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem const& pack
         {
             for (auto i = it1->second.begin(); i != it1->second.end(); i++)
             {
-                totalItemTypes++;
+                if (i->second > 0)
+                    totalItemTypes++;
             }
         }
         if (latestCount > 100)
