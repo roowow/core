@@ -223,6 +223,12 @@ bool BattleBotAI::DrinkAndEat()
 
     if (!isDrinking && needToDrink)
     {
+        if (me->GetClass() == CLASS_DRUID && me->GetShapeshiftForm() != FORM_NONE)
+        {
+            me->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
+            return true;
+        }
+
         if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
         {
             ClearPath();
@@ -237,6 +243,25 @@ bool BattleBotAI::DrinkAndEat()
     }
 
     return needToEat || needToDrink;
+}
+
+static std::vector<uint32> const vFlagsAB = { 180058, 180059, 180060, 180061,
+                                                180087, 180088, 180089, 180090,
+                                                180091 };
+
+static bool IsNearABFlag(BattleBotAI const* pAI)
+{
+    if (!pAI || !pAI->me)
+        return false;
+
+    for (const auto& bannerId : vFlagsAB)
+    {
+        if (GameObject* pGo = pAI->me->FindNearestGameObject(bannerId, INTERACTION_DISTANCE))
+            if (pGo->isSpawned())
+                return true;
+    }
+
+    return false;
 }
 
 float BattleBotAI::GetMaxAggroDistanceForMap() const
@@ -287,6 +312,15 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
     // Ignore attackers while carrying flag, just keep running.
     if (ShouldIgnoreCombat())
         return nullptr;
+
+    if (!me->IsInCombat())
+    {
+        if (BattleGround* bg = me->GetBattleGround())
+        {
+            if (bg->GetTypeID() == BATTLEGROUND_AB && IsNearABFlag(this))
+                return nullptr;
+        }
+    }
 
     // 1. Check units we are currently in combat with.
 
@@ -1045,6 +1079,24 @@ void BattleBotAI::UpdateBattleGroundAI()
             {
                 if (GameObject* pGo = me->FindNearestGameObject(GO_WSG_WARSONG_FLAG, INTERACTION_DISTANCE))
                     pGo->Use(me);
+            }
+            break;
+        }
+        case BATTLEGROUND_AB:
+        {
+            if (!me->IsInCombat())
+            {
+                for (const auto& bannerId : vFlagsAB)
+                {
+                    if (GameObject* pGo = me->FindNearestGameObject(bannerId, INTERACTION_DISTANCE))
+                    {
+                        if (pGo->isSpawned())
+                        {
+                            pGo->Use(me);
+                            return;
+                        }
+                    }
+                }
             }
             break;
         }
@@ -2995,6 +3047,9 @@ void BattleBotAI::UpdateOutOfCombatAI_Druid()
     // 2. 核心优化：如果你骑着马，且【没有】攻击目标，才拦截后续的变身和加Buff逻辑
     // 这样如果一旦有了 Victim（被怪打了或者决定开怪），逻辑就能向下走，正常触发战斗
     if (me->IsMounted() && !me->GetVictim())
+        return;
+
+    if (me->HasAura(BB_SPELL_FOOD) || me->HasAura(BB_SPELL_DRINK))
         return;
 
     BattleGround* bg = me->GetBattleGround();

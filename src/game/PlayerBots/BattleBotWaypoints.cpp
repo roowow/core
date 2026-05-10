@@ -84,9 +84,6 @@ void WSG_AtAllianceFlag(BattleBotAI* pAI)
                 if (pAI->me->IsWithinDistInMap(pFlag, INTERACTION_DISTANCE))
                 {
                     pAI->ClearPath();
-                    WorldPackets::Misc::GameObjectUse packet;
-                    packet.guid = pFlag->GetObjectGuid();
-                    pAI->me->GetSession()->HandleGameObjectUseOpcode(packet);
                     return;
                 }
                 else
@@ -104,7 +101,7 @@ void WSG_AtAllianceFlag(BattleBotAI* pAI)
             }
         }
     }
-
+    
     pAI->MoveToNextPoint();
 }
 
@@ -119,9 +116,6 @@ void WSG_AtHordeFlag(BattleBotAI* pAI)
                 if (pAI->me->IsWithinDistInMap(pFlag, INTERACTION_DISTANCE))
                 {
                     pAI->ClearPath();
-                    WorldPackets::Misc::GameObjectUse packet;
-                    packet.guid = pFlag->GetObjectGuid();
-                    pAI->me->GetSession()->HandleGameObjectUseOpcode(packet);
                     return;
                 }
                 else
@@ -175,7 +169,67 @@ std::vector<uint32> const vFlagsAB = { GO_AB_ALLIANCE_BANNER , GO_AB_CONTESTED_B
                                        GO_AB_STABLE_BANNER, GO_AB_BLACKSMITH_BANNER, GO_AB_FARM_BANNER, GO_AB_LUMBER_MILL_BANNER,
                                        GO_AB_GOLD_MINE_BANNER };
 
-void AtFlag(BattleBotAI* pAI, std::vector<uint32> const& vFlagIds)
+#define AB_GUARD_REQUIRED_BOTS 2
+#define AB_GUARD_SEARCH_RADIUS 25.0f
+#define AB_GUARD_KEEP_RADIUS   20.0f
+
+static Position const AB_GuardPositions[5] =
+{
+    { 1167.98f, 1202.9f, -56.4743f, 0.0f },   // Stables
+    { 978.269f, 1043.84f, -44.4588f, 0.0f },  // Blacksmith
+    { 804.429f, 874.961f, -55.2691f, 0.0f },  // Farm
+    { 853.921f, 1150.92f, 11.543f, 0.0f },    // Lumber Mill
+    { 1144.9f, 850.049f, -110.522f, 0.0f }   // Gold Mine
+};
+
+static uint8 CountABGuardBots(BattleBotAI* pAI, Position const& pos)
+{
+    Map* map = pAI->me->GetMap();
+    if (!map)
+        return 0;
+
+    uint8 count = 0;
+    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
+    {
+        if (Player* player = itr->getSource())
+        {
+            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
+                continue;
+
+            if (player->GetDistance(pos) <= AB_GUARD_SEARCH_RADIUS)
+                ++count;
+        }
+    }
+
+    return count;
+}
+
+static bool FindABGuardPosition(BattleBotAI* pAI, Position& outPosition)
+{
+    uint8 bestCount = AB_GUARD_REQUIRED_BOTS;
+    float bestDistance = FLT_MAX;
+    bool found = false;
+
+    for (uint8 i = 0; i < 5; ++i)
+    {
+        uint8 count = CountABGuardBots(pAI, AB_GuardPositions[i]);
+        if (count >= AB_GUARD_REQUIRED_BOTS)
+            continue;
+
+        float dist = pAI->me->GetDistance(AB_GuardPositions[i]);
+        if (!found || count < bestCount || (count == bestCount && dist < bestDistance))
+        {
+            found = true;
+            bestCount = count;
+            bestDistance = dist;
+            outPosition = AB_GuardPositions[i];
+        }
+    }
+
+    return found;
+}
+
+bool AtFlag(BattleBotAI* pAI, std::vector<uint32> const& vFlagIds)
 {
     if (Player* pFriend = pAI->me->FindNearestFriendlyPlayer(INTERACTION_DISTANCE))
     {
@@ -184,7 +238,7 @@ void AtFlag(BattleBotAI* pAI, std::vector<uint32> const& vFlagIds)
         {
             pAI->ClearPath();
             pAI->StartNewPathFromBeginning();
-            return;
+            return true;
         }
     }
 
@@ -202,22 +256,35 @@ void AtFlag(BattleBotAI* pAI, std::vector<uint32> const& vFlagIds)
 
                 pAI->ClearPath();
                 pAI->me->CastSpell(pGo, SPELL_CAPTURE_BANNER, false);
-                return;
+                return true;
             }
         }
+    }
+
+    return false;
+}
+
+void AB_AtFlag(BattleBotAI* pAI)
+{
+    if (AtFlag(pAI, vFlagsAB))
+        return;
+
+    for (uint8 i = 0; i < 5; ++i)
+    {
+        if (pAI->me->GetDistance(AB_GuardPositions[i]) <= AB_GUARD_KEEP_RADIUS &&
+            CountABGuardBots(pAI, AB_GuardPositions[i]) < AB_GUARD_REQUIRED_BOTS)
+            return;
     }
 
     pAI->MoveToNextPoint();
 }
 
-void AB_AtFlag(BattleBotAI* pAI)
-{
-    AtFlag(pAI, vFlagsAB);
-}
-
 void AV_AtFlag(BattleBotAI* pAI)
 {
-    AtFlag(pAI, vFlagsAV);
+    if (AtFlag(pAI, vFlagsAV))
+        return;
+
+    pAI->MoveToNextPoint();
 }
 
 void AtCaveExit(BattleBotAI* pAI)
@@ -1750,7 +1817,7 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
 void BattleBotAI::MovementInform(uint32 movementType, uint32 data)
 {
     if (movementType == POINT_MOTION_TYPE)
-    {
+    { 
         if (m_currentPath && m_currentPath->at(data).pFunc)
             (*m_currentPath->at(data).pFunc)(this);
         else
@@ -1926,7 +1993,7 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
                 }
             }
         }
-
+        
         if (std::find(vPaths_NoReverseAllowed.begin(), vPaths_NoReverseAllowed.end(), pPath) != vPaths_NoReverseAllowed.end())
             continue;
 
@@ -1963,7 +2030,7 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
     {
         if (closestPoint == 0)
             return false;
-
+            
     }
     else
     {
@@ -2030,6 +2097,19 @@ bool BattleBotAI::StartNewPathToObjective()
 
     switch (bg->GetTypeID())
     {
+        case BATTLEGROUND_AB:
+        {
+            Position targetPosition;
+            if (FindABGuardPosition(this, targetPosition))
+            {
+                if (StartNewPathToPosition(targetPosition, vPaths_AB))
+                    return true;
+
+                me->GetMotionMaster()->MovePoint(0, targetPosition.x, targetPosition.y, targetPosition.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+                return true;
+            }
+            break;
+        }
         case BATTLEGROUND_AV:
         {
             // Alliance and Horde code is intentionally different.
@@ -2054,7 +2134,7 @@ bool BattleBotAI::StartNewPathToObjective()
                 {
                     if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED)))
                         if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
-                            return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                            return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);  
                 }
 
                 if (!bg->IsActiveEvent(BG_AV_NodeEventCaptainDead_A, 0))
@@ -2102,7 +2182,7 @@ bool BattleBotAI::StartNewPathToObjective()
                         if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
                             return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                 }
-
+                
                 // Chance to defend.
                 if (roll_chance_u(25))
                 {
