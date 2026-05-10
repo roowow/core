@@ -89,14 +89,14 @@ void WSG_AtAllianceFlag(BattleBotAI* pAI)
                 else
                 {
                     pAI->ClearPath();
-                    pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), 353.0f);
+                    pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), 353.0f, MOVE_RUN_MODE);
                     return;
                 }
             }
             else if (pAI->me->HasAura(AURA_WARSONG_FLAG))
             {
                 pAI->ClearPath();
-                pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), 353.0f);
+                pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), 353.0f, MOVE_RUN_MODE);
                 return;
             }
         }
@@ -121,14 +121,14 @@ void WSG_AtHordeFlag(BattleBotAI* pAI)
                 else
                 {
                     pAI->ClearPath();
-                    pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ());
+                    pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ(), MOVE_RUN_MODE);
                     return;
                 }
             }
             else if (pAI->me->HasAura(AURA_SILVERWING_FLAG))
             {
                 pAI->ClearPath();
-                pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ());
+                pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ(), MOVE_RUN_MODE);
                 return;
             }
         }
@@ -229,11 +229,32 @@ static bool FindABGuardPosition(BattleBotAI* pAI, Position& outPosition)
     return found;
 }
 
+static bool IsABFlagOpenable(BattleBotAI* pAI, GameObject* pGo)
+{
+    if (!pGo || !pGo->isSpawned())
+        return false;
+
+    if (pAI->me->GetReactionTo(pGo) < REP_NEUTRAL)
+        return false;
+
+    if (pGo->GetGoState() != GO_STATE_READY)
+        return false;
+
+    return true;
+}
+
 bool AtFlag(BattleBotAI* pAI, std::vector<uint32> const& vFlagIds)
 {
+    if (Spell* currentSpell = pAI->me->GetCurrentSpell(CURRENT_GENERIC_SPELL))
+    {
+        if (currentSpell->m_spellInfo->Id == SPELL_CAPTURE_BANNER)
+            return true;
+    }
+
     if (Player* pFriend = pAI->me->FindNearestFriendlyPlayer(INTERACTION_DISTANCE))
     {
-        if (pFriend->GetCurrentSpell(CURRENT_GENERIC_SPELL) &&
+        if (pFriend != pAI->me &&
+            pFriend->GetCurrentSpell(CURRENT_GENERIC_SPELL) &&
             pFriend->GetCurrentSpell(CURRENT_GENERIC_SPELL)->m_spellInfo->Id == SPELL_CAPTURE_BANNER)
         {
             pAI->ClearPath();
@@ -246,7 +267,7 @@ bool AtFlag(BattleBotAI* pAI, std::vector<uint32> const& vFlagIds)
     {
         if (GameObject* pGo = pAI->me->FindNearestGameObject(bannerId, INTERACTION_DISTANCE))
         {
-            if (pGo->isSpawned() && (pAI->me->GetReactionTo(pGo) >= REP_NEUTRAL))
+            if (IsABFlagOpenable(pAI, pGo))
             {
                 if (pAI->me->IsMounted())
                     pAI->me->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
@@ -322,7 +343,7 @@ void MoveToNextPointSpecial(BattleBotAI* pAI)
 
     BattleBotWaypoint& nextPoint = pAI->m_currentPath->at(pAI->m_currentPoint);
 
-    pAI->me->GetMotionMaster()->MovePoint(pAI->m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, MOVE_NONE);
+    pAI->me->GetMotionMaster()->MovePoint(pAI->m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, MOVE_RUN_MODE);
 }
 
 std::vector<RecordedMovementPacket> vAllianceGraveyardJumpPath =
@@ -1849,7 +1870,7 @@ void BattleBotAI::MoveToNextPoint()
 
     BattleBotWaypoint& nextPoint = m_currentPath->at(m_currentPoint);
 
-    me->GetMotionMaster()->MovePoint(m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+    me->GetMotionMaster()->MovePoint(m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
 }
 
 bool BattleBotAI::StartNewPathFromBeginning()
@@ -2105,7 +2126,7 @@ bool BattleBotAI::StartNewPathToObjective()
                 if (StartNewPathToPosition(targetPosition, vPaths_AB))
                     return true;
 
-                me->GetMotionMaster()->MovePoint(0, targetPosition.x, targetPosition.y, targetPosition.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+                me->GetMotionMaster()->MovePoint(0, targetPosition.x, targetPosition.y, targetPosition.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
                 return true;
             }
             break;

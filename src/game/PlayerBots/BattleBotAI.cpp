@@ -245,25 +245,6 @@ bool BattleBotAI::DrinkAndEat()
     return needToEat || needToDrink;
 }
 
-static std::vector<uint32> const vFlagsAB = { 180058, 180059, 180060, 180061,
-                                                180087, 180088, 180089, 180090,
-                                                180091 };
-
-static bool IsNearABFlag(BattleBotAI const* pAI)
-{
-    if (!pAI || !pAI->me)
-        return false;
-
-    for (const auto& bannerId : vFlagsAB)
-    {
-        if (GameObject* pGo = pAI->me->FindNearestGameObject(bannerId, INTERACTION_DISTANCE))
-            if (pGo->isSpawned())
-                return true;
-    }
-
-    return false;
-}
-
 float BattleBotAI::GetMaxAggroDistanceForMap() const
 {
     BattleGround* bg = me->GetBattleGround();
@@ -312,15 +293,6 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
     // Ignore attackers while carrying flag, just keep running.
     if (ShouldIgnoreCombat())
         return nullptr;
-
-    if (!me->IsInCombat())
-    {
-        if (BattleGround* bg = me->GetBattleGround())
-        {
-            if (bg->GetTypeID() == BATTLEGROUND_AB && IsNearABFlag(this))
-                return nullptr;
-        }
-    }
 
     // 1. Check units we are currently in combat with.
 
@@ -626,31 +598,31 @@ void BattleBotAI::OnEnterBattleGround()
         if (m_waitingSpot == BB_WSG_WAIT_SPOT_RIGHT)
         {
             if (me->GetTeam() == HORDE)
-                me->GetMotionMaster()->MovePoint(0, WS_WAITING_POS_HORDE_1.x, WS_WAITING_POS_HORDE_1.y, WS_WAITING_POS_HORDE_1.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES, 0, WS_WAITING_POS_HORDE_1.o);
+                me->GetMotionMaster()->MovePoint(0, WS_WAITING_POS_HORDE_1.x, WS_WAITING_POS_HORDE_1.y, WS_WAITING_POS_HORDE_1.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, WS_WAITING_POS_HORDE_1.o);
             else
-                me->GetMotionMaster()->MovePoint(0, WS_WAITING_POS_ALLIANCE_1.x, WS_WAITING_POS_ALLIANCE_1.y, WS_WAITING_POS_ALLIANCE_1.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES, 0, WS_WAITING_POS_ALLIANCE_1.o);
+                me->GetMotionMaster()->MovePoint(0, WS_WAITING_POS_ALLIANCE_1.x, WS_WAITING_POS_ALLIANCE_1.y, WS_WAITING_POS_ALLIANCE_1.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, WS_WAITING_POS_ALLIANCE_1.o);
         }
         else if (m_waitingSpot == BB_WSG_WAIT_SPOT_LEFT)
         {
             if (me->GetTeam() == HORDE)
-                me->GetMotionMaster()->MovePoint(0, WS_WAITING_POS_HORDE_2.x, WS_WAITING_POS_HORDE_2.y, WS_WAITING_POS_HORDE_2.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES, 0, WS_WAITING_POS_HORDE_2.o);
+                me->GetMotionMaster()->MovePoint(0, WS_WAITING_POS_HORDE_2.x, WS_WAITING_POS_HORDE_2.y, WS_WAITING_POS_HORDE_2.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, WS_WAITING_POS_HORDE_2.o);
             else
-                me->GetMotionMaster()->MovePoint(0, WS_WAITING_POS_ALLIANCE_2.x, WS_WAITING_POS_ALLIANCE_2.y, WS_WAITING_POS_ALLIANCE_2.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES, 0, WS_WAITING_POS_ALLIANCE_2.o);
+                me->GetMotionMaster()->MovePoint(0, WS_WAITING_POS_ALLIANCE_2.x, WS_WAITING_POS_ALLIANCE_2.y, WS_WAITING_POS_ALLIANCE_2.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, WS_WAITING_POS_ALLIANCE_2.o);
         }
     }
     else if (bg->GetTypeID() == BATTLEGROUND_AB)
     {
         if (me->GetTeam() == HORDE)
-            me->GetMotionMaster()->MovePoint(0, AB_WAITING_POS_HORDE.x + frand(-2.0f, 2.0f), AB_WAITING_POS_HORDE.y + frand(-2.0f, 2.0f), AB_WAITING_POS_HORDE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES, 0, AB_WAITING_POS_HORDE.o);
+            me->GetMotionMaster()->MovePoint(0, AB_WAITING_POS_HORDE.x + frand(-2.0f, 2.0f), AB_WAITING_POS_HORDE.y + frand(-2.0f, 2.0f), AB_WAITING_POS_HORDE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, AB_WAITING_POS_HORDE.o);
         else
-            me->GetMotionMaster()->MovePoint(0, AB_WAITING_POS_ALLIANCE.x + frand(-2.0f, 2.0f), AB_WAITING_POS_ALLIANCE.y + frand(-2.0f, 2.0f), AB_WAITING_POS_ALLIANCE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES, 0, AB_WAITING_POS_ALLIANCE.o);
+            me->GetMotionMaster()->MovePoint(0, AB_WAITING_POS_ALLIANCE.x + frand(-2.0f, 2.0f), AB_WAITING_POS_ALLIANCE.y + frand(-2.0f, 2.0f), AB_WAITING_POS_ALLIANCE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, AB_WAITING_POS_ALLIANCE.o);
     }
     else if (bg->GetTypeID() == BATTLEGROUND_AV)
     {
         if (me->GetTeam() == HORDE)
-            me->GetMotionMaster()->MovePoint(0, AV_WAITING_POS_HORDE.x + frand(-2.0f, 2.0f), AV_WAITING_POS_HORDE.y + frand(-2.0f, 2.0f), AV_WAITING_POS_HORDE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES, 0, AV_WAITING_POS_HORDE.o);
+            me->GetMotionMaster()->MovePoint(0, AV_WAITING_POS_HORDE.x + frand(-2.0f, 2.0f), AV_WAITING_POS_HORDE.y + frand(-2.0f, 2.0f), AV_WAITING_POS_HORDE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, AV_WAITING_POS_HORDE.o);
         else
-            me->GetMotionMaster()->MovePoint(0, AV_WAITING_POS_ALLIANCE.x + frand(-2.0f, 2.0f), AV_WAITING_POS_ALLIANCE.y + frand(-2.0f, 2.0f), AV_WAITING_POS_ALLIANCE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES, 0, AV_WAITING_POS_ALLIANCE.o);
+            me->GetMotionMaster()->MovePoint(0, AV_WAITING_POS_ALLIANCE.x + frand(-2.0f, 2.0f), AV_WAITING_POS_ALLIANCE.y + frand(-2.0f, 2.0f), AV_WAITING_POS_ALLIANCE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, AV_WAITING_POS_ALLIANCE.o);
     }
 }
 
@@ -1079,24 +1051,6 @@ void BattleBotAI::UpdateBattleGroundAI()
             {
                 if (GameObject* pGo = me->FindNearestGameObject(GO_WSG_WARSONG_FLAG, INTERACTION_DISTANCE))
                     pGo->Use(me);
-            }
-            break;
-        }
-        case BATTLEGROUND_AB:
-        {
-            if (!me->IsInCombat())
-            {
-                for (const auto& bannerId : vFlagsAB)
-                {
-                    if (GameObject* pGo = me->FindNearestGameObject(bannerId, INTERACTION_DISTANCE))
-                    {
-                        if (pGo->isSpawned())
-                        {
-                            pGo->Use(me);
-                            return;
-                        }
-                    }
-                }
             }
             break;
         }
