@@ -74,6 +74,62 @@ enum AreaTriggersWS
     AT_WARSONG_FLAG    = 3647
 };
 
+static Position const WSG_GuardPositions[BG_TEAMS_COUNT] =
+{
+    { 1519.53f, 1481.87f, 352.024f, 0.0f },  // Alliance flag room
+    { 933.331f, 1433.72f, 345.536f, 0.0f }   // Horde flag room
+};
+
+#define WSG_GUARD_REQUIRED_BOTS 2
+
+static bool HasEnemyFlagAura(Player* player)
+{
+    if (player->GetTeam() == ALLIANCE)
+        return player->HasAura(AURA_WARSONG_FLAG);
+
+    return player->HasAura(AURA_SILVERWING_FLAG);
+}
+
+bool BattleBotIsWSGHomeGuardCandidate(BattleBotAI const* pAI)
+{
+    Map* map = pAI->me->GetMap();
+    if (!map || HasEnemyFlagAura(pAI->me))
+        return false;
+
+    uint8 lowerGuidCandidates = 0;
+    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
+    {
+        if (Player* player = itr->getSource())
+        {
+            if (player == pAI->me)
+                continue;
+
+            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
+                continue;
+
+            if (HasEnemyFlagAura(player))
+                continue;
+
+            if (player->GetObjectGuid().GetCounter() < pAI->me->GetObjectGuid().GetCounter())
+                ++lowerGuidCandidates;
+        }
+    }
+
+    return lowerGuidCandidates < WSG_GUARD_REQUIRED_BOTS;
+}
+
+static bool FindWSGHomeGuardPosition(BattleBotAI* pAI, BattleGroundWS* bg, Position& outPosition)
+{
+    if (!bg || bg->GetFlagState(pAI->me->GetTeam()) != BG_WS_FLAG_STATE_ON_BASE)
+        return false;
+
+    if (!BattleBotIsWSGHomeGuardCandidate(pAI))
+        return false;
+
+    outPosition = WSG_GuardPositions[BattleGround::GetTeamIndexByTeamId(pAI->me->GetTeam())];
+    return true;
+}
+
 void WSG_AtAllianceFlag(BattleBotAI* pAI)
 {
     if (GameObject* pFlag = pAI->me->FindNearestGameObject(GO_WS_SILVERWING_FLAG, 25.0f))
@@ -171,8 +227,10 @@ std::vector<uint32> const vFlagsAB = { GO_AB_ALLIANCE_BANNER , GO_AB_CONTESTED_B
                                        GO_AB_GOLD_MINE_BANNER };
 
 #define AB_GUARD_REQUIRED_BOTS 2
-#define AB_GUARD_SEARCH_RADIUS 25.0f
+#define AB_GUARD_SEARCH_RADIUS 35.0f
 #define AB_GUARD_KEEP_RADIUS   20.0f
+#define AB_GUARD_EXCESS_RADIUS 45.0f
+#define AB_GUARD_ASSIGN_RADIUS 20.0f
 
 static Position const AB_GuardPositions[5] =
 {
@@ -204,7 +262,27 @@ static bool IsABSettledGuardBot(Player* player, Player* currentBot)
     }
 }
 
-static uint8 CountABGuardBots(BattleBotAI* pAI, Position const& pos)
+static bool IsABAssignedToGuardPosition(Player* player, Position const& pos)
+{
+    if (BattleBotAI* pBotAI = dynamic_cast<BattleBotAI*>(player->AI()))
+    {
+        if (pBotAI->m_currentPath)
+        {
+            BattleBotWaypoint const& targetPoint = pBotAI->m_movingInReverse ? pBotAI->m_currentPath->front() : pBotAI->m_currentPath->back();
+            if (GetDistance3D(targetPoint, pos) <= AB_GUARD_ASSIGN_RADIUS)
+                return true;
+        }
+    }
+
+    float x, y, z;
+    if (player->GetMotionMaster()->GetDestination(x, y, z) &&
+        GetDistance3D(x, y, z, pos.x, pos.y, pos.z) <= AB_GUARD_ASSIGN_RADIUS)
+        return true;
+
+    return false;
+}
+
+static uint8 CountABGuardBots(BattleBotAI* pAI, Position const& pos, bool includeAssigned)
 {
     Map* map = pAI->me->GetMap();
     if (!map)
@@ -218,15 +296,50 @@ static uint8 CountABGuardBots(BattleBotAI* pAI, Position const& pos)
             if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
                 continue;
 
-            if (!IsABSettledGuardBot(player, pAI->me))
+            if (player->GetDistance(pos) <= AB_GUARD_SEARCH_RADIUS &&
+                (includeAssigned || IsABSettledGuardBot(player, pAI->me)))
+            {
+                ++count;
                 continue;
+            }
 
-            if (player->GetDistance(pos) <= AB_GUARD_SEARCH_RADIUS)
+            if (includeAssigned && IsABAssignedToGuardPosition(player, pos))
                 ++count;
         }
     }
 
     return count;
+}
+
+static bool IsABExcessGuardBot(BattleBotAI* pAI, Position const& pos)
+{
+    Map* map = pAI->me->GetMap();
+    if (!map)
+        return false;
+
+    if (pAI->me->GetDistance(pos) > AB_GUARD_EXCESS_RADIUS)
+        return false;
+
+    uint8 lowerGuidGuards = 0;
+    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
+    {
+        if (Player* player = itr->getSource())
+        {
+            if (player == pAI->me)
+                continue;
+
+            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
+                continue;
+
+            if (player->GetDistance(pos) > AB_GUARD_EXCESS_RADIUS)
+                continue;
+
+            if (player->GetObjectGuid().GetCounter() < pAI->me->GetObjectGuid().GetCounter())
+                ++lowerGuidGuards;
+        }
+    }
+
+    return lowerGuidGuards >= AB_GUARD_REQUIRED_BOTS;
 }
 
 static bool IsABNodeOccupiedByTeam(BattleGround* bg, Team team, uint8 node)
@@ -238,23 +351,32 @@ static bool IsABNodeOccupiedByTeam(BattleGround* bg, Team team, uint8 node)
     return bg->IsActiveEvent(node, teamIndex + BG_AB_NODE_TYPE_OCCUPIED);
 }
 
-static bool FindABOwnedGuardPosition(BattleBotAI* pAI, Position& outPosition)
+static bool IsABNodeContestedByTeam(BattleGround* bg, Team team, uint8 node)
+{
+    if (!bg)
+        return false;
+
+    BattleGroundTeamIndex const teamIndex = BattleGround::GetTeamIndexByTeamId(team);
+    return bg->IsActiveEvent(node, teamIndex + BG_AB_NODE_TYPE_CONTESTED);
+}
+
+static uint8 GetABHomeNode(Team team)
+{
+    return team == ALLIANCE ? BG_AB_NODE_STABLES : BG_AB_NODE_FARM;
+}
+
+static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
 {
     BattleGround* bg = pAI->me->GetBattleGround();
     if (!bg)
         return false;
 
-    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
+    uint8 const homeNode = GetABHomeNode(pAI->me->GetTeam());
+    if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), homeNode) &&
+        CountABGuardBots(pAI, AB_GuardPositions[homeNode], true) < AB_GUARD_REQUIRED_BOTS)
     {
-        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
-            continue;
-
-        if (pAI->me->GetDistance(AB_GuardPositions[i]) <= AB_GUARD_KEEP_RADIUS &&
-            CountABGuardBots(pAI, AB_GuardPositions[i]) <= AB_GUARD_REQUIRED_BOTS)
-        {
-            outPosition = AB_GuardPositions[i];
-            return true;
-        }
+        outPosition = AB_GuardPositions[homeNode];
+        return true;
     }
 
     uint8 bestCount = AB_GUARD_REQUIRED_BOTS;
@@ -263,10 +385,10 @@ static bool FindABOwnedGuardPosition(BattleBotAI* pAI, Position& outPosition)
 
     for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
     {
-        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
+        if (IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
             continue;
 
-        uint8 count = CountABGuardBots(pAI, AB_GuardPositions[i]);
+        uint8 count = CountABGuardBots(pAI, AB_GuardPositions[i], true);
         if (count >= AB_GUARD_REQUIRED_BOTS)
             continue;
 
@@ -283,12 +405,19 @@ static bool FindABOwnedGuardPosition(BattleBotAI* pAI, Position& outPosition)
     return found;
 }
 
-static bool FindABGuardPosition(BattleBotAI* pAI, Position& outPosition)
+static bool FindABOwnedGuardPosition(BattleBotAI* pAI, Position& outPosition)
 {
-    for (uint8 i = 0; i < 5; ++i)
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg)
+        return false;
+
+    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
     {
-        if (pAI->me->GetDistance(AB_GuardPositions[i]) <= AB_GUARD_KEEP_RADIUS &&
-            CountABGuardBots(pAI, AB_GuardPositions[i]) <= AB_GUARD_REQUIRED_BOTS)
+        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
+            continue;
+
+        if (pAI->me->GetDistance(AB_GuardPositions[i]) <= AB_GUARD_EXCESS_RADIUS &&
+            !IsABExcessGuardBot(pAI, AB_GuardPositions[i]))
         {
             outPosition = AB_GuardPositions[i];
             return true;
@@ -299,9 +428,12 @@ static bool FindABGuardPosition(BattleBotAI* pAI, Position& outPosition)
     float bestDistance = FLT_MAX;
     bool found = false;
 
-    for (uint8 i = 0; i < 5; ++i)
+    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
     {
-        uint8 count = CountABGuardBots(pAI, AB_GuardPositions[i]);
+        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
+            continue;
+
+        uint8 count = CountABGuardBots(pAI, AB_GuardPositions[i], true);
         if (count >= AB_GUARD_REQUIRED_BOTS)
             continue;
 
@@ -347,7 +479,13 @@ bool AtFlag(BattleBotAI* pAI, std::vector<uint32> const& vFlagIds)
             pFriend->GetCurrentSpell(CURRENT_GENERIC_SPELL)->m_spellInfo->Id == SPELL_CAPTURE_BANNER)
         {
             pAI->ClearPath();
-            pAI->StartNewPathFromBeginning();
+            if (BattleGround* bg = pAI->me->GetBattleGround())
+            {
+                if (bg->GetTypeID() == BATTLEGROUND_AB)
+                    pAI->StopMoving();
+                else
+                    pAI->StartNewPathFromBeginning();
+            }
             return true;
         }
     }
@@ -379,14 +517,59 @@ void AB_AtFlag(BattleBotAI* pAI)
     if (AtFlag(pAI, vFlagsAB))
         return;
 
-    for (uint8 i = 0; i < 5; ++i)
+    BattleGround* bg = pAI->me->GetBattleGround();
+    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
     {
-        if (pAI->me->GetDistance(AB_GuardPositions[i]) <= AB_GUARD_KEEP_RADIUS &&
-            CountABGuardBots(pAI, AB_GuardPositions[i]) <= AB_GUARD_REQUIRED_BOTS)
+        if (pAI->me->GetDistance(AB_GuardPositions[i]) > AB_GUARD_EXCESS_RADIUS)
+            continue;
+
+        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i) &&
+            !IsABNodeContestedByTeam(bg, pAI->me->GetTeam(), i))
+            continue;
+
+        if (!IsABExcessGuardBot(pAI, AB_GuardPositions[i]))
+        {
+            pAI->ClearPath();
+            pAI->StopMoving();
             return;
+        }
     }
 
     pAI->MoveToNextPoint();
+}
+
+static bool ReleaseABExcessGuard(BattleBotAI* pAI)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AB)
+        return false;
+
+    if (pAI->m_currentPath || pAI->me->IsMoving() || !pAI->me->IsStopped())
+        return false;
+
+    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
+    {
+        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
+            continue;
+
+        if (pAI->me->GetDistance(AB_GuardPositions[i]) > AB_GUARD_EXCESS_RADIUS)
+            continue;
+
+        if (!IsABExcessGuardBot(pAI, AB_GuardPositions[i]))
+            return false;
+
+        pAI->ClearPath();
+        if (pAI->StartNewPathToObjective())
+            return true;
+
+        if (pAI->StartNewPathFromBeginning())
+            return true;
+
+        pAI->StartNewPathFromAnywhere();
+        return true;
+    }
+
+    return false;
 }
 
 bool BattleBotTryCaptureNearbyObjective(BattleBotAI* pAI)
@@ -398,7 +581,7 @@ bool BattleBotTryCaptureNearbyObjective(BattleBotAI* pAI)
     switch (bg->GetTypeID())
     {
         case BATTLEGROUND_AB:
-            return AtFlag(pAI, vFlagsAB);
+            return AtFlag(pAI, vFlagsAB) || ReleaseABExcessGuard(pAI);
         default:
             return false;
     }
@@ -2230,17 +2413,15 @@ bool BattleBotAI::StartNewPathToObjective()
                 if (StartNewPathToPosition(targetPosition, vPaths_AB))
                     return true;
 
-                me->GetMotionMaster()->MovePoint(0, targetPosition.x, targetPosition.y, targetPosition.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
-                return true;
+                return me->GetDistance(targetPosition) <= AB_GUARD_EXCESS_RADIUS;
             }
 
-            if (FindABGuardPosition(this, targetPosition))
+            if (FindABAssaultPosition(this, targetPosition))
             {
                 if (StartNewPathToPosition(targetPosition, vPaths_AB))
                     return true;
 
-                me->GetMotionMaster()->MovePoint(0, targetPosition.x, targetPosition.y, targetPosition.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
-                return true;
+                return me->GetDistance(targetPosition) <= AB_GUARD_EXCESS_RADIUS;
             }
             break;
         }
@@ -2366,14 +2547,52 @@ bool BattleBotAI::StartNewPathToObjective()
         }
         case BATTLEGROUND_WS:
         {
+            BattleGroundWS* bgWS = static_cast<BattleGroundWS*>(bg);
+            bool const isHomeGuard = BattleBotIsWSGHomeGuardCandidate(this);
+
             if (me->GetTeam() == HORDE)
             {
                 if (me->HasAura(AURA_SILVERWING_FLAG))
                     return StartNewPathToPosition(WS_FLAG_POS_HORDE, vPaths_WS);
-                if (!static_cast<BattleGroundWS*>(bg)->IsAllianceFlagPickedup())
+
+                if (isHomeGuard && bgWS->GetFlagState(HORDE) == BG_WS_FLAG_STATE_ON_GROUND)
+                {
+                    if (GameObject* pFlag = me->GetMap()->GetGameObject(bgWS->GetDroppedFlagGuid(HORDE)))
+                    {
+                        if (StartNewPathToPosition(pFlag->GetPosition(), vPaths_WS))
+                            return true;
+
+                        me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+                        return true;
+                    }
+                }
+
+                if ((isHomeGuard || bgWS->IsAllianceFlagPickedup()) && bgWS->GetFlagState(HORDE) == BG_WS_FLAG_STATE_ON_PLAYER)
+                {
+                    if (Player* pEnemyFlagCarrier = me->GetMap()->GetPlayer(bgWS->GetHordeFlagPickerGuid()))
+                    {
+                        if (StartNewPathToPosition(pEnemyFlagCarrier->GetPosition(), vPaths_WS))
+                            return true;
+
+                        me->GetMotionMaster()->MovePoint(0, pEnemyFlagCarrier->GetPositionX(), pEnemyFlagCarrier->GetPositionY(), pEnemyFlagCarrier->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+                        return true;
+                    }
+                }
+
+                Position guardPosition;
+                if (FindWSGHomeGuardPosition(this, bgWS, guardPosition))
+                {
+                    if (StartNewPathToPosition(guardPosition, vPaths_WS))
+                        return true;
+
+                    me->GetMotionMaster()->MovePoint(0, guardPosition.x, guardPosition.y, guardPosition.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+                    return true;
+                }
+
+                if (!bgWS->IsAllianceFlagPickedup())
                 {
                     float const distance = me->GetDistance(WS_FLAG_POS_ALLIANCE);
-                    if (distance > 20.0f && distance < 300.0f)
+                    if (distance > 20.0f)
                         return StartNewPathToPosition(WS_FLAG_POS_ALLIANCE, vPaths_WS);
                 }
             }
@@ -2381,10 +2600,45 @@ bool BattleBotAI::StartNewPathToObjective()
             {
                 if (me->HasAura(AURA_WARSONG_FLAG))
                     return StartNewPathToPosition(WS_FLAG_POS_ALLIANCE, vPaths_WS);
-                if (!static_cast<BattleGroundWS*>(bg)->IsHordeFlagPickedup())
+
+                if (isHomeGuard && bgWS->GetFlagState(ALLIANCE) == BG_WS_FLAG_STATE_ON_GROUND)
+                {
+                    if (GameObject* pFlag = me->GetMap()->GetGameObject(bgWS->GetDroppedFlagGuid(ALLIANCE)))
+                    {
+                        if (StartNewPathToPosition(pFlag->GetPosition(), vPaths_WS))
+                            return true;
+
+                        me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+                        return true;
+                    }
+                }
+
+                if ((isHomeGuard || bgWS->IsHordeFlagPickedup()) && bgWS->GetFlagState(ALLIANCE) == BG_WS_FLAG_STATE_ON_PLAYER)
+                {
+                    if (Player* pEnemyFlagCarrier = me->GetMap()->GetPlayer(bgWS->GetAllianceFlagPickerGuid()))
+                    {
+                        if (StartNewPathToPosition(pEnemyFlagCarrier->GetPosition(), vPaths_WS))
+                            return true;
+
+                        me->GetMotionMaster()->MovePoint(0, pEnemyFlagCarrier->GetPositionX(), pEnemyFlagCarrier->GetPositionY(), pEnemyFlagCarrier->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+                        return true;
+                    }
+                }
+
+                Position guardPosition;
+                if (FindWSGHomeGuardPosition(this, bgWS, guardPosition))
+                {
+                    if (StartNewPathToPosition(guardPosition, vPaths_WS))
+                        return true;
+
+                    me->GetMotionMaster()->MovePoint(0, guardPosition.x, guardPosition.y, guardPosition.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+                    return true;
+                }
+
+                if (!bgWS->IsHordeFlagPickedup())
                 {
                     float const distance = me->GetDistance(WS_FLAG_POS_HORDE);
-                    if (distance > 20.0f && distance < 300.0f)
+                    if (distance > 20.0f)
                         return StartNewPathToPosition(WS_FLAG_POS_HORDE, vPaths_WS);
                 }
             }

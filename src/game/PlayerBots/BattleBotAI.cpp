@@ -17,6 +17,7 @@
 #include "BattleBotAI.h"
 #include "BattleBotWaypoints.h"
 #include "BattleGround.h"
+#include "BattleGroundWS.h"
 #include "Player.h"
 #include "Group.h"
 #include "CreatureAI.h"
@@ -139,9 +140,6 @@ bool BattleBotAI::UseMount()
     if (me->IsMounted())
         return false;
 
-    if (me->IsMoving())
-        return false;
-
     // --- 德鲁伊核心优化：上马前主动解除变形状态（猫/熊/旅行形态等） ---
     // 必须放在模型检查之前，否则变身的德鲁伊会被直接拦截
     if (me->GetClass() == CLASS_DRUID && me->GetShapeshiftForm() != FORM_NONE)
@@ -174,6 +172,16 @@ bool BattleBotAI::UseMount()
     if (!spellId)
         return false;
 
+    if (me->IsMoving())
+    {
+        if (BattleGround* bg = me->GetBattleGround())
+            if (bg->GetTypeID() == BATTLEGROUND_AV)
+                return false;
+
+        ClearPath();
+        StopMoving();
+    }
+
     if (me->CastSpell(me, spellId, false) == SPELL_CAST_OK)
         return true;
 
@@ -192,8 +200,8 @@ bool BattleBotAI::DrinkAndEat()
         return false;
 
     BattleGround* bg;
-    bool const needToEat = me->GetHealthPercent() < 80.0f && !((bg = me->GetBattleGround()) && bg->GetStatus() == STATUS_WAIT_JOIN);
-    bool const needToDrink = (me->GetPowerType() == POWER_MANA) && (me->GetPowerPercent(POWER_MANA) < 80.0f);
+    bool const needToEat = me->GetHealthPercent() < 90.0f && !((bg = me->GetBattleGround()) && bg->GetStatus() == STATUS_WAIT_JOIN);
+    bool const needToDrink = (me->GetPowerType() == POWER_MANA) && (me->GetPowerPercent(POWER_MANA) < 90.0f);
 
     if (!needToEat && !needToDrink)
         return false;
@@ -427,12 +435,24 @@ Unit* BattleBotAI::SelectFollowTarget() const
         if (me->GetTeam() == ALLIANCE)
         {
             if (pTarget->HasAura(AURA_WARSONG_FLAG))
+            {
+                if (BattleGround* bg = me->GetBattleGround())
+                    if (bg->GetTypeID() == BATTLEGROUND_WS && !BattleBotIsWSGHomeGuardCandidate(this))
+                        return nullptr;
+
                 return pTarget;
+            }
         }
         else
         {
             if (pTarget->HasAura(AURA_SILVERWING_FLAG))
+            {
+                if (BattleGround* bg = me->GetBattleGround())
+                    if (bg->GetTypeID() == BATTLEGROUND_WS && !BattleBotIsWSGHomeGuardCandidate(this))
+                        return nullptr;
+
                 return pTarget;
+            }
         }
 
         if (m_role == ROLE_HEALER &&
@@ -726,6 +746,11 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         PopulateSpellData();
         AddAllSpellReagents();
         me->UpdateSkillsToMaxSkillsForLevel();
+
+        if (uint32 mountSpellId = GetMountSpellId())
+            if (!me->HasSpell(mountSpellId))
+                me->LearnSpell(mountSpellId, false, false);
+
         me->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SPAWNING);
         SummonPetIfNeeded();
         me->SetHealthPercent(100.0f);
@@ -914,6 +939,9 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
     if (!me->IsInCombat())
     {
+        if (BattleBotTryCaptureNearbyObjective(this))
+            return;
+
         if (DrinkAndEat())
             return;
     }
@@ -1035,6 +1063,26 @@ void BattleBotAI::UpdateBattleGroundAI()
     {
         case BATTLEGROUND_WS:
         {
+            BattleGroundWS* bgWS = static_cast<BattleGroundWS*>(bg);
+            bool const carryingEnemyFlag =
+                (me->GetTeam() == ALLIANCE && me->HasAura(AURA_WARSONG_FLAG)) ||
+                (me->GetTeam() == HORDE && me->HasAura(AURA_SILVERWING_FLAG));
+            uint8 const ownFlagState = bgWS->GetFlagState(me->GetTeam());
+            bool const shouldDefendHomeFlag = BattleBotIsWSGHomeGuardCandidate(this) && !carryingEnemyFlag &&
+                (ownFlagState == BG_WS_FLAG_STATE_ON_GROUND || ownFlagState == BG_WS_FLAG_STATE_ON_PLAYER);
+
+            if (shouldDefendHomeFlag && !m_wsgDefenseMode)
+            {
+                m_wsgDefenseMode = true;
+                if (m_currentPath || me->GetMotionMaster()->GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
+                {
+                    ClearPath();
+                    StopMoving();
+                }
+            }
+            else if (!shouldDefendHomeFlag)
+                m_wsgDefenseMode = false;
+
             // Pick up dropped flags.
             if (GameObject* pGo = me->FindNearestGameObject(GO_WSG_DROPPED_SILVERWING_FLAG, INTERACTION_DISTANCE))
                 pGo->Use(me);
@@ -3038,6 +3086,8 @@ void BattleBotAI::UpdateOutOfCombatAI_Druid()
                 }
             }
         }
+
+        return;
     }
     else
     {
