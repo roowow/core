@@ -63,4 +63,6 @@ extern std::vector<BattleBotPath*> const vPaths_WS;
 extern std::vector<BattleBotPath*> const vPaths_AB;
 extern std::vector<BattleBotPath*> const vPaths_AV;
 
+bool BattleBotTryCaptureNearbyObjective(BattleBotAI* pAI);
+
 #endif

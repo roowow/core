@@ -951,6 +951,9 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                 return;
             }
 
+            if (UseMount())
+                return;
+
             if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() != FOLLOW_MOTION_TYPE)
             {
                 if (Unit* pFollowTarget = SelectFollowTarget())
@@ -969,9 +972,6 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                     return;
                 }
             }
-
-            if (UseMount())
-                return;
 
             UpdateWaypointMovement();
         }

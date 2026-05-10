@@ -23,6 +23,7 @@
 #include "MotionMaster.h"
 #include "Spell.h"
 #include "Battlegrounds/BattleGround.h"
+#include "BattleGroundAB.h"
 #include "BattleGroundAV.h"
 #include "BattleGroundWS.h"
 #include "Geometry.h"
@@ -182,6 +183,27 @@ static Position const AB_GuardPositions[5] =
     { 1144.9f, 850.049f, -110.522f, 0.0f }   // Gold Mine
 };
 
+static bool IsABSettledGuardBot(Player* player, Player* currentBot)
+{
+    if (player == currentBot)
+        return true;
+
+    if (!player->IsMoving())
+        return true;
+
+    if (player->IsInCombat())
+        return true;
+
+    switch (player->GetMotionMaster()->GetCurrentMovementGeneratorType())
+    {
+        case POINT_MOTION_TYPE:
+        case FOLLOW_MOTION_TYPE:
+            return false;
+        default:
+            return true;
+    }
+}
+
 static uint8 CountABGuardBots(BattleBotAI* pAI, Position const& pos)
 {
     Map* map = pAI->me->GetMap();
@@ -196,6 +218,9 @@ static uint8 CountABGuardBots(BattleBotAI* pAI, Position const& pos)
             if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
                 continue;
 
+            if (!IsABSettledGuardBot(player, pAI->me))
+                continue;
+
             if (player->GetDistance(pos) <= AB_GUARD_SEARCH_RADIUS)
                 ++count;
         }
@@ -204,8 +229,72 @@ static uint8 CountABGuardBots(BattleBotAI* pAI, Position const& pos)
     return count;
 }
 
+static bool IsABNodeOccupiedByTeam(BattleGround* bg, Team team, uint8 node)
+{
+    if (!bg)
+        return false;
+
+    BattleGroundTeamIndex const teamIndex = BattleGround::GetTeamIndexByTeamId(team);
+    return bg->IsActiveEvent(node, teamIndex + BG_AB_NODE_TYPE_OCCUPIED);
+}
+
+static bool FindABOwnedGuardPosition(BattleBotAI* pAI, Position& outPosition)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg)
+        return false;
+
+    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
+    {
+        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
+            continue;
+
+        if (pAI->me->GetDistance(AB_GuardPositions[i]) <= AB_GUARD_KEEP_RADIUS &&
+            CountABGuardBots(pAI, AB_GuardPositions[i]) <= AB_GUARD_REQUIRED_BOTS)
+        {
+            outPosition = AB_GuardPositions[i];
+            return true;
+        }
+    }
+
+    uint8 bestCount = AB_GUARD_REQUIRED_BOTS;
+    float bestDistance = FLT_MAX;
+    bool found = false;
+
+    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
+    {
+        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
+            continue;
+
+        uint8 count = CountABGuardBots(pAI, AB_GuardPositions[i]);
+        if (count >= AB_GUARD_REQUIRED_BOTS)
+            continue;
+
+        float dist = pAI->me->GetDistance(AB_GuardPositions[i]);
+        if (!found || count < bestCount || (count == bestCount && dist < bestDistance))
+        {
+            found = true;
+            bestCount = count;
+            bestDistance = dist;
+            outPosition = AB_GuardPositions[i];
+        }
+    }
+
+    return found;
+}
+
 static bool FindABGuardPosition(BattleBotAI* pAI, Position& outPosition)
 {
+    for (uint8 i = 0; i < 5; ++i)
+    {
+        if (pAI->me->GetDistance(AB_GuardPositions[i]) <= AB_GUARD_KEEP_RADIUS &&
+            CountABGuardBots(pAI, AB_GuardPositions[i]) <= AB_GUARD_REQUIRED_BOTS)
+        {
+            outPosition = AB_GuardPositions[i];
+            return true;
+        }
+    }
+
     uint8 bestCount = AB_GUARD_REQUIRED_BOTS;
     float bestDistance = FLT_MAX;
     bool found = false;
@@ -293,11 +382,26 @@ void AB_AtFlag(BattleBotAI* pAI)
     for (uint8 i = 0; i < 5; ++i)
     {
         if (pAI->me->GetDistance(AB_GuardPositions[i]) <= AB_GUARD_KEEP_RADIUS &&
-            CountABGuardBots(pAI, AB_GuardPositions[i]) < AB_GUARD_REQUIRED_BOTS)
+            CountABGuardBots(pAI, AB_GuardPositions[i]) <= AB_GUARD_REQUIRED_BOTS)
             return;
     }
 
     pAI->MoveToNextPoint();
+}
+
+bool BattleBotTryCaptureNearbyObjective(BattleBotAI* pAI)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg || bg->GetStatus() != STATUS_IN_PROGRESS)
+        return false;
+
+    switch (bg->GetTypeID())
+    {
+        case BATTLEGROUND_AB:
+            return AtFlag(pAI, vFlagsAB);
+        default:
+            return false;
+    }
 }
 
 void AV_AtFlag(BattleBotAI* pAI)
@@ -2121,6 +2225,15 @@ bool BattleBotAI::StartNewPathToObjective()
         case BATTLEGROUND_AB:
         {
             Position targetPosition;
+            if (FindABOwnedGuardPosition(this, targetPosition))
+            {
+                if (StartNewPathToPosition(targetPosition, vPaths_AB))
+                    return true;
+
+                me->GetMotionMaster()->MovePoint(0, targetPosition.x, targetPosition.y, targetPosition.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+                return true;
+            }
+
             if (FindABGuardPosition(this, targetPosition))
             {
                 if (StartNewPathToPosition(targetPosition, vPaths_AB))
