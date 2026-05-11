@@ -310,6 +310,9 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
     if (Unit* pFlagDefenseTarget = BattleBotSelectABFlagDefenseTarget(this, pExcept))
         return pFlagDefenseTarget;
 
+    if (Unit* pFlagDefenseTarget = BattleBotSelectAVFlagDefenseTarget(this, pExcept))
+        return pFlagDefenseTarget;
+
     // 1. Check units we are currently in combat with.
 
     std::list<Unit*> targets;

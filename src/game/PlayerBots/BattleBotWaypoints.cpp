@@ -27,6 +27,7 @@
 #include "BattleGroundAV.h"
 #include "BattleGroundWS.h"
 #include "Geometry.h"
+#include <cstddef>
 
 using namespace Geometry;
 
@@ -277,6 +278,19 @@ std::vector<uint32> const vFlagsAB = { GO_AB_ALLIANCE_BANNER , GO_AB_CONTESTED_B
 #define AB_GUARD_KEEP_RADIUS   20.0f
 #define AB_GUARD_EXCESS_RADIUS 45.0f
 #define AB_GUARD_ASSIGN_RADIUS 20.0f
+#define AV_FLAG_DEFENSE_RADIUS 55.0f
+#define AV_SHORT_GUARD_RADIUS  45.0f
+#define AV_GUARD_REQUIRED_BOTS 1
+
+struct AVKeyDefenseObjective
+{
+    uint32 node;
+    uint32 controlledState;
+    uint32 assaultedState;
+};
+
+static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, float radius);
+static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos);
 
 static Position const AB_GuardPositions[5] =
 {
@@ -766,6 +780,16 @@ void AV_AtFlag(BattleBotAI* pAI)
 {
     if (AtFlag(pAI, vFlagsAV))
         return;
+
+    if (GameObject* pGuardObject = FindNearbyAVKeyDefenseObject(pAI, AV_SHORT_GUARD_RADIUS))
+    {
+        if (!IsAVExcessShortGuardBot(pAI, pGuardObject->GetPosition()))
+        {
+            pAI->ClearPath();
+            pAI->StopMoving();
+            return;
+        }
+    }
 
     pAI->MoveToNextPoint();
 }
@@ -2582,6 +2606,158 @@ static std::pair<uint32, uint32> AV_AllianceDefendObjectives[] =
     { BG_AV_STONEHEARTH_BUNKER, HORDE_ASSAULTED },
 };
 
+static AVKeyDefenseObjective AV_HordeKeyDefenseObjectives[] =
+{
+    { BG_AV_ICEBLOOD_GY, HORDE_CONTROLLED, ALLIANCE_ASSAULTED },
+    { BG_AV_ICEBLOOD_TOWER, HORDE_CONTROLLED, ALLIANCE_ASSAULTED },
+    { BG_AV_TOWER_POINT_TOWER, HORDE_CONTROLLED, ALLIANCE_ASSAULTED },
+    { BG_AV_FROSTWOLF_GY, HORDE_CONTROLLED, ALLIANCE_ASSAULTED },
+    { BG_AV_EAST_FROSTWOLF_TOWER, HORDE_CONTROLLED, ALLIANCE_ASSAULTED },
+    { BG_AV_WEST_FROSTWOLF_TOWER, HORDE_CONTROLLED, ALLIANCE_ASSAULTED },
+    { BG_AV_FROSTWOLF_RELIEF_HUT_GY, HORDE_CONTROLLED, ALLIANCE_ASSAULTED },
+};
+
+static AVKeyDefenseObjective AV_AllianceKeyDefenseObjectives[] =
+{
+    { BG_AV_STONEHEARTH_GY, ALLIANCE_CONTROLLED, HORDE_ASSAULTED },
+    { BG_AV_STONEHEARTH_BUNKER, ALLIANCE_CONTROLLED, HORDE_ASSAULTED },
+    { BG_AV_ICEWING_BUNKER, ALLIANCE_CONTROLLED, HORDE_ASSAULTED },
+    { BG_AV_STORMPIKE_GY, ALLIANCE_CONTROLLED, HORDE_ASSAULTED },
+    { BG_AV_DUN_BALDAR_SOUTH_BUNKER, ALLIANCE_CONTROLLED, HORDE_ASSAULTED },
+    { BG_AV_DUN_BALDAR_NORTH_BUNKER, ALLIANCE_CONTROLLED, HORDE_ASSAULTED },
+    { BG_AV_STORMPIKE_AID_STATION_GY, ALLIANCE_CONTROLLED, HORDE_ASSAULTED },
+};
+
+template<std::size_t N>
+static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, AVKeyDefenseObjective const (&objectives)[N], float radius)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    Map* map = pAI->me->GetMap();
+    if (!bg || !map || bg->GetTypeID() != BATTLEGROUND_AV)
+        return nullptr;
+
+    GameObject* bestObject = nullptr;
+    float bestDistance = FLT_MAX;
+
+    for (AVKeyDefenseObjective const& objective : objectives)
+    {
+        uint32 activeState = 0;
+        if (bg->IsActiveEvent(objective.node, objective.assaultedState))
+            activeState = objective.assaultedState;
+        else if (bg->IsActiveEvent(objective.node, objective.controlledState))
+            activeState = objective.controlledState;
+        else
+            continue;
+
+        GameObject* pGO = map->GetGameObject(bg->GetSingleGameObjectGuid(objective.node, activeState));
+        if (!pGO)
+            continue;
+
+        float const distance = pAI->me->GetDistance(pGO);
+        if (distance <= radius && distance < bestDistance)
+        {
+            bestObject = pGO;
+            bestDistance = distance;
+        }
+    }
+
+    return bestObject;
+}
+
+static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, float radius)
+{
+    if (pAI->me->GetTeam() == HORDE)
+        return FindNearbyAVKeyDefenseObject(pAI, AV_HordeKeyDefenseObjectives, radius);
+
+    return FindNearbyAVKeyDefenseObject(pAI, AV_AllianceKeyDefenseObjectives, radius);
+}
+
+static bool IsAVShortGuardingPosition(Player* player, Position const& pos)
+{
+    return player->GetDistance(pos) <= AV_SHORT_GUARD_RADIUS;
+}
+
+static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos)
+{
+    Map* map = pAI->me->GetMap();
+    if (!map)
+        return false;
+
+    if (!IsAVShortGuardingPosition(pAI->me, pos))
+        return false;
+
+    uint8 lowerGuidGuards = 0;
+    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
+    {
+        if (Player* player = itr->getSource())
+        {
+            if (player == pAI->me)
+                continue;
+
+            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
+                continue;
+
+            if (!IsAVShortGuardingPosition(player, pos))
+                continue;
+
+            if (!IsABSettledGuardBot(player, pAI->me))
+                continue;
+
+            if (player->GetObjectGuid().GetCounter() < pAI->me->GetObjectGuid().GetCounter())
+                ++lowerGuidGuards;
+        }
+    }
+
+    return lowerGuidGuards >= AV_GUARD_REQUIRED_BOTS;
+}
+
+Unit* BattleBotSelectAVFlagDefenseTarget(BattleBotAI const* pAI, Unit* pExcept)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
+        return nullptr;
+
+    CombatBotRoles const role = pAI->GetRole();
+    if (role != ROLE_MELEE_DPS && role != ROLE_RANGE_DPS && role != ROLE_TANK)
+        return nullptr;
+
+    GameObject* pDefenseObject = FindNearbyAVKeyDefenseObject(pAI, AV_FLAG_DEFENSE_RADIUS);
+    if (!pDefenseObject)
+        return nullptr;
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, VISIBILITY_DISTANCE_NORMAL);
+
+    Player* bestTarget = nullptr;
+    float bestDistanceToFlag = FLT_MAX;
+    for (Player* player : players)
+    {
+        if (player == pExcept)
+            continue;
+
+        if (!pAI->IsValidHostileTarget(player) || pAI->IsBadPlayer(player))
+            continue;
+
+        if (player->GetDistance(pDefenseObject) > AV_FLAG_DEFENSE_RADIUS)
+            continue;
+
+        if (pAI->me->GetDistanceZ(player) > 10.0f)
+            continue;
+
+        if (!pAI->me->IsWithinLOSInMap(player))
+            continue;
+
+        float const distanceToFlag = player->GetDistance(pDefenseObject);
+        if (!bestTarget || distanceToFlag < bestDistanceToFlag)
+        {
+            bestTarget = player;
+            bestDistanceToFlag = distanceToFlag;
+        }
+    }
+
+    return bestTarget;
+}
+
 bool BattleBotAI::StartNewPathToObjective()
 {
     BattleGround* bg = me->GetBattleGround();
@@ -2625,6 +2801,9 @@ bool BattleBotAI::StartNewPathToObjective()
             // Alliance and Horde code is intentionally different.
             // Horde bots are more united and always go together.
             // Alliance bots can pick random objective.
+            if (GameObject* pGuardObject = FindNearbyAVKeyDefenseObject(this, AV_SHORT_GUARD_RADIUS))
+                if (!IsAVExcessShortGuardBot(this, pGuardObject->GetPosition()))
+                    return true;
 
             if (me->GetTeam() == HORDE)
             {
