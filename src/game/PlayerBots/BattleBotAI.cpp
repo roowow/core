@@ -200,7 +200,13 @@ bool BattleBotAI::DrinkAndEat()
 
     BattleGround* bg;
     bool const needToEat = me->GetHealthPercent() < 90.0f && !((bg = me->GetBattleGround()) && bg->GetStatus() == STATUS_WAIT_JOIN);
-    bool const needToDrink = (me->GetPowerType() == POWER_MANA) && (me->GetPowerPercent(POWER_MANA) < 90.0f);
+    bool needToDrink = (me->GetPowerType() == POWER_MANA) && (me->GetPowerPercent(POWER_MANA) < 90.0f);
+
+    if (needToDrink &&
+        me->GetClass() == CLASS_DRUID &&
+        me->GetShapeshiftForm() != FORM_NONE &&
+       (m_role == ROLE_MELEE_DPS || m_role == ROLE_TANK))
+        needToDrink = false;
 
     if (!needToEat && !needToDrink)
         return false;
