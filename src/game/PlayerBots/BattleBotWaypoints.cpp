@@ -2789,6 +2789,82 @@ static GameObject* GetAVControlledGraveyardObject(BattleBotAI const* pAI, uint32
     return map->GetGameObject(bg->GetSingleGameObjectGuid(node, controlledState));
 }
 
+static bool GetAVNativeGraveyardFallbackPosition(uint32 node, Position& outPosition)
+{
+    switch (node)
+    {
+        case BG_AV_STORMPIKE_AID_STATION_GY:
+            outPosition.x = 640.404f;
+            outPosition.y = -32.0183f;
+            outPosition.z = 46.2328f;
+            outPosition.o = 0.0f;
+            return true;
+        case BG_AV_STORMPIKE_GY:
+            outPosition.x = 667.173f;
+            outPosition.y = -295.225f;
+            outPosition.z = 30.29f;
+            outPosition.o = 0.0f;
+            return true;
+        case BG_AV_STONEHEARTH_GY:
+            outPosition.x = 79.8805f;
+            outPosition.y = -401.379f;
+            outPosition.z = 46.516f;
+            outPosition.o = 0.0f;
+            return true;
+        case BG_AV_ICEBLOOD_GY:
+            outPosition.x = -614.138f;
+            outPosition.y = -396.501f;
+            outPosition.z = 60.8585f;
+            outPosition.o = 0.0f;
+            return true;
+        case BG_AV_FROSTWOLF_GY:
+            outPosition.x = -1079.61f;
+            outPosition.y = -345.548f;
+            outPosition.z = 55.1131f;
+            outPosition.o = 0.0f;
+            return true;
+        case BG_AV_FROSTWOLF_RELIEF_HUT_GY:
+            outPosition.x = -1401.94f;
+            outPosition.y = -310.103f;
+            outPosition.z = 89.3816f;
+            outPosition.o = 0.0f;
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool GetAVControlledGraveyardPosition(BattleBotAI const* pAI, uint32 node, Position& outPosition)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
+        return false;
+
+    uint32 const controlledState = GetAVControlledStateForTeam(pAI->me->GetTeam());
+    if (!bg->IsActiveEvent(node, controlledState))
+        return false;
+
+    if (GameObject* pGO = GetAVControlledGraveyardObject(pAI, node))
+    {
+        outPosition = pGO->GetPosition();
+        return true;
+    }
+
+    if (GetAVNativeGraveyardFallbackPosition(node, outPosition))
+        return true;
+
+    if (WorldSafeLocsEntry const* entry = sWorldSafeLocsStore.LookupEntry(BG_AV_GraveyardIds[node]))
+    {
+        outPosition.x = entry->x;
+        outPosition.y = entry->y;
+        outPosition.z = entry->z;
+        outPosition.o = 0.0f;
+        return true;
+    }
+
+    return false;
+}
+
 template<std::size_t N>
 static bool FindAVNativeReviveGraveyard(BattleBotAI const* pAI, uint32 const (&objectives)[N], uint32& outNode)
 {
@@ -2797,7 +2873,8 @@ static bool FindAVNativeReviveGraveyard(BattleBotAI const* pAI, uint32 const (&o
 
     for (uint32 const node : objectives)
     {
-        if (!GetAVControlledGraveyardObject(pAI, node))
+        Position guardPosition;
+        if (!GetAVControlledGraveyardPosition(pAI, node, guardPosition))
             continue;
 
         WorldSafeLocsEntry const* entry = sWorldSafeLocsStore.LookupEntry(BG_AV_GraveyardIds[node]);
@@ -2897,46 +2974,47 @@ static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos)
 }
 
 template<std::size_t N>
-static GameObject* SelectAVReviveDefenseGraveyard(BattleBotAI* pAI, uint32 revivedNode, uint32 const (&objectives)[N])
+static bool SelectAVReviveDefenseGraveyard(BattleBotAI* pAI, uint32 revivedNode, uint32 const (&objectives)[N], Position& outPosition)
 {
-    GameObject* bestObject = nullptr;
     uint8 bestCount = AV_GUARD_REQUIRED_BOTS;
     bool bestIsRevivedNode = false;
     float bestDistance = FLT_MAX;
+    bool found = false;
 
     for (uint32 const node : objectives)
     {
-        GameObject* pGO = GetAVControlledGraveyardObject(pAI, node);
-        if (!pGO)
+        Position guardPosition;
+        if (!GetAVControlledGraveyardPosition(pAI, node, guardPosition))
             continue;
 
-        uint8 const guardCount = CountAVShortGuardBots(pAI, pGO->GetPosition(), true, false);
+        uint8 const guardCount = CountAVShortGuardBots(pAI, guardPosition, true, false);
         if (guardCount >= AV_GUARD_REQUIRED_BOTS)
             continue;
 
         bool const isRevivedNode = node == revivedNode;
-        float const distance = pAI->me->GetDistance(pGO);
+        float const distance = pAI->me->GetDistance(guardPosition);
         if (guardCount < bestCount ||
            (guardCount == bestCount &&
             ((isRevivedNode && !bestIsRevivedNode) ||
              (isRevivedNode == bestIsRevivedNode && distance < bestDistance))))
         {
-            bestObject = pGO;
+            outPosition = guardPosition;
             bestCount = guardCount;
             bestIsRevivedNode = isRevivedNode;
             bestDistance = distance;
+            found = true;
         }
     }
 
-    return bestObject;
+    return found;
 }
 
-static GameObject* SelectAVReviveDefenseGraveyard(BattleBotAI* pAI, uint32 revivedNode)
+static bool SelectAVReviveDefenseGraveyard(BattleBotAI* pAI, uint32 revivedNode, Position& outPosition)
 {
     if (pAI->me->GetTeam() == HORDE)
-        return SelectAVReviveDefenseGraveyard(pAI, revivedNode, AV_HordeNativeGraveyards);
+        return SelectAVReviveDefenseGraveyard(pAI, revivedNode, AV_HordeNativeGraveyards, outPosition);
 
-    return SelectAVReviveDefenseGraveyard(pAI, revivedNode, AV_AllianceNativeGraveyards);
+    return SelectAVReviveDefenseGraveyard(pAI, revivedNode, AV_AllianceNativeGraveyards, outPosition);
 }
 
 bool BattleBotTryStartAVReviveGraveyardDefense(BattleBotAI* pAI)
@@ -2949,21 +3027,21 @@ bool BattleBotTryStartAVReviveGraveyardDefense(BattleBotAI* pAI)
     if (!FindAVNativeReviveGraveyard(pAI, revivedNode))
         return false;
 
-    GameObject* pDefenseObject = SelectAVReviveDefenseGraveyard(pAI, revivedNode);
-    if (!pDefenseObject)
+    Position defensePosition;
+    if (!SelectAVReviveDefenseGraveyard(pAI, revivedNode, defensePosition))
         return false;
 
     pAI->ClearPath();
-    if (pAI->StartNewPathToPosition(pDefenseObject->GetPosition(), vPaths_AV))
+    if (pAI->StartNewPathToPosition(defensePosition, vPaths_AV))
         return true;
 
-    if (pAI->me->GetDistance(pDefenseObject) <= AV_SHORT_GUARD_RADIUS)
+    if (pAI->me->GetDistance(defensePosition) <= AV_SHORT_GUARD_RADIUS)
     {
         pAI->StopMoving();
         return true;
     }
 
-    pAI->me->GetMotionMaster()->MovePoint(0, pDefenseObject->GetPositionX(), pDefenseObject->GetPositionY(), pDefenseObject->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+    pAI->me->GetMotionMaster()->MovePoint(0, defensePosition.x, defensePosition.y, defensePosition.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
     return true;
 }
 
