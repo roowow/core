@@ -171,12 +171,14 @@ void PlayerBotMgr::DeleteAll()
 void PlayerBotMgr::OnBotLogin(PlayerBotEntry *e)
 {
     e->state = PB_STATE_ONLINE;
+    e->loadingStartTime = 0;
     if (m_confDebug)
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[PlayerBot][Login]  '%s' GUID:%u Acc:%u", e->name.c_str(), e->playerGUID, e->accountId);
 }
 void PlayerBotMgr::OnBotLogout(PlayerBotEntry *e)
 {
     e->state = PB_STATE_OFFLINE;
+    e->loadingStartTime = 0;
     if (m_confDebug)
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[PlayerBot][Logout] '%s' GUID:%u Acc:%u", e->name.c_str(), e->playerGUID, e->accountId);
 }
@@ -221,6 +223,13 @@ static uint32 GetBattleBotMaxAutoTeamCount(BattleGroundTypeId bgTypeId, BattleGr
         return bg->GetMaxPlayersPerTeam() - 1;
 
     return bg->GetMaxPlayersPerTeam();
+}
+
+static bool BattleBotLoadingCountsForQueue(PlayerBotEntry const* entry)
+{
+    uint32 const loadingCountWindow = 8;
+    return entry && entry->state == PB_STATE_LOADING && entry->loadingStartTime &&
+        entry->loadingStartTime + loadingCountWindow >= sWorld.GetGameTime();
 }
 
 static bool BattleBotIsActiveForQueue(BattleBotAI const* battleBotAI, BattleGroundQueue& bgQueue, BattleGroundQueueTypeId queueType)
@@ -272,6 +281,7 @@ void PlayerBotMgr::Update(uint32 diff)
                 if (iter->second->accountId == it->first)
                 {
                     iter->second->state = PB_STATE_OFFLINE; // Will get logged out at next WorldSession::Update call
+                    iter->second->loadingStartTime = 0;
                     m_bots.erase(iter);
                     break;
                 }
@@ -420,7 +430,12 @@ void PlayerBotMgr::Update(uint32 diff)
                 if (!pBattleBotAI || pBattleBotAI->m_battlegroundId != queueType)
                     continue;
 
-                if (entry->state != PB_STATE_LOADING && !BattleBotIsActiveForQueue(pBattleBotAI, bgQueue, queueTypeId))
+                if (entry->state == PB_STATE_LOADING)
+                {
+                    if (!BattleBotLoadingCountsForQueue(entry))
+                        continue;
+                }
+                else if (!BattleBotIsActiveForQueue(pBattleBotAI, bgQueue, queueTypeId))
                     continue;
 
                 BattleGroundBracketId bgBracketId = Player::GetBattleGroundBracketIdFromLevel(bgTypeId, pBattleBotAI->m_level);
@@ -744,6 +759,7 @@ bool PlayerBotMgr::AddBot(uint32 playerGUID, bool chatBot, PlayerBotAI* pAI)
         sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[PlayerBotMgr] Adding temporary PlayerBot with GUID %u.", playerGUID);
         e = std::make_shared<PlayerBotEntry>();
         e->state        = PB_STATE_LOADING;
+        e->loadingStartTime = sWorld.GetGameTime();
         e->playerGUID   = playerGUID;
         e->chance       = 10;
         e->accountId    = accountId;
@@ -763,6 +779,7 @@ bool PlayerBotMgr::AddBot(uint32 playerGUID, bool chatBot, PlayerBotAI* pAI)
 
     e->ai->botEntry = e.get();
     e->state = PB_STATE_LOADING;
+    e->loadingStartTime = sWorld.GetGameTime();
     WorldSession* session = new WorldSession(accountId, nullptr, sAccountMgr.GetSecurity(accountId), 0, LOCALE_enUS);
     session->SetBot(e);
     sWorld.AddSession(session);

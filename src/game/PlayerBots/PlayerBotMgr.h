@@ -36,14 +36,15 @@ struct PlayerBotEntry
 
     uint32 chance;
     uint8 state; //Online, in queue or offline
+    time_t loadingStartTime;
     bool isChatBot; // bot des joueurs en discussion via le site.
     bool customBot; // Enabled even if PlayerBot system disabled (AutoTesting system for example)
     bool requestRemoval;
     std::unique_ptr<PlayerBotAI> ai;
 
-    PlayerBotEntry(uint64 guid, uint32 account, uint32 chance_): playerGUID(guid), accountId(account), chance(chance_), state(PB_STATE_OFFLINE), isChatBot(false), customBot(false), requestRemoval(false), ai(nullptr)
+    PlayerBotEntry(uint64 guid, uint32 account, uint32 chance_): playerGUID(guid), accountId(account), chance(chance_), state(PB_STATE_OFFLINE), loadingStartTime(0), isChatBot(false), customBot(false), requestRemoval(false), ai(nullptr)
     {}
-    PlayerBotEntry(): playerGUID(0), accountId(0), chance(100.0f), state(PB_STATE_OFFLINE), isChatBot(false), customBot(false), requestRemoval(false), ai(nullptr)
+    PlayerBotEntry(): playerGUID(0), accountId(0), chance(100.0f), state(PB_STATE_OFFLINE), loadingStartTime(0), isChatBot(false), customBot(false), requestRemoval(false), ai(nullptr)
     {}
 };
 
