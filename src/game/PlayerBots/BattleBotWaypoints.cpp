@@ -327,6 +327,65 @@ static bool IsABNodeContestedByTeam(BattleGround* bg, Team team, uint8 node)
     return bg->IsActiveEvent(node, teamIndex + BG_AB_NODE_TYPE_CONTESTED);
 }
 
+Unit* BattleBotSelectABFlagDefenseTarget(BattleBotAI const* pAI, Unit* pExcept)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AB)
+        return nullptr;
+
+    CombatBotRoles const role = pAI->GetRole();
+    if (role != ROLE_MELEE_DPS && role != ROLE_RANGE_DPS && role != ROLE_TANK)
+        return nullptr;
+
+    Position const* defendPosition = nullptr;
+    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
+    {
+        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
+            continue;
+
+        if (pAI->me->GetDistance2d(AB_GuardPositions[i]) <= AB_GUARD_EXCESS_RADIUS)
+        {
+            defendPosition = &AB_GuardPositions[i];
+            break;
+        }
+    }
+
+    if (!defendPosition)
+        return nullptr;
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, VISIBILITY_DISTANCE_NORMAL);
+
+    Player* bestTarget = nullptr;
+    float bestDistanceToFlag = FLT_MAX;
+    for (Player* player : players)
+    {
+        if (player == pExcept)
+            continue;
+
+        if (!pAI->IsValidHostileTarget(player) || pAI->IsBadPlayer(player))
+            continue;
+
+        if (player->GetDistance(*defendPosition) > AB_GUARD_EXCESS_RADIUS)
+            continue;
+
+        if (pAI->me->GetDistanceZ(player) > 10.0f)
+            continue;
+
+        if (!pAI->me->IsWithinLOSInMap(player))
+            continue;
+
+        float const distanceToFlag = player->GetDistance(*defendPosition);
+        if (!bestTarget || distanceToFlag < bestDistanceToFlag)
+        {
+            bestTarget = player;
+            bestDistanceToFlag = distanceToFlag;
+        }
+    }
+
+    return bestTarget;
+}
+
 static uint8 CountABOccupiedNodesByTeam(BattleGround* bg, Team team)
 {
     if (!bg)
