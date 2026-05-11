@@ -2811,13 +2811,10 @@ static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos)
 template<std::size_t N>
 static GameObject* SelectAVReviveDefenseGraveyard(BattleBotAI* pAI, uint32 revivedNode, uint32 const (&objectives)[N])
 {
-    GameObject* revivedObject = GetAVControlledGraveyardObject(pAI, revivedNode);
-    if (revivedObject &&
-        CountAVShortGuardBots(pAI, revivedObject->GetPosition(), true, false) < AV_GUARD_REQUIRED_BOTS)
-        return revivedObject;
-
     GameObject* bestObject = nullptr;
     uint8 bestCount = AV_GUARD_REQUIRED_BOTS;
+    bool bestIsRevivedNode = false;
+    float bestDistance = FLT_MAX;
 
     for (uint32 const node : objectives)
     {
@@ -2826,10 +2823,20 @@ static GameObject* SelectAVReviveDefenseGraveyard(BattleBotAI* pAI, uint32 reviv
             continue;
 
         uint8 const guardCount = CountAVShortGuardBots(pAI, pGO->GetPosition(), true, false);
-        if (guardCount < bestCount)
+        if (guardCount >= AV_GUARD_REQUIRED_BOTS)
+            continue;
+
+        bool const isRevivedNode = node == revivedNode;
+        float const distance = pAI->me->GetDistance(pGO);
+        if (guardCount < bestCount ||
+           (guardCount == bestCount &&
+            ((isRevivedNode && !bestIsRevivedNode) ||
+             (isRevivedNode == bestIsRevivedNode && distance < bestDistance))))
         {
             bestObject = pGO;
             bestCount = guardCount;
+            bestIsRevivedNode = isRevivedNode;
+            bestDistance = distance;
         }
     }
 
