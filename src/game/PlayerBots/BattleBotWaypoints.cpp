@@ -686,6 +686,40 @@ bool AtFlag(BattleBotAI* pAI, std::vector<uint32> const& vFlagIds)
     return false;
 }
 
+static bool MoveToNearbyABOpenFlag(BattleBotAI* pAI)
+{
+    GameObject* pBestFlag = nullptr;
+    float bestDistance = FLT_MAX;
+
+    for (uint32 const bannerId : vFlagsAB)
+    {
+        if (GameObject* pGo = pAI->me->FindNearestGameObject(bannerId, AB_GUARD_EXCESS_RADIUS))
+        {
+            if (!IsABFlagOpenable(pAI, pGo))
+                continue;
+
+            float const distance = pAI->me->GetDistance(pGo);
+            if (distance < bestDistance)
+            {
+                pBestFlag = pGo;
+                bestDistance = distance;
+            }
+        }
+    }
+
+    if (!pBestFlag)
+        return false;
+
+    pAI->me->RemoveAurasDueToSpellByCancel(BB_SPELL_FOOD);
+    pAI->me->RemoveAurasDueToSpellByCancel(BB_SPELL_DRINK);
+    if (pAI->me->GetStandState() != UNIT_STAND_STATE_STAND)
+        pAI->me->SetStandState(UNIT_STAND_STATE_STAND);
+
+    pAI->ClearPath();
+    pAI->me->GetMotionMaster()->MovePoint(0, pBestFlag->GetPositionX(), pBestFlag->GetPositionY(), pBestFlag->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+    return true;
+}
+
 void AB_AtFlag(BattleBotAI* pAI)
 {
     if (AtFlag(pAI, vFlagsAB))
@@ -758,6 +792,9 @@ bool BattleBotTryCaptureNearbyObjective(BattleBotAI* pAI)
         case BATTLEGROUND_AB:
         {
             if (AtFlag(pAI, vFlagsAB))
+                return true;
+
+            if (MoveToNearbyABOpenFlag(pAI))
                 return true;
 
             if (pAI->me->HasAura(BB_SPELL_FOOD) || pAI->me->HasAura(BB_SPELL_DRINK))
