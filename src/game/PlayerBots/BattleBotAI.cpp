@@ -425,6 +425,9 @@ Unit* BattleBotAI::SelectFollowTarget() const
         me->HasAura(AURA_SILVERWING_FLAG))
         return nullptr;
 
+    if (BattleBotIsWSGHomeGuardCandidate(this))
+        return nullptr;
+
     std::list<Player*> players;
     me->GetAlivePlayerListInRange(me, players, VISIBILITY_DISTANCE_NORMAL);
     Player* pHealerFollowTarget = nullptr;
