@@ -167,6 +167,8 @@ void WSG_AtHordeGraveyard(BattleBotAI* pAI)
 }
 
 #define SPELL_CAPTURE_BANNER 21651
+#define BB_SPELL_FOOD 1131
+#define BB_SPELL_DRINK 1137
 
 std::vector<uint32> const vFlagsAV = { GO_AV_HORDE_BANNER1 , GO_AV_HORDE_BANNER2 , GO_AV_ALLIANCE_BANNER1 , GO_AV_ALLIANCE_BANNER2 ,
                                        GO_AV_CONTESTED_BANNER1 , GO_AV_CONTESTED_BANNER2 , GO_AV_CONTESTED_BANNER3 ,
@@ -582,7 +584,26 @@ bool BattleBotTryCaptureNearbyObjective(BattleBotAI* pAI)
     switch (bg->GetTypeID())
     {
         case BATTLEGROUND_AB:
-            return AtFlag(pAI, vFlagsAB) || ReleaseABExcessGuard(pAI);
+        {
+            if (AtFlag(pAI, vFlagsAB))
+                return true;
+
+            if (pAI->me->HasAura(BB_SPELL_FOOD) || pAI->me->HasAura(BB_SPELL_DRINK))
+                return false;
+
+            bool needToEat = pAI->me->GetHealthPercent() < 90.0f;
+            bool needToDrink = (pAI->me->GetPowerType() == POWER_MANA) && (pAI->me->GetPowerPercent(POWER_MANA) < 90.0f);
+            if (needToDrink &&
+                pAI->me->GetClass() == CLASS_DRUID &&
+                pAI->me->GetShapeshiftForm() != FORM_NONE &&
+               (pAI->GetRole() == ROLE_MELEE_DPS || pAI->GetRole() == ROLE_TANK))
+                needToDrink = false;
+
+            if (needToEat || needToDrink)
+                return false;
+
+            return ReleaseABExcessGuard(pAI);
+        }
         default:
             return false;
     }
