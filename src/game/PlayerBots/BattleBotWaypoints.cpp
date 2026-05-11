@@ -272,15 +272,19 @@ static bool IsABGuardingPosition(Player* player, Position const& pos, bool inclu
     return false;
 }
 
+static uint8 GetABRequiredGuardBots(BattleGround* bg, Team team);
+
 static bool IsABExcessGuardBot(BattleBotAI* pAI, Position const& pos)
 {
+    BattleGround* bg = pAI->me->GetBattleGround();
     Map* map = pAI->me->GetMap();
-    if (!map)
+    if (!bg || !map)
         return false;
 
     if (!IsABGuardingPosition(pAI->me, pos, true))
         return false;
 
+    uint8 const requiredGuards = GetABRequiredGuardBots(bg, pAI->me->GetTeam());
     uint8 lowerGuidGuards = 0;
     for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
     {
@@ -300,7 +304,7 @@ static bool IsABExcessGuardBot(BattleBotAI* pAI, Position const& pos)
         }
     }
 
-    return lowerGuidGuards >= AB_GUARD_REQUIRED_BOTS;
+    return lowerGuidGuards >= requiredGuards;
 }
 
 static bool IsABNodeOccupiedByTeam(BattleGround* bg, Team team, uint8 node)
@@ -319,6 +323,24 @@ static bool IsABNodeContestedByTeam(BattleGround* bg, Team team, uint8 node)
 
     BattleGroundTeamIndex const teamIndex = BattleGround::GetTeamIndexByTeamId(team);
     return bg->IsActiveEvent(node, teamIndex + BG_AB_NODE_TYPE_CONTESTED);
+}
+
+static uint8 CountABOccupiedNodesByTeam(BattleGround* bg, Team team)
+{
+    if (!bg)
+        return 0;
+
+    uint8 count = 0;
+    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
+        if (IsABNodeOccupiedByTeam(bg, team, i))
+            ++count;
+
+    return count;
+}
+
+static uint8 GetABRequiredGuardBots(BattleGround* bg, Team team)
+{
+    return CountABOccupiedNodesByTeam(bg, team) >= 3 ? 1 : AB_GUARD_REQUIRED_BOTS;
 }
 
 static uint8 GetABHomeNode(Team team)
@@ -382,6 +404,8 @@ static bool FindABOwnedGuardPosition(BattleBotAI* pAI, Position& outPosition)
     if (!bg)
         return false;
 
+    uint8 const requiredGuards = GetABRequiredGuardBots(bg, pAI->me->GetTeam());
+
     for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
     {
         if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
@@ -395,7 +419,7 @@ static bool FindABOwnedGuardPosition(BattleBotAI* pAI, Position& outPosition)
         }
     }
 
-    uint8 bestCount = AB_GUARD_REQUIRED_BOTS;
+    uint8 bestCount = requiredGuards;
     std::vector<uint8> bestNodes;
 
     for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
@@ -404,7 +428,7 @@ static bool FindABOwnedGuardPosition(BattleBotAI* pAI, Position& outPosition)
             continue;
 
         uint8 count = CountABGuardBots(pAI, AB_GuardPositions[i], true);
-        if (count >= AB_GUARD_REQUIRED_BOTS)
+        if (count >= requiredGuards)
             continue;
 
         if (count < bestCount)
