@@ -3026,16 +3026,25 @@ static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos)
 }
 
 template<std::size_t N>
-static bool IsAVSettledAtNativeGraveyard(BattleBotAI* pAI, Player* player, uint32 const (&objectives)[N])
+static bool GetAVSettledNativeGraveyardIndex(BattleBotAI* pAI, Player* player, uint32 const (&objectives)[N], uint8& outIndex)
 {
+    uint8 index = 0;
     for (uint32 const node : objectives)
     {
         Position guardPosition;
         if (!GetAVControlledGraveyardPosition(pAI, node, guardPosition))
+        {
+            ++index;
             continue;
+        }
 
         if (IsAVShortGuardingPosition(player, guardPosition) && IsABSettledGuardBot(player, pAI->me))
+        {
+            outIndex = index;
             return true;
+        }
+
+        ++index;
     }
 
     return false;
@@ -3050,15 +3059,25 @@ static float GetAVDistanceSq(Player* player, Position const& pos)
 }
 
 template<std::size_t N>
-static bool IsAVRearGuardCandidate(BattleBotAI* pAI, uint32 const (&objectives)[N], Position const& rearPosition, uint8 neededGuards)
+static bool IsAVAvailableForRearGuardTarget(BattleBotAI* pAI, Player* player, uint32 const (&objectives)[N], uint8 targetIndex)
+{
+    if (player->IsInCombat() || player->GetVictim())
+        return false;
+
+    uint8 settledIndex = 0;
+    if (GetAVSettledNativeGraveyardIndex(pAI, player, objectives, settledIndex) && settledIndex <= targetIndex)
+        return false;
+
+    return true;
+}
+
+template<std::size_t N>
+static bool IsAVRearGuardCandidate(BattleBotAI* pAI, uint32 const (&objectives)[N], Position const& rearPosition, uint8 neededGuards, uint8 targetIndex)
 {
     if (!neededGuards)
         return false;
 
-    if (pAI->me->IsInCombat() || pAI->me->GetVictim())
-        return false;
-
-    if (IsAVSettledAtNativeGraveyard(pAI, pAI->me, objectives))
+    if (!IsAVAvailableForRearGuardTarget(pAI, pAI->me, objectives, targetIndex))
         return false;
 
     Map* map = pAI->me->GetMap();
@@ -3077,10 +3096,7 @@ static bool IsAVRearGuardCandidate(BattleBotAI* pAI, uint32 const (&objectives)[
         if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
             continue;
 
-        if (player->IsInCombat() || player->GetVictim())
-            continue;
-
-        if (IsAVSettledAtNativeGraveyard(pAI, player, objectives))
+        if (!IsAVAvailableForRearGuardTarget(pAI, player, objectives, targetIndex))
             continue;
 
         float const playerRearDistanceSq = GetAVDistanceSq(player, rearPosition);
@@ -3101,19 +3117,29 @@ static bool FindAVRearGuardPosition(BattleBotAI* pAI, uint32 const (&objectives)
         !GetAVControlledGraveyardPosition(pAI, objectives[0], rearPosition))
         return false;
 
+    uint8 index = 0;
     for (uint32 const node : objectives)
     {
         Position guardPosition;
         if (!GetAVControlledGraveyardPosition(pAI, node, guardPosition))
+        {
+            ++index;
             continue;
+        }
 
         uint8 const guardCount = CountAVShortGuardBots(pAI, guardPosition, false, false);
         if (guardCount >= AV_GUARD_REQUIRED_BOTS)
+        {
+            ++index;
             continue;
+        }
 
         uint8 const neededGuards = AV_GUARD_REQUIRED_BOTS - guardCount;
-        if (!IsAVRearGuardCandidate(pAI, objectives, rearPosition, neededGuards))
+        if (!IsAVRearGuardCandidate(pAI, objectives, rearPosition, neededGuards, index))
+        {
+            ++index;
             continue;
+        }
 
         outPosition = guardPosition;
         return true;
@@ -3220,26 +3246,25 @@ bool BattleBotAI::StartNewPathToObjective()
             // Alliance and Horde code is intentionally different.
             // Horde bots are more united and always go together.
             // Alliance bots can pick random objective.
-            Position guardPosition;
-            if (FindNearbyAVKeyDefensePosition(this, AV_SHORT_GUARD_RADIUS, guardPosition))
-                if (!IsAVExcessShortGuardBot(this, guardPosition))
-                    return true;
-
             Position rearGuardPosition;
             if (FindAVRearGuardPosition(this, rearGuardPosition))
             {
-                if (StartNewPathToPosition(rearGuardPosition, vPaths_AV))
-                    return true;
-
                 if (me->GetDistance(rearGuardPosition) <= AV_SHORT_GUARD_RADIUS)
                 {
+                    ClearPath();
                     StopMoving();
                     return true;
                 }
 
+                ClearPath();
                 me->GetMotionMaster()->MovePoint(0, rearGuardPosition.x, rearGuardPosition.y, rearGuardPosition.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
                 return true;
             }
+
+            Position guardPosition;
+            if (FindNearbyAVKeyDefensePosition(this, AV_SHORT_GUARD_RADIUS, guardPosition))
+                if (!IsAVExcessShortGuardBot(this, guardPosition))
+                    return true;
 
             if (me->GetTeam() == HORDE)
             {
