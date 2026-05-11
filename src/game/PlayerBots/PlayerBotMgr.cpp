@@ -648,8 +648,10 @@ void PlayerBotMgr::Update(uint32 diff)
                     if (waitingHordePlayers[bracketId])
                         freeBattleBotSlotForWaitingPlayer(HORDE, BattleGroundBracketId(bracketId));
 
-                    uint32 const allianceTarget = std::min<uint32>(maxAutoTeamCount, std::max<uint32>(fillTarget, queuedHordeCount[bracketId]));
-                    uint32 const hordeTarget = std::min<uint32>(maxAutoTeamCount, std::max<uint32>(fillTarget, queuedAllianceCount[bracketId]));
+                    uint32 const allianceFillTarget = isStartedBg ? fillTarget : std::min<uint32>(maxAutoTeamCount, fillTarget + waitingAlliancePlayers[bracketId]);
+                    uint32 const hordeFillTarget = isStartedBg ? fillTarget : std::min<uint32>(maxAutoTeamCount, fillTarget + waitingHordePlayers[bracketId]);
+                    uint32 const allianceTarget = std::min<uint32>(maxAutoTeamCount, std::max<uint32>(allianceFillTarget, queuedHordeCount[bracketId]));
+                    uint32 const hordeTarget = std::min<uint32>(maxAutoTeamCount, std::max<uint32>(hordeFillTarget, queuedAllianceCount[bracketId]));
 
                     for (uint32 i = queuedAllianceCount[bracketId]; i < allianceTarget; ++i)
                     {
