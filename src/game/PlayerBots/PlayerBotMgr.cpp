@@ -1,6 +1,7 @@
 #include "Common.h"
 #include "Policies/SingletonImp.h"
 #include "PlayerBotMgr.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "World.h"
 #include "WorldSession.h"
@@ -33,9 +34,9 @@ PlayerBotMgr::PlayerBotMgr()
     m_confUpdateDiff            = 10000;
     m_confEnableRandomBots      = false;
     m_confDebug                 = false;
-    m_confBattleBotAutoJoin     = false;
     m_confBattleBotAutoJoin_1   = false;
     m_confBattleBotAutoJoin_2   = false;
+    m_confBattleBotAutoJoin_3   = false;
 
     // Time
     m_elapsedTime = 0;
@@ -58,7 +59,9 @@ void PlayerBotMgr::LoadConfig()
     m_confAllowSaving = sConfig.GetBoolDefault("PlayerBot.AllowSaving", false);
     m_confDebug = sConfig.GetBoolDefault("PlayerBot.Debug", false);
     m_confUpdateDiff = sConfig.GetIntDefault("PlayerBot.UpdateMs", 10000);
-    m_confBattleBotAutoJoin = sConfig.GetBoolDefault("BattleBot.AutoJoin", false);
+    m_confBattleBotAutoJoin_1 = sConfig.GetBoolDefault("BattleBot.AutoJoin.AV", false);
+    m_confBattleBotAutoJoin_2 = sConfig.GetBoolDefault("BattleBot.AutoJoin.WSG", false);
+    m_confBattleBotAutoJoin_3 = sConfig.GetBoolDefault("BattleBot.AutoJoin.AB", false);
 
     if (!sWorld.getConfig(CONFIG_BOOL_FORCE_LOGOUT_DELAY))
         m_tempBots.clear();
@@ -380,7 +383,7 @@ void PlayerBotMgr::Update(uint32 diff)
             BattleGroundTypeId bgTypeId = BattleGroundMgr::BgTemplateId(BattleGroundQueueTypeId(queueType));
             for (auto const& itr : bgQueue.m_queuedPlayers)
             {
-                if (Player* pPlayer = sObjectAccessor.FindPlayer(itr.first))
+                if (Player* pPlayer = ObjectAccessor::FindPlayerNotInWorld(itr.first))
                 {
                     BattleGroundBracketId bgBracketId = pPlayer->GetBattleGroundBracketIdFromLevel(itr.second.groupInfo->bgTypeId);
                     if (bgBracketId == BG_BRACKET_ID_NONE)
@@ -617,7 +620,7 @@ void PlayerBotMgr::Update(uint32 diff)
                         toAddBattleBot = true;
                 }
 
-                if (toAddBattleBot && m_confBattleBotAutoJoin)
+                if (toAddBattleBot)
                 {
                     if (isStartedBg)
                     {
@@ -929,7 +932,6 @@ void PlayerBotMgr::DeleteBattleBots()
         if (dynamic_cast<BattleBotAI*>(itr.second->ai.get()))
             itr.second->requestRemoval = true;
     }
-    // m_confBattleBotAutoJoin = false;
 }
 
 void PlayerBotMgr::SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId)
@@ -946,7 +948,6 @@ void PlayerBotMgr::SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId)
             m_confBattleBotAutoJoin_3 = payload ? true : false;
             break;
         default:
-            m_confBattleBotAutoJoin = payload ? true : false;
             break;
     }
 }
@@ -2265,19 +2266,6 @@ bool ChatHandler::HandleBattleBotRemoveAllCommand(char* args)
 {
     sPlayerBotMgr.DeleteBattleBots();
     SendSysMessage("Removed all battlebots.");
-    return true;
-}
-
-bool ChatHandler::HandleBattleBotAutoJoinCommand(char* args)
-{
-    bool value;
-    if (!ExtractOnOff(&args, value))
-    {
-        SendSysMessage(LANG_USE_BOL);
-        SetSentErrorMessage(true);
-        return false;
-    }
-    sPlayerBotMgr.SwitchAutoJoinBattleBots(value, 0);
     return true;
 }
 

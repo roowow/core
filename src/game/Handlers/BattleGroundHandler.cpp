@@ -112,12 +112,6 @@ void WorldSession::RequestBgJoinQueue(ObjectGuid battlemaster, uint32 instanceId
         return;
     }
 
-    if (sPlayerBotMgr.m_confBattleBotAutoJoin && joinAsGroup)
-    {
-        ChatHandler(_player).SendSysMessage("战场训练营开启期间，战场只能单人排队。");
-        return;
-    }
-
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_6_1
     if (queuedAtBGPortal)
     {

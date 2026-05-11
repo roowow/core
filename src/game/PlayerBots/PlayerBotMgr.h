@@ -89,7 +89,6 @@ class PlayerBotMgr
 
         void AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam, uint32 botLevel, bool temporary);
         void DeleteBattleBots();
-        void SwitchAutoJoinBattleBots(bool payload);
         void SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId);
 
         void DeleteAll();
@@ -110,7 +109,6 @@ class PlayerBotMgr
         PlayerBotStats& GetStats(){ return m_stats; }
         void Start() { m_confEnableRandomBots = true; }
 
-        bool m_confBattleBotAutoJoin;
         bool m_confBattleBotAutoJoin_1;
         bool m_confBattleBotAutoJoin_2;
         bool m_confBattleBotAutoJoin_3;
