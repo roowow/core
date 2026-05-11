@@ -2899,7 +2899,7 @@ static bool SelectAVReviveDefenseGraveyard(BattleBotAI* pAI, uint32 revivedNode,
         if (!GetAVControlledGraveyardPosition(pAI, node, guardPosition))
             continue;
 
-        uint8 const guardCount = CountAVShortGuardBots(pAI, guardPosition, true, false);
+        uint8 const guardCount = CountAVShortGuardBots(pAI, guardPosition, false, false);
         if (guardCount >= AV_GUARD_REQUIRED_BOTS)
             continue;
 
