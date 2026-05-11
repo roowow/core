@@ -324,14 +324,38 @@ void PlayerBotMgr::Update(uint32 diff)
                     if (bgBracketId == BG_BRACKET_ID_NONE)
                         continue;
 
-                    if (itr.second.groupInfo->groupTeam == ALLIANCE)
-                        ++queuedAllianceCount[bgBracketId];
-                    else
-                        ++queuedHordeCount[bgBracketId];
-
                     if (!pPlayer->IsBot())
+                    {
+                        if (itr.second.groupInfo->groupTeam == ALLIANCE)
+                            ++queuedAllianceCount[bgBracketId];
+                        else
+                            ++queuedHordeCount[bgBracketId];
+
                         hasPlayerInQueue[bgBracketId] = true;
+                    }
                 }
+            }
+
+            BattleGroundTypeId bgTypeId = BattleGroundMgr::BgTemplateId(BattleGroundQueueTypeId(queueType));
+            for (auto const& botItr : m_bots)
+            {
+                PlayerBotEntry const* entry = botItr.second.get();
+                if (!entry || entry->requestRemoval || entry->state == PB_STATE_OFFLINE)
+                    continue;
+
+                BattleBotAI* pBattleBotAI = dynamic_cast<BattleBotAI*>(entry->ai.get());
+                if (!pBattleBotAI || pBattleBotAI->m_battlegroundId != queueType)
+                    continue;
+
+                BattleGroundBracketId bgBracketId = Player::GetBattleGroundBracketIdFromLevel(bgTypeId, pBattleBotAI->m_level);
+                if (bgBracketId == BG_BRACKET_ID_NONE)
+                    continue;
+
+                Team const botTeam = Player::TeamForRace(pBattleBotAI->m_race);
+                if (botTeam == ALLIANCE)
+                    ++queuedAllianceCount[bgBracketId];
+                else
+                    ++queuedHordeCount[bgBracketId];
             }
 
             for (uint32 bracketId = BG_BRACKET_ID_FIRST; bracketId < MAX_BATTLEGROUND_BRACKETS; ++bracketId)
@@ -342,7 +366,6 @@ void PlayerBotMgr::Update(uint32 diff)
                 if (!queuedAllianceCount[bracketId] && !queuedHordeCount[bracketId])
                     continue;
 
-                BattleGroundTypeId bgTypeId = BattleGroundMgr::BgTemplateId(BattleGroundQueueTypeId(queueType));
                 BattleGround* bg = sBattleGroundMgr.GetBattleGroundTemplate(bgTypeId);
                 ASSERT(bg);
 
