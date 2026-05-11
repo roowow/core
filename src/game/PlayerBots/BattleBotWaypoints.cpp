@@ -720,6 +720,40 @@ static bool MoveToNearbyABOpenFlag(BattleBotAI* pAI)
     return true;
 }
 
+static bool MoveToNearbyAVOpenFlag(BattleBotAI* pAI)
+{
+    GameObject* pBestFlag = nullptr;
+    float bestDistance = FLT_MAX;
+
+    for (uint32 const bannerId : vFlagsAV)
+    {
+        if (GameObject* pGo = pAI->me->FindNearestGameObject(bannerId, AV_FLAG_DEFENSE_RADIUS))
+        {
+            if (!IsABFlagOpenable(pAI, pGo))
+                continue;
+
+            float const distance = pAI->me->GetDistance(pGo);
+            if (distance < bestDistance)
+            {
+                pBestFlag = pGo;
+                bestDistance = distance;
+            }
+        }
+    }
+
+    if (!pBestFlag)
+        return false;
+
+    pAI->me->RemoveAurasDueToSpellByCancel(BB_SPELL_FOOD);
+    pAI->me->RemoveAurasDueToSpellByCancel(BB_SPELL_DRINK);
+    if (pAI->me->GetStandState() != UNIT_STAND_STATE_STAND)
+        pAI->me->SetStandState(UNIT_STAND_STATE_STAND);
+
+    pAI->ClearPath();
+    pAI->me->GetMotionMaster()->MovePoint(0, pBestFlag->GetPositionX(), pBestFlag->GetPositionY(), pBestFlag->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+    return true;
+}
+
 void AB_AtFlag(BattleBotAI* pAI)
 {
     if (AtFlag(pAI, vFlagsAB))
@@ -812,6 +846,16 @@ bool BattleBotTryCaptureNearbyObjective(BattleBotAI* pAI)
                 return false;
 
             return ReleaseABExcessGuard(pAI);
+        }
+        case BATTLEGROUND_AV:
+        {
+            if (AtFlag(pAI, vFlagsAV))
+                return true;
+
+            if (MoveToNearbyAVOpenFlag(pAI))
+                return true;
+
+            return false;
         }
         default:
             return false;
