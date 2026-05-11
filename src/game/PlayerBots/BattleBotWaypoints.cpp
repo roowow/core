@@ -261,13 +261,24 @@ static uint8 CountABGuardBots(BattleBotAI* pAI, Position const& pos, bool includ
     return count;
 }
 
+static bool IsABGuardingPosition(Player* player, Position const& pos, bool includeAssigned)
+{
+    if (player->GetDistance(pos) <= AB_GUARD_EXCESS_RADIUS)
+        return true;
+
+    if (includeAssigned && IsABAssignedToGuardPosition(player, pos))
+        return true;
+
+    return false;
+}
+
 static bool IsABExcessGuardBot(BattleBotAI* pAI, Position const& pos)
 {
     Map* map = pAI->me->GetMap();
     if (!map)
         return false;
 
-    if (pAI->me->GetDistance(pos) > AB_GUARD_EXCESS_RADIUS)
+    if (!IsABGuardingPosition(pAI->me, pos, true))
         return false;
 
     uint8 lowerGuidGuards = 0;
@@ -281,7 +292,7 @@ static bool IsABExcessGuardBot(BattleBotAI* pAI, Position const& pos)
             if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
                 continue;
 
-            if (player->GetDistance(pos) > AB_GUARD_EXCESS_RADIUS)
+            if (!IsABGuardingPosition(player, pos, true))
                 continue;
 
             if (player->GetObjectGuid().GetCounter() < pAI->me->GetObjectGuid().GetCounter())
@@ -514,10 +525,11 @@ static bool ReleaseABExcessGuard(BattleBotAI* pAI)
 
     for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
     {
-        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
+        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i) &&
+            !IsABNodeContestedByTeam(bg, pAI->me->GetTeam(), i))
             continue;
 
-        if (pAI->me->GetDistance(AB_GuardPositions[i]) > AB_GUARD_EXCESS_RADIUS)
+        if (!IsABGuardingPosition(pAI->me, AB_GuardPositions[i], true))
             continue;
 
         if (!IsABExcessGuardBot(pAI, AB_GuardPositions[i]))
