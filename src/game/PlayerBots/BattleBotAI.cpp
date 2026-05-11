@@ -17,7 +17,6 @@
 #include "BattleBotAI.h"
 #include "BattleBotWaypoints.h"
 #include "BattleGround.h"
-#include "BattleGroundWS.h"
 #include "Player.h"
 #include "Group.h"
 #include "CreatureAI.h"
@@ -435,24 +434,12 @@ Unit* BattleBotAI::SelectFollowTarget() const
         if (me->GetTeam() == ALLIANCE)
         {
             if (pTarget->HasAura(AURA_WARSONG_FLAG))
-            {
-                if (BattleGround* bg = me->GetBattleGround())
-                    if (bg->GetTypeID() == BATTLEGROUND_WS && !BattleBotIsWSGHomeGuardCandidate(this))
-                        return nullptr;
-
                 return pTarget;
-            }
         }
         else
         {
             if (pTarget->HasAura(AURA_SILVERWING_FLAG))
-            {
-                if (BattleGround* bg = me->GetBattleGround())
-                    if (bg->GetTypeID() == BATTLEGROUND_WS && !BattleBotIsWSGHomeGuardCandidate(this))
-                        return nullptr;
-
                 return pTarget;
-            }
         }
 
         if (m_role == ROLE_HEALER &&
@@ -618,16 +605,16 @@ void BattleBotAI::OnEnterBattleGround()
         if (m_waitingSpot == BB_WSG_WAIT_SPOT_RIGHT)
         {
             if (me->GetTeam() == HORDE)
-                me->GetMotionMaster()->MovePoint(0, WS_WAITING_POS_HORDE_1.x, WS_WAITING_POS_HORDE_1.y, WS_WAITING_POS_HORDE_1.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, WS_WAITING_POS_HORDE_1.o);
+                me->GetMotionMaster()->MovePoint(0, WS_WAITING_POS_HORDE_1.x, WS_WAITING_POS_HORDE_1.y, WS_WAITING_POS_HORDE_1.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES, 0, WS_WAITING_POS_HORDE_1.o);
             else
-                me->GetMotionMaster()->MovePoint(0, WS_WAITING_POS_ALLIANCE_1.x, WS_WAITING_POS_ALLIANCE_1.y, WS_WAITING_POS_ALLIANCE_1.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, WS_WAITING_POS_ALLIANCE_1.o);
+                me->GetMotionMaster()->MovePoint(0, WS_WAITING_POS_ALLIANCE_1.x, WS_WAITING_POS_ALLIANCE_1.y, WS_WAITING_POS_ALLIANCE_1.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES, 0, WS_WAITING_POS_ALLIANCE_1.o);
         }
         else if (m_waitingSpot == BB_WSG_WAIT_SPOT_LEFT)
         {
             if (me->GetTeam() == HORDE)
-                me->GetMotionMaster()->MovePoint(0, WS_WAITING_POS_HORDE_2.x, WS_WAITING_POS_HORDE_2.y, WS_WAITING_POS_HORDE_2.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, WS_WAITING_POS_HORDE_2.o);
+                me->GetMotionMaster()->MovePoint(0, WS_WAITING_POS_HORDE_2.x, WS_WAITING_POS_HORDE_2.y, WS_WAITING_POS_HORDE_2.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES, 0, WS_WAITING_POS_HORDE_2.o);
             else
-                me->GetMotionMaster()->MovePoint(0, WS_WAITING_POS_ALLIANCE_2.x, WS_WAITING_POS_ALLIANCE_2.y, WS_WAITING_POS_ALLIANCE_2.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, WS_WAITING_POS_ALLIANCE_2.o);
+                me->GetMotionMaster()->MovePoint(0, WS_WAITING_POS_ALLIANCE_2.x, WS_WAITING_POS_ALLIANCE_2.y, WS_WAITING_POS_ALLIANCE_2.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES, 0, WS_WAITING_POS_ALLIANCE_2.o);
         }
     }
     else if (bg->GetTypeID() == BATTLEGROUND_AB)
@@ -1063,26 +1050,6 @@ void BattleBotAI::UpdateBattleGroundAI()
     {
         case BATTLEGROUND_WS:
         {
-            BattleGroundWS* bgWS = static_cast<BattleGroundWS*>(bg);
-            bool const carryingEnemyFlag =
-                (me->GetTeam() == ALLIANCE && me->HasAura(AURA_WARSONG_FLAG)) ||
-                (me->GetTeam() == HORDE && me->HasAura(AURA_SILVERWING_FLAG));
-            uint8 const ownFlagState = bgWS->GetFlagState(me->GetTeam());
-            bool const shouldDefendHomeFlag = BattleBotIsWSGHomeGuardCandidate(this) && !carryingEnemyFlag &&
-                (ownFlagState == BG_WS_FLAG_STATE_ON_GROUND || ownFlagState == BG_WS_FLAG_STATE_ON_PLAYER);
-
-            if (shouldDefendHomeFlag && !m_wsgDefenseMode)
-            {
-                m_wsgDefenseMode = true;
-                if (m_currentPath || me->GetMotionMaster()->GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
-                {
-                    ClearPath();
-                    StopMoving();
-                }
-            }
-            else if (!shouldDefendHomeFlag)
-                m_wsgDefenseMode = false;
-
             // Pick up dropped flags.
             if (GameObject* pGo = me->FindNearestGameObject(GO_WSG_DROPPED_SILVERWING_FLAG, INTERACTION_DISTANCE))
                 pGo->Use(me);

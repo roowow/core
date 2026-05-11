@@ -74,62 +74,6 @@ enum AreaTriggersWS
     AT_WARSONG_FLAG    = 3647
 };
 
-static Position const WSG_GuardPositions[BG_TEAMS_COUNT] =
-{
-    { 1519.53f, 1481.87f, 352.024f, 0.0f },  // Alliance flag room
-    { 933.331f, 1433.72f, 345.536f, 0.0f }   // Horde flag room
-};
-
-#define WSG_GUARD_REQUIRED_BOTS 2
-
-static bool HasEnemyFlagAura(Player* player)
-{
-    if (player->GetTeam() == ALLIANCE)
-        return player->HasAura(AURA_WARSONG_FLAG);
-
-    return player->HasAura(AURA_SILVERWING_FLAG);
-}
-
-bool BattleBotIsWSGHomeGuardCandidate(BattleBotAI const* pAI)
-{
-    Map* map = pAI->me->GetMap();
-    if (!map || HasEnemyFlagAura(pAI->me))
-        return false;
-
-    uint8 lowerGuidCandidates = 0;
-    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
-    {
-        if (Player* player = itr->getSource())
-        {
-            if (player == pAI->me)
-                continue;
-
-            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
-                continue;
-
-            if (HasEnemyFlagAura(player))
-                continue;
-
-            if (player->GetObjectGuid().GetCounter() < pAI->me->GetObjectGuid().GetCounter())
-                ++lowerGuidCandidates;
-        }
-    }
-
-    return lowerGuidCandidates < WSG_GUARD_REQUIRED_BOTS;
-}
-
-static bool FindWSGHomeGuardPosition(BattleBotAI* pAI, BattleGroundWS* bg, Position& outPosition)
-{
-    if (!bg || bg->GetFlagState(pAI->me->GetTeam()) != BG_WS_FLAG_STATE_ON_BASE)
-        return false;
-
-    if (!BattleBotIsWSGHomeGuardCandidate(pAI))
-        return false;
-
-    outPosition = WSG_GuardPositions[BattleGround::GetTeamIndexByTeamId(pAI->me->GetTeam())];
-    return true;
-}
-
 void WSG_AtAllianceFlag(BattleBotAI* pAI)
 {
     if (GameObject* pFlag = pAI->me->FindNearestGameObject(GO_WS_SILVERWING_FLAG, 25.0f))
@@ -141,24 +85,27 @@ void WSG_AtAllianceFlag(BattleBotAI* pAI)
                 if (pAI->me->IsWithinDistInMap(pFlag, INTERACTION_DISTANCE))
                 {
                     pAI->ClearPath();
+                    WorldPackets::Misc::GameObjectUse packet;
+                    packet.guid = pFlag->GetObjectGuid();
+                    pAI->me->GetSession()->HandleGameObjectUseOpcode(packet);
                     return;
                 }
                 else
                 {
                     pAI->ClearPath();
-                    pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), 353.0f, MOVE_RUN_MODE);
+                    pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), 353.0f);
                     return;
                 }
             }
             else if (pAI->me->HasAura(AURA_WARSONG_FLAG))
             {
                 pAI->ClearPath();
-                pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), 353.0f, MOVE_RUN_MODE);
+                pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), 353.0f);
                 return;
             }
         }
     }
-    
+
     pAI->MoveToNextPoint();
 }
 
@@ -173,19 +120,22 @@ void WSG_AtHordeFlag(BattleBotAI* pAI)
                 if (pAI->me->IsWithinDistInMap(pFlag, INTERACTION_DISTANCE))
                 {
                     pAI->ClearPath();
+                    WorldPackets::Misc::GameObjectUse packet;
+                    packet.guid = pFlag->GetObjectGuid();
+                    pAI->me->GetSession()->HandleGameObjectUseOpcode(packet);
                     return;
                 }
                 else
                 {
                     pAI->ClearPath();
-                    pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ(), MOVE_RUN_MODE);
+                    pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ());
                     return;
                 }
             }
             else if (pAI->me->HasAura(AURA_SILVERWING_FLAG))
             {
                 pAI->ClearPath();
-                pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ(), MOVE_RUN_MODE);
+                pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ());
                 return;
             }
         }
@@ -2403,6 +2353,15 @@ bool BattleBotAI::StartNewPathToObjective()
     if (!bg)
         return false;
 
+    // Do not start new path if out of combat and currently regenerating (eating/drinking) to avoid interrupting regen.
+    bool const needToEat = me->GetHealthPercent() < 90.0f && !((bg = me->GetBattleGround()) && bg->GetStatus() == STATUS_WAIT_JOIN);
+    bool const needToDrink = (me->GetPowerType() == POWER_MANA) && (me->GetPowerPercent(POWER_MANA) < 90.0f);
+    if (!me->IsInCombat())
+    {
+        if (needToEat || needToDrink)
+            return false;
+    }
+
     switch (bg->GetTypeID())
     {
         case BATTLEGROUND_AB:
@@ -2547,52 +2506,14 @@ bool BattleBotAI::StartNewPathToObjective()
         }
         case BATTLEGROUND_WS:
         {
-            BattleGroundWS* bgWS = static_cast<BattleGroundWS*>(bg);
-            bool const isHomeGuard = BattleBotIsWSGHomeGuardCandidate(this);
-
             if (me->GetTeam() == HORDE)
             {
                 if (me->HasAura(AURA_SILVERWING_FLAG))
                     return StartNewPathToPosition(WS_FLAG_POS_HORDE, vPaths_WS);
-
-                if (isHomeGuard && bgWS->GetFlagState(HORDE) == BG_WS_FLAG_STATE_ON_GROUND)
-                {
-                    if (GameObject* pFlag = me->GetMap()->GetGameObject(bgWS->GetDroppedFlagGuid(HORDE)))
-                    {
-                        if (StartNewPathToPosition(pFlag->GetPosition(), vPaths_WS))
-                            return true;
-
-                        me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
-                        return true;
-                    }
-                }
-
-                if ((isHomeGuard || bgWS->IsAllianceFlagPickedup()) && bgWS->GetFlagState(HORDE) == BG_WS_FLAG_STATE_ON_PLAYER)
-                {
-                    if (Player* pEnemyFlagCarrier = me->GetMap()->GetPlayer(bgWS->GetHordeFlagPickerGuid()))
-                    {
-                        if (StartNewPathToPosition(pEnemyFlagCarrier->GetPosition(), vPaths_WS))
-                            return true;
-
-                        me->GetMotionMaster()->MovePoint(0, pEnemyFlagCarrier->GetPositionX(), pEnemyFlagCarrier->GetPositionY(), pEnemyFlagCarrier->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
-                        return true;
-                    }
-                }
-
-                Position guardPosition;
-                if (FindWSGHomeGuardPosition(this, bgWS, guardPosition))
-                {
-                    if (StartNewPathToPosition(guardPosition, vPaths_WS))
-                        return true;
-
-                    me->GetMotionMaster()->MovePoint(0, guardPosition.x, guardPosition.y, guardPosition.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
-                    return true;
-                }
-
-                if (!bgWS->IsAllianceFlagPickedup())
+                if (!static_cast<BattleGroundWS*>(bg)->IsAllianceFlagPickedup())
                 {
                     float const distance = me->GetDistance(WS_FLAG_POS_ALLIANCE);
-                    if (distance > 20.0f)
+                    if (distance > 20.0f && distance < 300.0f)
                         return StartNewPathToPosition(WS_FLAG_POS_ALLIANCE, vPaths_WS);
                 }
             }
@@ -2600,45 +2521,10 @@ bool BattleBotAI::StartNewPathToObjective()
             {
                 if (me->HasAura(AURA_WARSONG_FLAG))
                     return StartNewPathToPosition(WS_FLAG_POS_ALLIANCE, vPaths_WS);
-
-                if (isHomeGuard && bgWS->GetFlagState(ALLIANCE) == BG_WS_FLAG_STATE_ON_GROUND)
-                {
-                    if (GameObject* pFlag = me->GetMap()->GetGameObject(bgWS->GetDroppedFlagGuid(ALLIANCE)))
-                    {
-                        if (StartNewPathToPosition(pFlag->GetPosition(), vPaths_WS))
-                            return true;
-
-                        me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
-                        return true;
-                    }
-                }
-
-                if ((isHomeGuard || bgWS->IsHordeFlagPickedup()) && bgWS->GetFlagState(ALLIANCE) == BG_WS_FLAG_STATE_ON_PLAYER)
-                {
-                    if (Player* pEnemyFlagCarrier = me->GetMap()->GetPlayer(bgWS->GetAllianceFlagPickerGuid()))
-                    {
-                        if (StartNewPathToPosition(pEnemyFlagCarrier->GetPosition(), vPaths_WS))
-                            return true;
-
-                        me->GetMotionMaster()->MovePoint(0, pEnemyFlagCarrier->GetPositionX(), pEnemyFlagCarrier->GetPositionY(), pEnemyFlagCarrier->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
-                        return true;
-                    }
-                }
-
-                Position guardPosition;
-                if (FindWSGHomeGuardPosition(this, bgWS, guardPosition))
-                {
-                    if (StartNewPathToPosition(guardPosition, vPaths_WS))
-                        return true;
-
-                    me->GetMotionMaster()->MovePoint(0, guardPosition.x, guardPosition.y, guardPosition.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
-                    return true;
-                }
-
-                if (!bgWS->IsHordeFlagPickedup())
+                if (!static_cast<BattleGroundWS*>(bg)->IsHordeFlagPickedup())
                 {
                     float const distance = me->GetDistance(WS_FLAG_POS_HORDE);
-                    if (distance > 20.0f)
+                    if (distance > 20.0f && distance < 300.0f)
                         return StartNewPathToPosition(WS_FLAG_POS_HORDE, vPaths_WS);
                 }
             }

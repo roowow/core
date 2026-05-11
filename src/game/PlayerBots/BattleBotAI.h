@@ -116,7 +116,6 @@ public:
     void ClearPath();
     void StopMoving();
     bool m_doingGraveyardJump = false;
-    bool m_wsgDefenseMode = false;
     bool m_movingInReverse = false;
     uint32 m_currentPoint = 0;
     BattleBotPath* m_currentPath = nullptr;
