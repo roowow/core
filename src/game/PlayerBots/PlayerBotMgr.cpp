@@ -212,6 +212,14 @@ static uint32 GetBattleBotFillTarget(BattleGroundTypeId bgTypeId, BattleGround c
     return std::min<uint32>(desiredCount, bg->GetMaxPlayersPerTeam() - 1);
 }
 
+static uint32 GetBattleBotMaxAutoTeamCount(BattleGroundTypeId bgTypeId, BattleGround const* bg)
+{
+    if (bgTypeId == BATTLEGROUND_AV && bg->GetMaxPlayersPerTeam() > 1)
+        return bg->GetMaxPlayersPerTeam() - 1;
+
+    return bg->GetMaxPlayersPerTeam();
+}
+
 void PlayerBotMgr::Update(uint32 diff)
 {
     // Temporary bots.
@@ -412,6 +420,8 @@ void PlayerBotMgr::Update(uint32 diff)
                         ++queuedAllianceCount[bgBracketId];
                     else
                         ++queuedHordeCount[bgBracketId];
+
+                    hasPlayerInQueue[bgBracketId] = true;
                 }
             }
 
@@ -504,7 +514,7 @@ void PlayerBotMgr::Update(uint32 diff)
                 ASSERT(minLevel <= PLAYER_MAX_LEVEL);
                 uint32 const maxLevel = std::min<uint32>(minLevel + 9, PLAYER_MAX_LEVEL);
                 uint32 const fillTarget = GetBattleBotFillTarget(bgTypeId, bg);
-                uint32 const maxAutoTeamCount = bg->GetMaxPlayersPerTeam() > 1 ? bg->GetMaxPlayersPerTeam() - 1 : 0;
+                uint32 const maxAutoTeamCount = GetBattleBotMaxAutoTeamCount(bgTypeId, bg);
 
                 bool toAddBattleBot = false;
                 // BattleBot AutoJoin
