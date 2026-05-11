@@ -345,6 +345,8 @@ void PlayerBotMgr::Update(uint32 diff)
             uint32 waitingHordePlayers[MAX_BATTLEGROUND_BRACKETS] = {};
             uint32 queuedAllianceCount[MAX_BATTLEGROUND_BRACKETS] = {};
             uint32 queuedHordeCount[MAX_BATTLEGROUND_BRACKETS] = {};
+            BattleGround* inProgressBg[MAX_BATTLEGROUND_BRACKETS] = {};
+            uint32 inProgressTarget[MAX_BATTLEGROUND_BRACKETS] = {};
             BattleGroundQueue& bgQueue = sBattleGroundMgr.m_battleGroundQueues[queueType];
             BattleGroundTypeId bgTypeId = BattleGroundMgr::BgTemplateId(BattleGroundQueueTypeId(queueType));
             for (auto const& itr : bgQueue.m_queuedPlayers)
@@ -410,6 +412,12 @@ void PlayerBotMgr::Update(uint32 diff)
                 if (bgBracketId == BG_BRACKET_ID_NONE)
                     continue;
 
+                if (runningBg->GetStatus() != STATUS_IN_PROGRESS)
+                    continue;
+
+                inProgressBg[bgBracketId] = runningBg;
+                inProgressTarget[bgBracketId] = runningBg->GetMaxPlayersPerTeam() > 1 ? runningBg->GetMaxPlayersPerTeam() - 1 : 0;
+
                 for (auto const& playerItr : runningBg->GetPlayers())
                 {
                     Player const* player = sObjectMgr.GetPlayer(playerItr.first);
@@ -464,6 +472,45 @@ void PlayerBotMgr::Update(uint32 diff)
                 return false;
             };
 
+            auto trimBattleBotForStartedBg = [&](BattleGround* runningBg, Team team, BattleGroundBracketId bracketId) -> bool
+            {
+                uint32 const target = inProgressTarget[bracketId];
+                if (!target)
+                    return false;
+
+                uint32 const totalCount = team == ALLIANCE ? queuedAllianceCount[bracketId] : queuedHordeCount[bracketId];
+                if (totalCount <= target)
+                    return false;
+
+                if (removeInvitedBattleBot(runningBg, team, bracketId))
+                {
+                    if (team == ALLIANCE)
+                        --queuedAllianceCount[bracketId];
+                    else
+                        --queuedHordeCount[bracketId];
+
+                    sBattleGroundMgr.ScheduleQueueUpdate(BattleGroundQueueTypeId(queueType), bgTypeId, bracketId);
+                    return true;
+                }
+
+                if (runningBg->GetPlayersCountByTeam(team) > target &&
+                    runningBg->GetBotPlayersCountByTeam(team) &&
+                    runningBg->DeleteBattleBot(team))
+                {
+                    if (team == ALLIANCE)
+                        --queuedAllianceCount[bracketId];
+                    else
+                        --queuedHordeCount[bracketId];
+
+                    runningBg->AddToBGFreeSlotQueue();
+                    sBattleGroundMgr.ScheduleQueueUpdate(BattleGroundQueueTypeId(queueType), bgTypeId, bracketId);
+                    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[PlayerBotMgr] Removed battlebot from started queue %u team %u to keep team at max-1.", queueType, team);
+                    return true;
+                }
+
+                return false;
+            };
+
             auto freeBattleBotSlotForWaitingPlayer = [&](Team team, BattleGroundBracketId bracketId) -> bool
             {
                 for (auto itr = sBattleGroundMgr.GetBattleGroundsBegin(bgTypeId); itr != sBattleGroundMgr.GetBattleGroundsEnd(bgTypeId); ++itr)
@@ -476,6 +523,9 @@ void PlayerBotMgr::Update(uint32 diff)
                         continue;
 
                     if (runningBg->GetStatus() <= STATUS_WAIT_QUEUE || runningBg->GetStatus() >= STATUS_WAIT_LEAVE)
+                        continue;
+
+                    if (runningBg->GetStatus() != STATUS_IN_PROGRESS)
                         continue;
 
                     if (runningBg->GetFreeSlotsForTeam(team) > 0)
@@ -513,8 +563,9 @@ void PlayerBotMgr::Update(uint32 diff)
                 uint32 const minLevel = bg->GetMinLevel() + 10 * bracketId;
                 ASSERT(minLevel <= PLAYER_MAX_LEVEL);
                 uint32 const maxLevel = std::min<uint32>(minLevel + 9, PLAYER_MAX_LEVEL);
-                uint32 const fillTarget = GetBattleBotFillTarget(bgTypeId, bg);
-                uint32 const maxAutoTeamCount = GetBattleBotMaxAutoTeamCount(bgTypeId, bg);
+                bool const isStartedBg = inProgressBg[bracketId] && inProgressTarget[bracketId];
+                uint32 const fillTarget = isStartedBg ? inProgressTarget[bracketId] : GetBattleBotFillTarget(bgTypeId, bg);
+                uint32 const maxAutoTeamCount = isStartedBg ? inProgressTarget[bracketId] : GetBattleBotMaxAutoTeamCount(bgTypeId, bg);
 
                 bool toAddBattleBot = false;
                 // BattleBot AutoJoin
@@ -536,6 +587,12 @@ void PlayerBotMgr::Update(uint32 diff)
 
                 if (toAddBattleBot && m_confBattleBotAutoJoin)
                 {
+                    if (isStartedBg)
+                    {
+                        trimBattleBotForStartedBg(inProgressBg[bracketId], ALLIANCE, BattleGroundBracketId(bracketId));
+                        trimBattleBotForStartedBg(inProgressBg[bracketId], HORDE, BattleGroundBracketId(bracketId));
+                    }
+
                     if (waitingAlliancePlayers[bracketId])
                         freeBattleBotSlotForWaitingPlayer(ALLIANCE, BattleGroundBracketId(bracketId));
                     if (waitingHordePlayers[bracketId])
