@@ -431,6 +431,9 @@ Unit* BattleBotAI::SelectFollowTarget() const
     if (BattleBotIsWSGHomeGuardCandidate(this))
         return nullptr;
 
+    BattleGround* bg = me->GetBattleGround();
+    bool const isWSG = bg && bg->GetTypeID() == BATTLEGROUND_WS;
+
     std::list<Player*> players;
     me->GetAlivePlayerListInRange(me, players, VISIBILITY_DISTANCE_NORMAL);
     Player* pHealerFollowTarget = nullptr;
@@ -455,6 +458,15 @@ Unit* BattleBotAI::SelectFollowTarget() const
         {
             if (pTarget->HasAura(AURA_SILVERWING_FLAG))
                 return pTarget;
+        }
+
+        if (isWSG)
+        {
+            if (BattleBotAI* pTargetAI = dynamic_cast<BattleBotAI*>(pTarget->AI()))
+            {
+                if (BattleBotIsWSGHomeGuardCandidate(pTargetAI))
+                    continue;
+            }
         }
 
         if (m_role == ROLE_HEALER &&
@@ -1009,6 +1021,26 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                 {
                     StopMoving();
                     return;
+                }
+
+                if (BattleGround* bg = me->GetBattleGround())
+                {
+                    if (bg->GetTypeID() == BATTLEGROUND_WS &&
+                       !pTarget->HasAura(AURA_WARSONG_FLAG) &&
+                       !pTarget->HasAura(AURA_SILVERWING_FLAG))
+                    {
+                        if (Player* pTargetPlayer = pTarget->ToPlayer())
+                        {
+                            if (BattleBotAI* pTargetAI = dynamic_cast<BattleBotAI*>(pTargetPlayer->AI()))
+                            {
+                                if (BattleBotIsWSGHomeGuardCandidate(pTargetAI))
+                                {
+                                    StopMoving();
+                                    return;
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
