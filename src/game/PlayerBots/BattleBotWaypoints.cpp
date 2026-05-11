@@ -300,13 +300,13 @@ static Position const AB_GuardPositions[5] =
 
 static bool IsABSettledGuardBot(Player* player, Player* currentBot)
 {
+    if (player->IsInCombat() || player->GetVictim())
+        return false;
+
     if (player == currentBot)
         return true;
 
     if (!player->IsMoving())
-        return true;
-
-    if (player->IsInCombat())
         return true;
 
     switch (player->GetMotionMaster()->GetCurrentMovementGeneratorType())
@@ -354,13 +354,16 @@ static uint8 CountABGuardBots(BattleBotAI* pAI, Position const& pos, bool includ
                 continue;
 
             if (player->GetDistance(pos) <= AB_GUARD_SEARCH_RADIUS &&
-                (includeAssigned || IsABSettledGuardBot(player, pAI->me)))
+                IsABSettledGuardBot(player, pAI->me))
             {
                 ++count;
                 continue;
             }
 
-            if (includeAssigned && IsABAssignedToGuardPosition(player, pos))
+            if (includeAssigned &&
+                !player->IsInCombat() &&
+                !player->GetVictim() &&
+                IsABAssignedToGuardPosition(player, pos))
                 ++count;
         }
     }
@@ -370,6 +373,9 @@ static uint8 CountABGuardBots(BattleBotAI* pAI, Position const& pos, bool includ
 
 static bool IsABGuardingPosition(Player* player, Position const& pos, bool includeAssigned)
 {
+    if (player->IsInCombat() || player->GetVictim())
+        return false;
+
     if (player->GetDistance(pos) <= AB_GUARD_EXCESS_RADIUS)
         return true;
 
@@ -401,6 +407,9 @@ static bool IsABExcessGuardBot(BattleBotAI* pAI, Position const& pos)
                 continue;
 
             if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
+                continue;
+
+            if (player->IsInCombat() || player->GetVictim())
                 continue;
 
             if (!IsABGuardingPosition(player, pos, true))
@@ -2905,7 +2914,10 @@ static uint8 CountAVShortGuardBots(BattleBotAI* pAI, Position const& pos, bool i
                 continue;
             }
 
-            if (includeAssigned && IsABAssignedToGuardPosition(player, pos))
+            if (includeAssigned &&
+                !player->IsInCombat() &&
+                !player->GetVictim() &&
+                IsABAssignedToGuardPosition(player, pos))
                 ++count;
         }
     }
@@ -2931,6 +2943,9 @@ static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos)
                 continue;
 
             if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
+                continue;
+
+            if (player->IsInCombat() || player->GetVictim())
                 continue;
 
             if (!IsAVShortGuardingPosition(player, pos))
