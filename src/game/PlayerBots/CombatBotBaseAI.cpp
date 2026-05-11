@@ -1979,6 +1979,9 @@ bool CombatBotBaseAI::HealInjuredTargetDirect(Unit* pTarget)
 
 bool CombatBotBaseAI::IsValidHealTarget(Unit const* pTarget, float healthPercent) const
 {
+    if (me->InBattleGround() && !pTarget->IsInCombat())
+        return false;
+
     return (pTarget->GetHealthPercent() < healthPercent) &&
             me->IsValidHelpfulTarget(pTarget) &&
             me->IsWithinLOSInMap(pTarget) &&
@@ -1987,7 +1990,8 @@ bool CombatBotBaseAI::IsValidHealTarget(Unit const* pTarget, float healthPercent
 
 Unit* CombatBotBaseAI::SelectHealTarget(float selfHealPercent, float groupHealPercent) const
 {
-    if (me->GetHealthPercent() < selfHealPercent)
+    if (me->GetHealthPercent() < selfHealPercent &&
+       (!me->InBattleGround() || me->IsInCombat()))
         return me;
 
     if (IsInDuel())
@@ -2033,6 +2037,7 @@ Unit* CombatBotBaseAI::SelectHealTarget(float selfHealPercent, float groupHealPe
 Unit* CombatBotBaseAI::SelectPeriodicHealTarget(float selfHealPercent, float groupHealPercent) const
 {
     if (me->GetHealthPercent() < selfHealPercent &&
+       (!me->InBattleGround() || me->IsInCombat()) &&
        !me->HasAuraType(SPELL_AURA_PERIODIC_HEAL))
         return me;
 
