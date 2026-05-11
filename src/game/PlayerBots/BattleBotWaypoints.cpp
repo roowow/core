@@ -280,14 +280,7 @@ std::vector<uint32> const vFlagsAB = { GO_AB_ALLIANCE_BANNER , GO_AB_CONTESTED_B
 #define AB_GUARD_ASSIGN_RADIUS 20.0f
 #define AV_FLAG_DEFENSE_RADIUS 55.0f
 #define AV_SHORT_GUARD_RADIUS  45.0f
-#define AV_GUARD_REQUIRED_BOTS 1
-
-struct AVKeyDefenseObjective
-{
-    uint32 node;
-    uint32 controlledState;
-    uint32 assaultedState;
-};
+#define AV_GUARD_REQUIRED_BOTS 2
 
 static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, float radius);
 static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos);
@@ -2606,30 +2599,34 @@ static std::pair<uint32, uint32> AV_AllianceDefendObjectives[] =
     { BG_AV_STONEHEARTH_BUNKER, HORDE_ASSAULTED },
 };
 
-static AVKeyDefenseObjective AV_HordeKeyDefenseObjectives[] =
+static uint32 AV_KeyDefenseObjectives[] =
 {
-    { BG_AV_ICEBLOOD_GY, HORDE_CONTROLLED, ALLIANCE_ASSAULTED },
-    { BG_AV_ICEBLOOD_TOWER, HORDE_CONTROLLED, ALLIANCE_ASSAULTED },
-    { BG_AV_TOWER_POINT_TOWER, HORDE_CONTROLLED, ALLIANCE_ASSAULTED },
-    { BG_AV_FROSTWOLF_GY, HORDE_CONTROLLED, ALLIANCE_ASSAULTED },
-    { BG_AV_EAST_FROSTWOLF_TOWER, HORDE_CONTROLLED, ALLIANCE_ASSAULTED },
-    { BG_AV_WEST_FROSTWOLF_TOWER, HORDE_CONTROLLED, ALLIANCE_ASSAULTED },
-    { BG_AV_FROSTWOLF_RELIEF_HUT_GY, HORDE_CONTROLLED, ALLIANCE_ASSAULTED },
+    BG_AV_STORMPIKE_AID_STATION_GY,
+    BG_AV_STORMPIKE_GY,
+    BG_AV_STONEHEARTH_GY,
+    BG_AV_SNOWFALL_GY,
+    BG_AV_ICEBLOOD_GY,
+    BG_AV_FROSTWOLF_GY,
+    BG_AV_FROSTWOLF_RELIEF_HUT_GY,
 };
 
-static AVKeyDefenseObjective AV_AllianceKeyDefenseObjectives[] =
+static uint32 GetAVControlledStateForTeam(Team team)
 {
-    { BG_AV_STONEHEARTH_GY, ALLIANCE_CONTROLLED, HORDE_ASSAULTED },
-    { BG_AV_STONEHEARTH_BUNKER, ALLIANCE_CONTROLLED, HORDE_ASSAULTED },
-    { BG_AV_ICEWING_BUNKER, ALLIANCE_CONTROLLED, HORDE_ASSAULTED },
-    { BG_AV_STORMPIKE_GY, ALLIANCE_CONTROLLED, HORDE_ASSAULTED },
-    { BG_AV_DUN_BALDAR_SOUTH_BUNKER, ALLIANCE_CONTROLLED, HORDE_ASSAULTED },
-    { BG_AV_DUN_BALDAR_NORTH_BUNKER, ALLIANCE_CONTROLLED, HORDE_ASSAULTED },
-    { BG_AV_STORMPIKE_AID_STATION_GY, ALLIANCE_CONTROLLED, HORDE_ASSAULTED },
-};
+    return team == HORDE ? HORDE_CONTROLLED : ALLIANCE_CONTROLLED;
+}
+
+static uint32 GetAVAssaultedStateForTeam(Team team)
+{
+    return team == HORDE ? HORDE_ASSAULTED : ALLIANCE_ASSAULTED;
+}
+
+static uint32 GetAVEnemyAssaultedStateForTeam(Team team)
+{
+    return team == HORDE ? ALLIANCE_ASSAULTED : HORDE_ASSAULTED;
+}
 
 template<std::size_t N>
-static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, AVKeyDefenseObjective const (&objectives)[N], float radius)
+static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, uint32 const (&objectives)[N], float radius)
 {
     BattleGround* bg = pAI->me->GetBattleGround();
     Map* map = pAI->me->GetMap();
@@ -2638,18 +2635,23 @@ static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, AVKeyDef
 
     GameObject* bestObject = nullptr;
     float bestDistance = FLT_MAX;
+    uint32 const controlledState = GetAVControlledStateForTeam(pAI->me->GetTeam());
+    uint32 const assaultedState = GetAVAssaultedStateForTeam(pAI->me->GetTeam());
+    uint32 const enemyAssaultedState = GetAVEnemyAssaultedStateForTeam(pAI->me->GetTeam());
 
-    for (AVKeyDefenseObjective const& objective : objectives)
+    for (uint32 const objective : objectives)
     {
         uint32 activeState = 0;
-        if (bg->IsActiveEvent(objective.node, objective.assaultedState))
-            activeState = objective.assaultedState;
-        else if (bg->IsActiveEvent(objective.node, objective.controlledState))
-            activeState = objective.controlledState;
+        if (bg->IsActiveEvent(objective, assaultedState))
+            activeState = assaultedState;
+        else if (bg->IsActiveEvent(objective, enemyAssaultedState))
+            activeState = enemyAssaultedState;
+        else if (bg->IsActiveEvent(objective, controlledState))
+            activeState = controlledState;
         else
             continue;
 
-        GameObject* pGO = map->GetGameObject(bg->GetSingleGameObjectGuid(objective.node, activeState));
+        GameObject* pGO = map->GetGameObject(bg->GetSingleGameObjectGuid(objective, activeState));
         if (!pGO)
             continue;
 
@@ -2666,10 +2668,7 @@ static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, AVKeyDef
 
 static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, float radius)
 {
-    if (pAI->me->GetTeam() == HORDE)
-        return FindNearbyAVKeyDefenseObject(pAI, AV_HordeKeyDefenseObjectives, radius);
-
-    return FindNearbyAVKeyDefenseObject(pAI, AV_AllianceKeyDefenseObjectives, radius);
+    return FindNearbyAVKeyDefenseObject(pAI, AV_KeyDefenseObjectives, radius);
 }
 
 static bool IsAVShortGuardingPosition(Player* player, Position const& pos)
