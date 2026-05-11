@@ -731,9 +731,6 @@ bool BattleBotAI::IsBadPlayer(Unit const* pTarget) const
     if (!pTarget->ToPlayer())
         return false;
 
-    if (!pTarget->ToPlayer()->IsBot())
-        return false;
-
     if (pTarget->HasAura(AURA_WARSONG_FLAG))
         return false;
 
