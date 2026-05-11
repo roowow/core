@@ -45,6 +45,7 @@ Position const AV_WAITING_POS_HORDE = { -871.196f, -558.407f, 57.239f, 2.14f };
 Position const AV_WAITING_POS_ALLIANCE = { 793.627f, -493.814f, 99.689f, 3.09f };
 
 class BattleBotAI;
+class Player;
 class Unit;
 typedef void(*BattleBotWaypointFunc) (BattleBotAI* pAI);
 
@@ -67,6 +68,7 @@ extern std::vector<BattleBotPath*> const vPaths_AV;
 bool BattleBotTryCaptureNearbyObjective(BattleBotAI* pAI);
 Unit* BattleBotSelectABFlagDefenseTarget(BattleBotAI const* pAI, Unit* pExcept);
 Unit* BattleBotSelectAVFlagDefenseTarget(BattleBotAI const* pAI, Unit* pExcept);
+bool BattleBotIsABGuardingOwnedNode(BattleBotAI const* pAI);
 bool BattleBotIsWSGHomeGuardCandidate(BattleBotAI const* pAI);
 
 #endif

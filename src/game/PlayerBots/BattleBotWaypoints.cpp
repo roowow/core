@@ -397,7 +397,8 @@ static bool IsABExcessGuardBot(BattleBotAI* pAI, Position const& pos)
         return false;
 
     uint8 const requiredGuards = GetABRequiredGuardBots(bg, pAI->me->GetTeam());
-    uint8 lowerGuidGuards = 0;
+    bool const currentIsHealer = pAI->GetRole() == ROLE_HEALER;
+    uint8 preferredGuards = 0;
     for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
     {
         if (Player* player = itr->getSource())
@@ -414,12 +415,23 @@ static bool IsABExcessGuardBot(BattleBotAI* pAI, Position const& pos)
             if (!IsABGuardingPosition(player, pos, true))
                 continue;
 
-            if (player->GetObjectGuid().GetCounter() < pAI->me->GetObjectGuid().GetCounter())
-                ++lowerGuidGuards;
+            bool playerIsHealer = false;
+            if (BattleBotAI* pBotAI = dynamic_cast<BattleBotAI*>(player->AI()))
+                playerIsHealer = pBotAI->GetRole() == ROLE_HEALER;
+
+            if (currentIsHealer)
+            {
+                if (!playerIsHealer ||
+                    player->GetObjectGuid().GetCounter() < pAI->me->GetObjectGuid().GetCounter())
+                    ++preferredGuards;
+            }
+            else if (!playerIsHealer &&
+                     player->GetObjectGuid().GetCounter() < pAI->me->GetObjectGuid().GetCounter())
+                ++preferredGuards;
         }
     }
 
-    return lowerGuidGuards >= requiredGuards;
+    return preferredGuards >= requiredGuards;
 }
 
 static bool IsABNodeOccupiedByTeam(BattleGround* bg, Team team, uint8 node)
@@ -429,6 +441,27 @@ static bool IsABNodeOccupiedByTeam(BattleGround* bg, Team team, uint8 node)
 
     BattleGroundTeamIndex const teamIndex = BattleGround::GetTeamIndexByTeamId(team);
     return bg->IsActiveEvent(node, teamIndex + BG_AB_NODE_TYPE_OCCUPIED);
+}
+
+bool BattleBotIsABGuardingOwnedNode(BattleBotAI const* pAI)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AB)
+        return false;
+
+    if (pAI->me->IsInCombat() || pAI->me->GetVictim())
+        return false;
+
+    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
+    {
+        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
+            continue;
+
+        if (IsABGuardingPosition(pAI->me, AB_GuardPositions[i], true))
+            return true;
+    }
+
+    return false;
 }
 
 static bool IsABNodeContestedByTeam(BattleGround* bg, Team team, uint8 node)
