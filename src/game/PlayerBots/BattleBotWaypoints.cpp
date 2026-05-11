@@ -282,9 +282,11 @@ std::vector<uint32> const vFlagsAB = { GO_AB_ALLIANCE_BANNER , GO_AB_CONTESTED_B
 #define AV_FLAG_DEFENSE_RADIUS 55.0f
 #define AV_SHORT_GUARD_RADIUS  45.0f
 #define AV_GUARD_REQUIRED_BOTS 2
-#define AV_REVIVE_GRAVEYARD_RADIUS 70.0f
+#define AV_REVIVE_GRAVEYARD_RADIUS 150.0f
 
 static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, float radius);
+static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, float radius, Position& outPosition);
+static bool GetAVNativeGraveyardFallbackPosition(uint32 node, Position& outPosition);
 static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos);
 
 static Position const AB_GuardPositions[5] =
@@ -776,9 +778,10 @@ void AV_AtFlag(BattleBotAI* pAI)
     if (AtFlag(pAI, vFlagsAV))
         return;
 
-    if (GameObject* pGuardObject = FindNearbyAVKeyDefenseObject(pAI, AV_SHORT_GUARD_RADIUS))
+    Position guardPosition;
+    if (FindNearbyAVKeyDefensePosition(pAI, AV_SHORT_GUARD_RADIUS, guardPosition))
     {
-        if (!IsAVExcessShortGuardBot(pAI, pGuardObject->GetPosition()))
+        if (!IsAVExcessShortGuardBot(pAI, guardPosition))
         {
             pAI->ClearPath();
             pAI->StopMoving();
@@ -2621,9 +2624,9 @@ static uint32 AV_AllianceNativeGraveyards[] =
 
 static uint32 AV_HordeNativeGraveyards[] =
 {
-    BG_AV_ICEBLOOD_GY,
-    BG_AV_FROSTWOLF_GY,
     BG_AV_FROSTWOLF_RELIEF_HUT_GY,
+    BG_AV_FROSTWOLF_GY,
+    BG_AV_ICEBLOOD_GY,
 };
 
 static uint32 GetAVControlledStateForTeam(Team team)
@@ -2685,6 +2688,65 @@ static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, uint32 c
 static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, float radius)
 {
     return FindNearbyAVKeyDefenseObject(pAI, AV_KeyDefenseObjectives, radius);
+}
+
+template<std::size_t N>
+static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, uint32 const (&objectives)[N], float radius, Position& outPosition)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    Map* map = pAI->me->GetMap();
+    if (!bg || !map || bg->GetTypeID() != BATTLEGROUND_AV)
+        return false;
+
+    bool found = false;
+    float bestDistance = FLT_MAX;
+    uint32 const controlledState = GetAVControlledStateForTeam(pAI->me->GetTeam());
+    uint32 const assaultedState = GetAVAssaultedStateForTeam(pAI->me->GetTeam());
+    uint32 const enemyAssaultedState = GetAVEnemyAssaultedStateForTeam(pAI->me->GetTeam());
+
+    for (uint32 const objective : objectives)
+    {
+        uint32 activeState = 0;
+        if (bg->IsActiveEvent(objective, assaultedState))
+            activeState = assaultedState;
+        else if (bg->IsActiveEvent(objective, enemyAssaultedState))
+            activeState = enemyAssaultedState;
+        else if (bg->IsActiveEvent(objective, controlledState))
+            activeState = controlledState;
+        else
+            continue;
+
+        Position guardPosition;
+        if (GameObject* pGO = map->GetGameObject(bg->GetSingleGameObjectGuid(objective, activeState)))
+            guardPosition = pGO->GetPosition();
+        else if (!GetAVNativeGraveyardFallbackPosition(objective, guardPosition))
+        {
+            if (WorldSafeLocsEntry const* entry = sWorldSafeLocsStore.LookupEntry(BG_AV_GraveyardIds[objective]))
+            {
+                guardPosition.x = entry->x;
+                guardPosition.y = entry->y;
+                guardPosition.z = entry->z;
+                guardPosition.o = 0.0f;
+            }
+            else
+                continue;
+        }
+
+        float const distance = pAI->me->GetDistance(guardPosition);
+        if (distance <= radius && distance < bestDistance)
+        {
+            outPosition = guardPosition;
+            bestDistance = distance;
+            found = true;
+        }
+    }
+
+    return found;
+}
+
+static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, float radius, Position& outPosition)
+{
+    return FindNearbyAVKeyDefensePosition(pAI, AV_KeyDefenseObjectives, radius, outPosition);
 }
 
 static GameObject* GetAVControlledGraveyardObject(BattleBotAI const* pAI, uint32 node)
@@ -2886,11 +2948,9 @@ static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos)
 }
 
 template<std::size_t N>
-static bool SelectAVReviveDefenseGraveyard(BattleBotAI* pAI, uint32 revivedNode, uint32 const (&objectives)[N], Position& outPosition)
+static bool SelectAVReviveDefenseGraveyard(BattleBotAI* pAI, uint32 const (&objectives)[N], Position& outPosition)
 {
     uint8 bestCount = AV_GUARD_REQUIRED_BOTS;
-    bool bestIsRevivedNode = false;
-    float bestDistance = FLT_MAX;
     bool found = false;
 
     for (uint32 const node : objectives)
@@ -2903,17 +2963,10 @@ static bool SelectAVReviveDefenseGraveyard(BattleBotAI* pAI, uint32 revivedNode,
         if (guardCount >= AV_GUARD_REQUIRED_BOTS)
             continue;
 
-        bool const isRevivedNode = node == revivedNode;
-        float const distance = pAI->me->GetDistance(guardPosition);
-        if (guardCount < bestCount ||
-           (guardCount == bestCount &&
-            ((isRevivedNode && !bestIsRevivedNode) ||
-             (isRevivedNode == bestIsRevivedNode && distance < bestDistance))))
+        if (guardCount < bestCount)
         {
             outPosition = guardPosition;
             bestCount = guardCount;
-            bestIsRevivedNode = isRevivedNode;
-            bestDistance = distance;
             found = true;
         }
     }
@@ -2921,12 +2974,12 @@ static bool SelectAVReviveDefenseGraveyard(BattleBotAI* pAI, uint32 revivedNode,
     return found;
 }
 
-static bool SelectAVReviveDefenseGraveyard(BattleBotAI* pAI, uint32 revivedNode, Position& outPosition)
+static bool SelectAVReviveDefenseGraveyard(BattleBotAI* pAI, Position& outPosition)
 {
     if (pAI->me->GetTeam() == HORDE)
-        return SelectAVReviveDefenseGraveyard(pAI, revivedNode, AV_HordeNativeGraveyards, outPosition);
+        return SelectAVReviveDefenseGraveyard(pAI, AV_HordeNativeGraveyards, outPosition);
 
-    return SelectAVReviveDefenseGraveyard(pAI, revivedNode, AV_AllianceNativeGraveyards, outPosition);
+    return SelectAVReviveDefenseGraveyard(pAI, AV_AllianceNativeGraveyards, outPosition);
 }
 
 bool BattleBotTryStartAVReviveGraveyardDefense(BattleBotAI* pAI)
@@ -2940,7 +2993,7 @@ bool BattleBotTryStartAVReviveGraveyardDefense(BattleBotAI* pAI)
         return false;
 
     Position defensePosition;
-    if (!SelectAVReviveDefenseGraveyard(pAI, revivedNode, defensePosition))
+    if (!SelectAVReviveDefenseGraveyard(pAI, defensePosition))
         return false;
 
     pAI->ClearPath();
@@ -3047,8 +3100,9 @@ bool BattleBotAI::StartNewPathToObjective()
             // Alliance and Horde code is intentionally different.
             // Horde bots are more united and always go together.
             // Alliance bots can pick random objective.
-            if (GameObject* pGuardObject = FindNearbyAVKeyDefenseObject(this, AV_SHORT_GUARD_RADIUS))
-                if (!IsAVExcessShortGuardBot(this, pGuardObject->GetPosition()))
+            Position guardPosition;
+            if (FindNearbyAVKeyDefensePosition(this, AV_SHORT_GUARD_RADIUS, guardPosition))
+                if (!IsAVExcessShortGuardBot(this, guardPosition))
                     return true;
 
             if (me->GetTeam() == HORDE)
