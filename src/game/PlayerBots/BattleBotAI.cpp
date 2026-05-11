@@ -608,6 +608,9 @@ void BattleBotAI::OnJustRevived()
         return;
     }
 
+    if (BattleBotTryStartABReviveNodeDefense(this))
+        return;
+
     if (BattleBotTryStartAVReviveGraveyardDefense(this))
         return;
 

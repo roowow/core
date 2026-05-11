@@ -366,6 +366,38 @@ static uint8 CountABGuardBots(BattleBotAI* pAI, Position const& pos, bool includ
     return count;
 }
 
+static uint8 CountABGuardBotsExceptCurrent(BattleBotAI* pAI, Position const& pos, bool includeAssigned)
+{
+    Map* map = pAI->me->GetMap();
+    if (!map)
+        return 0;
+
+    uint8 count = 0;
+    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
+    {
+        if (Player* player = itr->getSource())
+        {
+            if (player == pAI->me)
+                continue;
+
+            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
+                continue;
+
+            if (player->GetDistance(pos) <= AB_GUARD_SEARCH_RADIUS &&
+                IsABSettledGuardBot(player, pAI->me))
+            {
+                ++count;
+                continue;
+            }
+
+            if (includeAssigned && IsABAssignedToGuardPosition(player, pos))
+                ++count;
+        }
+    }
+
+    return count;
+}
+
 static bool IsABGuardingPosition(Player* player, Position const& pos, bool includeAssigned)
 {
     if (player->GetDistance(pos) <= AB_GUARD_EXCESS_RADIUS)
@@ -611,6 +643,62 @@ static bool FindABOwnedGuardPosition(BattleBotAI* pAI, Position& outPosition)
         return false;
 
     outPosition = SelectABPositionForBot(pAI, bestNodes);
+    return true;
+}
+
+static bool FindABReviveDefensePosition(BattleBotAI* pAI, Position& outPosition)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AB || bg->GetStatus() != STATUS_IN_PROGRESS)
+        return false;
+
+    if (CountABOccupiedNodesByTeam(bg, pAI->me->GetTeam()) < 2)
+        return false;
+
+    uint8 const requiredGuards = GetABRequiredGuardBots(bg, pAI->me->GetTeam());
+    uint8 bestCount = requiredGuards;
+    float bestDistance = FLT_MAX;
+    bool found = false;
+
+    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
+    {
+        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
+            continue;
+
+        uint8 const count = CountABGuardBotsExceptCurrent(pAI, AB_GuardPositions[i], true);
+        if (count >= requiredGuards)
+            continue;
+
+        float const distance = pAI->me->GetDistance(AB_GuardPositions[i]);
+        if (count < bestCount || (count == bestCount && distance < bestDistance))
+        {
+            outPosition = AB_GuardPositions[i];
+            bestCount = count;
+            bestDistance = distance;
+            found = true;
+        }
+    }
+
+    return found;
+}
+
+bool BattleBotTryStartABReviveNodeDefense(BattleBotAI* pAI)
+{
+    Position targetPosition;
+    if (!FindABReviveDefensePosition(pAI, targetPosition))
+        return false;
+
+    pAI->ClearPath();
+    if (pAI->StartNewPathToPosition(targetPosition, vPaths_AB))
+        return true;
+
+    if (pAI->me->GetDistance(targetPosition) <= AB_GUARD_EXCESS_RADIUS)
+    {
+        pAI->StopMoving();
+        return true;
+    }
+
+    pAI->me->GetMotionMaster()->MovePoint(0, targetPosition.x, targetPosition.y, targetPosition.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
     return true;
 }
 
@@ -2947,7 +3035,8 @@ bool BattleBotAI::StartNewPathToObjective()
         case BATTLEGROUND_AB:
         {
             Position targetPosition;
-            if (FindABOwnedGuardPosition(this, targetPosition))
+            if (CountABOccupiedNodesByTeam(bg, me->GetTeam()) >= 2 &&
+                FindABOwnedGuardPosition(this, targetPosition))
             {
                 if (StartNewPathToPosition(targetPosition, vPaths_AB))
                     return true;
