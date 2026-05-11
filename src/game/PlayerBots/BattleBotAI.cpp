@@ -3034,6 +3034,9 @@ void BattleBotAI::UpdateOutOfCombatAI_Druid()
         return;
 
     BattleGround* bg = me->GetBattleGround();
+    if (bg && bg->GetTypeID() == BATTLEGROUND_WS && BattleBotIsWSGHomeGuardCandidate(this) && !me->GetVictim())
+        return;
+
     if (bg && bg->GetStatus() == STATUS_WAIT_JOIN)
     {
         if (m_spells.druid.pGiftoftheWild)
