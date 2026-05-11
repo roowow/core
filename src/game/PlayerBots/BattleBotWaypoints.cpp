@@ -3189,6 +3189,78 @@ static bool FindAVRearGuardPosition(BattleBotAI* pAI, Position& outPosition)
     return FindAVRearGuardPosition(pAI, AV_AllianceNativeGraveyards, outPosition);
 }
 
+static bool BattleBotNeedsRecovery(BattleBotAI* pAI)
+{
+    bool const needToEat = pAI->me->GetHealthPercent() < 90.0f;
+    bool needToDrink = (pAI->me->GetPowerType() == POWER_MANA) && (pAI->me->GetPowerPercent(POWER_MANA) < 90.0f);
+    if (needToDrink &&
+        pAI->me->GetClass() == CLASS_DRUID &&
+        pAI->me->GetShapeshiftForm() != FORM_NONE &&
+       (pAI->GetRole() == ROLE_MELEE_DPS || pAI->GetRole() == ROLE_TANK))
+        needToDrink = false;
+
+    return needToEat || needToDrink || pAI->me->HasAura(BB_SPELL_FOOD) || pAI->me->HasAura(BB_SPELL_DRINK);
+}
+
+static bool MoveGuardBackBeforeRecovery(BattleBotAI* pAI, Position const& guardPosition, float readyRadius, std::vector<BattleBotPath*> const* paths)
+{
+    if (pAI->me->GetDistance(guardPosition) <= readyRadius)
+        return false;
+
+    pAI->me->RemoveAurasDueToSpellByCancel(BB_SPELL_FOOD);
+    pAI->me->RemoveAurasDueToSpellByCancel(BB_SPELL_DRINK);
+    if (pAI->me->GetStandState() != UNIT_STAND_STATE_STAND)
+        pAI->me->SetStandState(UNIT_STAND_STATE_STAND);
+
+    pAI->ClearPath();
+    if (paths && pAI->StartNewPathToPosition(guardPosition, *paths))
+        return true;
+
+    pAI->me->GetMotionMaster()->MovePoint(0, guardPosition.x, guardPosition.y, guardPosition.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+    return true;
+}
+
+bool BattleBotReturnToGuardPositionBeforeRecovery(BattleBotAI* pAI)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg || bg->GetStatus() != STATUS_IN_PROGRESS)
+        return false;
+
+    if (pAI->me->IsInCombat() || pAI->me->GetVictim() || pAI->me->IsMounted())
+        return false;
+
+    if (!BattleBotNeedsRecovery(pAI))
+        return false;
+
+    switch (bg->GetTypeID())
+    {
+        case BATTLEGROUND_AB:
+        {
+            Position guardPosition;
+            if (FindABOwnedGuardPosition(pAI, guardPosition))
+                return MoveGuardBackBeforeRecovery(pAI, guardPosition, AB_GUARD_KEEP_RADIUS, &vPaths_AB);
+
+            return false;
+        }
+        case BATTLEGROUND_AV:
+        {
+            Position guardPosition;
+            if (FindNearbyAVKeyDefensePosition(pAI, AV_FLAG_DEFENSE_RADIUS, guardPosition) &&
+                !IsAVExcessShortGuardBot(pAI, guardPosition))
+                return MoveGuardBackBeforeRecovery(pAI, guardPosition, 20.0f, nullptr);
+
+            Position rearGuardPosition;
+            if (FindAVRearGuardPosition(pAI, rearGuardPosition) &&
+                pAI->me->GetDistance(rearGuardPosition) <= 90.0f)
+                return MoveGuardBackBeforeRecovery(pAI, rearGuardPosition, 20.0f, nullptr);
+
+            return false;
+        }
+        default:
+            return false;
+    }
+}
+
 Unit* BattleBotSelectAVFlagDefenseTarget(BattleBotAI const* pAI, Unit* pExcept)
 {
     BattleGround* bg = pAI->me->GetBattleGround();

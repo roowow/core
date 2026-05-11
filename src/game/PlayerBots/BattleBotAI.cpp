@@ -975,6 +975,9 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         if (BattleBotTryCaptureNearbyObjective(this))
             return;
 
+        if (BattleBotReturnToGuardPositionBeforeRecovery(this))
+            return;
+
         if (DrinkAndEat())
             return;
     }
