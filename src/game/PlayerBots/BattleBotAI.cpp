@@ -608,9 +608,6 @@ void BattleBotAI::OnJustRevived()
         return;
     }
 
-    if (BattleBotTryStartAVReviveGraveyardDefense(this))
-        return;
-
     if (!me->SelectRandomUnfriendlyTarget(nullptr, 30.0f))
         DoGraveyardJump();
 }

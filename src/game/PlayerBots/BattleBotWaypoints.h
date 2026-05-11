@@ -67,7 +67,6 @@ extern std::vector<BattleBotPath*> const vPaths_AV;
 bool BattleBotTryCaptureNearbyObjective(BattleBotAI* pAI);
 Unit* BattleBotSelectABFlagDefenseTarget(BattleBotAI const* pAI, Unit* pExcept);
 Unit* BattleBotSelectAVFlagDefenseTarget(BattleBotAI const* pAI, Unit* pExcept);
-bool BattleBotTryStartAVReviveGraveyardDefense(BattleBotAI* pAI);
 bool BattleBotIsWSGHomeGuardCandidate(BattleBotAI const* pAI);
 
 #endif
