@@ -3060,6 +3060,11 @@ void BattleBotAI::UpdateOutOfCombatAI_Druid()
             }
         }
 
+        if (m_isBuffing &&
+           (!m_spells.druid.pGiftoftheWild || !me->HasGCD(m_spells.druid.pGiftoftheWild)) &&
+           (!m_spells.druid.pThorns || !me->HasGCD(m_spells.druid.pThorns)))
+            m_isBuffing = false;
+
         return;
     }
     else
