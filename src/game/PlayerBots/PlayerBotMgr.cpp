@@ -616,6 +616,7 @@ void PlayerBotMgr::Update(uint32 diff)
                 bool const isStartedBg = inProgressBg[bracketId] && inProgressTarget[bracketId];
                 uint32 const fillTarget = isStartedBg ? inProgressTarget[bracketId] : GetBattleBotFillTarget(bgTypeId, bg);
                 uint32 const maxAutoTeamCount = isStartedBg ? inProgressTarget[bracketId] : GetBattleBotMaxAutoTeamCount(bgTypeId, bg);
+                uint32 const queueFillTarget = isStartedBg ? fillTarget : std::min<uint32>(maxAutoTeamCount, fillTarget + 1);
 
                 bool toAddBattleBot = false;
                 // BattleBot AutoJoin
@@ -648,10 +649,8 @@ void PlayerBotMgr::Update(uint32 diff)
                     if (waitingHordePlayers[bracketId])
                         freeBattleBotSlotForWaitingPlayer(HORDE, BattleGroundBracketId(bracketId));
 
-                    uint32 const allianceFillTarget = isStartedBg ? fillTarget : std::min<uint32>(maxAutoTeamCount, fillTarget + waitingAlliancePlayers[bracketId]);
-                    uint32 const hordeFillTarget = isStartedBg ? fillTarget : std::min<uint32>(maxAutoTeamCount, fillTarget + waitingHordePlayers[bracketId]);
-                    uint32 const allianceTarget = std::min<uint32>(maxAutoTeamCount, std::max<uint32>(allianceFillTarget, queuedHordeCount[bracketId]));
-                    uint32 const hordeTarget = std::min<uint32>(maxAutoTeamCount, std::max<uint32>(hordeFillTarget, queuedAllianceCount[bracketId]));
+                    uint32 const allianceTarget = std::min<uint32>(maxAutoTeamCount, std::max<uint32>(queueFillTarget, queuedHordeCount[bracketId]));
+                    uint32 const hordeTarget = std::min<uint32>(maxAutoTeamCount, std::max<uint32>(queueFillTarget, queuedAllianceCount[bracketId]));
 
                     for (uint32 i = queuedAllianceCount[bracketId]; i < allianceTarget; ++i)
                     {
@@ -664,6 +663,7 @@ void PlayerBotMgr::Update(uint32 diff)
                         {
                             AddBattleBot(BattleGroundQueueTypeId(queueType), ALLIANCE, botLevel, true);
                         }
+                        ++queuedAllianceCount[bracketId];
                     }
                     for (uint32 i = queuedHordeCount[bracketId]; i < hordeTarget; ++i)
                     {
@@ -676,6 +676,7 @@ void PlayerBotMgr::Update(uint32 diff)
                         {
                             AddBattleBot(BattleGroundQueueTypeId(queueType), HORDE, botLevel, true);
                         }
+                        ++queuedHordeCount[bracketId];
                     }
                 }
             }
