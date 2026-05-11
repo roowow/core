@@ -2593,7 +2593,8 @@ bool BattleBotAI::StartNewPathToObjective()
     bool const needToDrink = (me->GetPowerType() == POWER_MANA) && (me->GetPowerPercent(POWER_MANA) < 90.0f);
     if (!me->IsInCombat())
     {
-        if (needToEat || needToDrink)
+        bool const isWSGHomeGuard = bg->GetTypeID() == BATTLEGROUND_WS && BattleBotIsWSGHomeGuardCandidate(this);
+        if (!isWSGHomeGuard && (needToEat || needToDrink))
             return false;
     }
 

@@ -596,6 +596,15 @@ void BattleBotAI::OnJustRevived()
     //Bholder->UpdateAuraDuration();
 
     SummonPetIfNeeded();
+    if (BattleBotIsWSGHomeGuardCandidate(this))
+    {
+        ClearPath();
+        if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
+            StopMoving();
+        StartNewPathToObjective();
+        return;
+    }
+
     if (!me->SelectRandomUnfriendlyTarget(nullptr, 30.0f))
         DoGraveyardJump();
 }
