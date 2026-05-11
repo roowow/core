@@ -220,6 +220,34 @@ static uint32 GetBattleBotMaxAutoTeamCount(BattleGroundTypeId bgTypeId, BattleGr
     return bg->GetMaxPlayersPerTeam();
 }
 
+static bool BattleBotIsActiveForQueue(BattleBotAI const* battleBotAI, BattleGroundQueue& bgQueue, BattleGroundQueueTypeId queueType)
+{
+    if (!battleBotAI || battleBotAI->m_battlegroundId != queueType)
+        return false;
+
+    Player* bot = battleBotAI->me;
+    if (!bot)
+        return false;
+
+    BattleGroundTypeId const bgTypeId = BattleGroundMgr::BgTemplateId(queueType);
+    if (bot->InBattleGround())
+    {
+        if (BattleGround* bg = bot->GetBattleGround())
+            return bg->GetTypeID() == bgTypeId;
+
+        return bot->GetBattleGroundTypeId() == bgTypeId;
+    }
+
+    if (!bot->InBattleGroundQueueForBattleGroundQueueType(queueType))
+        return false;
+
+    GroupQueueInfo groupInfo;
+    if (!bgQueue.GetPlayerGroupInfoData(bot->GetObjectGuid(), &groupInfo))
+        return false;
+
+    return groupInfo.bgTypeId == bgTypeId;
+}
+
 void PlayerBotMgr::Update(uint32 diff)
 {
     // Temporary bots.
@@ -348,6 +376,7 @@ void PlayerBotMgr::Update(uint32 diff)
             BattleGround* inProgressBg[MAX_BATTLEGROUND_BRACKETS] = {};
             uint32 inProgressTarget[MAX_BATTLEGROUND_BRACKETS] = {};
             BattleGroundQueue& bgQueue = sBattleGroundMgr.m_battleGroundQueues[queueType];
+            BattleGroundQueueTypeId const queueTypeId = BattleGroundQueueTypeId(queueType);
             BattleGroundTypeId bgTypeId = BattleGroundMgr::BgTemplateId(BattleGroundQueueTypeId(queueType));
             for (auto const& itr : bgQueue.m_queuedPlayers)
             {
@@ -386,6 +415,9 @@ void PlayerBotMgr::Update(uint32 diff)
 
                 BattleBotAI* pBattleBotAI = dynamic_cast<BattleBotAI*>(entry->ai.get());
                 if (!pBattleBotAI || pBattleBotAI->m_battlegroundId != queueType)
+                    continue;
+
+                if (entry->state != PB_STATE_LOADING && !BattleBotIsActiveForQueue(pBattleBotAI, bgQueue, queueTypeId))
                     continue;
 
                 BattleGroundBracketId bgBracketId = Player::GetBattleGroundBracketIdFromLevel(bgTypeId, pBattleBotAI->m_level);
