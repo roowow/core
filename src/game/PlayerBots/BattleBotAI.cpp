@@ -174,7 +174,7 @@ bool BattleBotAI::UseMount()
     if (me->IsMoving())
     {
         if (BattleGround* bg = me->GetBattleGround())
-            if (bg->GetTypeID() == BATTLEGROUND_AV)
+            if (bg->GetTypeID() == BATTLEGROUND_AV || bg->GetTypeID() == BATTLEGROUND_WS)
                 return false;
 
         ClearPath();

@@ -580,7 +580,12 @@ void MoveToNextPointSpecial(BattleBotAI* pAI)
 
     BattleBotWaypoint& nextPoint = pAI->m_currentPath->at(pAI->m_currentPoint);
 
-    pAI->me->GetMotionMaster()->MovePoint(pAI->m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, MOVE_RUN_MODE);
+    uint32 moveFlags = MOVE_RUN_MODE;
+    if (BattleGround* bg = pAI->me->GetBattleGround())
+        if (bg->GetTypeID() == BATTLEGROUND_WS)
+            moveFlags = MOVE_NONE;
+
+    pAI->me->GetMotionMaster()->MovePoint(pAI->m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, moveFlags);
 }
 
 std::vector<RecordedMovementPacket> vAllianceGraveyardJumpPath =
@@ -2107,7 +2112,12 @@ void BattleBotAI::MoveToNextPoint()
 
     BattleBotWaypoint& nextPoint = m_currentPath->at(m_currentPoint);
 
-    me->GetMotionMaster()->MovePoint(m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+    uint32 moveFlags = MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES;
+    if (BattleGround* bg = me->GetBattleGround())
+        if (bg->GetTypeID() != BATTLEGROUND_WS)
+            moveFlags |= MOVE_RUN_MODE;
+
+    me->GetMotionMaster()->MovePoint(m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, moveFlags);
 }
 
 bool BattleBotAI::StartNewPathFromBeginning()
