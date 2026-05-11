@@ -315,6 +315,11 @@ static uint8 GetABHomeNode(Team team)
     return team == ALLIANCE ? BG_AB_NODE_STABLES : BG_AB_NODE_FARM;
 }
 
+static Position const& SelectABPositionForBot(BattleBotAI* pAI, std::vector<uint8> const& nodes)
+{
+    return AB_GuardPositions[nodes[pAI->me->GetObjectGuid().GetCounter() % nodes.size()]];
+}
+
 static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
 {
     BattleGround* bg = pAI->me->GetBattleGround();
@@ -330,8 +335,7 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
     }
 
     uint8 bestCount = AB_GUARD_REQUIRED_BOTS;
-    float bestDistance = FLT_MAX;
-    bool found = false;
+    std::vector<uint8> bestNodes;
 
     for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
     {
@@ -342,17 +346,23 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
         if (count >= AB_GUARD_REQUIRED_BOTS)
             continue;
 
-        float dist = pAI->me->GetDistance(AB_GuardPositions[i]);
-        if (!found || count < bestCount || (count == bestCount && dist < bestDistance))
+        if (count < bestCount)
         {
-            found = true;
             bestCount = count;
-            bestDistance = dist;
-            outPosition = AB_GuardPositions[i];
+            bestNodes.clear();
+        }
+
+        if (count == bestCount)
+        {
+            bestNodes.push_back(i);
         }
     }
 
-    return found;
+    if (bestNodes.empty())
+        return false;
+
+    outPosition = SelectABPositionForBot(pAI, bestNodes);
+    return true;
 }
 
 static bool FindABOwnedGuardPosition(BattleBotAI* pAI, Position& outPosition)
@@ -375,8 +385,7 @@ static bool FindABOwnedGuardPosition(BattleBotAI* pAI, Position& outPosition)
     }
 
     uint8 bestCount = AB_GUARD_REQUIRED_BOTS;
-    float bestDistance = FLT_MAX;
-    bool found = false;
+    std::vector<uint8> bestNodes;
 
     for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
     {
@@ -387,17 +396,23 @@ static bool FindABOwnedGuardPosition(BattleBotAI* pAI, Position& outPosition)
         if (count >= AB_GUARD_REQUIRED_BOTS)
             continue;
 
-        float dist = pAI->me->GetDistance(AB_GuardPositions[i]);
-        if (!found || count < bestCount || (count == bestCount && dist < bestDistance))
+        if (count < bestCount)
         {
-            found = true;
             bestCount = count;
-            bestDistance = dist;
-            outPosition = AB_GuardPositions[i];
+            bestNodes.clear();
+        }
+
+        if (count == bestCount)
+        {
+            bestNodes.push_back(i);
         }
     }
 
-    return found;
+    if (bestNodes.empty())
+        return false;
+
+    outPosition = SelectABPositionForBot(pAI, bestNodes);
+    return true;
 }
 
 static bool IsABFlagOpenable(BattleBotAI* pAI, GameObject* pGo)
