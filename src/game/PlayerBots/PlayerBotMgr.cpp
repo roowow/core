@@ -188,6 +188,30 @@ void PlayerBotMgr::OnPlayerInWorld(Player* player)
     }
 }
 
+static uint32 GetBattleBotFillTarget(BattleGroundTypeId bgTypeId, BattleGround const* bg)
+{
+    uint32 desiredCount = bg->GetMinPlayersPerTeam();
+    switch (bgTypeId)
+    {
+        case BATTLEGROUND_WS:
+            desiredCount = 8;
+            break;
+        case BATTLEGROUND_AB:
+            desiredCount = 12;
+            break;
+        case BATTLEGROUND_AV:
+            desiredCount = 30;
+            break;
+        default:
+            break;
+    }
+
+    if (bg->GetMaxPlayersPerTeam() <= 1)
+        return 0;
+
+    return std::min<uint32>(desiredCount, bg->GetMaxPlayersPerTeam() - 1);
+}
+
 void PlayerBotMgr::Update(uint32 diff)
 {
     // Temporary bots.
@@ -309,34 +333,41 @@ void PlayerBotMgr::Update(uint32 diff)
         for (uint32 queueType = BATTLEGROUND_QUEUE_AV; queueType < MAX_BATTLEGROUND_QUEUE_TYPES; ++queueType)
         {
             bool hasPlayerInQueue[MAX_BATTLEGROUND_BRACKETS] = {};
+            uint32 waitingAlliancePlayers[MAX_BATTLEGROUND_BRACKETS] = {};
+            uint32 waitingHordePlayers[MAX_BATTLEGROUND_BRACKETS] = {};
             uint32 queuedAllianceCount[MAX_BATTLEGROUND_BRACKETS] = {};
             uint32 queuedHordeCount[MAX_BATTLEGROUND_BRACKETS] = {};
-            BattleGroundQueue const& bgQueue = sBattleGroundMgr.m_battleGroundQueues[queueType];
+            BattleGroundQueue& bgQueue = sBattleGroundMgr.m_battleGroundQueues[queueType];
+            BattleGroundTypeId bgTypeId = BattleGroundMgr::BgTemplateId(BattleGroundQueueTypeId(queueType));
             for (auto const& itr : bgQueue.m_queuedPlayers)
             {
-                if (itr.second.groupInfo->isInvitedToBgInstanceGuid)
-                    continue;
-
                 if (Player* pPlayer = sObjectAccessor.FindPlayer(itr.first))
                 {
-                    BattleGroundTypeId bgTypeId = itr.second.groupInfo->bgTypeId;
-                    BattleGroundBracketId bgBracketId = pPlayer->GetBattleGroundBracketIdFromLevel(bgTypeId);
+                    BattleGroundBracketId bgBracketId = pPlayer->GetBattleGroundBracketIdFromLevel(itr.second.groupInfo->bgTypeId);
                     if (bgBracketId == BG_BRACKET_ID_NONE)
                         continue;
 
                     if (!pPlayer->IsBot())
                     {
                         if (itr.second.groupInfo->groupTeam == ALLIANCE)
+                        {
                             ++queuedAllianceCount[bgBracketId];
+                            if (!itr.second.groupInfo->isInvitedToBgInstanceGuid)
+                                ++waitingAlliancePlayers[bgBracketId];
+                        }
                         else
+                        {
                             ++queuedHordeCount[bgBracketId];
+                            if (!itr.second.groupInfo->isInvitedToBgInstanceGuid)
+                                ++waitingHordePlayers[bgBracketId];
+                        }
 
-                        hasPlayerInQueue[bgBracketId] = true;
+                        if (!itr.second.groupInfo->isInvitedToBgInstanceGuid)
+                            hasPlayerInQueue[bgBracketId] = true;
                     }
                 }
             }
 
-            BattleGroundTypeId bgTypeId = BattleGroundMgr::BgTemplateId(BattleGroundQueueTypeId(queueType));
             for (auto const& botItr : m_bots)
             {
                 PlayerBotEntry const* entry = botItr.second.get();
@@ -358,6 +389,106 @@ void PlayerBotMgr::Update(uint32 diff)
                     ++queuedHordeCount[bgBracketId];
             }
 
+            for (auto itr = sBattleGroundMgr.GetBattleGroundsBegin(bgTypeId); itr != sBattleGroundMgr.GetBattleGroundsEnd(bgTypeId); ++itr)
+            {
+                BattleGround* runningBg = itr->second;
+                if (!runningBg || runningBg->GetClientInstanceID() == 0)
+                    continue;
+
+                if (runningBg->GetStatus() <= STATUS_WAIT_QUEUE || runningBg->GetStatus() >= STATUS_WAIT_LEAVE)
+                    continue;
+
+                BattleGroundBracketId bgBracketId = runningBg->GetBracketId();
+                if (bgBracketId == BG_BRACKET_ID_NONE)
+                    continue;
+
+                for (auto const& playerItr : runningBg->GetPlayers())
+                {
+                    Player const* player = sObjectMgr.GetPlayer(playerItr.first);
+                    if (!player || player->IsBot())
+                        continue;
+
+                    if (player->GetTeam() == ALLIANCE)
+                        ++queuedAllianceCount[bgBracketId];
+                    else
+                        ++queuedHordeCount[bgBracketId];
+                }
+            }
+
+            auto removeInvitedBattleBot = [&](BattleGround* runningBg, Team team, BattleGroundBracketId bracketId) -> bool
+            {
+                for (auto const& botItr : m_bots)
+                {
+                    PlayerBotEntry* entry = botItr.second.get();
+                    if (!entry || entry->requestRemoval || entry->state == PB_STATE_OFFLINE)
+                        continue;
+
+                    BattleBotAI* pBattleBotAI = dynamic_cast<BattleBotAI*>(entry->ai.get());
+                    if (!pBattleBotAI || !pBattleBotAI->m_temporary || pBattleBotAI->m_battlegroundId != queueType)
+                        continue;
+
+                    if (Player::TeamForRace(pBattleBotAI->m_race) != team)
+                        continue;
+
+                    if (Player::GetBattleGroundBracketIdFromLevel(bgTypeId, pBattleBotAI->m_level) != bracketId)
+                        continue;
+
+                    Player* bot = pBattleBotAI->me;
+                    if (!bot || bot->InBattleGround())
+                        continue;
+
+                    GroupQueueInfo groupInfo;
+                    if (!bgQueue.GetPlayerGroupInfoData(bot->GetObjectGuid(), &groupInfo))
+                        continue;
+
+                    if (groupInfo.isInvitedToBgInstanceGuid != runningBg->GetInstanceID())
+                        continue;
+
+                    bot->RemoveBattleGroundQueueId(BattleGroundQueueTypeId(queueType));
+                    bgQueue.RemovePlayer(bot->GetObjectGuid(), true);
+                    entry->requestRemoval = true;
+                    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[PlayerBotMgr] Removed invited temporary battlebot %u from queue %u to free a player slot.", bot->GetGUIDLow(), queueType);
+                    return true;
+                }
+
+                return false;
+            };
+
+            auto freeBattleBotSlotForWaitingPlayer = [&](Team team, BattleGroundBracketId bracketId) -> bool
+            {
+                for (auto itr = sBattleGroundMgr.GetBattleGroundsBegin(bgTypeId); itr != sBattleGroundMgr.GetBattleGroundsEnd(bgTypeId); ++itr)
+                {
+                    BattleGround* runningBg = itr->second;
+                    if (!runningBg || runningBg->GetClientInstanceID() == 0)
+                        continue;
+
+                    if (runningBg->GetBracketId() != bracketId)
+                        continue;
+
+                    if (runningBg->GetStatus() <= STATUS_WAIT_QUEUE || runningBg->GetStatus() >= STATUS_WAIT_LEAVE)
+                        continue;
+
+                    if (runningBg->GetFreeSlotsForTeam(team) > 0)
+                        continue;
+
+                    if (removeInvitedBattleBot(runningBg, team, bracketId))
+                    {
+                        sBattleGroundMgr.ScheduleQueueUpdate(BattleGroundQueueTypeId(queueType), bgTypeId, bracketId);
+                        return true;
+                    }
+
+                    if (runningBg->GetBotPlayersCountByTeam(team) && runningBg->DeleteBattleBot(team))
+                    {
+                        runningBg->AddToBGFreeSlotQueue();
+                        sBattleGroundMgr.ScheduleQueueUpdate(BattleGroundQueueTypeId(queueType), bgTypeId, bracketId);
+                        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[PlayerBotMgr] Removed in-battleground battlebot from queue %u team %u to free a player slot.", queueType, team);
+                        return true;
+                    }
+                }
+
+                return false;
+            };
+
             for (uint32 bracketId = BG_BRACKET_ID_FIRST; bracketId < MAX_BATTLEGROUND_BRACKETS; ++bracketId)
             {
                 if (!hasPlayerInQueue[bracketId])
@@ -372,6 +503,8 @@ void PlayerBotMgr::Update(uint32 diff)
                 uint32 const minLevel = bg->GetMinLevel() + 10 * bracketId;
                 ASSERT(minLevel <= PLAYER_MAX_LEVEL);
                 uint32 const maxLevel = std::min<uint32>(minLevel + 9, PLAYER_MAX_LEVEL);
+                uint32 const fillTarget = GetBattleBotFillTarget(bgTypeId, bg);
+                uint32 const maxAutoTeamCount = bg->GetMaxPlayersPerTeam() > 1 ? bg->GetMaxPlayersPerTeam() - 1 : 0;
 
                 bool toAddBattleBot = false;
                 // BattleBot AutoJoin
@@ -393,7 +526,15 @@ void PlayerBotMgr::Update(uint32 diff)
 
                 if (toAddBattleBot && m_confBattleBotAutoJoin)
                 {
-                    for (uint32 i = queuedAllianceCount[bracketId]; i < bg->GetMinPlayersPerTeam(); ++i)
+                    if (waitingAlliancePlayers[bracketId])
+                        freeBattleBotSlotForWaitingPlayer(ALLIANCE, BattleGroundBracketId(bracketId));
+                    if (waitingHordePlayers[bracketId])
+                        freeBattleBotSlotForWaitingPlayer(HORDE, BattleGroundBracketId(bracketId));
+
+                    uint32 const allianceTarget = std::min<uint32>(maxAutoTeamCount, std::max<uint32>(fillTarget, queuedHordeCount[bracketId]));
+                    uint32 const hordeTarget = std::min<uint32>(maxAutoTeamCount, std::max<uint32>(fillTarget, queuedAllianceCount[bracketId]));
+
+                    for (uint32 i = queuedAllianceCount[bracketId]; i < allianceTarget; ++i)
                     {
                         uint32 const botLevel = urand(minLevel, maxLevel);
                         if (maxLevel > 50)
@@ -405,7 +546,7 @@ void PlayerBotMgr::Update(uint32 diff)
                             AddBattleBot(BattleGroundQueueTypeId(queueType), ALLIANCE, botLevel, true);
                         }
                     }
-                    for (uint32 i = queuedHordeCount[bracketId]; i < bg->GetMinPlayersPerTeam(); ++i)
+                    for (uint32 i = queuedHordeCount[bracketId]; i < hordeTarget; ++i)
                     {
                         uint32 const botLevel = urand(minLevel, maxLevel);
                         if (maxLevel > 50)

@@ -795,6 +795,9 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
     if (!me->InBattleGround())
     {
+        if (botEntry && botEntry->requestRemoval)
+            return;
+
         if (m_wasInBG)
         {
             m_wasInBG = false;
