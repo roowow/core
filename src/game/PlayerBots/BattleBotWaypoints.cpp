@@ -97,7 +97,7 @@ bool BattleBotIsWSGHomeGuardCandidate(BattleBotAI const* pAI)
         return false;
 
     Map* map = pAI->me->GetMap();
-    if (!map || HasEnemyFlagAura(pAI->me) || !pAI->me->IsAlive())
+    if (!map)
         return false;
 
     uint8 higherGuidCandidates = 0;
@@ -108,10 +108,7 @@ bool BattleBotIsWSGHomeGuardCandidate(BattleBotAI const* pAI)
             if (player == pAI->me)
                 continue;
 
-            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
-                continue;
-
-            if (HasEnemyFlagAura(player))
+            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot())
                 continue;
 
             if (player->GetObjectGuid().GetCounter() > pAI->me->GetObjectGuid().GetCounter())
@@ -125,9 +122,6 @@ bool BattleBotIsWSGHomeGuardCandidate(BattleBotAI const* pAI)
 static bool StartWSGHomeGuardObjective(BattleBotAI* pAI, BattleGroundWS* bgWS)
 {
     if (!bgWS || !BattleBotIsWSGHomeGuardCandidate(pAI))
-        return false;
-
-    if (HasEnemyFlagAura(pAI->me))
         return false;
 
     Team const team = pAI->me->GetTeam();
@@ -2758,7 +2752,7 @@ bool BattleBotAI::StartNewPathToObjective()
                 if (!bgWS->IsAllianceFlagPickedup())
                 {
                     float const distance = me->GetDistance(WS_FLAG_POS_ALLIANCE);
-                    if (distance > 20.0f && distance < 300.0f)
+                    if (distance > 20.0f)
                         return StartNewPathToPosition(WS_FLAG_POS_ALLIANCE, vPaths_WS);
                 }
             }
@@ -2769,7 +2763,7 @@ bool BattleBotAI::StartNewPathToObjective()
                 if (!bgWS->IsHordeFlagPickedup())
                 {
                     float const distance = me->GetDistance(WS_FLAG_POS_HORDE);
-                    if (distance > 20.0f && distance < 300.0f)
+                    if (distance > 20.0f)
                         return StartNewPathToPosition(WS_FLAG_POS_HORDE, vPaths_WS);
                 }
             }
