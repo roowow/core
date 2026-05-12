@@ -312,6 +312,10 @@ Unit* BattleBotAI::SelectAVOpeningObjectiveNpcTarget(Unit* pExcept) const
         if (!IsValidHostileTarget(target) || IsBadPlayer(target))
             continue;
 
+        Unit* victim = target->GetVictim();
+        if (!victim || !victim->ToPlayer() || !victim->IsFriendlyTo(me))
+            continue;
+
         if (!me->IsWithinLOSInMap(target))
             continue;
 
