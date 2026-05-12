@@ -265,7 +265,7 @@ float BattleBotAI::GetMaxAggroDistanceForMap() const
         return 50.0f;
 
     if (bg->GetStatus() == STATUS_IN_PROGRESS && bg->GetStartTime() <= 5 * MINUTE * IN_MILLISECONDS)
-        return 12.0f;
+        return 10.0f;
 
     return 20.0f;
 }
