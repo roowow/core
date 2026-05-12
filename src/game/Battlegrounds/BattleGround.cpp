@@ -451,6 +451,8 @@ void BattleGround::Update(uint32 diff)
         }
     }
 
+    m_afkMgr.Update(this, diff);
+
     //update start time
     m_startTime += diff;
 }
@@ -916,6 +918,8 @@ void BattleGround::RemovePlayerAtLeave(ObjectGuid guid, bool transport, bool sen
         m_playerScores.erase(itr2);
     }
 
+    m_afkMgr.RemovePlayer(guid);
+
     Player* pPlayer = sObjectMgr.GetPlayer(guid);
 
     // should remove spirit of redemption
@@ -1016,6 +1020,8 @@ void BattleGround::Reset()
     for (const auto& itr : m_playerScores)
         delete itr.second;
     m_playerScores.clear();
+
+    m_afkMgr.Reset();
 }
 
 void BattleGround::StartBattleGround()

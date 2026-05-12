@@ -30,6 +30,7 @@
 #include "WorldStates.h"
 #include "SpellDefines.h"
 #include "BattleGroundDefines.h"
+#include "BattleGroundAfkMgr.h"
 
 class Creature;
 class GameObject;
@@ -412,6 +413,7 @@ class BattleGround
         float m_teamStartLocO[BG_TEAMS_COUNT];
 
         uint32 m_playerSkinReflootId;
+        BattleGroundAfkMgr m_afkMgr;
 };
 
 // helper functions for world state list fill
