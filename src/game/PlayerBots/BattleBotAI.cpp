@@ -264,14 +264,24 @@ float BattleBotAI::GetMaxAggroDistanceForMap() const
     if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
         return 50.0f;
 
-    return 30.0f;
+    if (bg->GetStatus() == STATUS_IN_PROGRESS && bg->GetStartTime() <= 5 * MINUTE * IN_MILLISECONDS)
+        return 12.0f;
+
+    return 20.0f;
 }
 
 uint32 BattleBotAI::GetAVStartWaveDelay() const
 {
     uint32 const guid = me->GetObjectGuid().GetCounter();
-    uint32 const wave = guid % 4;
-    return wave * 60;
+    uint32 const bucket = guid % 10;
+
+    if (bucket < 4)
+        return 0;
+
+    if (bucket < 7)
+        return 60;
+
+    return 120;
 }
 
 bool BattleBotAI::ShouldWaitForAVStartWave()
@@ -298,7 +308,7 @@ bool BattleBotAI::ShouldWaitForAVStartWave()
         m_avStartWaveBgInstance = instanceId;
 
         // GetStartTime includes the preparation phase. Skip the wave delay for late joins.
-        if (bg->GetStartTime() > 4 * MINUTE * IN_MILLISECONDS)
+        if (bg->GetStartTime() > 3 * MINUTE * IN_MILLISECONDS)
             m_avStartWaveReleaseTime = sWorld.GetGameTime();
         else
             m_avStartWaveReleaseTime = sWorld.GetGameTime() + GetAVStartWaveDelay();
