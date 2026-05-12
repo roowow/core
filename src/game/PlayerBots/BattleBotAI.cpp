@@ -309,9 +309,9 @@ uint32 BattleBotAI::GetAVStartWaveDelay() const
         return 0;
 
     if (bucket < 7)
-        return 60;
+        return 30;
 
-    return 120;
+    return 60;
 }
 
 bool BattleBotAI::ShouldWaitForAVStartWave()
