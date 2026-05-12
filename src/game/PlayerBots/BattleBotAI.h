@@ -61,6 +61,7 @@ public:
     bool IsBadPlayer(Unit const* pTarget) const;
     float GetMaxAggroDistanceForMap() const;
     bool ShouldUseAVOpeningPassiveCombat() const;
+    Unit* SelectAVOpeningObjectiveNpcTarget(Unit* pExcept = nullptr) const;
     Unit* SelectAVOpeningRetaliationTarget(Unit* pExcept = nullptr) const;
     uint32 GetAVStartWaveDelay() const;
     bool ShouldWaitForAVStartWave();

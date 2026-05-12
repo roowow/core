@@ -19,6 +19,7 @@
 #include "BattleGround.h"
 #include "Player.h"
 #include "Group.h"
+#include "Creature.h"
 #include "CreatureAI.h"
 #include "Log.h"
 #include "MotionMaster.h"
@@ -31,6 +32,10 @@
 #include "SpellAuras.h"
 #include "Chat.h"
 #include "TargetedMovementGenerator.h"
+#include "GridNotifiersImpl.h"
+#include "CellImpl.h"
+
+#include <cfloat>
 
 enum BattleBotSpells
 {
@@ -277,6 +282,50 @@ bool BattleBotAI::ShouldUseAVOpeningPassiveCombat() const
         !BattleBotIsNearAVFlag(this, 10.0f);
 }
 
+Unit* BattleBotAI::SelectAVOpeningObjectiveNpcTarget(Unit* pExcept) const
+{
+    float const range = 20.0f;
+    std::list<Unit*> targets;
+
+    CellPair pair(MaNGOS::ComputeCellPair(me->GetPositionX(), me->GetPositionY()));
+    Cell cell(pair);
+    cell.SetNoCreate();
+
+    MaNGOS::AnyUnfriendlyUnitInObjectRangeCheck check(me, me, range);
+    MaNGOS::UnitListSearcher<MaNGOS::AnyUnfriendlyUnitInObjectRangeCheck> searcher(targets, check);
+    TypeContainerVisitor<MaNGOS::UnitListSearcher<MaNGOS::AnyUnfriendlyUnitInObjectRangeCheck>, WorldTypeMapContainer> worldSearcher(searcher);
+    TypeContainerVisitor<MaNGOS::UnitListSearcher<MaNGOS::AnyUnfriendlyUnitInObjectRangeCheck>, GridTypeMapContainer> gridSearcher(searcher);
+
+    cell.Visit(pair, worldSearcher, *me->GetMap(), *me, range);
+    cell.Visit(pair, gridSearcher, *me->GetMap(), *me, range);
+
+    Unit* bestTarget = nullptr;
+    float bestDistance = FLT_MAX;
+    for (Unit* target : targets)
+    {
+        if (target == pExcept)
+            continue;
+
+        if (!target->ToCreature())
+            continue;
+
+        if (!IsValidHostileTarget(target) || IsBadPlayer(target))
+            continue;
+
+        if (!me->IsWithinLOSInMap(target))
+            continue;
+
+        float const distance = me->GetDistance(target);
+        if (!bestTarget || distance < bestDistance)
+        {
+            bestTarget = target;
+            bestDistance = distance;
+        }
+    }
+
+    return bestTarget;
+}
+
 Unit* BattleBotAI::SelectAVOpeningRetaliationTarget(Unit* pExcept) const
 {
     HostileReference* pReference = me->GetHostileRefManager().getFirst();
@@ -404,7 +453,12 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
         return nullptr;
 
     if (ShouldUseAVOpeningPassiveCombat())
+    {
+        if (Unit* pObjectiveNpcTarget = SelectAVOpeningObjectiveNpcTarget(pExcept))
+            return pObjectiveNpcTarget;
+
         return SelectAVOpeningRetaliationTarget(pExcept);
+    }
 
     if (Unit* pFlagDefenseTarget = BattleBotSelectABFlagDefenseTarget(this, pExcept))
         return pFlagDefenseTarget;

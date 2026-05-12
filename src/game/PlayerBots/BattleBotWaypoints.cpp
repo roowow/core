@@ -2788,7 +2788,7 @@ static bool IsAVGuardAssignmentPaused(BattleGround const* bg)
 {
     return bg && bg->GetTypeID() == BATTLEGROUND_AV &&
         bg->GetStatus() == STATUS_IN_PROGRESS &&
-        bg->GetStartTime() <= 10 * MINUTE * IN_MILLISECONDS;
+        bg->GetStartTime() <= 5 * MINUTE * IN_MILLISECONDS;
 }
 
 template<std::size_t N>
