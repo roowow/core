@@ -20,6 +20,7 @@
 #include "Player.h"
 
 #include <algorithm>
+#include <ctime>
 #include <vector>
 
 namespace
@@ -182,12 +183,22 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* /*bg*/, ObjectGuid guid, Battl
     else if (state.score >= rule.warning1Score)
         targetStage = 1;
 
+    bool const cooldownReady = !state.lastWarnTime || m_elapsedTime >= state.lastWarnTime + AFK_WARNING_COOLDOWN;
+
     if (state.score < rule.warning1Score)
         state.stage = 0;
     else if (targetStage < state.stage)
         state.stage = targetStage;
 
-    if (state.score >= rule.kickScore && state.stage >= 3)
+    if (targetStage > state.stage && cooldownReady)
+    {
+        state.stage = state.stage + 1;
+        state.lastWarnTime = m_elapsedTime;
+        SendWarning(guid, state.stage, state.score);
+        return;
+    }
+
+    if (state.score >= rule.kickScore && state.stage >= 3 && cooldownReady)
     {
         if (Player* player = sObjectMgr.GetPlayer(guid))
         {
@@ -195,13 +206,6 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* /*bg*/, ObjectGuid guid, Battl
             player->LeaveBattleground();
         }
         return;
-    }
-
-    if (targetStage > state.stage && (m_elapsedTime >= state.lastWarnTime + AFK_WARNING_COOLDOWN || !state.lastWarnTime))
-    {
-        state.stage = targetStage;
-        state.lastWarnTime = m_elapsedTime;
-        SendWarning(guid, state.stage, state.score);
     }
 }
 
@@ -211,16 +215,21 @@ void BattleGroundAfkMgr::SendWarning(ObjectGuid guid, uint8 stage, uint32 /*scor
     if (!player)
         return;
 
+    time_t const now = time(nullptr);
+    tm const* localTime = localtime(&now);
+    char currentTime[6];
+    snprintf(currentTime, sizeof(currentTime), "%02u:%02u", uint32(localTime->tm_hour), uint32(localTime->tm_min));
+
     switch (stage)
     {
         case 1:
-            player->SendSysMessage("战场挂机警告 1：您在战场中的有效活动较少。");
+            player->PSendSysMessage("[%s] 战场挂机警告 1：您在战场中的有效活动较少。", currentTime);
             break;
         case 2:
-            player->SendSysMessage("战场挂机警告 2：请您参与战斗或战场目标，否则将被移出。");
+            player->PSendSysMessage("[%s] 战场挂机警告 2：请您参与战斗或战场目标，否则将被移出。", currentTime);
             break;
         case 3:
-            player->SendSysMessage("战场挂机警告 3：最后警告，请您立即参与战场。");
+            player->PSendSysMessage("[%s] 战场挂机警告 3：最后警告，请您立即参与战场。", currentTime);
             break;
         default:
             break;
