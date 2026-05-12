@@ -26,7 +26,7 @@
 namespace
 {
 uint32 const AFK_CHECK_INTERVAL = 30 * IN_MILLISECONDS;
-uint32 const AFK_WARNING_COOLDOWN = 90 * IN_MILLISECONDS;
+uint32 const AFK_WARNING_COOLDOWN = 5 * MINUTE * IN_MILLISECONDS;
 float const AFK_MIN_MOVE_DISTANCE = 5.0f;
 
 int32 ClampAfkScore(int32 score)
