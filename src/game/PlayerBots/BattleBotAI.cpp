@@ -272,6 +272,7 @@ bool BattleBotAI::ShouldUseAVOpeningPassiveCombat() const
     BattleGround* bg = me->GetBattleGround();
     return bg && bg->GetTypeID() == BATTLEGROUND_AV &&
         bg->GetStatus() == STATUS_IN_PROGRESS &&
+        !me->IsInCombat() &&
         bg->GetStartTime() <= 10 * MINUTE * IN_MILLISECONDS &&
         !BattleBotIsNearAVFlag(this, 10.0f);
 }
@@ -1179,21 +1180,6 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
             UpdateWaypointMovement();
         }
-        return;
-    }
-
-    if (ShouldUseAVOpeningPassiveCombat() && pVictim && pVictim->GetVictim() != me)
-    {
-        if (Unit* pRetaliationTarget = SelectAVOpeningRetaliationTarget(pVictim))
-        {
-            AttackStart(pRetaliationTarget);
-            return;
-        }
-
-        me->AttackStop(false);
-        me->ClearTarget();
-        if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
-            StopMoving();
         return;
     }
 
