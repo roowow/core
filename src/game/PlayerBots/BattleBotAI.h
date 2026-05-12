@@ -20,6 +20,8 @@
 #include "CombatBotBaseAI.h"
 #include "BattleBotWaypoints.h"
 
+#include <ctime>
+
 enum BattleBotWsgWaitSpot
 {
     BB_WSG_WAIT_SPOT_SPAWN,
@@ -58,6 +60,9 @@ public:
     bool CheckForUnreachableTarget();
     bool IsBadPlayer(Unit const* pTarget) const;
     float GetMaxAggroDistanceForMap() const;
+    uint32 GetAVStartWaveDelay() const;
+    bool ShouldWaitForAVStartWave();
+    bool UpdateAVStartWaveWaitingAI();
     bool AttackStart(Unit* pVictim);
     Unit* SelectAttackTarget(Unit* pExcept = nullptr) const;
     Unit* SelectFollowTarget() const;
@@ -120,6 +125,9 @@ public:
     uint32 m_currentPoint = 0;
     BattleBotPath* m_currentPath = nullptr;
     uint8 m_waitingSpot = BB_WSG_WAIT_SPOT_SPAWN;
+    bool m_avStartWaveInitialized = false;
+    uint32 m_avStartWaveBgInstance = 0;
+    time_t m_avStartWaveReleaseTime = 0;
 };
 
 #endif

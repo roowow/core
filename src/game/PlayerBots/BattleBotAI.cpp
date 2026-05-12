@@ -267,6 +267,62 @@ float BattleBotAI::GetMaxAggroDistanceForMap() const
     return 30.0f;
 }
 
+uint32 BattleBotAI::GetAVStartWaveDelay() const
+{
+    uint32 const guid = me->GetObjectGuid().GetCounter();
+    uint32 const wave = guid % 4;
+    return wave * 60;
+}
+
+bool BattleBotAI::ShouldWaitForAVStartWave()
+{
+    BattleGround* bg = me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
+        return false;
+
+    if (bg->GetStatus() == STATUS_WAIT_JOIN)
+    {
+        m_avStartWaveInitialized = false;
+        m_avStartWaveBgInstance = 0;
+        m_avStartWaveReleaseTime = 0;
+        return false;
+    }
+
+    if (bg->GetStatus() != STATUS_IN_PROGRESS)
+        return false;
+
+    uint32 const instanceId = bg->GetInstanceID();
+    if (!m_avStartWaveInitialized || m_avStartWaveBgInstance != instanceId)
+    {
+        m_avStartWaveInitialized = true;
+        m_avStartWaveBgInstance = instanceId;
+
+        // GetStartTime includes the preparation phase. Skip the wave delay for late joins.
+        if (bg->GetStartTime() > 4 * MINUTE * IN_MILLISECONDS)
+            m_avStartWaveReleaseTime = sWorld.GetGameTime();
+        else
+            m_avStartWaveReleaseTime = sWorld.GetGameTime() + GetAVStartWaveDelay();
+    }
+
+    return sWorld.GetGameTime() < m_avStartWaveReleaseTime;
+}
+
+bool BattleBotAI::UpdateAVStartWaveWaitingAI()
+{
+    if (!ShouldWaitForAVStartWave())
+        return false;
+
+    ClearPath();
+
+    if (me->GetVictim())
+        me->AttackStop(false);
+
+    if (me->IsMoving())
+        StopMoving();
+
+    return true;
+}
+
 bool BattleBotAI::AttackStart(Unit* pVictim)
 {
     m_isBuffing = false;
@@ -682,6 +738,10 @@ void BattleBotAI::OnEnterBattleGround()
 void BattleBotAI::OnLeaveBattleGround()
 {
     ClearPath();
+    m_avStartWaveInitialized = false;
+    m_avStartWaveBgInstance = 0;
+    m_avStartWaveReleaseTime = 0;
+
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
         StopMoving();
 
@@ -969,6 +1029,9 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             AttackStart(pVictim);
         return;
     }
+
+    if (UpdateAVStartWaveWaitingAI())
+        return;
 
     if (!me->IsInCombat())
     {
