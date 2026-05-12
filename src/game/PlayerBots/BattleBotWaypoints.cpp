@@ -719,6 +719,19 @@ bool AtFlag(BattleBotAI* pAI, std::vector<uint32> const& vFlagIds)
     return false;
 }
 
+bool BattleBotIsNearAVFlag(BattleBotAI const* pAI, float radius)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
+        return false;
+
+    for (uint32 const bannerId : vFlagsAV)
+        if (pAI->me->FindNearestGameObject(bannerId, radius))
+            return true;
+
+    return false;
+}
+
 static bool MoveToNearbyABOpenFlag(BattleBotAI* pAI)
 {
     GameObject* pBestFlag = nullptr;

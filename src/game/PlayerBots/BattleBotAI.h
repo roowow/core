@@ -60,6 +60,8 @@ public:
     bool CheckForUnreachableTarget();
     bool IsBadPlayer(Unit const* pTarget) const;
     float GetMaxAggroDistanceForMap() const;
+    bool ShouldUseAVOpeningPassiveCombat() const;
+    Unit* SelectAVOpeningRetaliationTarget(Unit* pExcept = nullptr) const;
     uint32 GetAVStartWaveDelay() const;
     bool ShouldWaitForAVStartWave();
     bool UpdateAVStartWaveWaitingAI();

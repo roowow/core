@@ -264,10 +264,39 @@ float BattleBotAI::GetMaxAggroDistanceForMap() const
     if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
         return 50.0f;
 
-    if (bg->GetStatus() == STATUS_IN_PROGRESS && bg->GetStartTime() <= 10 * MINUTE * IN_MILLISECONDS)
-        return 10.0f;
-
     return 20.0f;
+}
+
+bool BattleBotAI::ShouldUseAVOpeningPassiveCombat() const
+{
+    BattleGround* bg = me->GetBattleGround();
+    return bg && bg->GetTypeID() == BATTLEGROUND_AV &&
+        bg->GetStatus() == STATUS_IN_PROGRESS &&
+        bg->GetStartTime() <= 10 * MINUTE * IN_MILLISECONDS &&
+        !BattleBotIsNearAVFlag(this, 10.0f);
+}
+
+Unit* BattleBotAI::SelectAVOpeningRetaliationTarget(Unit* pExcept) const
+{
+    HostileReference* pReference = me->GetHostileRefManager().getFirst();
+    while (pReference)
+    {
+        if (Unit* pTarget = pReference->getSourceUnit())
+        {
+            if (pTarget != pExcept &&
+                pTarget->GetVictim() == me &&
+                IsValidHostileTarget(pTarget) &&
+                !IsBadPlayer(pTarget) &&
+                me->IsWithinDist(pTarget, VISIBILITY_DISTANCE_NORMAL) &&
+                me->GetDistanceZ(pTarget) < 10.0f &&
+                me->IsWithinLOSInMap(pTarget))
+                return pTarget;
+        }
+
+        pReference = pReference->next();
+    }
+
+    return nullptr;
 }
 
 uint32 BattleBotAI::GetAVStartWaveDelay() const
@@ -372,6 +401,9 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
     // Ignore attackers while carrying flag, just keep running.
     if (ShouldIgnoreCombat())
         return nullptr;
+
+    if (ShouldUseAVOpeningPassiveCombat())
+        return SelectAVOpeningRetaliationTarget(pExcept);
 
     if (Unit* pFlagDefenseTarget = BattleBotSelectABFlagDefenseTarget(this, pExcept))
         return pFlagDefenseTarget;
@@ -1147,6 +1179,21 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
             UpdateWaypointMovement();
         }
+        return;
+    }
+
+    if (ShouldUseAVOpeningPassiveCombat() && pVictim && pVictim->GetVictim() != me)
+    {
+        if (Unit* pRetaliationTarget = SelectAVOpeningRetaliationTarget(pVictim))
+        {
+            AttackStart(pRetaliationTarget);
+            return;
+        }
+
+        me->AttackStop(false);
+        me->ClearTarget();
+        if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
+            StopMoving();
         return;
     }
 
