@@ -2771,6 +2771,13 @@ static uint32 GetAVEnemyControlledStateForTeam(Team team)
     return team == HORDE ? ALLIANCE_CONTROLLED : HORDE_CONTROLLED;
 }
 
+static bool IsAVGuardAssignmentPaused(BattleGround const* bg)
+{
+    return bg && bg->GetTypeID() == BATTLEGROUND_AV &&
+        bg->GetStatus() == STATUS_IN_PROGRESS &&
+        bg->GetStartTime() <= 10 * MINUTE * IN_MILLISECONDS;
+}
+
 template<std::size_t N>
 static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, uint32 const (&objectives)[N], float radius)
 {
@@ -2823,6 +2830,9 @@ static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, uint32 const 
     BattleGround* bg = pAI->me->GetBattleGround();
     Map* map = pAI->me->GetMap();
     if (!bg || !map || bg->GetTypeID() != BATTLEGROUND_AV)
+        return false;
+
+    if (IsAVGuardAssignmentPaused(bg))
         return false;
 
     bool found = false;
@@ -3183,6 +3193,9 @@ static bool FindAVRearGuardPosition(BattleBotAI* pAI, uint32 const (&objectives)
 
 static bool FindAVRearGuardPosition(BattleBotAI* pAI, Position& outPosition)
 {
+    if (IsAVGuardAssignmentPaused(pAI->me->GetBattleGround()))
+        return false;
+
     if (pAI->me->GetTeam() == HORDE)
         return FindAVRearGuardPosition(pAI, AV_HordeNativeGraveyards, outPosition);
 
