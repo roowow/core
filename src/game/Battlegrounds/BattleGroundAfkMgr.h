@@ -44,6 +44,11 @@ struct BattleGroundAfkPlayerState
     uint8 stage = 0;
     uint32 graceChecks = 2;
     uint32 lastWarnTime = 0;
+    uint32 lastRecoveryNoticeTime = 0;
+    uint32 recentDamageDone = 0;
+    uint32 recentDamageTaken = 0;
+    uint32 recentHealingDone = 0;
+    uint32 recentObjectiveEvents = 0;
     bool initialized = false;
     float lastX = 0.0f;
     float lastY = 0.0f;
@@ -56,12 +61,17 @@ public:
     void Update(BattleGround* bg, uint32 diff);
     void RemovePlayer(ObjectGuid guid);
     void Reset();
+    void RecordDamageDone(ObjectGuid guid, uint32 amount);
+    void RecordDamageTaken(ObjectGuid guid, uint32 amount);
+    void RecordHealingDone(ObjectGuid guid, uint32 amount);
+    void RecordObjective(ObjectGuid guid);
 
 private:
     BattleGroundAfkScoreRule GetRule(BattleGround const* bg) const;
     void UpdatePlayer(BattleGround* bg, ObjectGuid guid);
-    void ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState& state, BattleGroundAfkScoreRule const& rule);
-    void SendWarning(ObjectGuid guid, uint8 stage, uint32 score) const;
+    void ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState& state, BattleGroundAfkScoreRule const& rule, uint32 previousScore);
+    void SendWarning(BattleGround* bg, ObjectGuid guid, uint8 stage, uint32 score) const;
+    void SendRecoveryNotice(BattleGround* bg, ObjectGuid guid, uint32 score, bool normal) const;
 
     std::map<ObjectGuid, BattleGroundAfkPlayerState> m_playerStates;
     uint32 m_updateTimer = 0;

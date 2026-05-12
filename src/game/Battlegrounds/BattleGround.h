@@ -228,6 +228,10 @@ class BattleGround
         void SetBgRaid(Team team, Group* bgRaid);
 
         virtual void UpdatePlayerScore(Player* source, uint32 type, uint32 value);
+        void RecordAfkDamageDone(ObjectGuid guid, uint32 amount);
+        void RecordAfkDamageTaken(ObjectGuid guid, uint32 amount);
+        void RecordAfkHealingDone(ObjectGuid guid, uint32 amount);
+        void RecordAfkObjective(ObjectGuid guid);
 
         static BattleGroundTeamIndex GetTeamIndexByTeamId(Team team) { return team == ALLIANCE ? BG_TEAM_ALLIANCE : BG_TEAM_HORDE; }
         uint32 GetPlayersCountByTeam(Team team) const { return m_playersCount[GetTeamIndexByTeamId(team)]; }

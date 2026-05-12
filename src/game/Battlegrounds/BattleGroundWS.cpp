@@ -663,9 +663,13 @@ void BattleGroundWS::UpdatePlayerScore(Player* source, uint32 type, uint32 value
     switch (type)
     {
         case SCORE_FLAG_CAPTURES:                           // flags captured
+            if (value)
+                RecordAfkObjective(source->GetObjectGuid());
             ((BattleGroundWGScore*)itr->second)->flagCaptures += value;
             break;
         case SCORE_FLAG_RETURNS:                            // flags returned
+            if (value)
+                RecordAfkObjective(source->GetObjectGuid());
             ((BattleGroundWGScore*)itr->second)->flagReturns += value;
             break;
         default:

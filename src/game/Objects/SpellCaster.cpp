@@ -15,9 +15,11 @@
  */
 
 #include "ObjectMgr.h"
+#include "BattleGround.h"
 #include "SpellCaster.h"
 #include "DynamicObject.h"
 #include "GameObject.h"
+#include "Player.h"
 #include "Totem.h"
 #include "CreatureAI.h"
 #include "Chat.h"
@@ -770,6 +772,18 @@ int32 SpellCaster::DealHeal(Unit* pVictim, uint32 addhealth, SpellEntry const* s
 
     if (IsPlayer() || pVictim->IsPlayer())
         pHealer->SendHealSpellLog(pVictim, spellProto->Id, addhealth, critical);
+
+    if (gain > 0)
+    {
+        Unit* healerUnit = pHealer ? pHealer->ToUnit() : nullptr;
+        Player* healerPlayer = healerUnit ? healerUnit->GetAffectingPlayer() : nullptr;
+        Player* victimPlayer = pVictim->ToPlayer();
+
+        if (healerPlayer && victimPlayer && !healerPlayer->IsBot())
+            if (BattleGround* bg = healerPlayer->GetBattleGround())
+                if (victimPlayer->GetBattleGround() == bg && healerPlayer->IsFriendlyTo(pVictim))
+                    bg->RecordAfkHealingDone(healerPlayer->GetObjectGuid(), uint32(gain));
+    }
 
     return gain;
 }

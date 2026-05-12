@@ -1058,18 +1058,28 @@ void BattleGroundAV::UpdatePlayerScore(Player* source, uint32 type, uint32 value
     switch (type)
     {
         case SCORE_GRAVEYARDS_ASSAULTED:
+            if (value)
+                RecordAfkObjective(source->GetObjectGuid());
             ((BattleGroundAVScore*)itr->second)->graveyardsAssaulted += value;
             break;
         case SCORE_GRAVEYARDS_DEFENDED:
+            if (value)
+                RecordAfkObjective(source->GetObjectGuid());
             ((BattleGroundAVScore*)itr->second)->graveyardsDefended += value;
             break;
         case SCORE_TOWERS_ASSAULTED:
+            if (value)
+                RecordAfkObjective(source->GetObjectGuid());
             ((BattleGroundAVScore*)itr->second)->towersAssaulted += value;
             break;
         case SCORE_TOWERS_DEFENDED:
+            if (value)
+                RecordAfkObjective(source->GetObjectGuid());
             ((BattleGroundAVScore*)itr->second)->towersDefended += value;
             break;
         case SCORE_SECONDARY_OBJECTIVES:
+            if (value)
+                RecordAfkObjective(source->GetObjectGuid());
             ((BattleGroundAVScore*)itr->second)->secondaryObjectives += value;
             break;
         default:

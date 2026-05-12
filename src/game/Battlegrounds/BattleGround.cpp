@@ -1259,6 +1259,9 @@ void BattleGround::UpdatePlayerScore(Player* source, uint32 type, uint32 value)
     if (itr == m_playerScores.end())                        // player not found...
         return;
 
+    if (value && type != SCORE_DEATHS && type != SCORE_BONUS_HONOR)
+        RecordAfkObjective(source->GetObjectGuid());
+
     switch (type)
     {
         case SCORE_KILLING_BLOWS:                           // Killing blows
@@ -1279,6 +1282,26 @@ void BattleGround::UpdatePlayerScore(Player* source, uint32 type, uint32 value)
             sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "BattleGround: Unknown player score type %u", type);
             break;
     }
+}
+
+void BattleGround::RecordAfkDamageDone(ObjectGuid guid, uint32 amount)
+{
+    m_afkMgr.RecordDamageDone(guid, amount);
+}
+
+void BattleGround::RecordAfkDamageTaken(ObjectGuid guid, uint32 amount)
+{
+    m_afkMgr.RecordDamageTaken(guid, amount);
+}
+
+void BattleGround::RecordAfkHealingDone(ObjectGuid guid, uint32 amount)
+{
+    m_afkMgr.RecordHealingDone(guid, amount);
+}
+
+void BattleGround::RecordAfkObjective(ObjectGuid guid)
+{
+    m_afkMgr.RecordObjective(guid);
 }
 
 bool BattleGround::AddObject(uint32 type, uint32 entry, float x, float y, float z, float o, float rotation0, float rotation1, float rotation2, float rotation3)

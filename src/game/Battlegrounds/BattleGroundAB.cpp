@@ -572,9 +572,13 @@ void BattleGroundAB::UpdatePlayerScore(Player* source, uint32 type, uint32 value
     switch (type)
     {
         case SCORE_BASES_ASSAULTED:
+            if (value)
+                RecordAfkObjective(source->GetObjectGuid());
             ((BattleGroundABScore*)itr->second)->basesAssaulted += value;
             break;
         case SCORE_BASES_DEFENDED:
+            if (value)
+                RecordAfkObjective(source->GetObjectGuid());
             ((BattleGroundABScore*)itr->second)->basesDefended += value;
             break;
         default:

@@ -774,6 +774,25 @@ uint32 Unit::DealDamage(Unit* pVictim, uint32 damage, CleanDamage const* cleanDa
             pVictim->UnitDamaged(ObjectGuid(), damage);
     }
 
+    if (damage && pVictim != this)
+    {
+        if (Player* attackerPlayer = GetAffectingPlayer())
+        {
+            if (!attackerPlayer->IsBot())
+                if (BattleGround* bg = attackerPlayer->GetBattleGround())
+                    if (attackerPlayer->IsHostileTo(pVictim))
+                        bg->RecordAfkDamageDone(attackerPlayer->GetObjectGuid(), damage);
+        }
+
+        if (Player* victimPlayer = pVictim->ToPlayer())
+        {
+            if (!victimPlayer->IsBot())
+                if (BattleGround* bg = victimPlayer->GetBattleGround())
+                    if (victimPlayer->IsHostileTo(this))
+                        bg->RecordAfkDamageTaken(victimPlayer->GetObjectGuid(), damage);
+        }
+    }
+
     // Rage from Damage made (only from direct weapon damage)
     if (damage && damagetype == DIRECT_DAMAGE && this != pVictim && IsPlayer() && (GetPowerType() == POWER_RAGE))
         ((Player*)this)->RewardRage(damage, true);
