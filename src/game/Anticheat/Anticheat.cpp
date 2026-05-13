@@ -70,6 +70,31 @@ MovementAnticheat* AnticheatManager::CreateAnticheatFor(Player* player)
     return cd;
 }
 
+bool AnticheatManager::StartHumanVerify(Player* player, HumanVerifyRequest const& request)
+{
+    return m_humanVerifyMgr.StartVerify(player, request);
+}
+
+void AnticheatManager::CancelHumanVerify(ObjectGuid guid)
+{
+    m_humanVerifyMgr.CancelVerify(guid);
+}
+
+void AnticheatManager::UpdateHumanVerify(uint32 diff)
+{
+    m_humanVerifyMgr.Update(diff);
+}
+
+bool AnticheatManager::HasHumanVerify(ObjectGuid guid) const
+{
+    return m_humanVerifyMgr.IsPending(guid);
+}
+
+HumanVerifyResult AnticheatManager::HandleHumanVerifyGossip(Player* player, uint32 sender, uint32 action)
+{
+    return m_humanVerifyMgr.HandleGossipSelect(player, sender, action);
+}
+
 Warden* AnticheatManager::CreateWardenForInternal(WorldSession* client, BigNumber* K)
 {
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_5_1

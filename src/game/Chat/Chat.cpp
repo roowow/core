@@ -136,6 +136,14 @@ ChatCommand * ChatHandler::getCommandTable()
         { nullptr,        0,                    false, nullptr,                                          "", nullptr },
     };
 
+    static ChatCommand humanVerifyCommandTable[] =
+    {
+        { "start",       SEC_GAMEMASTER,      false, &ChatHandler::HandleHumanVerifyStartCommand,       "", nullptr },
+        { "cancel",      SEC_GAMEMASTER,      false, &ChatHandler::HandleHumanVerifyCancelCommand,      "", nullptr },
+        { "status",      SEC_GAMEMASTER,      false, &ChatHandler::HandleHumanVerifyStatusCommand,      "", nullptr },
+        { nullptr,       0,                   false, nullptr,                                           "", nullptr },
+    };
+
     static ChatCommand accountSetCommandTable[] =
     {
         { "addon",          SEC_CONSOLE,        true,  &ChatHandler::HandleAccountSetAddonCommand,     "", nullptr },
@@ -1222,6 +1230,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "ahbot",          SEC_ADMINISTRATOR,  true, nullptr,                            "Manage AH bot", ahbotCommandTable    },
         { "partybot",       SEC_ADMINISTRATOR,  false, nullptr,                       "Manage party bots", partyBotCommandTable },
         { "battlebot",      SEC_ADMINISTRATOR,  true, nullptr,                      "Manage battle bots", battleBotCommandTable},
+        { "humanverify",    SEC_GAMEMASTER,     false, nullptr,                   "Test human verification", humanVerifyCommandTable },
         { "world",          SEC_ADMINISTRATOR,  false, nullptr,                                        "", worldCommandTable    },
         { "possess",        SEC_ADMINISTRATOR,     false, &ChatHandler::HandlePossessCommand,             "", nullptr              },
         { "cinematic",      SEC_DEVELOPER,      false, nullptr,                                        "", cinematicCommandTable},

@@ -21,6 +21,7 @@
 #include "Player.h"
 #include "SpellAuras.h"
 #include "Chat.h"
+#include "GossipDef.h"
 #include "ObjectAccessor.h"
 #include "Language.h"
 #include "AccountMgr.h"
@@ -1048,6 +1049,89 @@ bool ChatHandler::HandleAnticheatCommand(char* args)
     if (player->GetCheatData())
         player->GetCheatData()->HandleCommand(this);
 
+    return true;
+}
+
+bool ChatHandler::HandleHumanVerifyStartCommand(char* args)
+{
+    Player* player = nullptr;
+    if (*args)
+    {
+        if (!ExtractPlayerTarget(&args, &player))
+            return false;
+    }
+    else if (m_session)
+    {
+        player = GetSelectedPlayer();
+        if (!player)
+            player = m_session->GetPlayer();
+    }
+
+    if (!player)
+        return false;
+
+    HumanVerifyRequest request;
+    request.reason = "gm_test";
+    request.allowGameMaster = true;
+
+    if (!sAnticheatMgr->StartHumanVerify(player, request))
+    {
+        PSendSysMessage("Human verification test could not be started for %s.", player->GetName());
+        return true;
+    }
+
+    PSendSysMessage("Human verification test started for %s.", player->GetName());
+    return true;
+}
+
+bool ChatHandler::HandleHumanVerifyCancelCommand(char* args)
+{
+    Player* player = nullptr;
+    if (*args)
+    {
+        if (!ExtractPlayerTarget(&args, &player))
+            return false;
+    }
+    else if (m_session)
+    {
+        player = GetSelectedPlayer();
+        if (!player)
+            player = m_session->GetPlayer();
+    }
+
+    if (!player)
+        return false;
+
+    bool const wasPending = sAnticheatMgr->HasHumanVerify(player->GetObjectGuid());
+    sAnticheatMgr->CancelHumanVerify(player->GetObjectGuid());
+
+    if (player->PlayerTalkClass)
+        player->PlayerTalkClass->CloseGossip();
+
+    PSendSysMessage("Human verification test %s for %s.", wasPending ? "cancelled" : "was not pending", player->GetName());
+    return true;
+}
+
+bool ChatHandler::HandleHumanVerifyStatusCommand(char* args)
+{
+    Player* player = nullptr;
+    if (*args)
+    {
+        if (!ExtractPlayerTarget(&args, &player))
+            return false;
+    }
+    else if (m_session)
+    {
+        player = GetSelectedPlayer();
+        if (!player)
+            player = m_session->GetPlayer();
+    }
+
+    if (!player)
+        return false;
+
+    PSendSysMessage("Human verification status for %s: %s.",
+        player->GetName(), sAnticheatMgr->HasHumanVerify(player->GetObjectGuid()) ? "pending" : "not pending");
     return true;
 }
 

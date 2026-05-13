@@ -2023,6 +2023,8 @@ void World::Update(uint32 diff)
         if (getConfig(CONFIG_UINT32_PERFLOG_SLOW_SESSIONS_UPDATE) && updateSessionsTime > getConfig(CONFIG_UINT32_PERFLOG_SLOW_SESSIONS_UPDATE))
             sLog.Out(LOG_PERFORMANCE, LOG_LVL_MINIMAL, "Update sessions: %ums", updateSessionsTime);
 
+        sAnticheatMgr->UpdateHumanVerify(diff);
+
         m_canProcessAsyncPackets = true;
     }
 

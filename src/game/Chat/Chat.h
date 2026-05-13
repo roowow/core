@@ -198,6 +198,9 @@ class ChatHandler
 
         bool HandleAnticheatCommand(char*);
         bool HandleReloadAnticheatCommand(char*);
+        bool HandleHumanVerifyStartCommand(char* args);
+        bool HandleHumanVerifyCancelCommand(char* args);
+        bool HandleHumanVerifyStatusCommand(char* args);
         bool HandleViewLogCommand(char*);
         bool HandleSniffCommand(char*);
 

@@ -20,6 +20,7 @@
  */
 
 #include "Common.h"
+#include "Anticheat/Anticheat.h"
 #include "Language.h"
 #include "Database/DatabaseEnv.h"
 #include "WorldPacket.h"
@@ -540,6 +541,9 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::Npc::GossipSelec
             sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "WORLD: HandleGossipSelectOptionOpcode - %s not found or you can't interact with it.", packet.guid.GetString().c_str());
             return;
         }
+
+        if (sAnticheatMgr->HandleHumanVerifyGossip(_player, sender, action) != HumanVerifyResult::NotHandled)
+            return;
     }
 }
 

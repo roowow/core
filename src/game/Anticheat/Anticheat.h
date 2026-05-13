@@ -74,6 +74,7 @@ public:
 };
 
 #include "WardenAnticheat/Warden.hpp"
+#include "HumanVerify/HumanVerifyMgr.h"
 #include "MovementAnticheat/MovementAnticheat.h"
 #include <mutex>
 #include <thread>
@@ -86,6 +87,11 @@ public:
 
     Warden * CreateWardenFor(WorldSession* client, BigNumber* K);
     MovementAnticheat* CreateAnticheatFor(Player* player);
+    bool StartHumanVerify(Player* player, HumanVerifyRequest const& request = HumanVerifyRequest());
+    void CancelHumanVerify(ObjectGuid guid);
+    void UpdateHumanVerify(uint32 diff);
+    bool HasHumanVerify(ObjectGuid guid) const;
+    HumanVerifyResult HandleHumanVerifyGossip(Player* player, uint32 sender, uint32 action);
 
     void StartWardenUpdateThread();
     void StopWardenUpdateThread();
@@ -103,6 +109,7 @@ private:
     std::vector<Warden*> m_wardenSessionsToRemove;
     std::mutex m_wardenSessionsMutex;
     std::thread m_wardenUpdateThread;
+    HumanVerifyMgr m_humanVerifyMgr;
 
 public:
     // Antispam wrappers

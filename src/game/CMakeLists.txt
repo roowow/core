@@ -67,6 +67,7 @@ set (game_SRCS
     AI/ScriptedPetAI.cpp
     AI/TotemAI.cpp
     Anticheat/Anticheat.cpp
+    Anticheat/HumanVerify/HumanVerifyMgr.cpp
     AuctionHouse/AuctionHouseBotMgr.cpp
     AuctionHouse/AuctionHouseMgr.cpp
     Battlegrounds/BattleGround.cpp
@@ -309,6 +310,7 @@ set (game_SRCS
     AI/ScriptedPetAI.h
     AI/TotemAI.h
     Anticheat/Anticheat.h
+    Anticheat/HumanVerify/HumanVerifyMgr.h
     Anticheat/MovementAnticheat/MovementAnticheat.cpp
     Anticheat/MovementAnticheat/MovementAnticheat.h
     Anticheat/WardenAnticheat/Warden.cpp
