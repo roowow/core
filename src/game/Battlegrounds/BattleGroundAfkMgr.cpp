@@ -25,7 +25,9 @@
 #include "Player.h"
 
 #include <algorithm>
+#include <cmath>
 #include <ctime>
+#include <string>
 #include <vector>
 
 namespace
@@ -33,8 +35,10 @@ namespace
 uint32 const AFK_CHECK_INTERVAL = 30 * IN_MILLISECONDS;
 uint32 const AFK_WARNING_COOLDOWN = 5 * MINUTE * IN_MILLISECONDS;
 uint32 const AFK_RECOVERY_NOTICE_COOLDOWN = 2 * MINUTE * IN_MILLISECONDS;
+uint32 const AFK_RECOVERY_PENDING_WARNING_GRACE = 2 * MINUTE * IN_MILLISECONDS;
 uint32 const AFK_ACTIVITY_NOTICE_NORMAL_COOLDOWN = 10 * MINUTE * IN_MILLISECONDS;
 uint32 const AFK_ACTIVITY_NOTICE_LOW_COOLDOWN = 3 * MINUTE * IN_MILLISECONDS;
+uint32 const AFK_ACTIVITY_LEVEL_CHANGE_COOLDOWN = 90 * IN_MILLISECONDS;
 float const AFK_MIN_MOVE_DISTANCE = 5.0f;
 float const AFK_AB_OBJECTIVE_RADIUS = 60.0f;
 float const AFK_AB_START_RADIUS = 70.0f;
@@ -52,12 +56,81 @@ int32 const AFK_DAMAGE_DONE_SCORE_REDUCE = 3;
 int32 const AFK_DAMAGE_TAKEN_SCORE_REDUCE = 2;
 int32 const AFK_HEALING_DONE_SCORE_REDUCE = 3;
 int32 const AFK_OBJECTIVE_SCORE_REDUCE = 6;
+uint32 const AFK_RECOVERY_NORMAL_MARGIN = 4;
 uint32 const AFK_DEAD_GRACE_CHECKS = 4;
 int32 const AFK_DEAD_IDLE_SCORE = 2;
+
+enum AfkReasonMask
+{
+    AFK_REASON_NONE               = 0,
+    AFK_REASON_MOVED              = 1 << 0,
+    AFK_REASON_NO_MOVE            = 1 << 1,
+    AFK_REASON_COMBAT             = 1 << 2,
+    AFK_REASON_NO_COMBAT          = 1 << 3,
+    AFK_REASON_NO_CONTRIBUTION    = 1 << 4,
+    AFK_REASON_DAMAGE_DONE        = 1 << 5,
+    AFK_REASON_DAMAGE_TAKEN       = 1 << 6,
+    AFK_REASON_HEALING_DONE       = 1 << 7,
+    AFK_REASON_OBJECTIVE_EVENT    = 1 << 8,
+    AFK_REASON_NEAR_OBJECTIVE     = 1 << 9,
+    AFK_REASON_NEAR_START         = 1 << 10,
+    AFK_REASON_NO_OBJECTIVE_CHAIN = 1 << 11,
+    AFK_REASON_DEAD_GRACE         = 1 << 12,
+    AFK_REASON_DEAD_IDLE          = 1 << 13
+};
 
 int32 ClampAfkScore(int32 score)
 {
     return std::max<int32>(0, std::min<int32>(100, score));
+}
+
+char const* BoolText(bool value)
+{
+    return value ? "1" : "0";
+}
+
+void AppendAfkReason(std::string& reasons, char const* reason)
+{
+    if (!reasons.empty())
+        reasons += ",";
+
+    reasons += reason;
+}
+
+std::string FormatAfkReasons(uint32 mask)
+{
+    std::string reasons;
+
+    if (mask & AFK_REASON_MOVED)
+        AppendAfkReason(reasons, "moved");
+    if (mask & AFK_REASON_NO_MOVE)
+        AppendAfkReason(reasons, "noMove");
+    if (mask & AFK_REASON_COMBAT)
+        AppendAfkReason(reasons, "combat");
+    if (mask & AFK_REASON_NO_COMBAT)
+        AppendAfkReason(reasons, "noCombat");
+    if (mask & AFK_REASON_NO_CONTRIBUTION)
+        AppendAfkReason(reasons, "noContribution");
+    if (mask & AFK_REASON_DAMAGE_DONE)
+        AppendAfkReason(reasons, "damageDone");
+    if (mask & AFK_REASON_DAMAGE_TAKEN)
+        AppendAfkReason(reasons, "damageTaken");
+    if (mask & AFK_REASON_HEALING_DONE)
+        AppendAfkReason(reasons, "healingDone");
+    if (mask & AFK_REASON_OBJECTIVE_EVENT)
+        AppendAfkReason(reasons, "objectiveEvent");
+    if (mask & AFK_REASON_NEAR_OBJECTIVE)
+        AppendAfkReason(reasons, "nearObjective");
+    if (mask & AFK_REASON_NEAR_START)
+        AppendAfkReason(reasons, "nearStart");
+    if (mask & AFK_REASON_NO_OBJECTIVE_CHAIN)
+        AppendAfkReason(reasons, "noObjectiveChain");
+    if (mask & AFK_REASON_DEAD_GRACE)
+        AppendAfkReason(reasons, "deadGrace");
+    if (mask & AFK_REASON_DEAD_IDLE)
+        AppendAfkReason(reasons, "deadIdle");
+
+    return reasons.empty() ? "none" : reasons;
 }
 
 float GetDistanceSq(float x1, float y1, float z1, float x2, float y2, float z2)
@@ -207,7 +280,10 @@ void BattleGroundAfkMgr::Update(BattleGround* bg, uint32 diff)
     for (std::map<ObjectGuid, BattleGroundAfkPlayerState>::iterator itr = m_playerStates.begin(); itr != m_playerStates.end();)
     {
         if (bg->GetPlayers().find(itr->first) == bg->GetPlayers().end())
+        {
+            SendTrackStop(bg, itr->first, itr->second, itr->second.kicked ? "kicked" : "left");
             m_playerStates.erase(itr++);
+        }
         else
             ++itr;
     }
@@ -215,11 +291,19 @@ void BattleGroundAfkMgr::Update(BattleGround* bg, uint32 diff)
 
 void BattleGroundAfkMgr::RemovePlayer(ObjectGuid guid)
 {
-    m_playerStates.erase(guid);
+    std::map<ObjectGuid, BattleGroundAfkPlayerState>::iterator itr = m_playerStates.find(guid);
+    if (itr != m_playerStates.end())
+    {
+        SendTrackStop(nullptr, guid, itr->second, itr->second.kicked ? "kicked" : "removed");
+        m_playerStates.erase(itr);
+    }
 }
 
 void BattleGroundAfkMgr::Reset()
 {
+    for (std::map<ObjectGuid, BattleGroundAfkPlayerState>::const_iterator itr = m_playerStates.begin(); itr != m_playerStates.end(); ++itr)
+        SendTrackStop(nullptr, itr->first, itr->second, "reset");
+
     m_playerStates.clear();
     m_updateTimer = 0;
     m_elapsedTime = 0;
@@ -289,6 +373,15 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
         state.lastX = player->GetPositionX();
         state.lastY = player->GetPositionY();
         state.lastZ = player->GetPositionZ();
+        Team team = bg->GetPlayerTeam(guid);
+        if (!team)
+            team = player->GetBGTeam();
+        state.trackBgType = uint32(bg->GetTypeID());
+        state.trackInstanceId = bg->GetInstanceID();
+        state.trackTeam = uint32(team);
+        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] track start player %s (%s) bgType %u instance %u team %u elapsed %u pos %.2f %.2f %.2f.",
+            player->GetName(), guid.GetString().c_str(), state.trackBgType, state.trackInstanceId, state.trackTeam, m_elapsedTime,
+            state.lastX, state.lastY, state.lastZ);
         return;
     }
 
@@ -296,14 +389,28 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     {
         BattleGroundAfkScoreRule const rule = GetRule(bg);
         uint32 const previousScore = state.score;
+        uint32 reasonMask = AFK_REASON_DEAD_GRACE;
 
         ++state.deadChecks;
         if (state.deadChecks > AFK_DEAD_GRACE_CHECKS)
+        {
             state.score = uint32(ClampAfkScore(int32(state.score) + AFK_DEAD_IDLE_SCORE));
+            reasonMask = AFK_REASON_DEAD_IDLE;
+        }
 
         state.lastX = player->GetPositionX();
         state.lastY = player->GetPositionY();
         state.lastZ = player->GetPositionZ();
+        state.lastPreviousScore = previousScore;
+        state.lastReasonMask = reasonMask;
+        state.lastMoveDistance = 0.0f;
+        state.lastMoved = false;
+        state.lastInCombat = false;
+        state.lastNearObjective = false;
+        state.lastDamageDone = 0;
+        state.lastDamageTaken = 0;
+        state.lastHealingDone = 0;
+        state.lastObjectiveEvents = 0;
         state.recentDamageDone = 0;
         state.recentDamageTaken = 0;
         state.recentHealingDone = 0;
@@ -328,59 +435,104 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     uint32 const previousScore = state.score;
     int32 score = int32(state.score);
     float const movedDistanceSq = GetDistanceSq(state.lastX, state.lastY, state.lastZ, player->GetPositionX(), player->GetPositionY(), player->GetPositionZ());
+    float const movedDistance = std::sqrt(movedDistanceSq);
     bool const moved = movedDistanceSq >= AFK_MIN_MOVE_DISTANCE * AFK_MIN_MOVE_DISTANCE;
     bool const inCombat = player->IsInCombat();
+    uint32 const recentDamageDone = state.recentDamageDone;
+    uint32 const recentDamageTaken = state.recentDamageTaken;
+    uint32 const recentHealingDone = state.recentHealingDone;
+    uint32 const recentObjectiveEvents = state.recentObjectiveEvents;
     bool const effectiveDamageDone = state.recentDamageDone >= AFK_EFFECTIVE_DAMAGE_THRESHOLD;
     bool const effectiveDamageTaken = state.recentDamageTaken >= AFK_EFFECTIVE_DAMAGE_THRESHOLD;
     bool const effectiveHealingDone = state.recentHealingDone >= AFK_EFFECTIVE_HEALING_THRESHOLD;
     bool const objectiveEvent = state.recentObjectiveEvents > 0;
     bool nearObjective = false;
+    uint32 reasonMask = AFK_REASON_NONE;
 
     if (!moved)
+    {
         score += rule.noMovementScore;
+        reasonMask |= AFK_REASON_NO_MOVE;
+    }
     else
+    {
         score -= rule.movementReduce;
+        reasonMask |= AFK_REASON_MOVED;
+    }
 
     if (!inCombat)
+    {
         score += rule.noCombatScore;
+        reasonMask |= AFK_REASON_NO_COMBAT;
+    }
     else
+    {
         score -= rule.combatReduce;
+        reasonMask |= AFK_REASON_COMBAT;
+    }
 
     if (!moved && !inCombat)
+    {
         score += rule.noContributionScore;
+        reasonMask |= AFK_REASON_NO_CONTRIBUTION;
+    }
 
     if (effectiveDamageDone)
+    {
         score -= AFK_DAMAGE_DONE_SCORE_REDUCE;
+        reasonMask |= AFK_REASON_DAMAGE_DONE;
+    }
 
     if (effectiveDamageTaken)
+    {
         score -= AFK_DAMAGE_TAKEN_SCORE_REDUCE;
+        reasonMask |= AFK_REASON_DAMAGE_TAKEN;
+    }
 
     if (effectiveHealingDone)
+    {
         score -= AFK_HEALING_DONE_SCORE_REDUCE;
+        reasonMask |= AFK_REASON_HEALING_DONE;
+    }
 
     if (objectiveEvent)
+    {
         score -= AFK_OBJECTIVE_SCORE_REDUCE;
+        reasonMask |= AFK_REASON_OBJECTIVE_EVENT;
+    }
 
     if (bg->GetTypeID() == BATTLEGROUND_AB)
     {
         nearObjective = IsNearABObjective(player);
         if (nearObjective)
+        {
             score -= AFK_AB_OBJECTIVE_SCORE_REDUCE;
+            reasonMask |= AFK_REASON_NEAR_OBJECTIVE;
+        }
 
         if (!moved && !inCombat && IsNearTeamStart(bg, player, guid, AFK_AB_START_RADIUS))
+        {
             score += AFK_AB_START_IDLE_SCORE;
+            reasonMask |= AFK_REASON_NEAR_START;
+        }
     }
     else if (bg->GetTypeID() == BATTLEGROUND_WS)
     {
         nearObjective = IsNearWSGObjective(bg, player);
         if (nearObjective)
+        {
             score -= AFK_WSG_OBJECTIVE_SCORE_REDUCE;
+            reasonMask |= AFK_REASON_NEAR_OBJECTIVE;
+        }
     }
     else if (bg->GetTypeID() == BATTLEGROUND_AV)
     {
         nearObjective = IsNearAVObjective(player);
         if (nearObjective)
+        {
             score -= AFK_AV_OBJECTIVE_SCORE_REDUCE;
+            reasonMask |= AFK_REASON_NEAR_OBJECTIVE;
+        }
     }
 
     bool const effectiveContribution = effectiveDamageDone || effectiveDamageTaken || effectiveHealingDone ||
@@ -391,7 +543,10 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     {
         ++state.noObjectiveContributionChecks;
         if (state.noObjectiveContributionChecks > AFK_NO_OBJECTIVE_GRACE_CHECKS)
+        {
             score += AFK_NO_OBJECTIVE_CHAIN_SCORE;
+            reasonMask |= AFK_REASON_NO_OBJECTIVE_CHAIN;
+        }
     }
 
     state.recentDamageDone = 0;
@@ -400,6 +555,16 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     state.recentObjectiveEvents = 0;
 
     state.score = uint32(ClampAfkScore(score));
+    state.lastPreviousScore = previousScore;
+    state.lastReasonMask = reasonMask;
+    state.lastMoveDistance = movedDistance;
+    state.lastMoved = moved;
+    state.lastInCombat = inCombat;
+    state.lastNearObjective = nearObjective;
+    state.lastDamageDone = recentDamageDone;
+    state.lastDamageTaken = recentDamageTaken;
+    state.lastHealingDone = recentHealingDone;
+    state.lastObjectiveEvents = recentObjectiveEvents;
     state.lastX = player->GetPositionX();
     state.lastY = player->GetPositionY();
     state.lastZ = player->GetPositionZ();
@@ -422,21 +587,26 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
     bool const scoreDecreasing = state.score < previousScore;
     bool const recoveryNoticeReady = !state.lastRecoveryNoticeTime || m_elapsedTime >= state.lastRecoveryNoticeTime + AFK_RECOVERY_NOTICE_COOLDOWN;
 
-    if (state.score < rule.warning1Score)
+    bool const recoveredNormal = state.score + AFK_RECOVERY_NORMAL_MARGIN < rule.warning1Score;
+
+    if (recoveredNormal)
     {
         if (state.stage > 0)
         {
             state.stage = 0;
             state.lastWarnTime = 0;
             state.lastRecoveryNoticeTime = m_elapsedTime;
+            state.lastRecoveryPendingTime = 0;
             state.lastActivityNoticeTime = m_elapsedTime;
             state.lastActivityNoticeLevel = 0;
-            SendRecoveryNotice(bg, guid, state.score, true);
+            SendRecoveryNotice(bg, guid, state, true);
             return;
         }
 
         state.stage = 0;
     }
+    else if (state.score < rule.warning1Score)
+        targetStage = 0;
     else if (targetStage < state.stage)
         state.stage = targetStage;
 
@@ -445,16 +615,23 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
         if (recoveryNoticeReady)
         {
             state.lastRecoveryNoticeTime = m_elapsedTime;
-            SendRecoveryNotice(bg, guid, state.score, false);
+            state.lastRecoveryPendingTime = m_elapsedTime;
+            SendRecoveryNotice(bg, guid, state, false);
         }
         return;
     }
+
+    if (targetStage > state.stage &&
+        state.lastRecoveryPendingTime &&
+        m_elapsedTime < state.lastRecoveryPendingTime + AFK_RECOVERY_PENDING_WARNING_GRACE &&
+        state.score <= previousScore)
+        return;
 
     if (targetStage > state.stage && cooldownReady)
     {
         state.stage = state.stage + 1;
         state.lastWarnTime = m_elapsedTime;
-        SendWarning(bg, guid, state.stage, state.score);
+        SendWarning(bg, guid, state);
         return;
     }
 
@@ -465,13 +642,22 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
             if (recoveryNoticeReady)
             {
                 state.lastRecoveryNoticeTime = m_elapsedTime;
-                SendRecoveryNotice(bg, guid, state.score, false);
+                state.lastRecoveryPendingTime = m_elapsedTime;
+                SendRecoveryNotice(bg, guid, state, false);
             }
             return;
         }
 
         if (Player* player = sObjectMgr.GetPlayer(guid))
         {
+            std::string const reasons = FormatAfkReasons(state.lastReasonMask);
+            int32 const delta = int32(state.score) - int32(state.lastPreviousScore);
+            sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] kick player %s (%s) bgType %u instance %u elapsed %u stage %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
+                player->GetName(), guid.GetString().c_str(), bg ? uint32(bg->GetTypeID()) : 0, bg ? bg->GetInstanceID() : 0,
+                m_elapsedTime, uint32(state.stage), state.score, state.lastPreviousScore, delta, reasons.c_str(),
+                BoolText(state.lastMoved), state.lastMoveDistance, BoolText(state.lastInCombat), BoolText(state.lastNearObjective),
+                state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents);
+            state.kicked = true;
             player->SendSysMessage("您因长时间未有效参与战场，已被移出战场。");
             player->LeaveBattleground();
         }
@@ -493,20 +679,24 @@ void BattleGroundAfkMgr::MaybeSendActivityNotice(BattleGround* bg, ObjectGuid gu
         level = 3;
     else if (state.score >= rule.warning2Score)
         level = 2;
-    else if (state.score >= rule.warning1Score)
+    else if (state.score + AFK_RECOVERY_NORMAL_MARGIN >= rule.warning1Score)
         level = 1;
 
     bool const levelChanged = state.lastActivityNoticeLevel == 255 || state.lastActivityNoticeLevel != level;
     uint32 const cooldown = level == 0 ? AFK_ACTIVITY_NOTICE_NORMAL_COOLDOWN : AFK_ACTIVITY_NOTICE_LOW_COOLDOWN;
+    if (levelChanged && state.lastActivityNoticeTime &&
+        m_elapsedTime < state.lastActivityNoticeTime + AFK_ACTIVITY_LEVEL_CHANGE_COOLDOWN)
+        return;
+
     if (!levelChanged && state.lastActivityNoticeTime && m_elapsedTime < state.lastActivityNoticeTime + cooldown)
         return;
 
     state.lastActivityNoticeTime = m_elapsedTime;
     state.lastActivityNoticeLevel = level;
-    SendActivityNotice(bg, guid, level);
+    SendActivityNotice(bg, guid, level, state.stage, state.score);
 }
 
-void BattleGroundAfkMgr::SendActivityNotice(BattleGround* bg, ObjectGuid guid, uint8 level) const
+void BattleGroundAfkMgr::SendActivityNotice(BattleGround* bg, ObjectGuid guid, uint8 level, uint8 stage, uint32 score) const
 {
     Player* player = sObjectMgr.GetPlayer(guid);
     if (!player)
@@ -518,8 +708,9 @@ void BattleGroundAfkMgr::SendActivityNotice(BattleGround* bg, ObjectGuid guid, u
     snprintf(currentTime, sizeof(currentTime), "%02u:%02u", uint32(localTime->tm_hour), uint32(localTime->tm_min));
 
     if (level > 0)
-        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] activity level %u player %s (%s) bgType %u instance %u.",
-            uint32(level), player->GetName(), guid.GetString().c_str(), bg ? uint32(bg->GetTypeID()) : 0, bg ? bg->GetInstanceID() : 0);
+        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] activity level %u player %s (%s) bgType %u instance %u elapsed %u stage %u score %u.",
+            uint32(level), player->GetName(), guid.GetString().c_str(), bg ? uint32(bg->GetTypeID()) : 0, bg ? bg->GetInstanceID() : 0,
+            m_elapsedTime, uint32(stage), score);
 
     switch (level)
     {
@@ -538,7 +729,26 @@ void BattleGroundAfkMgr::SendActivityNotice(BattleGround* bg, ObjectGuid guid, u
     }
 }
 
-void BattleGroundAfkMgr::SendWarning(BattleGround* bg, ObjectGuid guid, uint8 stage, uint32 score) const
+void BattleGroundAfkMgr::SendTrackStop(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState const& state, char const* reason) const
+{
+    if (!state.initialized)
+        return;
+
+    Player* player = sObjectMgr.GetPlayer(guid);
+    char const* playerName = player ? player->GetName() : "unknown";
+    std::string const reasons = FormatAfkReasons(state.lastReasonMask);
+    int32 const delta = int32(state.score) - int32(state.lastPreviousScore);
+    uint32 const bgType = bg ? uint32(bg->GetTypeID()) : state.trackBgType;
+    uint32 const instanceId = bg ? bg->GetInstanceID() : state.trackInstanceId;
+
+    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] track stop reason %s player %s (%s) bgType %u instance %u team %u elapsed %u stage %u score %u previousScore %u delta %+d reasonMask %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
+        reason ? reason : "unknown", playerName, guid.GetString().c_str(), bgType, instanceId, state.trackTeam, m_elapsedTime,
+        uint32(state.stage), state.score, state.lastPreviousScore, delta, reasons.c_str(),
+        BoolText(state.lastMoved), state.lastMoveDistance, BoolText(state.lastInCombat), BoolText(state.lastNearObjective),
+        state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents);
+}
+
+void BattleGroundAfkMgr::SendWarning(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState const& state) const
 {
     Player* player = sObjectMgr.GetPlayer(guid);
     if (!player)
@@ -549,10 +759,15 @@ void BattleGroundAfkMgr::SendWarning(BattleGround* bg, ObjectGuid guid, uint8 st
     char currentTime[6];
     snprintf(currentTime, sizeof(currentTime), "%02u:%02u", uint32(localTime->tm_hour), uint32(localTime->tm_min));
 
-    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] warning stage %u player %s (%s) bgType %u instance %u score %u.",
-        uint32(stage), player->GetName(), guid.GetString().c_str(), bg ? uint32(bg->GetTypeID()) : 0, bg ? bg->GetInstanceID() : 0, score);
+    std::string const reasons = FormatAfkReasons(state.lastReasonMask);
+    int32 const delta = int32(state.score) - int32(state.lastPreviousScore);
+    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] warning stage %u player %s (%s) bgType %u instance %u elapsed %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
+        uint32(state.stage), player->GetName(), guid.GetString().c_str(), bg ? uint32(bg->GetTypeID()) : 0, bg ? bg->GetInstanceID() : 0,
+        m_elapsedTime, state.score, state.lastPreviousScore, delta, reasons.c_str(),
+        BoolText(state.lastMoved), state.lastMoveDistance, BoolText(state.lastInCombat), BoolText(state.lastNearObjective),
+        state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents);
 
-    switch (stage)
+    switch (state.stage)
     {
         case 1:
             player->PSendSysMessage("[%s] 战场挂机警告 1：您在战场中的有效活动较少。", currentTime);
@@ -568,7 +783,7 @@ void BattleGroundAfkMgr::SendWarning(BattleGround* bg, ObjectGuid guid, uint8 st
     }
 }
 
-void BattleGroundAfkMgr::SendRecoveryNotice(BattleGround* bg, ObjectGuid guid, uint32 score, bool normal) const
+void BattleGroundAfkMgr::SendRecoveryNotice(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState const& state, bool normal) const
 {
     Player* player = sObjectMgr.GetPlayer(guid);
     if (!player)
@@ -579,8 +794,13 @@ void BattleGroundAfkMgr::SendRecoveryNotice(BattleGround* bg, ObjectGuid guid, u
     char currentTime[6];
     snprintf(currentTime, sizeof(currentTime), "%02u:%02u", uint32(localTime->tm_hour), uint32(localTime->tm_min));
 
-    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] recovery %s player %s (%s) bgType %u instance %u score %u.",
-        normal ? "normal" : "pending", player->GetName(), guid.GetString().c_str(), bg ? uint32(bg->GetTypeID()) : 0, bg ? bg->GetInstanceID() : 0, score);
+    std::string const reasons = FormatAfkReasons(state.lastReasonMask);
+    int32 const delta = int32(state.score) - int32(state.lastPreviousScore);
+    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] recovery %s player %s (%s) bgType %u instance %u elapsed %u stage %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
+        normal ? "normal" : "pending", player->GetName(), guid.GetString().c_str(), bg ? uint32(bg->GetTypeID()) : 0, bg ? bg->GetInstanceID() : 0,
+        m_elapsedTime, uint32(state.stage), state.score, state.lastPreviousScore, delta, reasons.c_str(),
+        BoolText(state.lastMoved), state.lastMoveDistance, BoolText(state.lastInCombat), BoolText(state.lastNearObjective),
+        state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents);
 
     if (normal)
         player->PSendSysMessage("[%s] 您的战场活动已恢复正常。", currentTime);

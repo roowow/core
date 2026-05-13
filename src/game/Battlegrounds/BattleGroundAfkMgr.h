@@ -41,10 +41,21 @@ struct BattleGroundAfkScoreRule
 struct BattleGroundAfkPlayerState
 {
     uint32 score = 0;
+    uint32 lastPreviousScore = 0;
+    uint32 lastReasonMask = 0;
+    uint32 trackBgType = 0;
+    uint32 trackInstanceId = 0;
+    uint32 trackTeam = 0;
+    float lastMoveDistance = 0.0f;
+    uint32 lastDamageDone = 0;
+    uint32 lastDamageTaken = 0;
+    uint32 lastHealingDone = 0;
+    uint32 lastObjectiveEvents = 0;
     uint8 stage = 0;
     uint32 graceChecks = 2;
     uint32 lastWarnTime = 0;
     uint32 lastRecoveryNoticeTime = 0;
+    uint32 lastRecoveryPendingTime = 0;
     uint32 lastActivityNoticeTime = 0;
     uint8 lastActivityNoticeLevel = 255;
     uint32 recentDamageDone = 0;
@@ -53,6 +64,10 @@ struct BattleGroundAfkPlayerState
     uint32 recentObjectiveEvents = 0;
     uint32 noObjectiveContributionChecks = 0;
     uint32 deadChecks = 0;
+    bool lastMoved = false;
+    bool lastInCombat = false;
+    bool lastNearObjective = false;
+    bool kicked = false;
     bool initialized = false;
     float lastX = 0.0f;
     float lastY = 0.0f;
@@ -75,9 +90,10 @@ private:
     void UpdatePlayer(BattleGround* bg, ObjectGuid guid);
     void ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState& state, BattleGroundAfkScoreRule const& rule, uint32 previousScore);
     void MaybeSendActivityNotice(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState& state, BattleGroundAfkScoreRule const& rule) const;
-    void SendWarning(BattleGround* bg, ObjectGuid guid, uint8 stage, uint32 score) const;
-    void SendRecoveryNotice(BattleGround* bg, ObjectGuid guid, uint32 score, bool normal) const;
-    void SendActivityNotice(BattleGround* bg, ObjectGuid guid, uint8 level) const;
+    void SendWarning(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState const& state) const;
+    void SendRecoveryNotice(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState const& state, bool normal) const;
+    void SendActivityNotice(BattleGround* bg, ObjectGuid guid, uint8 level, uint8 stage, uint32 score) const;
+    void SendTrackStop(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState const& state, char const* reason) const;
 
     std::map<ObjectGuid, BattleGroundAfkPlayerState> m_playerStates;
     uint32 m_updateTimer = 0;
