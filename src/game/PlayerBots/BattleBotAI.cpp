@@ -3204,6 +3204,11 @@ void BattleBotAI::UpdateFlagCarrierAI()
 
 void BattleBotAI::UpdateOutOfCombatAI()
 {
+    // Undead: Cannibalize - channel HP recovery from nearby corpse
+    if (m_racialSpells.pCannibalize && me->GetHealthPercent() < 70.0f &&
+        CanTryToCastSpell(me, m_racialSpells.pCannibalize))
+        DoCastSpell(me, m_racialSpells.pCannibalize);
+
     switch (me->GetClass())
     {
         case CLASS_PALADIN:
@@ -3238,6 +3243,56 @@ void BattleBotAI::UpdateOutOfCombatAI()
 
 void BattleBotAI::UpdateInCombatAI()
 {
+    // Gnome: Escape Artist - break root/snare
+    if (m_racialSpells.pEscapeArtist && me->IsInRoots() &&
+        CanTryToCastSpell(me, m_racialSpells.pEscapeArtist))
+        DoCastSpell(me, m_racialSpells.pEscapeArtist);
+
+    // Dwarf: Stoneform - remove poison/disease/bleed when HP threatened
+    if (m_racialSpells.pStoneform && me->GetHealthPercent() < 60.0f)
+    {
+        bool hasDebuff = false;
+        for (auto const& [id, holder] : me->GetSpellAuraHolderMap())
+        {
+            uint32 const dispelType = holder->GetSpellProto()->Dispel;
+            if (!holder->IsPositive() && (dispelType == DISPEL_POISON || dispelType == DISPEL_DISEASE))
+            {
+                hasDebuff = true;
+                break;
+            }
+        }
+        if (!hasDebuff)
+        {
+            for (auto const* pAura : me->GetAurasByType(SPELL_AURA_PERIODIC_DAMAGE))
+            {
+                if (pAura->GetSpellProto()->Mechanic == MECHANIC_BLEED)
+                {
+                    hasDebuff = true;
+                    break;
+                }
+            }
+        }
+        if (hasDebuff && CanTryToCastSpell(me, m_racialSpells.pStoneform))
+            DoCastSpell(me, m_racialSpells.pStoneform);
+    }
+
+    // Tauren: War Stomp - AoE stun when 2+ attackers in melee range
+    if (m_racialSpells.pWarStomp && me->GetVictim() &&
+        GetAttackersInRangeCount(8.0f) >= 2 &&
+        CanTryToCastSpell(me->GetVictim(), m_racialSpells.pWarStomp))
+        DoCastSpell(me->GetVictim(), m_racialSpells.pWarStomp);
+
+    // Troll: Berserking - speed boost when below 60% HP
+    if (m_racialSpells.pBerserking && me->GetHealthPercent() < 60.0f &&
+        CanTryToCastSpell(me, m_racialSpells.pBerserking))
+        DoCastSpell(me, m_racialSpells.pBerserking);
+
+    // Orc: Blood Fury - AP boost for physical classes (not healers, penalty reduces healing taken)
+    if (m_racialSpells.pBloodFury && m_role != ROLE_HEALER &&
+        IsPhysicalDamageClass(me->GetClass()) && me->GetVictim() &&
+        CanTryToCastSpell(me, m_racialSpells.pBloodFury))
+        DoCastSpell(me, m_racialSpells.pBloodFury);
+
     switch (me->GetClass())
     {
         case CLASS_PALADIN:

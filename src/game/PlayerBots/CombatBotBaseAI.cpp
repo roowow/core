@@ -131,6 +131,7 @@ void CombatBotBaseAI::ResetSpellData()
     m_spellListDirectHeal.clear();
     m_spellListPeriodicHeal.clear();
     m_spellListTaunt.clear();
+    m_racialSpells = {};
 }
 
 void CombatBotBaseAI::PopulateSpellData()
@@ -234,6 +235,22 @@ void CombatBotBaseAI::PopulateSpellData()
 
             return pSpellEntry->Id > pOldSpell->Id;
         };
+
+        // Racial abilities (class-independent, matched before class switch)
+        if (pSpellEntry->SpellName[0].find("Will of the Forsaken") != std::string::npos)
+        { if (IsHigherRankSpell(m_racialSpells.pWillOfTheForsaken)) m_racialSpells.pWillOfTheForsaken = pSpellEntry; continue; }
+        if (pSpellEntry->SpellName[0].find("War Stomp") != std::string::npos)
+        { if (IsHigherRankSpell(m_racialSpells.pWarStomp)) m_racialSpells.pWarStomp = pSpellEntry; continue; }
+        if (pSpellEntry->SpellName[0].find("Berserking") != std::string::npos)
+        { if (IsHigherRankSpell(m_racialSpells.pBerserking)) m_racialSpells.pBerserking = pSpellEntry; continue; }
+        if (pSpellEntry->SpellName[0].find("Blood Fury") != std::string::npos)
+        { if (IsHigherRankSpell(m_racialSpells.pBloodFury)) m_racialSpells.pBloodFury = pSpellEntry; continue; }
+        if (pSpellEntry->SpellName[0].find("Stoneform") != std::string::npos)
+        { if (IsHigherRankSpell(m_racialSpells.pStoneform)) m_racialSpells.pStoneform = pSpellEntry; continue; }
+        if (pSpellEntry->SpellName[0].find("Escape Artist") != std::string::npos)
+        { if (IsHigherRankSpell(m_racialSpells.pEscapeArtist)) m_racialSpells.pEscapeArtist = pSpellEntry; continue; }
+        if (pSpellEntry->SpellName[0].find("Cannibalize") != std::string::npos)
+        { if (IsHigherRankSpell(m_racialSpells.pCannibalize)) m_racialSpells.pCannibalize = pSpellEntry; continue; }
 
         switch (me->GetClass())
         {
@@ -3297,6 +3314,14 @@ void CombatBotBaseAI::BreakCrowdControlEffects()
             }
             break;
         }
+    }
+
+    // Undead: Will of the Forsaken - break fear/sleep
+    if (m_racialSpells.pWillOfTheForsaken &&
+        (me->HasUnitState(UNIT_STATE_FLEEING) || me->HasAuraType(SPELL_AURA_MOD_CONFUSE)) &&
+        CanTryToCastSpell(me, m_racialSpells.pWillOfTheForsaken))
+    {
+        DoCastSpell(me, m_racialSpells.pWillOfTheForsaken);
     }
 }
 

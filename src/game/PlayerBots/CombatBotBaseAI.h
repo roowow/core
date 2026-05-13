@@ -575,6 +575,17 @@ public:
         } druid;
     } m_spells;
 
+    struct
+    {
+        SpellEntry const* pWillOfTheForsaken = nullptr; // Undead: remove fear/charm/sleep
+        SpellEntry const* pWarStomp = nullptr;          // Tauren: AoE stun
+        SpellEntry const* pBerserking = nullptr;        // Troll: attack/cast speed
+        SpellEntry const* pBloodFury = nullptr;         // Orc: melee attack power
+        SpellEntry const* pStoneform = nullptr;         // Dwarf: remove poison/disease/bleed
+        SpellEntry const* pEscapeArtist = nullptr;      // Gnome: break root/snare
+        SpellEntry const* pCannibalize = nullptr;       // Undead: eat corpse for HP
+    } m_racialSpells;
+
     bool m_initialized = false;
     bool m_isBuffing = false;
     bool m_preventCasting = false;
