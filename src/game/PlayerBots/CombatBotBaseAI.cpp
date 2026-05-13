@@ -1059,6 +1059,11 @@ void CombatBotBaseAI::PopulateSpellData()
                     if (IsHigherRankSpell(m_spells.warlock.pCurseofTongues))
                         m_spells.warlock.pCurseofTongues = pSpellEntry;
                 }
+                else if (pSpellEntry->SpellName[0].find("Curse of Exhaustion") != std::string::npos)
+                {
+                    if (IsHigherRankSpell(m_spells.warlock.pCurseofExhaustion))
+                        m_spells.warlock.pCurseofExhaustion = pSpellEntry;
+                }
                 else if (pSpellEntry->SpellName[0].find("Life Tap") != std::string::npos)
                 {
                     if (IsHigherRankSpell(m_spells.warlock.pLifeTap))

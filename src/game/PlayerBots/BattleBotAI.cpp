@@ -458,6 +458,272 @@ static bool BattleBotNeedsFreedom(Unit const* pTarget)
         pTarget->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED));
 }
 
+static Unit* SelectWarlockPetProtectTarget(BattleBotAI const* pAI)
+{
+    if (!pAI)
+        return nullptr;
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 12.0f);
+
+    Player* bestTarget = nullptr;
+    float bestDistance = 0.0f;
+    for (Player* player : players)
+    {
+        if (!player || player == pAI->me)
+            continue;
+
+        if (player->GetVictim() != pAI->me ||
+            !CombatBotBaseAI::IsMeleeDamageClass(player->GetClass()) ||
+            !pAI->IsValidHostileTarget(player) ||
+            pAI->IsBadPlayer(player) ||
+            BattleBotIsHardControlled(player) ||
+            !pAI->me->IsWithinLOSInMap(player))
+            continue;
+
+        float const distance = pAI->me->GetDistance(player);
+        if (!bestTarget || distance < bestDistance)
+        {
+            bestTarget = player;
+            bestDistance = distance;
+        }
+    }
+
+    return bestTarget;
+}
+
+static Unit* SelectWarlockDeathCoilTarget(BattleBotAI const* pAI, Unit* currentVictim)
+{
+    if (!pAI || !pAI->m_spells.warlock.pDeathCoil)
+        return nullptr;
+
+    Unit* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestDistance = 0.0f;
+
+    auto considerTarget = [&](Unit* target)
+    {
+        if (!target ||
+            !pAI->IsValidHostileTarget(target) ||
+            pAI->IsBadPlayer(target) ||
+            BattleBotIsHardControlled(target) ||
+            !pAI->me->IsWithinLOSInMap(target) ||
+            !pAI->CanTryToCastSpell(target, pAI->m_spells.warlock.pDeathCoil))
+            return;
+
+        bool const isCasting = target->IsNonMeleeSpellCasted(false, false, true);
+        bool const isMeleeThreat = CombatBotBaseAI::IsMeleeDamageClass(target->GetClass()) && target->GetCombatDistance(pAI->me) < 10.0f;
+        Unit* victim = target->GetVictim();
+        bool const isThreateningFriendly = victim && pAI->me->IsValidHelpfulTarget(victim);
+        bool const isThreateningCarrier = isThreateningFriendly && BattleBotHasBattlegroundFlag(victim);
+        bool const isThreateningHealer = isThreateningFriendly && CombatBotBaseAI::IsHealerClass(victim->GetClass());
+
+        uint8 priority = 0;
+        if (isMeleeThreat && victim == pAI->me)
+            priority = 8;
+        else if (isCasting && target->GetClass() == CLASS_MAGE)
+            priority = 7;
+        else if (isCasting && CombatBotBaseAI::IsHealerClass(target->GetClass()))
+            priority = 6;
+        else if (isMeleeThreat && isThreateningCarrier)
+            priority = 6;
+        else if (isMeleeThreat && isThreateningHealer)
+            priority = 5;
+        else if (BattleBotHasBattlegroundFlag(target))
+            priority = 4;
+        else if (target == currentVictim && (isMeleeThreat || isCasting))
+            priority = 3;
+
+        if (!priority)
+            return;
+
+        float const distance = pAI->me->GetDistance(target);
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && distance < bestDistance))
+        {
+            bestTarget = target;
+            bestPriority = priority;
+            bestDistance = distance;
+        }
+    };
+
+    considerTarget(currentVictim);
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 20.0f);
+    for (Player* player : players)
+        considerTarget(player);
+
+    return bestTarget;
+}
+
+static Unit* SelectWarlockFearTarget(BattleBotAI const* pAI, Unit* currentVictim)
+{
+    if (!pAI || !pAI->m_spells.warlock.pFear)
+        return nullptr;
+
+    Unit* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestDistance = 0.0f;
+
+    auto considerTarget = [&](Unit* target)
+    {
+        if (!target ||
+            !pAI->IsValidHostileTarget(target) ||
+            pAI->IsBadPlayer(target) ||
+            BattleBotIsHardControlled(target) ||
+            !pAI->me->IsWithinLOSInMap(target) ||
+            !BattleBotCanUseCrowdControl(pAI, pAI->m_spells.warlock.pFear, target) ||
+            !pAI->CanTryToCastSpell(target, pAI->m_spells.warlock.pFear))
+            return;
+
+        bool const isMeleeThreat = CombatBotBaseAI::IsMeleeDamageClass(target->GetClass()) && target->GetCombatDistance(pAI->me) < 12.0f;
+        Unit* victim = target->GetVictim();
+        bool const isThreateningFriendly = victim && pAI->me->IsValidHelpfulTarget(victim);
+        bool const isThreateningCarrier = isThreateningFriendly && BattleBotHasBattlegroundFlag(victim);
+        bool const isThreateningHealer = isThreateningFriendly && CombatBotBaseAI::IsHealerClass(victim->GetClass());
+
+        uint8 priority = 0;
+        if (isMeleeThreat && victim == pAI->me)
+            priority = 7;
+        else if (isMeleeThreat && isThreateningCarrier)
+            priority = 6;
+        else if (isMeleeThreat && isThreateningHealer)
+            priority = 5;
+        else if (CombatBotBaseAI::IsHealerClass(target->GetClass()) && target->IsNonMeleeSpellCasted(false, false, true))
+            priority = 4;
+        else if (target == currentVictim && isMeleeThreat)
+            priority = 3;
+
+        if (!priority)
+            return;
+
+        float const distance = pAI->me->GetDistance(target);
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && distance < bestDistance))
+        {
+            bestTarget = target;
+            bestPriority = priority;
+            bestDistance = distance;
+        }
+    };
+
+    considerTarget(currentVictim);
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 25.0f);
+    for (Player* player : players)
+        considerTarget(player);
+
+    return bestTarget;
+}
+
+static Unit* SelectWarlockCurseOfTonguesTarget(BattleBotAI const* pAI, Unit* currentVictim)
+{
+    if (!pAI || !pAI->m_spells.warlock.pCurseofTongues)
+        return nullptr;
+
+    Unit* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestDistance = 0.0f;
+
+    auto considerTarget = [&](Unit* target)
+    {
+        if (!target ||
+            !target->ToPlayer() ||
+            !pAI->IsValidHostileTarget(target) ||
+            pAI->IsBadPlayer(target) ||
+            !pAI->me->IsWithinLOSInMap(target) ||
+            !pAI->CanTryToCastSpell(target, pAI->m_spells.warlock.pCurseofTongues))
+            return;
+
+        uint8 priority = 0;
+        if (target->GetClass() == CLASS_MAGE)
+            priority = 5;
+        else if (CombatBotBaseAI::IsHealerClass(target->GetClass()))
+            priority = 4;
+        else if (target->GetClass() == CLASS_WARLOCK || target->IsNonMeleeSpellCasted(false, false, true))
+            priority = 3;
+        else if (target == currentVictim && target->IsCaster())
+            priority = 2;
+
+        if (!priority)
+            return;
+
+        float const distance = pAI->me->GetDistance(target);
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && distance < bestDistance))
+        {
+            bestTarget = target;
+            bestPriority = priority;
+            bestDistance = distance;
+        }
+    };
+
+    considerTarget(currentVictim);
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 30.0f);
+    for (Player* player : players)
+        considerTarget(player);
+
+    return bestTarget;
+}
+
+static Unit* SelectWarlockCurseOfExhaustionTarget(BattleBotAI const* pAI, Unit* currentVictim)
+{
+    if (!pAI || !pAI->m_spells.warlock.pCurseofExhaustion)
+        return nullptr;
+
+    Unit* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestDistance = 0.0f;
+
+    auto considerTarget = [&](Unit* target)
+    {
+        if (!target ||
+            !target->ToPlayer() ||
+            !CombatBotBaseAI::IsMeleeDamageClass(target->GetClass()) ||
+            !pAI->IsValidHostileTarget(target) ||
+            pAI->IsBadPlayer(target) ||
+            !pAI->me->IsWithinLOSInMap(target) ||
+            !pAI->CanTryToCastSpell(target, pAI->m_spells.warlock.pCurseofExhaustion))
+            return;
+
+        Unit* victim = target->GetVictim();
+        bool const isThreateningFriendly = victim && pAI->me->IsValidHelpfulTarget(victim);
+        bool const isThreateningCarrier = isThreateningFriendly && BattleBotHasBattlegroundFlag(victim);
+        bool const isThreateningHealer = isThreateningFriendly && CombatBotBaseAI::IsHealerClass(victim->GetClass());
+
+        uint8 priority = 0;
+        if (victim == pAI->me)
+            priority = 5;
+        else if (isThreateningCarrier)
+            priority = 4;
+        else if (isThreateningHealer)
+            priority = 3;
+        else if (target == currentVictim && pAI->me->GetDistance(target) < 20.0f)
+            priority = 2;
+
+        if (!priority)
+            return;
+
+        float const distance = pAI->me->GetDistance(target);
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && distance < bestDistance))
+        {
+            bestTarget = target;
+            bestPriority = priority;
+            bestDistance = distance;
+        }
+    };
+
+    considerTarget(currentVictim);
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 30.0f);
+    for (Player* player : players)
+        considerTarget(player);
+
+    return bestTarget;
+}
+
 static Unit* SelectPaladinEmergencyHealTarget(BattleBotAI const* pAI, SpellEntry const* pSpellEntry, float healthPercent)
 {
     if (!pAI || !pSpellEntry)
@@ -3937,14 +4203,27 @@ void BattleBotAI::UpdateOutOfCombatAI_Warlock()
         m_isBuffing = false;
     }
 
+    if (m_spells.warlock.pLifeTap &&
+       (me->GetPowerPercent(POWER_MANA) < 50.0f) &&
+       (me->GetHealthPercent() > 85.0f) &&
+        CanTryToCastSpell(me, m_spells.warlock.pLifeTap))
+    {
+        if (DoCastSpell(me, m_spells.warlock.pLifeTap) == SPELL_CAST_OK)
+            return;
+    }
+
     if (Unit* pVictim = me->GetVictim())
     {
         if (Pet* pPet = me->GetPet())
         {
-            if (!pPet->GetVictim())
+            Unit* pPetTarget = SelectWarlockPetProtectTarget(this);
+            if (!pPetTarget)
+                pPetTarget = pVictim;
+
+            if (pPetTarget && pPet->GetVictim() != pPetTarget)
             {
                 pPet->GetCharmInfo()->SetIsCommandAttack(true);
-                pPet->AI()->AttackStart(pVictim);
+                pPet->AI()->AttackStart(pPetTarget);
             }
         }
 
@@ -3958,11 +4237,36 @@ void BattleBotAI::UpdateInCombatAI_Warlock()
 {
     if (Unit* pVictim = me->GetVictim())
     {
-        if (m_spells.warlock.pDeathCoil &&
-           (pVictim->CanReachWithMeleeAutoAttack(me) || pVictim->IsNonMeleeSpellCasted()) &&
-            CanTryToCastSpell(pVictim, m_spells.warlock.pDeathCoil))
+        if (Pet* pPet = me->GetPet())
         {
-            if (DoCastSpell(pVictim, m_spells.warlock.pDeathCoil) == SPELL_CAST_OK)
+            Unit* pPetTarget = SelectWarlockPetProtectTarget(this);
+            if (!pPetTarget)
+                pPetTarget = pVictim;
+
+            if (pPetTarget && pPet->GetVictim() != pPetTarget)
+            {
+                pPet->GetCharmInfo()->SetIsCommandAttack(true);
+                pPet->AI()->AttackStart(pPetTarget);
+            }
+        }
+
+        if (m_spells.warlock.pHowlofTerror &&
+            GetAttackersInRangeCount(10.0f) > 1 &&
+            CanTryToCastSpell(me, m_spells.warlock.pHowlofTerror))
+        {
+            if (DoCastSpell(me, m_spells.warlock.pHowlofTerror) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (Unit* pDeathCoilTarget = SelectWarlockDeathCoilTarget(this, pVictim))
+        {
+            if (DoCastSpell(pDeathCoilTarget, m_spells.warlock.pDeathCoil) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (Unit* pFearTarget = SelectWarlockFearTarget(this, pVictim))
+        {
+            if (DoCastSpell(pFearTarget, m_spells.warlock.pFear) == SPELL_CAST_OK)
                 return;
         }
 
@@ -3990,80 +4294,24 @@ void BattleBotAI::UpdateInCombatAI_Warlock()
                 return;
         }
 
-        if (m_spells.warlock.pDemonicSacrifice)
+        if (Unit* pTonguesTarget = SelectWarlockCurseOfTonguesTarget(this, pVictim))
         {
-            if (Pet* pPet = me->GetPet())
-            {
-                if (pPet->IsAlive() &&
-                    CanTryToCastSpell(pPet, m_spells.warlock.pDemonicSacrifice))
-                {
-                    if (DoCastSpell(pPet, m_spells.warlock.pDemonicSacrifice) == SPELL_CAST_OK)
-                        return;
-                }
-            }
-        }
-
-        if (m_spells.warlock.pImmolate &&
-            CanTryToCastSpell(pVictim, m_spells.warlock.pImmolate))
-        {
-            if (DoCastSpell(pVictim, m_spells.warlock.pImmolate) == SPELL_CAST_OK)
+            if (DoCastSpell(pTonguesTarget, m_spells.warlock.pCurseofTongues) == SPELL_CAST_OK)
                 return;
         }
 
-        if (m_spells.warlock.pConflagrate &&
-            CanTryToCastSpell(pVictim, m_spells.warlock.pConflagrate))
+        if (Unit* pExhaustionTarget = SelectWarlockCurseOfExhaustionTarget(this, pVictim))
         {
-            if (DoCastSpell(pVictim, m_spells.warlock.pConflagrate) == SPELL_CAST_OK)
-                return;
-        }
-
-        if (m_spells.warlock.pCorruption &&
-            CanTryToCastSpell(pVictim, m_spells.warlock.pCorruption))
-        {
-            if (DoCastSpell(pVictim, m_spells.warlock.pCorruption) == SPELL_CAST_OK)
-                return;
-        }
-
-        if (m_spells.warlock.pSiphonLife &&
-           (me->GetHealthPercent() < 80.0f) &&
-            CanTryToCastSpell(pVictim, m_spells.warlock.pSiphonLife))
-        {
-            if (DoCastSpell(pVictim, m_spells.warlock.pSiphonLife) == SPELL_CAST_OK)
+            if (DoCastSpell(pExhaustionTarget, m_spells.warlock.pCurseofExhaustion) == SPELL_CAST_OK)
                 return;
         }
 
         if (m_spells.warlock.pDrainLife &&
-           (me->GetHealthPercent() < 30.0f) &&
+           (me->GetHealthPercent() < 35.0f) &&
             CanTryToCastSpell(pVictim, m_spells.warlock.pDrainLife))
         {
             if (DoCastSpell(pVictim, m_spells.warlock.pDrainLife) == SPELL_CAST_OK)
                 return;
-        }
-
-        if (m_spells.warlock.pFear &&
-            CanTryToCastSpell(pVictim, m_spells.warlock.pFear))
-        {
-            if (DoCastSpell(pVictim, m_spells.warlock.pFear) == SPELL_CAST_OK)
-                return;
-        }
-
-        if (pVictim->IsCaster())
-        {
-            if (m_spells.warlock.pCurseofTongues &&
-                CanTryToCastSpell(pVictim, m_spells.warlock.pCurseofTongues))
-            {
-                if (DoCastSpell(pVictim, m_spells.warlock.pCurseofTongues) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-        else
-        {
-            if (m_spells.warlock.pCurseofExhaustion &&
-                CanTryToCastSpell(pVictim, m_spells.warlock.pCurseofExhaustion))
-            {
-                if (DoCastSpell(pVictim, m_spells.warlock.pCurseofExhaustion) == SPELL_CAST_OK)
-                    return;
-            }
         }
 
         if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == IDLE_MOTION_TYPE
@@ -4072,11 +4320,12 @@ void BattleBotAI::UpdateInCombatAI_Warlock()
             me->GetMotionMaster()->MoveChase(pVictim, 25.0f);
         }
 
-        if (m_spells.warlock.pHowlofTerror &&
-            GetAttackersInRangeCount(10.0f) > 1 &&
-            CanTryToCastSpell(me, m_spells.warlock.pHowlofTerror))
+        if (m_spells.warlock.pLifeTap &&
+           (me->GetPowerPercent(POWER_MANA) < 20.0f) &&
+           (me->GetHealthPercent() > 75.0f) &&
+            CanTryToCastSpell(me, m_spells.warlock.pLifeTap))
         {
-            if (DoCastSpell(me, m_spells.warlock.pHowlofTerror) == SPELL_CAST_OK)
+            if (DoCastSpell(me, m_spells.warlock.pLifeTap) == SPELL_CAST_OK)
                 return;
         }
 
@@ -4084,15 +4333,6 @@ void BattleBotAI::UpdateInCombatAI_Warlock()
             CanTryToCastSpell(pVictim, m_spells.warlock.pShadowBolt))
         {
             if (DoCastSpell(pVictim, m_spells.warlock.pShadowBolt) == SPELL_CAST_OK)
-                return;
-        }
-
-        if (m_spells.warlock.pLifeTap &&
-           (me->GetPowerPercent(POWER_MANA) < 10.0f) &&
-           (me->GetHealthPercent() > 70.0f) &&
-            CanTryToCastSpell(me, m_spells.warlock.pLifeTap))
-        {
-            if (DoCastSpell(me, m_spells.warlock.pLifeTap) == SPELL_CAST_OK)
                 return;
         }
 
