@@ -104,6 +104,39 @@ char const* GetAfkBattleGroundName(uint32 bgType)
     }
 }
 
+void NotifyTeamAfkKick(BattleGround* bg, ObjectGuid kickedGuid, char const* kickedName)
+{
+    if (!bg || !kickedName)
+        return;
+
+    Team kickedTeam = bg->GetPlayerTeam(kickedGuid);
+    if (!kickedTeam)
+    {
+        if (Player* kickedPlayer = sObjectMgr.GetPlayer(kickedGuid))
+            kickedTeam = kickedPlayer->GetBGTeam();
+    }
+
+    if (!kickedTeam)
+        return;
+
+    for (BattleGround::BattleGroundPlayerMap::const_iterator itr = bg->GetPlayers().begin(); itr != bg->GetPlayers().end(); ++itr)
+    {
+        if (itr->first == kickedGuid)
+            continue;
+
+        Player* player = sObjectMgr.GetPlayer(itr->first);
+        if (!player || player->IsBot() || player->GetBattleGround() != bg)
+            continue;
+
+        Team team = bg->GetPlayerTeam(itr->first);
+        if (!team)
+            team = player->GetBGTeam();
+
+        if (team == kickedTeam)
+            player->PSendSysMessage("玩家 %s 因战场活跃度不足已被移出战场。", kickedName);
+    }
+}
+
 void AppendAfkReason(std::string& reasons, char const* reason)
 {
     if (!reasons.empty())
@@ -675,6 +708,7 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
                 state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents);
             state.kicked = true;
             player->SendSysMessage("您因长时间未有效参与战场，已被移出战场。");
+            NotifyTeamAfkKick(bg, guid, player->GetName());
             player->LeaveBattleground();
         }
         return;
