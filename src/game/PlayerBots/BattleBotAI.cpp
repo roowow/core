@@ -2247,6 +2247,9 @@ Unit* BattleBotAI::SelectFollowTarget() const
     bool const isWSG = bg && bg->GetTypeID() == BATTLEGROUND_WS;
     bool const isAB = bg && bg->GetTypeID() == BATTLEGROUND_AB;
 
+    if (isAB && m_role == ROLE_HEALER)
+        return nullptr;
+
     std::list<Player*> players;
     me->GetAlivePlayerListInRange(me, players, VISIBILITY_DISTANCE_NORMAL);
     Player* pHealerFollowTarget = nullptr;
@@ -2278,15 +2281,6 @@ Unit* BattleBotAI::SelectFollowTarget() const
             if (BattleBotAI* pTargetAI = dynamic_cast<BattleBotAI*>(pTarget->AI()))
             {
                 if (BattleBotIsWSGHomeGuardCandidate(pTargetAI))
-                    continue;
-            }
-        }
-
-        if (isAB && m_role == ROLE_HEALER)
-        {
-            if (BattleBotAI* pTargetAI = dynamic_cast<BattleBotAI*>(pTarget->AI()))
-            {
-                if (BattleBotIsABGuardingOwnedNode(pTargetAI))
                     continue;
             }
         }
@@ -2874,20 +2868,6 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                         }
                     }
 
-                    if (bg->GetTypeID() == BATTLEGROUND_AB && m_role == ROLE_HEALER)
-                    {
-                        if (Player* pTargetPlayer = pTarget->ToPlayer())
-                        {
-                            if (BattleBotAI* pTargetAI = dynamic_cast<BattleBotAI*>(pTargetPlayer->AI()))
-                            {
-                                if (BattleBotIsABGuardingOwnedNode(pTargetAI))
-                                {
-                                    StopMoving();
-                                    return;
-                                }
-                            }
-                        }
-                    }
                 }
             }
 
