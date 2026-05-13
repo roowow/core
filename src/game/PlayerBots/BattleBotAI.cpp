@@ -36,6 +36,7 @@
 #include "CellImpl.h"
 
 #include <cfloat>
+#include <list>
 
 enum BattleBotSpells
 {
@@ -78,6 +79,94 @@ enum BattleBotSpells
 #define GO_WSG_DROPPED_WARSONG_FLAG 179786
 #define GO_WSG_SILVERWING_FLAG 179830
 #define GO_WSG_WARSONG_FLAG 179831
+
+static Unit* SelectShamanInterruptTarget(BattleBotAI const* pAI)
+{
+    if (!pAI || !pAI->m_spells.shaman.pEarthShock)
+        return nullptr;
+
+    Unit* currentVictim = pAI->me->GetVictim();
+    if (currentVictim &&
+        currentVictim->IsNonMeleeSpellCasted(false, false, true) &&
+        pAI->CanTryToCastSpell(currentVictim, pAI->m_spells.shaman.pEarthShock))
+        return currentVictim;
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 25.0f);
+
+    Unit* bestTarget = nullptr;
+    float bestDistance = 0.0f;
+    for (Player* player : players)
+    {
+        if (!player || player == pAI->me || player == currentVictim)
+            continue;
+
+        if (!pAI->IsValidHostileTarget(player) ||
+            pAI->IsBadPlayer(player) ||
+            !player->IsNonMeleeSpellCasted(false, false, true) ||
+            !pAI->me->IsWithinLOSInMap(player) ||
+            !pAI->CanTryToCastSpell(player, pAI->m_spells.shaman.pEarthShock))
+            continue;
+
+        float const distance = pAI->me->GetDistance(player);
+        if (!bestTarget || distance < bestDistance)
+        {
+            bestTarget = player;
+            bestDistance = distance;
+        }
+    }
+
+    return bestTarget;
+}
+
+static Unit* SelectShamanPurgeTarget(BattleBotAI const* pAI)
+{
+    if (!pAI || !pAI->m_spells.shaman.pPurge)
+        return nullptr;
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 30.0f);
+
+    Unit* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestDistance = 0.0f;
+    for (Player* player : players)
+    {
+        if (!player || player == pAI->me)
+            continue;
+
+        if (!pAI->IsValidHostileTarget(player) ||
+            pAI->IsBadPlayer(player) ||
+            !pAI->IsValidDispelTarget(player, pAI->m_spells.shaman.pPurge) ||
+            !pAI->me->IsWithinLOSInMap(player) ||
+            !pAI->CanTryToCastSpell(player, pAI->m_spells.shaman.pPurge))
+            continue;
+
+        uint8 priority = 1;
+        if (player->HasAura(AURA_WARSONG_FLAG) || player->HasAura(AURA_SILVERWING_FLAG))
+            priority = 4;
+        else if (CombatBotBaseAI::IsHealerClass(player->GetClass()))
+            priority = 3;
+        else if (CombatBotBaseAI::IsRangedDamageClass(player->GetClass()))
+            priority = 2;
+
+        float const distance = pAI->me->GetDistance(player);
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && distance < bestDistance))
+        {
+            bestTarget = player;
+            bestPriority = priority;
+            bestDistance = distance;
+        }
+    }
+
+    Unit* currentVictim = pAI->me->GetVictim();
+    if (!bestTarget && currentVictim &&
+        pAI->IsValidDispelTarget(currentVictim, pAI->m_spells.shaman.pPurge) &&
+        pAI->CanTryToCastSpell(currentVictim, pAI->m_spells.shaman.pPurge))
+        return currentVictim;
+
+    return bestTarget;
+}
 
 uint32 BattleBotAI::GetMountSpellId() const
 {
@@ -1789,7 +1878,7 @@ void BattleBotAI::UpdateOutOfCombatAI_Shaman()
 
     if (me->GetVictim())
     {
-        if (SummonShamanTotems())
+        if (m_role != ROLE_HEALER && SummonShamanTotems())
             return;
 
         UpdateInCombatAI_Shaman();
@@ -1813,7 +1902,7 @@ void BattleBotAI::UpdateInCombatAI_Shaman()
         me->GetShapeshiftForm() == FORM_GHOSTWOLF)
         me->RemoveAurasDueToSpellByCancel(m_spells.shaman.pGhostWolf->Id);
 
-    if (Unit* pVictim = me->GetVictim())
+    if (m_role == ROLE_HEALER)
     {
         if (m_spells.shaman.pManaTideTotem &&
            (me->GetPowerPercent(POWER_MANA) < 50.0f) &&
@@ -1823,7 +1912,74 @@ void BattleBotAI::UpdateInCombatAI_Shaman()
                 return;
         }
 
-        if (m_spells.shaman.pElementalMastery &&
+        if (m_spells.shaman.pCureDisease)
+        {
+            if (Unit* pFriend = SelectDispelTarget(m_spells.shaman.pCureDisease))
+            {
+                if (CanTryToCastSpell(pFriend, m_spells.shaman.pCureDisease))
+                {
+                    if (DoCastSpell(pFriend, m_spells.shaman.pCureDisease) == SPELL_CAST_OK)
+                        return;
+                }
+            }
+        }
+
+        if (m_spells.shaman.pCurePoison)
+        {
+            if (Unit* pFriend = SelectDispelTarget(m_spells.shaman.pCurePoison))
+            {
+                if (CanTryToCastSpell(pFriend, m_spells.shaman.pCurePoison))
+                {
+                    if (DoCastSpell(pFriend, m_spells.shaman.pCurePoison) == SPELL_CAST_OK)
+                        return;
+                }
+            }
+        }
+
+        if (FindAndHealInjuredAlly(55.0f, 90.0f))
+            return;
+
+        if (FindAndPreHealTarget())
+            return;
+
+        if (Unit* pInterruptTarget = SelectShamanInterruptTarget(this))
+        {
+            if (DoCastSpell(pInterruptTarget, m_spells.shaman.pEarthShock) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (Unit* pPurgeTarget = SelectShamanPurgeTarget(this))
+        {
+            if (DoCastSpell(pPurgeTarget, m_spells.shaman.pPurge) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (SummonShamanTotems())
+            return;
+
+        if (me->GetPowerPercent(POWER_MANA) < 30.0f)
+            return;
+    }
+
+    if (Unit* pVictim = me->GetVictim())
+    {
+        if (m_role != ROLE_HEALER &&
+            m_spells.shaman.pManaTideTotem &&
+           (me->GetPowerPercent(POWER_MANA) < 50.0f) &&
+            CanTryToCastSpell(me, m_spells.shaman.pManaTideTotem))
+        {
+            if (DoCastSpell(me, m_spells.shaman.pManaTideTotem) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (Unit* pInterruptTarget = SelectShamanInterruptTarget(this))
+        {
+            if (DoCastSpell(pInterruptTarget, m_spells.shaman.pEarthShock) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (m_role != ROLE_HEALER &&
+            m_spells.shaman.pElementalMastery &&
             me->GetAttackers().empty() &&
             CanTryToCastSpell(me, m_spells.shaman.pElementalMastery))
         {
@@ -1831,42 +1987,55 @@ void BattleBotAI::UpdateInCombatAI_Shaman()
                 return;
         }
 
-        if (m_spells.shaman.pEarthShock &&
-            pVictim->IsNonMeleeSpellCasted(false, false, true) &&
-            CanTryToCastSpell(pVictim, m_spells.shaman.pEarthShock))
+        if (m_role != ROLE_HEALER && SummonShamanTotems())
+            return;
+
+        if (Unit* pPurgeTarget = SelectShamanPurgeTarget(this))
         {
-            if (DoCastSpell(pVictim, m_spells.shaman.pEarthShock) == SPELL_CAST_OK)
+            if (DoCastSpell(pPurgeTarget, m_spells.shaman.pPurge) == SPELL_CAST_OK)
                 return;
         }
 
-        if (m_spells.shaman.pFrostShock &&
-            pVictim->IsMoving() &&
-            CanTryToCastSpell(pVictim, m_spells.shaman.pFrostShock))
+        if (m_role == ROLE_MELEE_DPS || m_role == ROLE_TANK)
         {
-            if (DoCastSpell(pVictim, m_spells.shaman.pFrostShock) == SPELL_CAST_OK)
-                return;
+            if (m_spells.shaman.pStormstrike &&
+                CanTryToCastSpell(pVictim, m_spells.shaman.pStormstrike))
+            {
+                if (DoCastSpell(pVictim, m_spells.shaman.pStormstrike) == SPELL_CAST_OK)
+                    return;
+            }
+
+            if (m_spells.shaman.pFrostShock &&
+                pVictim->IsMoving() &&
+                CanTryToCastSpell(pVictim, m_spells.shaman.pFrostShock))
+            {
+                if (DoCastSpell(pVictim, m_spells.shaman.pFrostShock) == SPELL_CAST_OK)
+                    return;
+            }
         }
 
-        if (m_spells.shaman.pStormstrike &&
-            CanTryToCastSpell(pVictim, m_spells.shaman.pStormstrike))
+        if (m_role == ROLE_RANGE_DPS)
         {
-            if (DoCastSpell(pVictim, m_spells.shaman.pStormstrike) == SPELL_CAST_OK)
-                return;
-        }
+            if (m_spells.shaman.pFlameShock &&
+                CanTryToCastSpell(pVictim, m_spells.shaman.pFlameShock))
+            {
+                if (DoCastSpell(pVictim, m_spells.shaman.pFlameShock) == SPELL_CAST_OK)
+                    return;
+            }
 
-        if (m_spells.shaman.pChainLightning &&
-            CanTryToCastSpell(pVictim, m_spells.shaman.pChainLightning))
-        {
-            if (DoCastSpell(pVictim, m_spells.shaman.pChainLightning) == SPELL_CAST_OK)
-                return;
-        }
+            if (m_spells.shaman.pChainLightning &&
+                CanTryToCastSpell(pVictim, m_spells.shaman.pChainLightning))
+            {
+                if (DoCastSpell(pVictim, m_spells.shaman.pChainLightning) == SPELL_CAST_OK)
+                    return;
+            }
 
-        if (m_spells.shaman.pPurge &&
-            IsValidDispelTarget(pVictim, m_spells.shaman.pPurge) &&
-            CanTryToCastSpell(pVictim, m_spells.shaman.pPurge))
-        {
-            if (DoCastSpell(pVictim, m_spells.shaman.pPurge) == SPELL_CAST_OK)
-                return;
+            if (m_spells.shaman.pLightningBolt &&
+                CanTryToCastSpell(pVictim, m_spells.shaman.pLightningBolt))
+            {
+                if (DoCastSpell(pVictim, m_spells.shaman.pLightningBolt) == SPELL_CAST_OK)
+                    return;
+            }
         }
 
         if (m_spells.shaman.pFlameShock &&

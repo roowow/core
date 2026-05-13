@@ -10,6 +10,8 @@
 #include "SpellAuras.h"
 #include "Chat.h"
 #include "CharacterDatabaseCache.h"
+#include "Totem.h"
+#include <list>
 #include <random>
 
 enum CombatBotSpells
@@ -160,6 +162,7 @@ void CombatBotBaseAI::PopulateSpellData()
     SpellEntry const* pWindfuryTotem = nullptr;
     SpellEntry const* pWindwallTotem = nullptr;
     SpellEntry const* pTranquilAirTotem = nullptr;
+    SpellEntry const* pGroundingTotem = nullptr;
 
     // Earth Totems
     SpellEntry const* pEarthbindTotem = nullptr;
@@ -450,6 +453,16 @@ void CombatBotBaseAI::PopulateSpellData()
                     if (IsHigherRankSpell(m_spells.shaman.pGhostWolf))
                         m_spells.shaman.pGhostWolf = pSpellEntry;
                 }
+                else if (pSpellEntry->SpellName[0].find("Cure Disease") != std::string::npos)
+                {
+                    if (IsHigherRankSpell(m_spells.shaman.pCureDisease))
+                        m_spells.shaman.pCureDisease = pSpellEntry;
+                }
+                else if (pSpellEntry->SpellName[0].find("Cure Poison") != std::string::npos)
+                {
+                    if (IsHigherRankSpell(m_spells.shaman.pCurePoison))
+                        m_spells.shaman.pCurePoison = pSpellEntry;
+                }
                 else if (pSpellEntry->SpellName[0].find("Frostbrand Weapon") != std::string::npos)
                 {
                     if (IsHigherRankSpell(pFrostbrandWeapon))
@@ -489,6 +502,11 @@ void CombatBotBaseAI::PopulateSpellData()
                 {
                     if (IsHigherRankSpell(pTranquilAirTotem))
                         pTranquilAirTotem = pSpellEntry;
+                }
+                else if (pSpellEntry->SpellName[0].find("Grounding Totem") != std::string::npos)
+                {
+                    if (IsHigherRankSpell(pGroundingTotem))
+                        pGroundingTotem = pSpellEntry;
                 }
                 else if (pSpellEntry->SpellName[0].find("Earthbind Totem") != std::string::npos)
                 {
@@ -545,7 +563,7 @@ void CombatBotBaseAI::PopulateSpellData()
                     if (IsHigherRankSpell(pFireResistanceTotem))
                         pFireResistanceTotem = pSpellEntry;
                 }
-                else if (pSpellEntry->SpellName[0].find("Disease Resistance Totem") != std::string::npos)
+                else if (pSpellEntry->SpellName[0].find("Disease Cleansing Totem") != std::string::npos)
                 {
                     if (IsHigherRankSpell(pDiseaseCleansingTotem))
                         pDiseaseCleansingTotem = pSpellEntry;
@@ -1685,61 +1703,32 @@ void CombatBotBaseAI::PopulateSpellData()
         }
         case CLASS_SHAMAN:
         {
-            std::vector<SpellEntry const*> airTotems;
-            if (pGraceOfAirTotem)
-                airTotems.push_back(pGraceOfAirTotem);
-            if (pNatureResistanceTotem)
-                airTotems.push_back(pNatureResistanceTotem);
-            if (pWindfuryTotem)
-                airTotems.push_back(pWindfuryTotem);
-            if (pWindwallTotem)
-                airTotems.push_back(pWindwallTotem);
-            if (pTranquilAirTotem)
-                airTotems.push_back(pTranquilAirTotem);
-            if (!airTotems.empty())
-                m_spells.shaman.pAirTotem = SelectRandomContainerElement(airTotems);
+            m_spells.shaman.pGraceOfAirTotem = pGraceOfAirTotem;
+            m_spells.shaman.pNatureResistanceTotem = pNatureResistanceTotem;
+            m_spells.shaman.pWindfuryTotem = pWindfuryTotem;
+            m_spells.shaman.pWindwallTotem = pWindwallTotem;
+            m_spells.shaman.pTranquilAirTotem = pTranquilAirTotem;
+            m_spells.shaman.pGroundingTotem = pGroundingTotem;
+            m_spells.shaman.pEarthbindTotem = pEarthbindTotem;
+            m_spells.shaman.pStoneclawTotem = pStoneclawtotem;
+            m_spells.shaman.pStoneskinTotem = pStoneskinTotem;
+            m_spells.shaman.pStrengthOfEarthTotem = pStrengthOfEarthTotem;
+            m_spells.shaman.pTremorTotem = pTremorTotem;
+            m_spells.shaman.pFireNovaTotem = pFireNovaTotem;
+            m_spells.shaman.pMagmaTotem = pMagmaTotem;
+            m_spells.shaman.pSearingTotem = pSearingTotem;
+            m_spells.shaman.pFlametongueTotem = pFlametongueTotem;
+            m_spells.shaman.pFrostResistanceTotem = pFrostResistanceTotem;
+            m_spells.shaman.pFireResistanceTotem = pFireResistanceTotem;
+            m_spells.shaman.pDiseaseCleansingTotem = pDiseaseCleansingTotem;
+            m_spells.shaman.pHealingStreamTotem = pHealingStreamTotem;
+            m_spells.shaman.pManaSpringTotem = pManaSpringTotem;
+            m_spells.shaman.pPoisonCleansingTotem = pPoisonCleansingTotem;
 
-            std::vector<SpellEntry const*> earthTotems;
-            if (pEarthbindTotem)
-                earthTotems.push_back(pEarthbindTotem);
-            if (pStoneclawtotem)
-                earthTotems.push_back(pStoneclawtotem);
-            if (pStoneskinTotem)
-                earthTotems.push_back(pStoneskinTotem);
-            if (pStrengthOfEarthTotem)
-                earthTotems.push_back(pStrengthOfEarthTotem);
-            if (pTremorTotem)
-                earthTotems.push_back(pTremorTotem);
-            if (!earthTotems.empty())
-                m_spells.shaman.pEarthTotem = SelectRandomContainerElement(earthTotems);
-
-            std::vector<SpellEntry const*> fireTotems;
-            if (pFireNovaTotem)
-                fireTotems.push_back(pFireNovaTotem);
-            if (pMagmaTotem)
-                fireTotems.push_back(pMagmaTotem);
-            if (pSearingTotem)
-                fireTotems.push_back(pSearingTotem);
-            if (pFlametongueTotem)
-                fireTotems.push_back(pFlametongueTotem);
-            if (pFrostResistanceTotem)
-                fireTotems.push_back(pFrostResistanceTotem);
-            if (!fireTotems.empty())
-                m_spells.shaman.pFireTotem = SelectRandomContainerElement(fireTotems);
-
-            std::vector<SpellEntry const*> waterTotems;
-            if (pFireResistanceTotem)
-                waterTotems.push_back(pFireResistanceTotem);
-            if (pDiseaseCleansingTotem)
-                waterTotems.push_back(pDiseaseCleansingTotem);
-            if (pHealingStreamTotem)
-                waterTotems.push_back(pHealingStreamTotem);
-            if (pManaSpringTotem)
-                waterTotems.push_back(pManaSpringTotem);
-            if (pPoisonCleansingTotem)
-                waterTotems.push_back(pPoisonCleansingTotem);
-            if (!waterTotems.empty())
-                m_spells.shaman.pWaterTotem = SelectRandomContainerElement(waterTotems);
+            m_spells.shaman.pAirTotem = pWindfuryTotem ? pWindfuryTotem : (pGraceOfAirTotem ? pGraceOfAirTotem : pGroundingTotem);
+            m_spells.shaman.pEarthTotem = pStrengthOfEarthTotem ? pStrengthOfEarthTotem : (pEarthbindTotem ? pEarthbindTotem : pTremorTotem);
+            m_spells.shaman.pFireTotem = pSearingTotem ? pSearingTotem : (pMagmaTotem ? pMagmaTotem : pFireNovaTotem);
+            m_spells.shaman.pWaterTotem = pManaSpringTotem ? pManaSpringTotem : (pHealingStreamTotem ? pHealingStreamTotem : pPoisonCleansingTotem);
 
             if (pWindfuryWeapon && m_role == ROLE_MELEE_DPS)
                 m_spells.shaman.pWeaponBuff = pWindfuryWeapon;
@@ -3023,35 +3012,130 @@ void CombatBotBaseAI::UpdateVisualHonorRankBasedOnItems()
 
 bool CombatBotBaseAI::SummonShamanTotems()
 {
-    if (m_spells.shaman.pAirTotem &&
-        !me->GetTotem(TOTEM_SLOT_AIR) &&
-        CanTryToCastSpell(me, m_spells.shaman.pAirTotem))
+    auto hasNearbyEnemyCaster = [this]() -> bool
     {
-        if (DoCastSpell(me, m_spells.shaman.pAirTotem) == SPELL_CAST_OK)
+        std::list<Player*> players;
+        me->GetAlivePlayerListInRange(me, players, 30.0f);
+        for (Player* player : players)
+        {
+            if (player == me ||
+                !IsValidHostileTarget(player) ||
+                !me->IsWithinLOSInMap(player))
+                continue;
+
+            if (IsRangedDamageClass(player->GetClass()) || IsHealerClass(player->GetClass()) || player->IsNonMeleeSpellCasted())
+                return true;
+        }
+
+        return false;
+    };
+
+    auto hasNearbyPhysicalAlly = [this]() -> bool
+    {
+        std::list<Player*> players;
+        me->GetAlivePlayerListInRange(me, players, 30.0f);
+        for (Player* player : players)
+        {
+            if (player == me)
+                continue;
+
+            if (player->GetTeam() == me->GetTeam() &&
+                me->IsWithinLOSInMap(player) &&
+                (IsMeleeDamageClass(player->GetClass()) || IsTankClass(player->GetClass())))
+                return true;
+        }
+
+        return m_role == ROLE_MELEE_DPS || m_role == ROLE_TANK;
+    };
+
+    auto hasNearbyFearCaster = [this]() -> bool
+    {
+        std::list<Player*> players;
+        me->GetAlivePlayerListInRange(me, players, 30.0f);
+        for (Player* player : players)
+        {
+            if (player == me ||
+                !IsValidHostileTarget(player) ||
+                !me->IsWithinLOSInMap(player))
+                continue;
+
+            if (player->GetClass() == CLASS_WARLOCK || player->GetClass() == CLASS_PRIEST)
+                return true;
+        }
+
+        return false;
+    };
+
+    SpellEntry const* airTotem = m_spells.shaman.pAirTotem;
+    if (m_spells.shaman.pGroundingTotem && hasNearbyEnemyCaster())
+        airTotem = m_spells.shaman.pGroundingTotem;
+    else if (m_spells.shaman.pWindfuryTotem && hasNearbyPhysicalAlly())
+        airTotem = m_spells.shaman.pWindfuryTotem;
+    else if (m_spells.shaman.pGraceOfAirTotem)
+        airTotem = m_spells.shaman.pGraceOfAirTotem;
+
+    SpellEntry const* earthTotem = m_spells.shaman.pEarthTotem;
+    if (m_spells.shaman.pEarthbindTotem && me->GetVictim() && me->GetVictim()->IsMoving())
+        earthTotem = m_spells.shaman.pEarthbindTotem;
+    else if (m_spells.shaman.pTremorTotem && hasNearbyFearCaster())
+        earthTotem = m_spells.shaman.pTremorTotem;
+    else if (m_spells.shaman.pStrengthOfEarthTotem && hasNearbyPhysicalAlly())
+        earthTotem = m_spells.shaman.pStrengthOfEarthTotem;
+
+    SpellEntry const* fireTotem = m_spells.shaman.pFireTotem;
+    if (m_spells.shaman.pMagmaTotem && GetAttackersInRangeCount(8.0f) >= 2)
+        fireTotem = m_spells.shaman.pMagmaTotem;
+    else if (m_spells.shaman.pSearingTotem)
+        fireTotem = m_spells.shaman.pSearingTotem;
+
+    SpellEntry const* waterTotem = m_spells.shaman.pWaterTotem;
+    if (m_spells.shaman.pPoisonCleansingTotem && m_spells.shaman.pCurePoison && SelectDispelTarget(m_spells.shaman.pCurePoison))
+        waterTotem = m_spells.shaman.pPoisonCleansingTotem;
+    else if (m_spells.shaman.pDiseaseCleansingTotem && m_spells.shaman.pCureDisease && SelectDispelTarget(m_spells.shaman.pCureDisease))
+        waterTotem = m_spells.shaman.pDiseaseCleansingTotem;
+    else if (m_spells.shaman.pManaSpringTotem && me->GetPowerType() == POWER_MANA && me->GetPowerPercent(POWER_MANA) < 80.0f)
+        waterTotem = m_spells.shaman.pManaSpringTotem;
+    else if (m_spells.shaman.pHealingStreamTotem && SelectHealTarget(100.0f, 95.0f))
+        waterTotem = m_spells.shaman.pHealingStreamTotem;
+
+    auto shouldSummonTotem = [this](TotemSlot slot, SpellEntry const* spell) -> bool
+    {
+        if (!spell)
+            return false;
+
+        Totem* currentTotem = me->GetTotem(slot);
+        return !currentTotem || currentTotem->GetUInt32Value(UNIT_CREATED_BY_SPELL) != spell->Id;
+    };
+
+    if (airTotem &&
+        shouldSummonTotem(TOTEM_SLOT_AIR, airTotem) &&
+        CanTryToCastSpell(me, airTotem))
+    {
+        if (DoCastSpell(me, airTotem) == SPELL_CAST_OK)
             return true;
     }
 
-    if (m_spells.shaman.pEarthTotem &&
-        !me->GetTotem(TOTEM_SLOT_EARTH) &&
-        CanTryToCastSpell(me, m_spells.shaman.pEarthTotem))
+    if (earthTotem &&
+        shouldSummonTotem(TOTEM_SLOT_EARTH, earthTotem) &&
+        CanTryToCastSpell(me, earthTotem))
     {
-        if (DoCastSpell(me, m_spells.shaman.pEarthTotem) == SPELL_CAST_OK)
+        if (DoCastSpell(me, earthTotem) == SPELL_CAST_OK)
             return true;
     }
 
-    if (m_spells.shaman.pFireTotem &&
-        !me->GetTotem(TOTEM_SLOT_FIRE) &&
-        CanTryToCastSpell(me, m_spells.shaman.pFireTotem))
+    if (fireTotem &&
+        shouldSummonTotem(TOTEM_SLOT_FIRE, fireTotem) &&
+        CanTryToCastSpell(me, fireTotem))
     {
-        if (DoCastSpell(me, m_spells.shaman.pFireTotem) == SPELL_CAST_OK)
+        if (DoCastSpell(me, fireTotem) == SPELL_CAST_OK)
             return true;
     }
 
-    if (m_spells.shaman.pWaterTotem &&
-        !me->GetTotem(TOTEM_SLOT_WATER) &&
-        CanTryToCastSpell(me, m_spells.shaman.pWaterTotem))
+    if (waterTotem &&
+        shouldSummonTotem(TOTEM_SLOT_WATER, waterTotem) &&
+        CanTryToCastSpell(me, waterTotem))
     {
-        if (DoCastSpell(me, m_spells.shaman.pWaterTotem) == SPELL_CAST_OK)
+        if (DoCastSpell(me, waterTotem) == SPELL_CAST_OK)
             return true;
     }
 

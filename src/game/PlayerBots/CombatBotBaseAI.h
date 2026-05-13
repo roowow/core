@@ -287,7 +287,7 @@ public:
     {
         struct
         {
-            SpellEntry const* spells[45];
+            SpellEntry const* spells[96];
         } raw;
         struct
         {
@@ -332,6 +332,27 @@ public:
             SpellEntry const* pWaterTotem;
             SpellEntry const* pManaTideTotem;
             SpellEntry const* pWeaponBuff;
+            SpellEntry const* pGraceOfAirTotem;
+            SpellEntry const* pNatureResistanceTotem;
+            SpellEntry const* pWindfuryTotem;
+            SpellEntry const* pWindwallTotem;
+            SpellEntry const* pTranquilAirTotem;
+            SpellEntry const* pGroundingTotem;
+            SpellEntry const* pEarthbindTotem;
+            SpellEntry const* pStoneclawTotem;
+            SpellEntry const* pStoneskinTotem;
+            SpellEntry const* pStrengthOfEarthTotem;
+            SpellEntry const* pTremorTotem;
+            SpellEntry const* pFireNovaTotem;
+            SpellEntry const* pMagmaTotem;
+            SpellEntry const* pSearingTotem;
+            SpellEntry const* pFlametongueTotem;
+            SpellEntry const* pFrostResistanceTotem;
+            SpellEntry const* pFireResistanceTotem;
+            SpellEntry const* pDiseaseCleansingTotem;
+            SpellEntry const* pHealingStreamTotem;
+            SpellEntry const* pManaSpringTotem;
+            SpellEntry const* pPoisonCleansingTotem;
         } shaman;
         struct
         {
