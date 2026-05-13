@@ -408,7 +408,7 @@ BattleGroundAfkScoreRule BattleGroundAfkMgr::GetRule(BattleGround const* bg) con
 void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
 {
     Player* player = sObjectMgr.GetPlayer(guid);
-    if (!player || player->IsBot() || player->IsGameMaster() || player->GetBattleGround() != bg)
+    if (!player || player->IsBot() || player->GetBattleGround() != bg)
     {
         RemovePlayer(guid);
         return;
@@ -647,11 +647,13 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
             state.lastRecoveryPendingTime = 0;
             state.lastActivityNoticeTime = m_elapsedTime;
             state.lastActivityNoticeLevel = 0;
+            state.noObjectiveContributionChecks = 0;
             SendRecoveryNotice(bg, guid, state, true);
             return;
         }
 
         state.stage = 0;
+        state.noObjectiveContributionChecks = 0;
     }
     else if (state.score < rule.warning1Score)
         targetStage = 0;
@@ -683,10 +685,11 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
         return;
     }
 
-    if (state.score >= rule.kickScore && state.stage >= 3 && cooldownReady)
+    if (state.score >= rule.kickScore && state.stage >= 3)
     {
         if (scoreDecreasing)
         {
+            state.maxScoreChecks = 0;
             if (recoveryNoticeReady)
             {
                 state.lastRecoveryNoticeTime = m_elapsedTime;
@@ -696,23 +699,29 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
             return;
         }
 
-        if (Player* player = sObjectMgr.GetPlayer(guid))
+        ++state.maxScoreChecks;
+        if (state.maxScoreChecks >= 3 || cooldownReady)
         {
-            std::string const reasons = FormatAfkReasons(state.lastReasonMask);
-            int32 const delta = int32(state.score) - int32(state.lastPreviousScore);
-            uint32 const bgType = bg ? uint32(bg->GetTypeID()) : state.trackBgType;
-            sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] kick player %s (%s) bgType %u bgName %s instance %u elapsed %u stage %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
-                player->GetName(), guid.GetString().c_str(), bgType, GetAfkBattleGroundName(bgType), bg ? bg->GetInstanceID() : state.trackInstanceId,
-                m_elapsedTime, uint32(state.stage), state.score, state.lastPreviousScore, delta, reasons.c_str(),
-                BoolText(state.lastMoved), state.lastMoveDistance, BoolText(state.lastInCombat), BoolText(state.lastNearObjective),
-                state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents);
-            state.kicked = true;
-            player->SendSysMessage("您因长时间未有效参与战场，已被移出战场。");
-            NotifyTeamAfkKick(bg, guid, player->GetName());
-            player->LeaveBattleground();
+            if (Player* player = sObjectMgr.GetPlayer(guid))
+            {
+                std::string const reasons = FormatAfkReasons(state.lastReasonMask);
+                int32 const delta = int32(state.score) - int32(state.lastPreviousScore);
+                uint32 const bgType = bg ? uint32(bg->GetTypeID()) : state.trackBgType;
+                sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] kick player %s (%s) bgType %u bgName %s instance %u elapsed %u stage %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
+                    player->GetName(), guid.GetString().c_str(), bgType, GetAfkBattleGroundName(bgType), bg ? bg->GetInstanceID() : state.trackInstanceId,
+                    m_elapsedTime, uint32(state.stage), state.score, state.lastPreviousScore, delta, reasons.c_str(),
+                    BoolText(state.lastMoved), state.lastMoveDistance, BoolText(state.lastInCombat), BoolText(state.lastNearObjective),
+                    state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents);
+                state.kicked = true;
+                player->SendSysMessage("您因长时间未有效参与战场，已被移出战场。");
+                NotifyTeamAfkKick(bg, guid, player->GetName());
+                player->LeaveBattleground();
+            }
+            return;
         }
-        return;
     }
+    else
+        state.maxScoreChecks = 0;
 }
 
 void BattleGroundAfkMgr::MaybeSendActivityNotice(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState& state, BattleGroundAfkScoreRule const& rule) const
@@ -721,7 +730,7 @@ void BattleGroundAfkMgr::MaybeSendActivityNotice(BattleGround* bg, ObjectGuid gu
         return;
 
     Player* player = sObjectMgr.GetPlayer(guid);
-    if (!player || player->IsBot() || player->IsGameMaster() || player->GetBattleGround() != bg)
+    if (!player || player->IsBot() || player->GetBattleGround() != bg)
         return;
 
     uint8 level = 0;
@@ -741,8 +750,11 @@ void BattleGroundAfkMgr::MaybeSendActivityNotice(BattleGround* bg, ObjectGuid gu
     if (!levelChanged && state.lastActivityNoticeTime && m_elapsedTime < state.lastActivityNoticeTime + cooldown)
         return;
 
+    bool const firstNotice = state.lastActivityNoticeTime == 0;
     state.lastActivityNoticeTime = m_elapsedTime;
     state.lastActivityNoticeLevel = level;
+    if (level == 0 && !firstNotice)
+        return;
     bool const logNotice = level > 0 && (level < 3 || levelChanged);
     SendActivityNotice(bg, guid, level, state.stage, state.score, logNotice);
 }

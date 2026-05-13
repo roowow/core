@@ -57,13 +57,14 @@ struct BattleGroundAfkPlayerState
     uint32 lastRecoveryNoticeTime = 0;
     uint32 lastRecoveryPendingTime = 0;
     uint32 lastActivityNoticeTime = 0;
-    uint8 lastActivityNoticeLevel = 255;
+    uint8 lastActivityNoticeLevel = 0;
     uint32 recentDamageDone = 0;
     uint32 recentDamageTaken = 0;
     uint32 recentHealingDone = 0;
     uint32 recentObjectiveEvents = 0;
     uint32 noObjectiveContributionChecks = 0;
     uint32 deadChecks = 0;
+    uint32 maxScoreChecks = 0;
     bool lastMoved = false;
     bool lastInCombat = false;
     bool lastNearObjective = false;
