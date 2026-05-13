@@ -30,6 +30,7 @@ namespace
 uint32 const AFK_CHECK_INTERVAL = 30 * IN_MILLISECONDS;
 uint32 const AFK_WARNING_COOLDOWN = 5 * MINUTE * IN_MILLISECONDS;
 uint32 const AFK_RECOVERY_NOTICE_COOLDOWN = 2 * MINUTE * IN_MILLISECONDS;
+uint32 const AFK_ACTIVITY_NOTICE_COOLDOWN = 3 * MINUTE * IN_MILLISECONDS;
 float const AFK_MIN_MOVE_DISTANCE = 5.0f;
 float const AFK_AB_OBJECTIVE_RADIUS = 60.0f;
 float const AFK_AB_START_RADIUS = 70.0f;
@@ -218,6 +219,7 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
         state.recentHealingDone = 0;
         state.recentObjectiveEvents = 0;
         ApplyStage(bg, guid, state, rule, previousScore);
+        MaybeSendActivityNotice(bg, guid, state, rule);
         return;
     }
 
@@ -284,6 +286,7 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     state.lastZ = player->GetPositionZ();
 
     ApplyStage(bg, guid, state, rule, previousScore);
+    MaybeSendActivityNotice(bg, guid, state, rule);
 }
 
 void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState& state, BattleGroundAfkScoreRule const& rule, uint32 previousScore)
@@ -306,7 +309,7 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
         {
             state.stage = 0;
             state.lastWarnTime = 0;
-            state.lastRecoveryNoticeTime = 0;
+            state.lastRecoveryNoticeTime = m_elapsedTime;
             SendRecoveryNotice(bg, guid, state.score, true);
             return;
         }
@@ -352,6 +355,62 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
             player->LeaveBattleground();
         }
         return;
+    }
+}
+
+void BattleGroundAfkMgr::MaybeSendActivityNotice(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState& state, BattleGroundAfkScoreRule const& rule) const
+{
+    if (state.lastWarnTime == m_elapsedTime || state.lastRecoveryNoticeTime == m_elapsedTime)
+        return;
+
+    if (state.lastActivityNoticeTime && m_elapsedTime < state.lastActivityNoticeTime + AFK_ACTIVITY_NOTICE_COOLDOWN)
+        return;
+
+    Player* player = sObjectMgr.GetPlayer(guid);
+    if (!player || player->IsBot() || player->IsGameMaster() || player->GetBattleGround() != bg)
+        return;
+
+    uint8 level = 0;
+    if (state.score >= rule.warning3Score)
+        level = 3;
+    else if (state.score >= rule.warning2Score)
+        level = 2;
+    else if (state.score >= rule.warning1Score)
+        level = 1;
+
+    state.lastActivityNoticeTime = m_elapsedTime;
+    SendActivityNotice(bg, guid, level);
+}
+
+void BattleGroundAfkMgr::SendActivityNotice(BattleGround* bg, ObjectGuid guid, uint8 level) const
+{
+    Player* player = sObjectMgr.GetPlayer(guid);
+    if (!player)
+        return;
+
+    time_t const now = time(nullptr);
+    tm const* localTime = localtime(&now);
+    char currentTime[6];
+    snprintf(currentTime, sizeof(currentTime), "%02u:%02u", uint32(localTime->tm_hour), uint32(localTime->tm_min));
+
+    if (level > 0)
+        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] activity level %u player %s (%s) bgType %u instance %u.",
+            uint32(level), player->GetName(), guid.GetString().c_str(), bg ? uint32(bg->GetTypeID()) : 0, bg ? bg->GetInstanceID() : 0);
+
+    switch (level)
+    {
+        case 0:
+            player->PSendSysMessage("[%s] 您当前战场活跃度正常。", currentTime);
+            break;
+        case 1:
+            player->PSendSysMessage("[%s] 您当前战场活跃度偏低，请参与战斗、治疗队友或争夺战场目标。", currentTime);
+            break;
+        case 2:
+            player->PSendSysMessage("[%s] 您当前战场活跃度不足，请尽快提升战场参与。", currentTime);
+            break;
+        default:
+            player->PSendSysMessage("[%s] 您当前战场活跃度危险，请立即参与战斗或战场目标。", currentTime);
+            break;
     }
 }
 
