@@ -3228,9 +3228,10 @@ static bool BattleBotNeedsRecovery(BattleBotAI* pAI)
     return needToEat || needToDrink || pAI->me->HasAura(BB_SPELL_FOOD) || pAI->me->HasAura(BB_SPELL_DRINK);
 }
 
-static bool MoveGuardBackBeforeRecovery(BattleBotAI* pAI, Position const& guardPosition, float readyRadius, std::vector<BattleBotPath*> const* paths)
+static bool MoveGuardBackBeforeRecovery(BattleBotAI* pAI, Position const& guardPosition, float readyRadius, std::vector<BattleBotPath*> const* paths, bool use2dDistance = false)
 {
-    if (pAI->me->GetDistance(guardPosition) <= readyRadius)
+    float const distance = use2dDistance ? pAI->me->GetDistance2d(guardPosition) : pAI->me->GetDistance(guardPosition);
+    if (distance <= readyRadius)
         return false;
 
     pAI->me->RemoveAurasDueToSpellByCancel(BB_SPELL_FOOD);
@@ -3264,7 +3265,7 @@ bool BattleBotReturnToGuardPositionBeforeRecovery(BattleBotAI* pAI)
         {
             Position guardPosition;
             if (FindABOwnedGuardPosition(pAI, guardPosition))
-                return MoveGuardBackBeforeRecovery(pAI, guardPosition, AB_GUARD_KEEP_RADIUS, &vPaths_AB);
+                return MoveGuardBackBeforeRecovery(pAI, guardPosition, AB_GUARD_SEARCH_RADIUS, &vPaths_AB, true);
 
             return false;
         }
