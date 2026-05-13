@@ -458,6 +458,168 @@ static bool BattleBotNeedsFreedom(Unit const* pTarget)
         pTarget->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED));
 }
 
+static Unit* SelectMageCounterspellTarget(BattleBotAI const* pAI, Unit* currentVictim)
+{
+    if (!pAI || !pAI->m_spells.mage.pCounterspell)
+        return nullptr;
+
+    Unit* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestDistance = 0.0f;
+
+    auto considerTarget = [&](Unit* target)
+    {
+        if (!target ||
+            !target->ToPlayer() ||
+            !target->IsNonMeleeSpellCasted(false, false, true) ||
+            !pAI->IsValidHostileTarget(target) ||
+            pAI->IsBadPlayer(target) ||
+            !pAI->me->IsWithinLOSInMap(target) ||
+            !pAI->CanTryToCastSpell(target, pAI->m_spells.mage.pCounterspell))
+            return;
+
+        uint8 priority = target->GetClass() == CLASS_MAGE ? 6 :
+            CombatBotBaseAI::IsHealerClass(target->GetClass()) ? 5 : 3;
+        if (BattleBotHasBattlegroundFlag(target) && priority < 5)
+            priority = 5;
+        if (target == currentVictim)
+            ++priority;
+
+        float const distance = pAI->me->GetDistance(target);
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && distance < bestDistance))
+        {
+            bestTarget = target;
+            bestPriority = priority;
+            bestDistance = distance;
+        }
+    };
+
+    considerTarget(currentVictim);
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 30.0f);
+    for (Player* player : players)
+        considerTarget(player);
+
+    return bestTarget;
+}
+
+static Unit* SelectMagePolymorphTarget(BattleBotAI const* pAI, Unit* currentVictim)
+{
+    if (!pAI || !pAI->m_spells.mage.pPolymorph)
+        return nullptr;
+
+    Unit* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestDistance = 0.0f;
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 30.0f);
+    for (Player* player : players)
+    {
+        if (!player || player == pAI->me || player == currentVictim)
+            continue;
+
+        if (!pAI->IsValidHostileTarget(player) ||
+            pAI->IsBadPlayer(player) ||
+            BattleBotIsHardControlled(player) ||
+            !pAI->me->IsWithinLOSInMap(player) ||
+            !BattleBotCanUseCrowdControl(pAI, pAI->m_spells.mage.pPolymorph, player) ||
+            !pAI->CanTryToCastSpell(player, pAI->m_spells.mage.pPolymorph))
+            continue;
+
+        bool const isMeleeThreat = CombatBotBaseAI::IsMeleeDamageClass(player->GetClass()) && player->GetCombatDistance(pAI->me) < 12.0f;
+        Unit* victim = player->GetVictim();
+        bool const isThreateningFriendly = victim && pAI->me->IsValidHelpfulTarget(victim);
+        bool const isThreateningCarrier = isThreateningFriendly && BattleBotHasBattlegroundFlag(victim);
+        bool const isThreateningHealer = isThreateningFriendly && CombatBotBaseAI::IsHealerClass(victim->GetClass());
+
+        uint8 priority = 0;
+        if (isMeleeThreat && victim == pAI->me)
+            priority = 6;
+        else if (isMeleeThreat && isThreateningCarrier)
+            priority = 5;
+        else if (isMeleeThreat && isThreateningHealer)
+            priority = 4;
+        else if (CombatBotBaseAI::IsHealerClass(player->GetClass()) && player->IsNonMeleeSpellCasted(false, false, true))
+            priority = 3;
+        else if (player->IsCaster() && player->GetVictim() == pAI->me)
+            priority = 2;
+
+        if (!priority)
+            continue;
+
+        float const distance = pAI->me->GetDistance(player);
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && distance < bestDistance))
+        {
+            bestTarget = player;
+            bestPriority = priority;
+            bestDistance = distance;
+        }
+    }
+
+    return bestTarget;
+}
+
+static bool BattleBotShouldUseMageBurst(BattleBotAI const* pAI, Unit* target)
+{
+    if (!pAI || !target)
+        return false;
+
+    if (BattleBotHasBattlegroundFlag(target))
+        return true;
+
+    if (target->GetHealthPercent() < 45.0f)
+        return true;
+
+    if (target->ToPlayer() &&
+       (target->GetClass() == CLASS_MAGE || target->GetClass() == CLASS_WARLOCK || CombatBotBaseAI::IsHealerClass(target->GetClass())))
+        return true;
+
+    return pAI->GetAttackersInRangeCount(10.0f) > 0 && target->GetVictim() == pAI->me;
+}
+
+static bool BattleBotMageHasDamageSpellInRange(BattleBotAI const* pAI, Unit const* target)
+{
+    if (!pAI || !target)
+        return false;
+
+    auto isInRange = [&](SpellEntry const* spell)
+    {
+        return spell && spell->IsTargetInRange(pAI->me, target);
+    };
+
+    return isInRange(pAI->m_spells.mage.pPyroblast) ||
+        isInRange(pAI->m_spells.mage.pFrostbolt) ||
+        isInRange(pAI->m_spells.mage.pFireball) ||
+        isInRange(pAI->m_spells.mage.pFireBlast) ||
+       (target->GetHealthPercent() < 20.0f && isInRange(pAI->m_spells.mage.pScorch));
+}
+
+static bool BattleBotMageHasPhysicalPressure(BattleBotAI const* pAI, Unit const* currentVictim)
+{
+    if (!pAI)
+        return false;
+
+    if (currentVictim &&
+        currentVictim->GetVictim() == pAI->me &&
+        CombatBotBaseAI::IsPhysicalDamageClass(currentVictim->GetClass()))
+        return true;
+
+    for (Unit* attacker : pAI->me->GetAttackers())
+    {
+        if (!attacker ||
+            attacker->GetVictim() != pAI->me ||
+            !CombatBotBaseAI::IsMeleeDamageClass(attacker->GetClass()) ||
+            pAI->me->GetCombatDistance(attacker) > 12.0f)
+            continue;
+
+        return true;
+    }
+
+    return false;
+}
+
 static Unit* SelectWarlockPetProtectTarget(BattleBotAI const* pAI)
 {
     if (!pAI)
@@ -3704,7 +3866,30 @@ void BattleBotAI::UpdateInCombatAI_Mage()
 {
     if (Unit* pVictim = me->GetVictim())
     {
+        bool const useBurst = BattleBotShouldUseMageBurst(this, pVictim);
+
+        if (m_spells.mage.pArcanePower &&
+            useBurst &&
+           (me->GetPowerPercent(POWER_MANA) > 50.0f) &&
+            CanTryToCastSpell(me, m_spells.mage.pArcanePower))
+        {
+            if (DoCastSpell(me, m_spells.mage.pArcanePower) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (m_spells.mage.pPresenceOfMind &&
+            useBurst &&
+           (me->GetPowerPercent(POWER_MANA) > 50.0f) &&
+            CanTryToCastSpell(me, m_spells.mage.pPresenceOfMind))
+        {
+            if (DoCastSpell(me, m_spells.mage.pPresenceOfMind) == SPELL_CAST_OK)
+                return;
+        }
+
         if (m_spells.mage.pCombustion &&
+            useBurst &&
+            m_spells.mage.pPresenceOfMind &&
+           (me->HasAura(m_spells.mage.pPresenceOfMind->Id) || me->GetPowerPercent(POWER_MANA) > 50.0f) &&
             CanTryToCastSpell(me, m_spells.mage.pCombustion))
         {
             if (DoCastSpell(me, m_spells.mage.pCombustion) == SPELL_CAST_OK)
@@ -3721,7 +3906,8 @@ void BattleBotAI::UpdateInCombatAI_Mage()
         }
 
         if (m_spells.mage.pIceBlock &&
-           (me->GetHealthPercent() < 10.0f) &&
+           (me->GetHealthPercent() < 25.0f) &&
+           (!me->GetAttackers().empty() || GetIncomingdamage(me) > 0) &&
             CanTryToCastSpell(me, m_spells.mage.pIceBlock))
         {
             if (DoCastSpell(me, m_spells.mage.pIceBlock) == SPELL_CAST_OK)
@@ -3729,7 +3915,7 @@ void BattleBotAI::UpdateInCombatAI_Mage()
         }
 
         if (m_spells.mage.pManaShield &&
-            IsPhysicalDamageClass(pVictim->GetClass()) &&
+            BattleBotMageHasPhysicalPressure(this, pVictim) &&
            (me->GetPowerPercent(POWER_MANA) > 20.0f) &&
             CanTryToCastSpell(me, m_spells.mage.pManaShield))
         {
@@ -3737,33 +3923,40 @@ void BattleBotAI::UpdateInCombatAI_Mage()
                 return;
         }
 
-        if (m_spells.mage.pCounterspell &&
-            pVictim->IsNonMeleeSpellCasted(false, false, true) &&
-            CanTryToCastSpell(pVictim, m_spells.mage.pCounterspell))
+        if (Unit* pCounterspellTarget = SelectMageCounterspellTarget(this, pVictim))
         {
-            if (DoCastSpell(pVictim, m_spells.mage.pCounterspell) == SPELL_CAST_OK)
+            if (DoCastSpell(pCounterspellTarget, m_spells.mage.pCounterspell) == SPELL_CAST_OK)
                 return;
         }
 
-        if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == IDLE_MOTION_TYPE
-            && me->GetDistance(pVictim) > 30.0f)
+        if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == IDLE_MOTION_TYPE &&
+            !BattleBotMageHasDamageSpellInRange(this, pVictim) &&
+            me->GetDistance(pVictim) > 30.0f)
         {
-            me->GetMotionMaster()->MoveChase(pVictim, 25.0f);
+            me->GetMotionMaster()->MoveChase(pVictim, 29.0f);
         }
         else if (pVictim->CanReachWithMeleeAutoAttack(me) &&
                 (pVictim->GetVictim() == me) &&
                 (me->GetMotionMaster()->GetCurrentMovementGeneratorType() != DISTANCING_MOTION_TYPE))
         {
-            if (m_spells.mage.pConeofCold &&
-                CanTryToCastSpell(me, m_spells.mage.pConeofCold))
+            bool rootedTarget = pVictim->HasUnitState(UNIT_STATE_ROOT) ||
+                pVictim->HasUnitState(UNIT_STATE_CAN_NOT_REACT_OR_LOST_CONTROL);
+
+            if (!rootedTarget &&
+                m_spells.mage.pFrostNova &&
+                CanTryToCastSpell(me, m_spells.mage.pFrostNova))
             {
-                if (DoCastSpell(pVictim, m_spells.mage.pConeofCold) == SPELL_CAST_OK)
+                if (DoCastSpell(me, m_spells.mage.pFrostNova) == SPELL_CAST_OK)
+                {
+                    me->GetMotionMaster()->MoveDistance(pVictim, 29.0f);
                     return;
+                }
             }
 
             if (m_spells.mage.pBlink &&
                (me->HasUnitState(UNIT_STATE_CAN_NOT_MOVE) ||
-                me->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED)) &&
+                me->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED) ||
+                pVictim->CanReachWithMeleeAutoAttack(me)) &&
                 CanTryToCastSpell(me, m_spells.mage.pBlink))
             {
                 if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
@@ -3773,17 +3966,16 @@ void BattleBotAI::UpdateInCombatAI_Mage()
                     return;
             }
 
+            if (m_spells.mage.pConeofCold &&
+                CanTryToCastSpell(me, m_spells.mage.pConeofCold))
+            {
+                if (DoCastSpell(pVictim, m_spells.mage.pConeofCold) == SPELL_CAST_OK)
+                    return;
+            }
+
             if (!me->HasUnitState(UNIT_STATE_CAN_NOT_MOVE))
             {
-                if (m_spells.mage.pFrostNova &&
-                    !pVictim->HasUnitState(UNIT_STATE_ROOT) &&
-                    !pVictim->HasUnitState(UNIT_STATE_CAN_NOT_REACT_OR_LOST_CONTROL) &&
-                    CanTryToCastSpell(me, m_spells.mage.pFrostNova))
-                {
-                    DoCastSpell(me, m_spells.mage.pFrostNova);
-                }
-
-                if (me->GetMotionMaster()->MoveDistance(pVictim, 25.0f))
+                if (me->GetMotionMaster()->MoveDistance(pVictim, 29.0f))
                     return;
             }
         }
@@ -3797,7 +3989,17 @@ void BattleBotAI::UpdateInCombatAI_Mage()
                     return;
             }
 
+            if (m_spells.mage.pBlizzard &&
+               (me->GetHealthPercent() > 40.0f) &&
+               (me->GetMotionMaster()->GetCurrentMovementGeneratorType() != DISTANCING_MOTION_TYPE) &&
+                CanTryToCastSpell(pVictim, m_spells.mage.pBlizzard))
+            {
+                if (DoCastSpell(pVictim, m_spells.mage.pBlizzard) == SPELL_CAST_OK)
+                    return;
+            }
+
             if (m_spells.mage.pArcaneExplosion &&
+               (me->GetHealthPercent() > 50.0f || pVictim->GetHealthPercent() < 20.0f) &&
                 CanTryToCastSpell(me, m_spells.mage.pArcaneExplosion))
             {
                 if (DoCastSpell(me, m_spells.mage.pArcaneExplosion) == SPELL_CAST_OK)
@@ -3806,7 +4008,14 @@ void BattleBotAI::UpdateInCombatAI_Mage()
         }
 
         if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == DISTANCING_MOTION_TYPE)
+        {
+            if (m_spells.mage.pFireBlast &&
+                CanTryToCastSpell(pVictim, m_spells.mage.pFireBlast))
+            {
+                DoCastSpell(pVictim, m_spells.mage.pFireBlast);
+            }
             return;
+        }
 
         if (m_spells.mage.pRemoveLesserCurse &&
            (me->GetAttackers().size() < 3) &&
@@ -3817,31 +4026,9 @@ void BattleBotAI::UpdateInCombatAI_Mage()
                 return;
         }
 
-        if (m_spells.mage.pPolymorph)
+        if (Unit* pPolymorphTarget = SelectMagePolymorphTarget(this, pVictim))
         {
-            if (Unit* pTarget = SelectAttackerDifferentFrom(pVictim))
-            {
-                if (CanTryToCastSpell(pVictim, m_spells.mage.pPolymorph))
-                {
-                    if (DoCastSpell(pVictim, m_spells.mage.pPolymorph) == SPELL_CAST_OK)
-                        return;
-                }
-            }
-        }
-
-        if (m_spells.mage.pArcanePower &&
-           (me->GetPowerPercent(POWER_MANA) > 50.0f) &&
-            CanTryToCastSpell(me, m_spells.mage.pArcanePower))
-        {
-            if (DoCastSpell(me, m_spells.mage.pArcanePower) == SPELL_CAST_OK)
-                return;
-        }
-
-        if (m_spells.mage.pPresenceOfMind &&
-           (me->GetPowerPercent(POWER_MANA) > 50.0f) &&
-            CanTryToCastSpell(me, m_spells.mage.pPresenceOfMind))
-        {
-            if (DoCastSpell(me, m_spells.mage.pPresenceOfMind) == SPELL_CAST_OK)
+            if (DoCastSpell(pPolymorphTarget, m_spells.mage.pPolymorph) == SPELL_CAST_OK)
                 return;
         }
 
