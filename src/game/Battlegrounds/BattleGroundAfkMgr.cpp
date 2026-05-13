@@ -41,6 +41,8 @@ int32 const AFK_DAMAGE_DONE_SCORE_REDUCE = 3;
 int32 const AFK_DAMAGE_TAKEN_SCORE_REDUCE = 2;
 int32 const AFK_HEALING_DONE_SCORE_REDUCE = 3;
 int32 const AFK_OBJECTIVE_SCORE_REDUCE = 6;
+uint32 const AFK_DEAD_GRACE_CHECKS = 4;
+int32 const AFK_DEAD_IDLE_SCORE = 2;
 
 int32 ClampAfkScore(int32 score)
 {
@@ -201,12 +203,25 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
 
     if (!player->IsAlive())
     {
-        state.score = uint32(ClampAfkScore(int32(state.score) - 2));
+        BattleGroundAfkScoreRule const rule = GetRule(bg);
+        uint32 const previousScore = state.score;
+
+        ++state.deadChecks;
+        if (state.deadChecks > AFK_DEAD_GRACE_CHECKS)
+            state.score = uint32(ClampAfkScore(int32(state.score) + AFK_DEAD_IDLE_SCORE));
+
         state.lastX = player->GetPositionX();
         state.lastY = player->GetPositionY();
         state.lastZ = player->GetPositionZ();
+        state.recentDamageDone = 0;
+        state.recentDamageTaken = 0;
+        state.recentHealingDone = 0;
+        state.recentObjectiveEvents = 0;
+        ApplyStage(bg, guid, state, rule, previousScore);
         return;
     }
+
+    state.deadChecks = 0;
 
     if (state.graceChecks)
     {

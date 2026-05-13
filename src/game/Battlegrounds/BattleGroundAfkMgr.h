@@ -49,6 +49,7 @@ struct BattleGroundAfkPlayerState
     uint32 recentDamageTaken = 0;
     uint32 recentHealingDone = 0;
     uint32 recentObjectiveEvents = 0;
+    uint32 deadChecks = 0;
     bool initialized = false;
     float lastX = 0.0f;
     float lastY = 0.0f;
