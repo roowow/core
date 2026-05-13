@@ -782,7 +782,8 @@ int32 SpellCaster::DealHeal(Unit* pVictim, uint32 addhealth, SpellEntry const* s
         if (healerPlayer && victimPlayer && !healerPlayer->IsBot())
             if (BattleGround* bg = healerPlayer->GetBattleGround())
                 if (victimPlayer->GetBattleGround() == bg && healerPlayer->IsFriendlyTo(pVictim))
-                    bg->RecordAfkHealingDone(healerPlayer->GetObjectGuid(), uint32(gain));
+                    if (healerPlayer->IsInCombat() || victimPlayer->IsInCombat())
+                        bg->RecordAfkHealingDone(healerPlayer->GetObjectGuid(), uint32(gain));
     }
 
     return gain;

@@ -17,6 +17,9 @@
 #include "BattleGroundAfkMgr.h"
 #include "BattleGround.h"
 #include "BattleGroundAB.h"
+#include "BattleGroundAV.h"
+#include "BattleGroundWS.h"
+#include "DBCStores.h"
 #include "Log.h"
 #include "ObjectMgr.h"
 #include "Player.h"
@@ -30,12 +33,19 @@ namespace
 uint32 const AFK_CHECK_INTERVAL = 30 * IN_MILLISECONDS;
 uint32 const AFK_WARNING_COOLDOWN = 5 * MINUTE * IN_MILLISECONDS;
 uint32 const AFK_RECOVERY_NOTICE_COOLDOWN = 2 * MINUTE * IN_MILLISECONDS;
-uint32 const AFK_ACTIVITY_NOTICE_COOLDOWN = 3 * MINUTE * IN_MILLISECONDS;
+uint32 const AFK_ACTIVITY_NOTICE_NORMAL_COOLDOWN = 10 * MINUTE * IN_MILLISECONDS;
+uint32 const AFK_ACTIVITY_NOTICE_LOW_COOLDOWN = 3 * MINUTE * IN_MILLISECONDS;
 float const AFK_MIN_MOVE_DISTANCE = 5.0f;
 float const AFK_AB_OBJECTIVE_RADIUS = 60.0f;
 float const AFK_AB_START_RADIUS = 70.0f;
 int32 const AFK_AB_OBJECTIVE_SCORE_REDUCE = 3;
 int32 const AFK_AB_START_IDLE_SCORE = 4;
+float const AFK_WSG_OBJECTIVE_RADIUS = 70.0f;
+int32 const AFK_WSG_OBJECTIVE_SCORE_REDUCE = 4;
+float const AFK_AV_OBJECTIVE_RADIUS = 65.0f;
+int32 const AFK_AV_OBJECTIVE_SCORE_REDUCE = 3;
+uint32 const AFK_NO_OBJECTIVE_GRACE_CHECKS = 3;
+int32 const AFK_NO_OBJECTIVE_CHAIN_SCORE = 2;
 uint32 const AFK_EFFECTIVE_DAMAGE_THRESHOLD = 100;
 uint32 const AFK_EFFECTIVE_HEALING_THRESHOLD = 100;
 int32 const AFK_DAMAGE_DONE_SCORE_REDUCE = 3;
@@ -67,6 +77,86 @@ bool IsNearABObjective(Player const* player)
 {
     for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
         if (IsNearPoint(player, BG_AB_BuffPositions[i][0], BG_AB_BuffPositions[i][1], BG_AB_BuffPositions[i][2], AFK_AB_OBJECTIVE_RADIUS))
+            return true;
+
+    return false;
+}
+
+bool IsNearUnit(Player const* player, Unit const* target, float radius)
+{
+    return target && player->GetMapId() == target->GetMapId() &&
+        IsNearPoint(player, target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(), radius);
+}
+
+bool IsWSGFlagCarrier(Player const* player)
+{
+    return player && (player->HasAura(BG_WS_SPELL_WARSONG_FLAG) || player->HasAura(BG_WS_SPELL_SILVERWING_FLAG));
+}
+
+bool IsNearWSGObjective(BattleGround* bg, Player* player)
+{
+    BattleGroundWS* wsg = dynamic_cast<BattleGroundWS*>(bg);
+    if (!wsg)
+        return false;
+
+    if (IsWSGFlagCarrier(player))
+        return true;
+
+    if (IsNearUnit(player, sObjectMgr.GetPlayer(wsg->GetAllianceFlagPickerGuid()), AFK_WSG_OBJECTIVE_RADIUS))
+        return true;
+
+    if (IsNearUnit(player, sObjectMgr.GetPlayer(wsg->GetHordeFlagPickerGuid()), AFK_WSG_OBJECTIVE_RADIUS))
+        return true;
+
+    if (Unit* victim = player->GetVictim())
+        if (Player const* victimPlayer = victim->ToPlayer())
+            if (IsWSGFlagCarrier(victimPlayer))
+                return true;
+
+    return false;
+}
+
+struct AfkObjectivePoint
+{
+    float x;
+    float y;
+    float z;
+};
+
+AfkObjectivePoint const AFK_AV_OBJECTIVE_POINTS[] =
+{
+    { 640.404f, -32.0183f, 46.2328f },     // Stormpike Aid Station
+    { 667.173f, -295.225f, 30.29f },       // Stormpike Graveyard
+    { 79.8805f, -401.379f, 46.516f },      // Stonehearth Graveyard
+    { -205.464f, -114.337f, 78.6167f },    // Snowfall Graveyard
+    { -614.138f, -396.501f, 60.8585f },    // Iceblood Graveyard
+    { -1081.32f, -348.198f, 54.5837f },    // Frostwolf Graveyard
+    { -1401.94f, -310.103f, 89.3816f },    // Frostwolf Relief Hut
+    { 555.018f, -77.9842f, 51.9347f },     // Dun Baldar South Bunker
+    { 672.685f, -142.49f, 63.6571f },      // Dun Baldar North Bunker
+    { 200.792f, -361.881f, 56.3798f },     // Icewing Bunker
+    { -153.491f, -441.386f, 40.3957f },    // Stonehearth Bunker
+    { -571.044f, -263.753f, 75.0087f },    // Iceblood Tower
+    { -767.9f, -362.019f, 90.8949f },      // Tower Point
+    { -1303.38f, -315.877f, 113.867f },    // East Frostwolf Tower
+    { -1298.82f, -267.215f, 114.151f },    // West Frostwolf Tower
+    { -46.5667f, -294.841f, 15.0786f },    // Captain Balinda
+    { -540.747f, -169.935f, 57.0124f },    // Captain Galvangar
+    { 717.709f, -16.6861f, 50.1354f },     // Vanndar room
+    { -1366.23f, -223.049f, 98.4174f },    // Drek'Thar room
+};
+
+bool IsNearAVObjective(Player const* player)
+{
+    for (uint8 i = BG_AV_NODES_FIRSTAID_STATION; i <= BG_AV_NODES_FROSTWOLF_HUT; ++i)
+    {
+        if (WorldSafeLocsEntry const* entry = sWorldSafeLocsStore.LookupEntry(BG_AV_GraveyardIds[i]))
+            if (IsNearPoint(player, entry->x, entry->y, entry->z, AFK_AV_OBJECTIVE_RADIUS))
+                return true;
+    }
+
+    for (AfkObjectivePoint const& point : AFK_AV_OBJECTIVE_POINTS)
+        if (IsNearPoint(player, point.x, point.y, point.z, AFK_AV_OBJECTIVE_RADIUS))
             return true;
 
     return false;
@@ -173,13 +263,13 @@ BattleGroundAfkScoreRule BattleGroundAfkMgr::GetRule(BattleGround const* bg) con
     switch (bg->GetTypeID())
     {
         case BATTLEGROUND_WS:
-            return { 8, 13, 18, 24, 3, 3, 2, 1, 5 };
+            return { 8, 13, 18, 24, 3, 3, 2, 1, 3 };
         case BATTLEGROUND_AB:
-            return { 10, 16, 22, 30, 2, 2, 1, 1, 5 };
+            return { 10, 16, 22, 30, 2, 2, 1, 1, 3 };
         case BATTLEGROUND_AV:
-            return { 14, 22, 30, 40, 2, 2, 1, 1, 4 };
+            return { 14, 22, 30, 40, 2, 2, 1, 1, 2 };
         default:
-            return { 10, 16, 22, 30, 2, 2, 1, 1, 5 };
+            return { 10, 16, 22, 30, 2, 2, 1, 1, 3 };
     }
 }
 
@@ -240,6 +330,11 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     float const movedDistanceSq = GetDistanceSq(state.lastX, state.lastY, state.lastZ, player->GetPositionX(), player->GetPositionY(), player->GetPositionZ());
     bool const moved = movedDistanceSq >= AFK_MIN_MOVE_DISTANCE * AFK_MIN_MOVE_DISTANCE;
     bool const inCombat = player->IsInCombat();
+    bool const effectiveDamageDone = state.recentDamageDone >= AFK_EFFECTIVE_DAMAGE_THRESHOLD;
+    bool const effectiveDamageTaken = state.recentDamageTaken >= AFK_EFFECTIVE_DAMAGE_THRESHOLD;
+    bool const effectiveHealingDone = state.recentHealingDone >= AFK_EFFECTIVE_HEALING_THRESHOLD;
+    bool const objectiveEvent = state.recentObjectiveEvents > 0;
+    bool nearObjective = false;
 
     if (!moved)
         score += rule.noMovementScore;
@@ -254,25 +349,49 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     if (!moved && !inCombat)
         score += rule.noContributionScore;
 
-    if (state.recentDamageDone >= AFK_EFFECTIVE_DAMAGE_THRESHOLD)
+    if (effectiveDamageDone)
         score -= AFK_DAMAGE_DONE_SCORE_REDUCE;
 
-    if (state.recentDamageTaken >= AFK_EFFECTIVE_DAMAGE_THRESHOLD)
+    if (effectiveDamageTaken)
         score -= AFK_DAMAGE_TAKEN_SCORE_REDUCE;
 
-    if (state.recentHealingDone >= AFK_EFFECTIVE_HEALING_THRESHOLD)
+    if (effectiveHealingDone)
         score -= AFK_HEALING_DONE_SCORE_REDUCE;
 
-    if (state.recentObjectiveEvents)
+    if (objectiveEvent)
         score -= AFK_OBJECTIVE_SCORE_REDUCE;
 
     if (bg->GetTypeID() == BATTLEGROUND_AB)
     {
-        if (IsNearABObjective(player))
+        nearObjective = IsNearABObjective(player);
+        if (nearObjective)
             score -= AFK_AB_OBJECTIVE_SCORE_REDUCE;
 
         if (!moved && !inCombat && IsNearTeamStart(bg, player, guid, AFK_AB_START_RADIUS))
             score += AFK_AB_START_IDLE_SCORE;
+    }
+    else if (bg->GetTypeID() == BATTLEGROUND_WS)
+    {
+        nearObjective = IsNearWSGObjective(bg, player);
+        if (nearObjective)
+            score -= AFK_WSG_OBJECTIVE_SCORE_REDUCE;
+    }
+    else if (bg->GetTypeID() == BATTLEGROUND_AV)
+    {
+        nearObjective = IsNearAVObjective(player);
+        if (nearObjective)
+            score -= AFK_AV_OBJECTIVE_SCORE_REDUCE;
+    }
+
+    bool const effectiveContribution = effectiveDamageDone || effectiveDamageTaken || effectiveHealingDone ||
+        objectiveEvent || (nearObjective && (moved || inCombat));
+    if (effectiveContribution)
+        state.noObjectiveContributionChecks = 0;
+    else
+    {
+        ++state.noObjectiveContributionChecks;
+        if (state.noObjectiveContributionChecks > AFK_NO_OBJECTIVE_GRACE_CHECKS)
+            score += AFK_NO_OBJECTIVE_CHAIN_SCORE;
     }
 
     state.recentDamageDone = 0;
@@ -310,6 +429,8 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
             state.stage = 0;
             state.lastWarnTime = 0;
             state.lastRecoveryNoticeTime = m_elapsedTime;
+            state.lastActivityNoticeTime = m_elapsedTime;
+            state.lastActivityNoticeLevel = 0;
             SendRecoveryNotice(bg, guid, state.score, true);
             return;
         }
@@ -363,9 +484,6 @@ void BattleGroundAfkMgr::MaybeSendActivityNotice(BattleGround* bg, ObjectGuid gu
     if (state.lastWarnTime == m_elapsedTime || state.lastRecoveryNoticeTime == m_elapsedTime)
         return;
 
-    if (state.lastActivityNoticeTime && m_elapsedTime < state.lastActivityNoticeTime + AFK_ACTIVITY_NOTICE_COOLDOWN)
-        return;
-
     Player* player = sObjectMgr.GetPlayer(guid);
     if (!player || player->IsBot() || player->IsGameMaster() || player->GetBattleGround() != bg)
         return;
@@ -378,7 +496,13 @@ void BattleGroundAfkMgr::MaybeSendActivityNotice(BattleGround* bg, ObjectGuid gu
     else if (state.score >= rule.warning1Score)
         level = 1;
 
+    bool const levelChanged = state.lastActivityNoticeLevel == 255 || state.lastActivityNoticeLevel != level;
+    uint32 const cooldown = level == 0 ? AFK_ACTIVITY_NOTICE_NORMAL_COOLDOWN : AFK_ACTIVITY_NOTICE_LOW_COOLDOWN;
+    if (!levelChanged && state.lastActivityNoticeTime && m_elapsedTime < state.lastActivityNoticeTime + cooldown)
+        return;
+
     state.lastActivityNoticeTime = m_elapsedTime;
+    state.lastActivityNoticeLevel = level;
     SendActivityNotice(bg, guid, level);
 }
 
