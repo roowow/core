@@ -401,6 +401,165 @@ static bool BattleBotHasBlind(Unit const* pTarget)
     return false;
 }
 
+static bool BattleBotIsHardControlled(Unit const* pTarget)
+{
+    return !pTarget ||
+        BattleBotHasBlind(pTarget) ||
+        BattleBotHasEntanglingRoots(pTarget) ||
+        pTarget->HasUnitState(UNIT_STATE_STUNNED | UNIT_STATE_PENDING_STUNNED) ||
+        pTarget->HasAuraType(SPELL_AURA_MOD_FEAR) ||
+        pTarget->HasAuraType(SPELL_AURA_MOD_CONFUSE);
+}
+
+static bool BattleBotShouldUsePsychicScream(BattleBotAI const* pAI)
+{
+    if (!pAI || !pAI->m_spells.priest.pPsychicScream ||
+        !pAI->CanTryToCastSpell(pAI->me, pAI->m_spells.priest.pPsychicScream))
+        return false;
+
+    uint8 nearbyThreats = 0;
+    for (Unit* attacker : pAI->me->GetAttackers())
+    {
+        if (!attacker ||
+            !pAI->IsValidHostileTarget(attacker) ||
+            pAI->IsBadPlayer(attacker) ||
+            BattleBotIsHardControlled(attacker) ||
+            !pAI->m_spells.priest.pPsychicScream->IsTargetInRange(pAI->me, attacker))
+            continue;
+
+        ++nearbyThreats;
+    }
+
+    if (!nearbyThreats)
+        return false;
+
+    if (pAI->GetRole() == ROLE_HEALER)
+    {
+        if (nearbyThreats > 1 || pAI->me->GetHealthPercent() < 70.0f)
+            return true;
+
+        return BattleBotIsNearOpenObjectiveFlag(pAI, 18.0f);
+    }
+
+    return nearbyThreats > 1 || pAI->me->GetHealthPercent() < 50.0f;
+}
+
+static bool BattleBotHasBattlegroundFlag(Unit const* pTarget)
+{
+    return pTarget &&
+       (pTarget->HasAura(AURA_WARSONG_FLAG) ||
+        pTarget->HasAura(AURA_SILVERWING_FLAG));
+}
+
+static Unit* SelectPriestPowerWordShieldTarget(BattleBotAI const* pAI)
+{
+    if (!pAI || !pAI->m_spells.priest.pPowerWordShield)
+        return nullptr;
+
+    Unit* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestHealth = 100.0f;
+
+    auto considerTarget = [&](Unit* target)
+    {
+        if (!target ||
+            !pAI->me->IsValidHelpfulTarget(target) ||
+            !pAI->me->IsWithinDist(target, 30.0f) ||
+            !pAI->me->IsWithinLOSInMap(target) ||
+            !pAI->CanTryToCastSpell(target, pAI->m_spells.priest.pPowerWordShield))
+            return;
+
+        bool const isSelf = target == pAI->me;
+        bool const hasFlag = BattleBotHasBattlegroundFlag(target);
+        int32 const incomingDamage = pAI->GetIncomingdamage(target);
+        float const healthPercent = target->GetHealthPercent();
+
+        uint8 priority = 0;
+        if (hasFlag && (target->IsInCombat() || healthPercent < 95.0f || incomingDamage > 0))
+            priority = 6;
+        else if (incomingDamage > int32(target->GetMaxHealth() / 4))
+            priority = 5;
+        else if (healthPercent < 45.0f)
+            priority = 4;
+        else if (pAI->GetRole() == ROLE_HEALER && incomingDamage > 0)
+            priority = 3;
+        else if (pAI->GetRole() == ROLE_HEALER && healthPercent < 80.0f)
+            priority = 2;
+        else if (isSelf && (pAI->GetAttackersInRangeCount(10.0f) > 0 || healthPercent < 85.0f))
+            priority = 1;
+
+        if (!priority)
+            return;
+
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && healthPercent < bestHealth))
+        {
+            bestTarget = target;
+            bestPriority = priority;
+            bestHealth = healthPercent;
+        }
+    };
+
+    considerTarget(pAI->me);
+
+    if (Group* group = pAI->me->GetGroup())
+    {
+        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+        {
+            if (Unit* member = itr->getSource())
+                considerTarget(member);
+        }
+    }
+
+    return bestTarget;
+}
+
+static Unit* SelectPriestSilenceTarget(BattleBotAI const* pAI, Unit* currentVictim)
+{
+    if (!pAI || !pAI->m_spells.priest.pSilence)
+        return nullptr;
+
+    Player* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestDistance = 0.0f;
+
+    auto considerTarget = [&](Player* player)
+    {
+        if (!player ||
+            !player->IsNonMeleeSpellCasted(false, false, true) ||
+            !pAI->IsValidHostileTarget(player) ||
+            pAI->IsBadPlayer(player) ||
+            BattleBotIsHardControlled(player) ||
+            !pAI->me->IsWithinLOSInMap(player) ||
+            !pAI->CanTryToCastSpell(player, pAI->m_spells.priest.pSilence))
+            return;
+
+        uint8 priority = player->GetClass() == CLASS_MAGE ? 6 :
+            CombatBotBaseAI::IsHealerClass(player->GetClass()) ? 5 : 3;
+        if (player == currentVictim)
+            ++priority;
+        if (BattleBotHasBattlegroundFlag(player) && priority < 5)
+            priority = 5;
+
+        float const distance = pAI->me->GetDistance(player);
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && distance < bestDistance))
+        {
+            bestTarget = player;
+            bestPriority = priority;
+            bestDistance = distance;
+        }
+    };
+
+    if (currentVictim)
+        considerTarget(currentVictim->ToPlayer());
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 30.0f);
+    for (Player* player : players)
+        considerTarget(player);
+
+    return bestTarget;
+}
+
 static Unit* SelectRogueInterruptTarget(BattleBotAI const* pAI, SpellEntry const* pSpellEntry)
 {
     if (!pAI || !pSpellEntry)
@@ -2262,9 +2421,7 @@ void BattleBotAI::UpdateFlagCarrierAI()
             }
             case CLASS_PRIEST:
             {
-                if (m_spells.priest.pPsychicScream &&
-                    CanTryToCastSpell(me, m_spells.priest.pPsychicScream) &&
-                    m_spells.priest.pPsychicScream->IsTargetInRange(me, pAttacker))
+                if (BattleBotShouldUsePsychicScream(this))
                 {
                     me->CastSpell(me, m_spells.priest.pPsychicScream, false);
                     return;
@@ -3282,10 +3439,17 @@ void BattleBotAI::UpdateOutOfCombatAI_Priest()
 
 void BattleBotAI::UpdateInCombatAI_Priest()
 {
-    if (m_spells.priest.pPowerWordShield &&
-        CanTryToCastSpell(me, m_spells.priest.pPowerWordShield))
+    if (m_role == ROLE_HEALER &&
+        m_spells.priest.pShadowform &&
+        me->HasAura(m_spells.priest.pShadowform->Id))
     {
-        if (DoCastSpell(me, m_spells.priest.pPowerWordShield) == SPELL_CAST_OK)
+        me->RemoveAurasDueToSpellByCancel(m_spells.priest.pShadowform->Id);
+        return;
+    }
+
+    if (Unit* shieldTarget = SelectPriestPowerWordShieldTarget(this))
+    {
+        if (DoCastSpell(shieldTarget, m_spells.priest.pPowerWordShield) == SPELL_CAST_OK)
             return;
     }
 
@@ -3298,8 +3462,17 @@ void BattleBotAI::UpdateInCombatAI_Priest()
 
     // Heal
     if (me->GetShapeshiftForm() == FORM_NONE &&
-        FindAndHealInjuredAlly(40.0f))
+        FindAndHealInjuredAlly(m_role == ROLE_HEALER ? 60.0f : 40.0f, m_role == ROLE_HEALER ? 82.0f : 40.0f))
         return;
+
+    if (m_role == ROLE_HEALER &&
+        m_spells.priest.pFade &&
+        GetAttackersInRangeCount(20.0f) > 1 &&
+        CanTryToCastSpell(me, m_spells.priest.pFade))
+    {
+        if (DoCastSpell(me, m_spells.priest.pFade) == SPELL_CAST_OK)
+            return;
+    }
 
     // Dispels
     if (m_spells.priest.pDispelMagic)
@@ -3347,21 +3520,21 @@ void BattleBotAI::UpdateInCombatAI_Priest()
     if (Unit* pVictim = me->GetVictim())
     {
         if (m_spells.priest.pShadowform &&
+            m_role != ROLE_HEALER &&
             CanTryToCastSpell(me, m_spells.priest.pShadowform))
         {
             if (DoCastSpell(me, m_spells.priest.pShadowform) == SPELL_CAST_OK)
                 return;
         }
 
-        if (m_spells.priest.pSilence &&
-            pVictim->IsNonMeleeSpellCasted() &&
-            CanTryToCastSpell(pVictim, m_spells.priest.pSilence))
+        if (Unit* silenceTarget = SelectPriestSilenceTarget(this, pVictim))
         {
-            if (DoCastSpell(pVictim, m_spells.priest.pSilence) == SPELL_CAST_OK)
+            if (DoCastSpell(silenceTarget, m_spells.priest.pSilence) == SPELL_CAST_OK)
                 return;
         }
 
         if (m_spells.priest.pVampiricEmbrace &&
+            m_role != ROLE_HEALER &&
             CanTryToCastSpell(pVictim, m_spells.priest.pVampiricEmbrace))
         {
             if (DoCastSpell(pVictim, m_spells.priest.pVampiricEmbrace) == SPELL_CAST_OK)
@@ -3369,6 +3542,7 @@ void BattleBotAI::UpdateInCombatAI_Priest()
         }
 
         if (m_spells.priest.pMindBlast &&
+            m_role != ROLE_HEALER &&
             CanTryToCastSpell(pVictim, m_spells.priest.pMindBlast))
         {
             if (DoCastSpell(pVictim, m_spells.priest.pMindBlast) == SPELL_CAST_OK)
@@ -3376,6 +3550,7 @@ void BattleBotAI::UpdateInCombatAI_Priest()
         }
 
         if (m_spells.priest.pShadowWordPain &&
+            m_role != ROLE_HEALER &&
             CanTryToCastSpell(pVictim, m_spells.priest.pShadowWordPain))
         {
             if (DoCastSpell(pVictim, m_spells.priest.pShadowWordPain) == SPELL_CAST_OK)
@@ -3383,29 +3558,21 @@ void BattleBotAI::UpdateInCombatAI_Priest()
         }
 
         if (m_spells.priest.pDevouringPlague &&
+            m_role != ROLE_HEALER &&
             CanTryToCastSpell(pVictim, m_spells.priest.pDevouringPlague))
         {
             if (DoCastSpell(pVictim, m_spells.priest.pDevouringPlague) == SPELL_CAST_OK)
                 return;
         }
 
-        if (m_spells.priest.pPsychicScream &&
-            GetAttackersInRangeCount(10.0f) &&
-            CanTryToCastSpell(me, m_spells.priest.pPsychicScream))
+        if (BattleBotShouldUsePsychicScream(this))
         {
             if (DoCastSpell(me, m_spells.priest.pPsychicScream) == SPELL_CAST_OK)
                 return;
         }
 
-        if (m_spells.priest.pManaBurn &&
-           (pVictim->GetPowerType() == POWER_MANA) &&
-            CanTryToCastSpell(pVictim, m_spells.priest.pManaBurn))
-        {
-            if (DoCastSpell(pVictim, m_spells.priest.pManaBurn) == SPELL_CAST_OK)
-                return;
-        }
-
         if (m_spells.priest.pMindFlay &&
+            m_role != ROLE_HEALER &&
            (!GetAttackersInRangeCount(10.0f) || me->HasAuraType(SPELL_AURA_SCHOOL_ABSORB)) &&
             CanTryToCastSpell(pVictim, m_spells.priest.pMindFlay))
         {
@@ -3422,6 +3589,7 @@ void BattleBotAI::UpdateInCombatAI_Priest()
         if (me->GetShapeshiftForm() == FORM_NONE)
         {
             if (m_spells.priest.pHolyNova &&
+                m_role == ROLE_HEALER &&
                 GetAttackersInRangeCount(10.0f) > 2 &&
                 CanTryToCastSpell(me, m_spells.priest.pHolyNova))
             {
@@ -3430,6 +3598,7 @@ void BattleBotAI::UpdateInCombatAI_Priest()
             }
 
             if (m_spells.priest.pSmite &&
+                m_role != ROLE_HEALER &&
                 CanTryToCastSpell(pVictim, m_spells.priest.pSmite))
             {
                 if (DoCastSpell(pVictim, m_spells.priest.pSmite) == SPELL_CAST_OK)
