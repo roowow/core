@@ -89,6 +89,21 @@ char const* BoolText(bool value)
     return value ? "1" : "0";
 }
 
+char const* GetAfkBattleGroundName(uint32 bgType)
+{
+    switch (bgType)
+    {
+        case BATTLEGROUND_AV:
+            return "AV";
+        case BATTLEGROUND_WS:
+            return "WSG";
+        case BATTLEGROUND_AB:
+            return "AB";
+        default:
+            return "UNKNOWN";
+    }
+}
+
 void AppendAfkReason(std::string& reasons, char const* reason)
 {
     if (!reasons.empty())
@@ -379,8 +394,8 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
         state.trackBgType = uint32(bg->GetTypeID());
         state.trackInstanceId = bg->GetInstanceID();
         state.trackTeam = uint32(team);
-        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] track start player %s (%s) bgType %u instance %u team %u elapsed %u pos %.2f %.2f %.2f.",
-            player->GetName(), guid.GetString().c_str(), state.trackBgType, state.trackInstanceId, state.trackTeam, m_elapsedTime,
+        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] track start player %s (%s) bgType %u bgName %s instance %u team %u elapsed %u pos %.2f %.2f %.2f.",
+            player->GetName(), guid.GetString().c_str(), state.trackBgType, GetAfkBattleGroundName(state.trackBgType), state.trackInstanceId, state.trackTeam, m_elapsedTime,
             state.lastX, state.lastY, state.lastZ);
         return;
     }
@@ -652,8 +667,9 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
         {
             std::string const reasons = FormatAfkReasons(state.lastReasonMask);
             int32 const delta = int32(state.score) - int32(state.lastPreviousScore);
-            sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] kick player %s (%s) bgType %u instance %u elapsed %u stage %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
-                player->GetName(), guid.GetString().c_str(), bg ? uint32(bg->GetTypeID()) : 0, bg ? bg->GetInstanceID() : 0,
+            uint32 const bgType = bg ? uint32(bg->GetTypeID()) : state.trackBgType;
+            sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] kick player %s (%s) bgType %u bgName %s instance %u elapsed %u stage %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
+                player->GetName(), guid.GetString().c_str(), bgType, GetAfkBattleGroundName(bgType), bg ? bg->GetInstanceID() : state.trackInstanceId,
                 m_elapsedTime, uint32(state.stage), state.score, state.lastPreviousScore, delta, reasons.c_str(),
                 BoolText(state.lastMoved), state.lastMoveDistance, BoolText(state.lastInCombat), BoolText(state.lastNearObjective),
                 state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents);
@@ -693,10 +709,11 @@ void BattleGroundAfkMgr::MaybeSendActivityNotice(BattleGround* bg, ObjectGuid gu
 
     state.lastActivityNoticeTime = m_elapsedTime;
     state.lastActivityNoticeLevel = level;
-    SendActivityNotice(bg, guid, level, state.stage, state.score);
+    bool const logNotice = level > 0 && (level < 3 || levelChanged);
+    SendActivityNotice(bg, guid, level, state.stage, state.score, logNotice);
 }
 
-void BattleGroundAfkMgr::SendActivityNotice(BattleGround* bg, ObjectGuid guid, uint8 level, uint8 stage, uint32 score) const
+void BattleGroundAfkMgr::SendActivityNotice(BattleGround* bg, ObjectGuid guid, uint8 level, uint8 stage, uint32 score, bool logNotice) const
 {
     Player* player = sObjectMgr.GetPlayer(guid);
     if (!player)
@@ -707,10 +724,13 @@ void BattleGroundAfkMgr::SendActivityNotice(BattleGround* bg, ObjectGuid guid, u
     char currentTime[6];
     snprintf(currentTime, sizeof(currentTime), "%02u:%02u", uint32(localTime->tm_hour), uint32(localTime->tm_min));
 
-    if (level > 0)
-        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] activity level %u player %s (%s) bgType %u instance %u elapsed %u stage %u score %u.",
-            uint32(level), player->GetName(), guid.GetString().c_str(), bg ? uint32(bg->GetTypeID()) : 0, bg ? bg->GetInstanceID() : 0,
+    if (logNotice)
+    {
+        uint32 const bgType = bg ? uint32(bg->GetTypeID()) : 0;
+        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] activity level %u player %s (%s) bgType %u bgName %s instance %u elapsed %u stage %u score %u.",
+            uint32(level), player->GetName(), guid.GetString().c_str(), bgType, GetAfkBattleGroundName(bgType), bg ? bg->GetInstanceID() : 0,
             m_elapsedTime, uint32(stage), score);
+    }
 
     switch (level)
     {
@@ -741,8 +761,8 @@ void BattleGroundAfkMgr::SendTrackStop(BattleGround* bg, ObjectGuid guid, Battle
     uint32 const bgType = bg ? uint32(bg->GetTypeID()) : state.trackBgType;
     uint32 const instanceId = bg ? bg->GetInstanceID() : state.trackInstanceId;
 
-    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] track stop reason %s player %s (%s) bgType %u instance %u team %u elapsed %u stage %u score %u previousScore %u delta %+d reasonMask %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
-        reason ? reason : "unknown", playerName, guid.GetString().c_str(), bgType, instanceId, state.trackTeam, m_elapsedTime,
+    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] track stop reason %s player %s (%s) bgType %u bgName %s instance %u team %u elapsed %u stage %u score %u previousScore %u delta %+d reasonMask %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
+        reason ? reason : "unknown", playerName, guid.GetString().c_str(), bgType, GetAfkBattleGroundName(bgType), instanceId, state.trackTeam, m_elapsedTime,
         uint32(state.stage), state.score, state.lastPreviousScore, delta, reasons.c_str(),
         BoolText(state.lastMoved), state.lastMoveDistance, BoolText(state.lastInCombat), BoolText(state.lastNearObjective),
         state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents);
@@ -761,8 +781,9 @@ void BattleGroundAfkMgr::SendWarning(BattleGround* bg, ObjectGuid guid, BattleGr
 
     std::string const reasons = FormatAfkReasons(state.lastReasonMask);
     int32 const delta = int32(state.score) - int32(state.lastPreviousScore);
-    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] warning stage %u player %s (%s) bgType %u instance %u elapsed %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
-        uint32(state.stage), player->GetName(), guid.GetString().c_str(), bg ? uint32(bg->GetTypeID()) : 0, bg ? bg->GetInstanceID() : 0,
+    uint32 const bgType = bg ? uint32(bg->GetTypeID()) : state.trackBgType;
+    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] warning stage %u player %s (%s) bgType %u bgName %s instance %u elapsed %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
+        uint32(state.stage), player->GetName(), guid.GetString().c_str(), bgType, GetAfkBattleGroundName(bgType), bg ? bg->GetInstanceID() : state.trackInstanceId,
         m_elapsedTime, state.score, state.lastPreviousScore, delta, reasons.c_str(),
         BoolText(state.lastMoved), state.lastMoveDistance, BoolText(state.lastInCombat), BoolText(state.lastNearObjective),
         state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents);
@@ -796,8 +817,9 @@ void BattleGroundAfkMgr::SendRecoveryNotice(BattleGround* bg, ObjectGuid guid, B
 
     std::string const reasons = FormatAfkReasons(state.lastReasonMask);
     int32 const delta = int32(state.score) - int32(state.lastPreviousScore);
-    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] recovery %s player %s (%s) bgType %u instance %u elapsed %u stage %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
-        normal ? "normal" : "pending", player->GetName(), guid.GetString().c_str(), bg ? uint32(bg->GetTypeID()) : 0, bg ? bg->GetInstanceID() : 0,
+    uint32 const bgType = bg ? uint32(bg->GetTypeID()) : state.trackBgType;
+    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] recovery %s player %s (%s) bgType %u bgName %s instance %u elapsed %u stage %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
+        normal ? "normal" : "pending", player->GetName(), guid.GetString().c_str(), bgType, GetAfkBattleGroundName(bgType), bg ? bg->GetInstanceID() : state.trackInstanceId,
         m_elapsedTime, uint32(state.stage), state.score, state.lastPreviousScore, delta, reasons.c_str(),
         BoolText(state.lastMoved), state.lastMoveDistance, BoolText(state.lastInCombat), BoolText(state.lastNearObjective),
         state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents);

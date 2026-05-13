@@ -92,7 +92,7 @@ private:
     void MaybeSendActivityNotice(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState& state, BattleGroundAfkScoreRule const& rule) const;
     void SendWarning(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState const& state) const;
     void SendRecoveryNotice(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState const& state, bool normal) const;
-    void SendActivityNotice(BattleGround* bg, ObjectGuid guid, uint8 level, uint8 stage, uint32 score) const;
+    void SendActivityNotice(BattleGround* bg, ObjectGuid guid, uint8 level, uint8 stage, uint32 score, bool logNotice) const;
     void SendTrackStop(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState const& state, char const* reason) const;
 
     std::map<ObjectGuid, BattleGroundAfkPlayerState> m_playerStates;
