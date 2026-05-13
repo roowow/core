@@ -2259,12 +2259,16 @@ void World::SendWorldText(int32 string_id, ...)
     va_end(ap);
 }
 
-// Send a System Message to all players in the same battleground or queue (except self if mentioned)
+// Send a battlebot queue system message to online GMs only.
 void World::SendWorldTextToBGAndQueue(int32 string_id, uint32 queuedPlayerLevel, uint32 queueType, ...)
 {
-    auto queueTypeId = static_cast<BattleGroundQueueTypeId>(queueType);
-    BattleGroundTypeId bgTypeId = BattleGroundMgr::BgTemplateId(queueTypeId);
-    BattleGroundBracketId queuedPlayerBracket = Player::GetBattleGroundBracketIdFromLevel(bgTypeId, queuedPlayerLevel);
+    // Original target calculation kept here for reference. Battlebot queue notices
+    // are currently GM-only, so normal queued/BG players are intentionally skipped.
+    // auto queueTypeId = static_cast<BattleGroundQueueTypeId>(queueType);
+    // BattleGroundTypeId bgTypeId = BattleGroundMgr::BgTemplateId(queueTypeId);
+    // BattleGroundBracketId queuedPlayerBracket = Player::GetBattleGroundBracketIdFromLevel(bgTypeId, queuedPlayerLevel);
+    (void)queuedPlayerLevel;
+    (void)queueType;
 
     va_list ap;
     va_start(ap, queueType);
@@ -2278,22 +2282,21 @@ void World::SendWorldTextToBGAndQueue(int32 string_id, uint32 queuedPlayerLevel,
             Player* player = session->GetPlayer();
             if (player && player->IsInWorld())
             {
-                // Always announce it to all GMs.
+                // Battlebot queue notices are operational details; keep them GM-only.
                 if (session->GetSecurity() > SEC_PLAYER)
                 {
                     wt_do(player);
-                    continue;
                 }
 
-                // If player is queued or already inside a BG matching the BG type.
-                if (player->InBattleGroundQueueForBattleGroundQueueType(queueTypeId) ||
-                    (player->InBattleGround() && player->GetBattleGroundTypeId() == bgTypeId))
-                {
-                    // If player bracket matches the queued player bracket.
-                    if (player->GetBattleGroundBracketIdFromLevel(bgTypeId) == queuedPlayerBracket)
-                        wt_do(player);
-                }
-
+                // Original behavior: also announce to normal players queued for or
+                // already inside the matching battleground bracket.
+                //
+                // if (player->InBattleGroundQueueForBattleGroundQueueType(queueTypeId) ||
+                //     (player->InBattleGround() && player->GetBattleGroundTypeId() == bgTypeId))
+                // {
+                //     if (player->GetBattleGroundBracketIdFromLevel(bgTypeId) == queuedPlayerBracket)
+                //         wt_do(player);
+                // }
             }
         }
     }
