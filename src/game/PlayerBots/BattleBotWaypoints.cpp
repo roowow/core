@@ -657,7 +657,7 @@ static bool FindABOwnedGuardPosition(BattleBotAI* pAI, Position& outPosition)
     return true;
 }
 
-static bool IsABFlagOpenable(BattleBotAI* pAI, GameObject* pGo)
+static bool IsABFlagOpenable(BattleBotAI const* pAI, GameObject* pGo)
 {
     if (!pGo || !pGo->isSpawned())
         return false;
@@ -669,6 +669,57 @@ static bool IsABFlagOpenable(BattleBotAI* pAI, GameObject* pGo)
         return false;
 
     return true;
+}
+
+static bool TryRogueBlindBeforeCapture(BattleBotAI* pAI, GameObject* pGo)
+{
+    if (!pAI || !pGo || pAI->me->GetClass() != CLASS_ROGUE || !pAI->m_spells.rogue.pBlind)
+        return false;
+
+    SpellEntry const* blind = pAI->m_spells.rogue.pBlind;
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 15.0f);
+
+    Player* bestTarget = nullptr;
+    float bestDistanceToFlag = FLT_MAX;
+    for (Player* player : players)
+    {
+        if (!player || player == pAI->me)
+            continue;
+
+        if (!pAI->IsValidHostileTarget(player) ||
+            pAI->IsBadPlayer(player) ||
+            !pAI->me->IsWithinLOSInMap(player) ||
+            (blind->HasAuraInterruptFlag(AURA_INTERRUPT_DAMAGE_CANCELS) && pAI->AreOthersOnSameTarget(player->GetObjectGuid())) ||
+            !pAI->CanTryToCastSpell(player, blind))
+            continue;
+
+        float const distanceToFlag = player->GetDistance(pGo);
+        if (!bestTarget || distanceToFlag < bestDistanceToFlag)
+        {
+            bestTarget = player;
+            bestDistanceToFlag = distanceToFlag;
+        }
+    }
+
+    if (!bestTarget)
+        return false;
+
+    if (pAI->me->IsMounted())
+        pAI->me->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+
+    if (pAI->me->IsInDisallowedMountForm())
+        pAI->me->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
+
+    if (pAI->DoCastSpell(bestTarget, blind) == SPELL_CAST_OK)
+    {
+        pAI->me->AttackStop();
+        pAI->ClearPath();
+        pAI->StopMoving();
+        return true;
+    }
+
+    return false;
 }
 
 bool AtFlag(BattleBotAI* pAI, std::vector<uint32> const& vFlagIds)
@@ -703,6 +754,9 @@ bool AtFlag(BattleBotAI* pAI, std::vector<uint32> const& vFlagIds)
         {
             if (IsABFlagOpenable(pAI, pGo))
             {
+                if (TryRogueBlindBeforeCapture(pAI, pGo))
+                    return true;
+
                 if (pAI->me->IsMounted())
                     pAI->me->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
 
@@ -728,6 +782,33 @@ bool BattleBotIsNearAVFlag(BattleBotAI const* pAI, float radius)
     for (uint32 const bannerId : vFlagsAV)
         if (pAI->me->FindNearestGameObject(bannerId, radius))
             return true;
+
+    return false;
+}
+
+bool BattleBotIsNearOpenObjectiveFlag(BattleBotAI const* pAI, float radius)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg || bg->GetStatus() != STATUS_IN_PROGRESS)
+        return false;
+
+    std::vector<uint32> const* flags = nullptr;
+    switch (bg->GetTypeID())
+    {
+        case BATTLEGROUND_AB:
+            flags = &vFlagsAB;
+            break;
+        case BATTLEGROUND_AV:
+            flags = &vFlagsAV;
+            break;
+        default:
+            return false;
+    }
+
+    for (uint32 const bannerId : *flags)
+        if (GameObject* pGo = pAI->me->FindNearestGameObject(bannerId, radius))
+            if (IsABFlagOpenable(pAI, pGo))
+                return true;
 
     return false;
 }

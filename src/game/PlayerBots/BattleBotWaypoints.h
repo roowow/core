@@ -70,6 +70,7 @@ bool BattleBotReturnToGuardPositionBeforeRecovery(BattleBotAI* pAI);
 Unit* BattleBotSelectABFlagDefenseTarget(BattleBotAI const* pAI, Unit* pExcept);
 Unit* BattleBotSelectAVFlagDefenseTarget(BattleBotAI const* pAI, Unit* pExcept);
 bool BattleBotIsNearAVFlag(BattleBotAI const* pAI, float radius);
+bool BattleBotIsNearOpenObjectiveFlag(BattleBotAI const* pAI, float radius);
 bool BattleBotIsABGuardingOwnedNode(BattleBotAI const* pAI);
 bool BattleBotIsWSGHomeGuardCandidate(BattleBotAI const* pAI);
 

@@ -382,6 +382,150 @@ static bool BattleBotHasEntanglingRoots(Unit const* pTarget)
     return false;
 }
 
+static bool BattleBotHasBlind(Unit const* pTarget)
+{
+    if (!pTarget)
+        return false;
+
+    Unit::AuraList const& confuseAuras = pTarget->GetAurasByType(SPELL_AURA_MOD_CONFUSE);
+    for (Aura const* aura : confuseAuras)
+    {
+        if (!aura)
+            continue;
+
+        SpellEntry const* spellInfo = aura->GetSpellProto();
+        if (spellInfo && spellInfo->SpellName[0].find("Blind") != std::string::npos)
+            return true;
+    }
+
+    return false;
+}
+
+static Unit* SelectRogueInterruptTarget(BattleBotAI const* pAI, SpellEntry const* pSpellEntry)
+{
+    if (!pAI || !pSpellEntry)
+        return nullptr;
+
+    Unit* currentVictim = pAI->me->GetVictim();
+    if (currentVictim &&
+        currentVictim->IsNonMeleeSpellCasted(false, false, true) &&
+        pAI->CanTryToCastSpell(currentVictim, pSpellEntry))
+        return currentVictim;
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 10.0f);
+
+    Player* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestDistance = 0.0f;
+    for (Player* player : players)
+    {
+        if (!player || player == pAI->me)
+            continue;
+
+        if (!player->IsNonMeleeSpellCasted(false, false, true) ||
+            !pAI->IsValidHostileTarget(player) ||
+            pAI->IsBadPlayer(player) ||
+            !pAI->me->IsWithinLOSInMap(player) ||
+            !pAI->CanTryToCastSpell(player, pSpellEntry))
+            continue;
+
+        uint8 priority = CombatBotBaseAI::IsHealerClass(player->GetClass()) ? 3 : 2;
+        if (player == currentVictim)
+            priority = 4;
+
+        float const distance = pAI->me->GetDistance(player);
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && distance < bestDistance))
+        {
+            bestTarget = player;
+            bestPriority = priority;
+            bestDistance = distance;
+        }
+    }
+
+    return bestTarget;
+}
+
+static Unit* SelectRogueBlindTarget(BattleBotAI const* pAI, Unit* pVictim, bool preferObjectiveTarget)
+{
+    if (!pAI || !pAI->m_spells.rogue.pBlind)
+        return nullptr;
+
+    Unit* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestDistance = 0.0f;
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, preferObjectiveTarget ? 15.0f : 12.0f);
+    for (Player* player : players)
+    {
+        if (!player || player == pAI->me)
+            continue;
+
+        if (!pAI->IsValidHostileTarget(player) ||
+            pAI->IsBadPlayer(player) ||
+            !pAI->me->IsWithinLOSInMap(player) ||
+            !BattleBotCanUseCrowdControl(pAI, pAI->m_spells.rogue.pBlind, player) ||
+            !pAI->CanTryToCastSpell(player, pAI->m_spells.rogue.pBlind))
+            continue;
+
+        uint8 priority = 1;
+        if (preferObjectiveTarget)
+        {
+            if (player == pVictim)
+                priority = 5;
+            else if (player->GetVictim() == pAI->me)
+                priority = 4;
+            else if (player->GetVictim() && player->GetVictim()->IsFriendlyTo(pAI->me))
+                priority = 3;
+            else
+                priority = 2;
+        }
+        else
+        {
+            if (player == pVictim)
+                continue;
+
+            if (player->GetVictim() == pAI->me)
+                priority = 3;
+            else if (player->GetVictim() && player->GetVictim()->IsFriendlyTo(pAI->me))
+                priority = 2;
+        }
+
+        float const distance = pAI->me->GetDistance(player);
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && distance < bestDistance))
+        {
+            bestTarget = player;
+            bestPriority = priority;
+            bestDistance = distance;
+        }
+    }
+
+    return bestTarget;
+}
+
+static bool TryRogueEviscerate(BattleBotAI* pAI, Unit* pVictim, bool useColdBlood)
+{
+    if (!pAI || !pVictim || !pAI->m_spells.rogue.pEviscerate)
+        return false;
+
+    if (useColdBlood &&
+        pAI->m_spells.rogue.pColdBlood &&
+        pAI->CanTryToCastSpell(pAI->me, pAI->m_spells.rogue.pColdBlood))
+    {
+        if (pAI->DoCastSpell(pAI->me, pAI->m_spells.rogue.pColdBlood) == SPELL_CAST_OK)
+            return true;
+    }
+
+    if (pAI->CanTryToCastSpell(pVictim, pAI->m_spells.rogue.pEviscerate))
+    {
+        if (pAI->DoCastSpell(pVictim, pAI->m_spells.rogue.pEviscerate) == SPELL_CAST_OK)
+            return true;
+    }
+
+    return false;
+}
+
 static bool BattleBotEnterDruidCombatForm(BattleBotAI* pAI)
 {
     if (!pAI || pAI->me->GetShapeshiftForm() != FORM_NONE)
@@ -894,6 +1038,7 @@ Unit* BattleBotAI::SelectAVOpeningRetaliationTarget(Unit* pExcept) const
                 pTarget->GetVictim() == me &&
                 IsValidHostileTarget(pTarget) &&
                 !IsBadPlayer(pTarget) &&
+                !BattleBotHasBlind(pTarget) &&
                 me->IsWithinDist(pTarget, VISIBILITY_DISTANCE_NORMAL) &&
                 me->GetDistanceZ(pTarget) < 10.0f &&
                 me->IsWithinLOSInMap(pTarget))
@@ -971,6 +1116,9 @@ bool BattleBotAI::UpdateAVStartWaveWaitingAI()
 
 bool BattleBotAI::AttackStart(Unit* pVictim)
 {
+    if (BattleBotHasBlind(pVictim))
+        return false;
+
     m_isBuffing = false;
 
     if (me->IsMounted())
@@ -1022,23 +1170,29 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
 
     if (Unit* pFlagDefenseTarget = BattleBotSelectABFlagDefenseTarget(this, pExcept))
     {
-        if (!BattleBotHasEntanglingRoots(pFlagDefenseTarget))
+        if (!BattleBotHasBlind(pFlagDefenseTarget) && !BattleBotHasEntanglingRoots(pFlagDefenseTarget))
             return pFlagDefenseTarget;
 
-        pRootedFallback = pFlagDefenseTarget;
-        rootedFallbackDistance = me->GetDistance(pFlagDefenseTarget);
+        if (!BattleBotHasBlind(pFlagDefenseTarget))
+        {
+            pRootedFallback = pFlagDefenseTarget;
+            rootedFallbackDistance = me->GetDistance(pFlagDefenseTarget);
+        }
     }
 
     if (Unit* pFlagDefenseTarget = BattleBotSelectAVFlagDefenseTarget(this, pExcept))
     {
-        if (!BattleBotHasEntanglingRoots(pFlagDefenseTarget))
+        if (!BattleBotHasBlind(pFlagDefenseTarget) && !BattleBotHasEntanglingRoots(pFlagDefenseTarget))
             return pFlagDefenseTarget;
 
-        float const distance = me->GetDistance(pFlagDefenseTarget);
-        if (!pRootedFallback || distance < rootedFallbackDistance)
+        if (!BattleBotHasBlind(pFlagDefenseTarget))
         {
-            pRootedFallback = pFlagDefenseTarget;
-            rootedFallbackDistance = distance;
+            float const distance = me->GetDistance(pFlagDefenseTarget);
+            if (!pRootedFallback || distance < rootedFallbackDistance)
+            {
+                pRootedFallback = pFlagDefenseTarget;
+                rootedFallbackDistance = distance;
+            }
         }
     }
 
@@ -1057,6 +1211,12 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
                 !IsBadPlayer(pTarget) &&
                 me->IsWithinDist(pTarget, VISIBILITY_DISTANCE_NORMAL))
             {
+                if (BattleBotHasBlind(pTarget))
+                {
+                    pReference = pReference->next();
+                    continue;
+                }
+
                 if (BattleBotHasEntanglingRoots(pTarget))
                 {
                     rootedTargets.push_back(pTarget);
@@ -1120,6 +1280,9 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
         if (!IsValidHostileTarget(pTarget))
             continue;
 
+        if (BattleBotHasBlind(pTarget))
+            continue;
+
         if (!BattleBotHasEntanglingRoots(pTarget))
         {
             if (me->GetTeam() == HORDE)
@@ -1180,7 +1343,8 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
                         !IsBadPlayer(pAttacker) &&
                         me->IsWithinDist(pAttacker, maxAggroDistance * 2.0f) &&
                         me->GetDistanceZ(pAttacker) < 10.0f &&
-                        me->IsWithinLOSInMap(pAttacker))
+                        me->IsWithinLOSInMap(pAttacker) &&
+                        !BattleBotHasBlind(pAttacker))
                     {
                         if (BattleBotHasEntanglingRoots(pAttacker))
                         {
@@ -1873,6 +2037,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
     }
 
     if (!pVictim || !IsValidHostileTarget(pVictim) ||
+        BattleBotHasBlind(pVictim) ||
         BattleBotHasEntanglingRoots(pVictim) ||
         !pVictim->IsWithinDist(me, VISIBILITY_DISTANCE_SMALL))
     {
@@ -1883,6 +2048,14 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                 AttackStart(pNewVictim);
                 return;
             }
+        }
+
+        if (me->GetVictim() && BattleBotHasBlind(me->GetVictim()))
+        {
+            me->AttackStop(false);
+            if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
+                StopMoving();
+            return;
         }
 
         if (me->GetVictim() &&
@@ -3844,69 +4017,93 @@ void BattleBotAI::UpdateInCombatAI_Rogue()
             }
         }
 
-        if (me->GetComboPoints() > 4)
+        bool const nearOpenObjective = BattleBotIsNearOpenObjectiveFlag(this, 18.0f);
+        if (nearOpenObjective)
         {
-            std::vector<SpellEntry const*> vSpells;
-            if (m_spells.rogue.pSliceAndDice)
-                vSpells.push_back(m_spells.rogue.pSliceAndDice);
-            if (m_spells.rogue.pEviscerate)
-                vSpells.push_back(m_spells.rogue.pEviscerate);
-            if (m_spells.rogue.pKidneyShot)
-                vSpells.push_back(m_spells.rogue.pKidneyShot);
-            if (m_spells.rogue.pExposeArmor)
-                vSpells.push_back(m_spells.rogue.pExposeArmor);
-            if (m_spells.rogue.pRupture)
-                vSpells.push_back(m_spells.rogue.pRupture);
-            if (!vSpells.empty())
+            if (Unit* pBlindTarget = SelectRogueBlindTarget(this, pVictim, true))
             {
-                SpellEntry const* pComboSpell = SelectRandomContainerElement(vSpells);
-                if (CanTryToCastSpell(pVictim, pComboSpell))
+                if (DoCastSpell(pBlindTarget, m_spells.rogue.pBlind) == SPELL_CAST_OK)
                 {
-                    if (DoCastSpell(pVictim, pComboSpell) == SPELL_CAST_OK)
-                        return;
+                    me->AttackStop();
+                    if (pBlindTarget != pVictim)
+                        AttackStart(pVictim);
+                    return;
                 }
             }
         }
 
-        if (m_spells.rogue.pBlind)
+        if (Unit* pKickTarget = SelectRogueInterruptTarget(this, m_spells.rogue.pKick))
         {
-            if (Unit* pTarget = SelectAttackerDifferentFrom(pVictim))
+            if (DoCastSpell(pKickTarget, m_spells.rogue.pKick) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (Unit* pGougeTarget = SelectRogueInterruptTarget(this, m_spells.rogue.pGouge))
+        {
+            if (DoCastSpell(pGougeTarget, m_spells.rogue.pGouge) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (me->GetComboPoints() > 4)
+        {
+            if ((pVictim->IsCaster() || CombatBotBaseAI::IsHealerClass(pVictim->GetClass())) &&
+                m_spells.rogue.pKidneyShot &&
+                CanTryToCastSpell(pVictim, m_spells.rogue.pKidneyShot))
             {
-                if (CanTryToCastSpell(pTarget, m_spells.rogue.pBlind))
-                {
-                    if (DoCastSpell(pTarget, m_spells.rogue.pBlind) == SPELL_CAST_OK)
-                    {
-                        me->AttackStop();
-                        AttackStart(pVictim);
-                        return;
-                    }
-                }
+                if (DoCastSpell(pVictim, m_spells.rogue.pKidneyShot) == SPELL_CAST_OK)
+                    return;
+            }
+
+            if (pVictim->GetHealthPercent() < 45.0f &&
+                TryRogueEviscerate(this, pVictim, true))
+                return;
+
+            if (m_spells.rogue.pSliceAndDice &&
+                CanTryToCastSpell(pVictim, m_spells.rogue.pSliceAndDice))
+            {
+                if (DoCastSpell(pVictim, m_spells.rogue.pSliceAndDice) == SPELL_CAST_OK)
+                    return;
+            }
+
+            if (m_spells.rogue.pExposeArmor &&
+                pVictim->GetHealthPercent() > 70.0f &&
+               (pVictim->GetClass() == CLASS_WARRIOR || pVictim->GetClass() == CLASS_PALADIN) &&
+                CanTryToCastSpell(pVictim, m_spells.rogue.pExposeArmor))
+            {
+                if (DoCastSpell(pVictim, m_spells.rogue.pExposeArmor) == SPELL_CAST_OK)
+                    return;
+            }
+
+            if (m_spells.rogue.pRupture &&
+                pVictim->GetHealthPercent() > 50.0f &&
+                CanTryToCastSpell(pVictim, m_spells.rogue.pRupture))
+            {
+                if (DoCastSpell(pVictim, m_spells.rogue.pRupture) == SPELL_CAST_OK)
+                    return;
+            }
+
+            if (TryRogueEviscerate(this, pVictim, false))
+                return;
+        }
+
+        if (Unit* pBlindTarget = SelectRogueBlindTarget(this, pVictim, false))
+        {
+            if (DoCastSpell(pBlindTarget, m_spells.rogue.pBlind) == SPELL_CAST_OK)
+            {
+                me->AttackStop();
+                AttackStart(pVictim);
+                return;
             }
         }
 
         if (m_spells.rogue.pAdrenalineRush &&
-           !me->GetPower(POWER_ENERGY) &&
+           (me->GetPower(POWER_ENERGY) < 35) &&
+           (pVictim->GetHealthPercent() > 40.0f) &&
+            me->CanReachWithMeleeAutoAttack(pVictim) &&
             CanTryToCastSpell(me, m_spells.rogue.pAdrenalineRush))
         {
             if (DoCastSpell(me, m_spells.rogue.pAdrenalineRush) == SPELL_CAST_OK)
                 return;
-        }
-
-        if (pVictim->IsNonMeleeSpellCasted())
-        {
-            if (m_spells.rogue.pGouge &&
-                CanTryToCastSpell(pVictim, m_spells.rogue.pGouge))
-            {
-                if (DoCastSpell(pVictim, m_spells.rogue.pGouge) == SPELL_CAST_OK)
-                    return;
-            }
-
-            if (m_spells.rogue.pKick &&
-                CanTryToCastSpell(pVictim, m_spells.rogue.pKick))
-            {
-                if (DoCastSpell(pVictim, m_spells.rogue.pKick) == SPELL_CAST_OK)
-                    return;
-            }
         }
 
         if (!me->HasAuraType(SPELL_AURA_MOD_STEALTH))
@@ -3918,12 +4115,6 @@ void BattleBotAI::UpdateInCombatAI_Rogue()
             {
                 if (DoCastSpell(me, m_spells.rogue.pEvasion) == SPELL_CAST_OK)
                     return;
-            }
-
-            if (m_spells.rogue.pColdBlood &&
-                CanTryToCastSpell(me, m_spells.rogue.pColdBlood))
-            {
-                DoCastSpell(me, m_spells.rogue.pColdBlood);
             }
 
             if (m_spells.rogue.pBladeFlurry &&
