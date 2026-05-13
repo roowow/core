@@ -80,6 +80,179 @@ enum BattleBotSpells
 #define GO_WSG_SILVERWING_FLAG 179830
 #define GO_WSG_WARSONG_FLAG 179831
 
+static Unit* SelectHunterRogueMarkTarget(BattleBotAI const* pAI)
+{
+    if (!pAI || !pAI->m_spells.hunter.pHuntersMark)
+        return nullptr;
+
+    Unit* currentVictim = pAI->me->GetVictim();
+    if (currentVictim &&
+        currentVictim->GetClass() == CLASS_ROGUE &&
+        pAI->IsValidHostileTarget(currentVictim) &&
+        pAI->CanTryToCastSpell(currentVictim, pAI->m_spells.hunter.pHuntersMark))
+        return currentVictim;
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 35.0f);
+
+    Player* bestTarget = nullptr;
+    float bestDistance = 0.0f;
+    for (Player* player : players)
+    {
+        if (!player || player == pAI->me)
+            continue;
+
+        if (player->GetClass() != CLASS_ROGUE ||
+            !pAI->IsValidHostileTarget(player) ||
+            pAI->IsBadPlayer(player) ||
+            !pAI->me->IsWithinLOSInMap(player) ||
+            !pAI->CanTryToCastSpell(player, pAI->m_spells.hunter.pHuntersMark))
+            continue;
+
+        float const distance = pAI->me->GetDistance(player);
+        if (!bestTarget || distance < bestDistance)
+        {
+            bestTarget = player;
+            bestDistance = distance;
+        }
+    }
+
+    return bestTarget;
+}
+
+static Unit* SelectHunterConcussiveShotTarget(BattleBotAI const* pAI)
+{
+    if (!pAI || !pAI->m_spells.hunter.pConcussiveShot)
+        return nullptr;
+
+    Unit* currentVictim = pAI->me->GetVictim();
+    if (currentVictim &&
+        currentVictim->IsMoving() &&
+        pAI->IsValidHostileTarget(currentVictim) &&
+        (currentVictim->HasAura(AURA_WARSONG_FLAG) ||
+         currentVictim->HasAura(AURA_SILVERWING_FLAG) ||
+         currentVictim->GetVictim() == pAI->me ||
+         (CombatBotBaseAI::IsMeleeDamageClass(currentVictim->GetClass()) && pAI->me->GetDistance(currentVictim) < 20.0f)) &&
+        pAI->CanTryToCastSpell(currentVictim, pAI->m_spells.hunter.pConcussiveShot))
+        return currentVictim;
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 30.0f);
+
+    Player* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestDistance = 0.0f;
+    for (Player* player : players)
+    {
+        if (!player || player == pAI->me)
+            continue;
+
+        if (!player->IsMoving() ||
+            !pAI->IsValidHostileTarget(player) ||
+            pAI->IsBadPlayer(player) ||
+            !pAI->me->IsWithinLOSInMap(player) ||
+            !pAI->CanTryToCastSpell(player, pAI->m_spells.hunter.pConcussiveShot))
+            continue;
+
+        uint8 priority = 0;
+        if (player->HasAura(AURA_WARSONG_FLAG) || player->HasAura(AURA_SILVERWING_FLAG))
+            priority = 4;
+        else if (player->GetVictim() == pAI->me && CombatBotBaseAI::IsMeleeDamageClass(player->GetClass()))
+            priority = 3;
+        else if (player == currentVictim)
+            priority = 2;
+
+        if (!priority)
+            continue;
+
+        float const distance = pAI->me->GetDistance(player);
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && distance < bestDistance))
+        {
+            bestTarget = player;
+            bestPriority = priority;
+            bestDistance = distance;
+        }
+    }
+
+    return bestTarget;
+}
+
+static Unit* SelectHunterPetProtectTarget(BattleBotAI const* pAI)
+{
+    if (!pAI)
+        return nullptr;
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 12.0f);
+
+    Player* bestTarget = nullptr;
+    float bestDistance = 0.0f;
+    for (Player* player : players)
+    {
+        if (!player || player == pAI->me)
+            continue;
+
+        if (player->GetVictim() != pAI->me ||
+            !CombatBotBaseAI::IsMeleeDamageClass(player->GetClass()) ||
+            !pAI->IsValidHostileTarget(player) ||
+            pAI->IsBadPlayer(player) ||
+            !pAI->me->IsWithinLOSInMap(player))
+            continue;
+
+        float const distance = pAI->me->GetDistance(player);
+        if (!bestTarget || distance < bestDistance)
+        {
+            bestTarget = player;
+            bestDistance = distance;
+        }
+    }
+
+    return bestTarget;
+}
+
+static Unit* SelectHunterNearbyDpsTarget(BattleBotAI const* pAI, Unit const* pExcept)
+{
+    if (!pAI)
+        return nullptr;
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 30.0f);
+
+    Player* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestDistance = 0.0f;
+    for (Player* player : players)
+    {
+        if (!player || player == pAI->me || player == pExcept)
+            continue;
+
+        if (!pAI->IsValidHostileTarget(player) ||
+            pAI->IsBadPlayer(player) ||
+            !pAI->me->IsWithinLOSInMap(player))
+            continue;
+
+        uint8 priority = 1;
+        if (player->HasAura(AURA_WARSONG_FLAG) || player->HasAura(AURA_SILVERWING_FLAG))
+            priority = 5;
+        else if (player->GetVictim() == pAI->me)
+            priority = 4;
+        else if (CombatBotBaseAI::IsHealerClass(player->GetClass()))
+            priority = 3;
+        else if (player->GetVictim() && player->GetVictim()->IsFriendlyTo(pAI->me))
+            priority = 2;
+
+        float const distance = pAI->me->GetDistance(player);
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && distance < bestDistance))
+        {
+            bestTarget = player;
+            bestPriority = priority;
+            bestDistance = distance;
+        }
+    }
+
+    return bestTarget;
+}
+
 static Unit* SelectShamanInterruptTarget(BattleBotAI const* pAI)
 {
     if (!pAI || !pAI->m_spells.shaman.pEarthShock)
@@ -2451,19 +2624,22 @@ void BattleBotAI::UpdateOutOfCombatAI_Hunter()
 
     if (Unit* pVictim = me->GetVictim())
     {
-        if (m_spells.hunter.pHuntersMark &&
-            CanTryToCastSpell(pVictim, m_spells.hunter.pHuntersMark))
+        if (Unit* pMarkTarget = SelectHunterRogueMarkTarget(this))
         {
-            if (DoCastSpell(pVictim, m_spells.hunter.pHuntersMark) == SPELL_CAST_OK)
+            if (DoCastSpell(pMarkTarget, m_spells.hunter.pHuntersMark) == SPELL_CAST_OK)
                 return;
         }
 
         if (Pet* pPet = me->GetPet())
         {
-            if (!pPet->GetVictim())
+            Unit* pPetTarget = SelectHunterPetProtectTarget(this);
+            if (!pPetTarget)
+                pPetTarget = pVictim;
+
+            if (pPetTarget && pPet->GetVictim() != pPetTarget)
             {
                 pPet->GetCharmInfo()->SetIsCommandAttack(true);
-                pPet->AI()->AttackStart(pVictim);
+                pPet->AI()->AttackStart(pPetTarget);
             }
         }
 
@@ -2475,10 +2651,37 @@ void BattleBotAI::UpdateInCombatAI_Hunter()
 {
     if (Unit* pVictim = me->GetVictim())
     {
-        if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == IDLE_MOTION_TYPE
-            && me->GetDistance(pVictim) > 30.0f)
+        if (Pet* pPet = me->GetPet())
         {
-            me->GetMotionMaster()->MoveChase(pVictim, 25.0f);
+            Unit* pPetTarget = SelectHunterPetProtectTarget(this);
+            if (!pPetTarget)
+                pPetTarget = pVictim;
+
+            if (pPetTarget && pPet->GetVictim() != pPetTarget)
+            {
+                pPet->GetCharmInfo()->SetIsCommandAttack(true);
+                pPet->AI()->AttackStart(pPetTarget);
+            }
+        }
+
+        if (me->GetDistance(pVictim) > 30.0f)
+        {
+            if (Unit* pNewVictim = SelectHunterNearbyDpsTarget(this, pVictim))
+            {
+                AttackStart(pNewVictim);
+                return;
+            }
+
+            me->AttackStop(false);
+            if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
+                StopMoving();
+            return;
+        }
+
+        if (Unit* pMarkTarget = SelectHunterRogueMarkTarget(this))
+        {
+            if (DoCastSpell(pMarkTarget, m_spells.hunter.pHuntersMark) == SPELL_CAST_OK)
+                return;
         }
 
         if (me->HasSpell(BB_SPELL_AUTO_SHOT) &&
@@ -2497,11 +2700,9 @@ void BattleBotAI::UpdateInCombatAI_Hunter()
             }
         }
 
-        if (m_spells.hunter.pConcussiveShot &&
-            pVictim->IsMoving() && (pVictim->GetVictim() == me) &&
-            CanTryToCastSpell(pVictim, m_spells.hunter.pConcussiveShot))
+        if (Unit* pConcussiveTarget = SelectHunterConcussiveShotTarget(this))
         {
-            if (DoCastSpell(pVictim, m_spells.hunter.pConcussiveShot) == SPELL_CAST_OK)
+            if (DoCastSpell(pConcussiveTarget, m_spells.hunter.pConcussiveShot) == SPELL_CAST_OK)
                 return;
         }
 
@@ -2533,29 +2734,6 @@ void BattleBotAI::UpdateInCombatAI_Hunter()
                 return;
         }
 
-        if (m_spells.hunter.pAspectOfTheCheetah &&
-            me->HasAura(m_spells.hunter.pAspectOfTheCheetah->Id))
-        {
-            if (pVictim->CanReachWithMeleeAutoAttack(me))
-            {
-                if (m_spells.hunter.pAspectOfTheMonkey &&
-                    CanTryToCastSpell(me, m_spells.hunter.pAspectOfTheMonkey))
-                {
-                    if (DoCastSpell(me, m_spells.hunter.pAspectOfTheMonkey) == SPELL_CAST_OK)
-                        return;
-                }
-            }
-            else
-            {
-                if (m_spells.hunter.pAspectOfTheHawk &&
-                    CanTryToCastSpell(me, m_spells.hunter.pAspectOfTheHawk))
-                {
-                    if (DoCastSpell(me, m_spells.hunter.pAspectOfTheHawk) == SPELL_CAST_OK)
-                        return;
-                }
-            }
-        }
-
         if (pVictim->CanReachWithMeleeAutoAttack(me))
         {
             if (me->HasUnitState(UNIT_STATE_ROOT))
@@ -2579,7 +2757,15 @@ void BattleBotAI::UpdateInCombatAI_Hunter()
                 if (m_spells.hunter.pWingClip &&
                     CanTryToCastSpell(pVictim, m_spells.hunter.pWingClip))
                 {
-                    DoCastSpell(pVictim, m_spells.hunter.pWingClip);
+                    if (DoCastSpell(pVictim, m_spells.hunter.pWingClip) == SPELL_CAST_OK)
+                        return;
+                }
+
+                if (m_spells.hunter.pDisengage &&
+                    CanTryToCastSpell(pVictim, m_spells.hunter.pDisengage))
+                {
+                    if (DoCastSpell(pVictim, m_spells.hunter.pDisengage) == SPELL_CAST_OK)
+                        return;
                 }
             }
         }
