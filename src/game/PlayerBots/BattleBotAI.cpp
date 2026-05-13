@@ -168,6 +168,297 @@ static Unit* SelectShamanPurgeTarget(BattleBotAI const* pAI)
     return bestTarget;
 }
 
+static bool BattleBotCanUseCrowdControl(BattleBotAI const* pAI, SpellEntry const* pSpellEntry, Unit* pTarget)
+{
+    if (!pAI || !pSpellEntry || !pTarget)
+        return false;
+
+    if (pAI->IsInDuel())
+        return true;
+
+    if (pSpellEntry->HasAuraInterruptFlag(AURA_INTERRUPT_DAMAGE_CANCELS) &&
+        pAI->AreOthersOnSameTarget(pTarget->GetObjectGuid()))
+        return false;
+
+    if (pSpellEntry->HasSingleTargetAura())
+    {
+        auto const& singleAuras = pAI->me->GetSingleCastSpellTargets();
+        if (singleAuras.find(pSpellEntry) != singleAuras.end())
+            return false;
+    }
+
+    return true;
+}
+
+static bool BattleBotHasEntanglingRoots(Unit const* pTarget)
+{
+    if (!pTarget)
+        return false;
+
+    Unit::AuraList const& rootAuras = pTarget->GetAurasByType(SPELL_AURA_MOD_ROOT);
+    for (Aura const* aura : rootAuras)
+    {
+        if (!aura)
+            continue;
+
+        SpellEntry const* spellInfo = aura->GetSpellProto();
+        if (spellInfo && spellInfo->SpellName[0].find("Entangling Roots") != std::string::npos)
+            return true;
+    }
+
+    return false;
+}
+
+static bool BattleBotEnterDruidCombatForm(BattleBotAI* pAI)
+{
+    if (!pAI || pAI->me->GetShapeshiftForm() != FORM_NONE)
+        return false;
+
+    if (pAI->GetRole() == ROLE_TANK)
+    {
+        if (pAI->m_spells.druid.pBearForm &&
+            pAI->CanTryToCastSpell(pAI->me, pAI->m_spells.druid.pBearForm))
+        {
+            if (pAI->DoCastSpell(pAI->me, pAI->m_spells.druid.pBearForm) == SPELL_CAST_OK)
+                return true;
+        }
+    }
+    else if (pAI->GetRole() == ROLE_MELEE_DPS)
+    {
+        if (pAI->m_spells.druid.pCatForm &&
+            !pAI->me->IsMounted() &&
+            pAI->CanTryToCastSpell(pAI->me, pAI->m_spells.druid.pCatForm))
+        {
+            if (pAI->DoCastSpell(pAI->me, pAI->m_spells.druid.pCatForm) == SPELL_CAST_OK)
+                return true;
+        }
+
+        if (pAI->m_spells.druid.pBearForm &&
+            pAI->me->GetHealthPercent() < 35.0f &&
+            pAI->CanTryToCastSpell(pAI->me, pAI->m_spells.druid.pBearForm))
+        {
+            if (pAI->DoCastSpell(pAI->me, pAI->m_spells.druid.pBearForm) == SPELL_CAST_OK)
+                return true;
+        }
+    }
+    else if (pAI->GetRole() == ROLE_RANGE_DPS)
+    {
+        if (pAI->m_spells.druid.pMoonkinForm &&
+            pAI->CanTryToCastSpell(pAI->me, pAI->m_spells.druid.pMoonkinForm))
+        {
+            if (pAI->DoCastSpell(pAI->me, pAI->m_spells.druid.pMoonkinForm) == SPELL_CAST_OK)
+                return true;
+        }
+    }
+
+    return false;
+}
+
+static Unit* SelectDruidFaerieFireTarget(BattleBotAI const* pAI, SpellEntry const* pSpellEntry)
+{
+    if (!pAI || !pSpellEntry)
+        return nullptr;
+
+    Unit* currentVictim = pAI->me->GetVictim();
+    Unit* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestDistance = 0.0f;
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 30.0f);
+    for (Player* player : players)
+    {
+        if (!player || player == pAI->me)
+            continue;
+
+        if (!pAI->IsValidHostileTarget(player) ||
+            pAI->IsBadPlayer(player) ||
+            !pAI->me->IsWithinLOSInMap(player) ||
+            !pAI->CanTryToCastSpell(player, pSpellEntry))
+            continue;
+
+        uint8 priority = 1;
+        if (player->HasAura(AURA_WARSONG_FLAG) || player->HasAura(AURA_SILVERWING_FLAG))
+            priority = 4;
+        else if (player->GetClass() == CLASS_ROGUE || player->GetClass() == CLASS_DRUID)
+            priority = 3;
+        else if (player == currentVictim)
+            priority = 2;
+
+        float const distance = pAI->me->GetDistance(player);
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && distance < bestDistance))
+        {
+            bestTarget = player;
+            bestPriority = priority;
+            bestDistance = distance;
+        }
+    }
+
+    if (!bestTarget && currentVictim &&
+        pAI->IsValidHostileTarget(currentVictim) &&
+        pAI->CanTryToCastSpell(currentVictim, pSpellEntry))
+        return currentVictim;
+
+    return bestTarget;
+}
+
+static Unit* SelectDruidEntanglingRootsTarget(BattleBotAI const* pAI, SpellEntry const* pSpellEntry)
+{
+    if (!pAI || !pSpellEntry)
+        return nullptr;
+
+    Unit* currentVictim = pAI->me->GetVictim();
+    Unit* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestDistance = 0.0f;
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 30.0f);
+    for (Player* player : players)
+    {
+        if (!player || player == pAI->me)
+            continue;
+
+        if (!CombatBotBaseAI::IsMeleeDamageClass(player->GetClass()) ||
+            BattleBotHasEntanglingRoots(player) ||
+            !pAI->IsValidHostileTarget(player) ||
+            pAI->IsBadPlayer(player) ||
+            !pAI->me->IsWithinLOSInMap(player) ||
+            !pAI->CanTryToCastSpell(player, pSpellEntry))
+            continue;
+
+        uint8 priority = 1;
+        Unit* victim = player->GetVictim();
+        if (victim == pAI->me)
+            priority = 5;
+        else if (victim && victim->ToPlayer() && victim->IsFriendlyTo(pAI->me) &&
+                 CombatBotBaseAI::IsHealerClass(victim->GetClass()))
+            priority = 4;
+        else if (victim && victim->IsFriendlyTo(pAI->me))
+            priority = 3;
+        else if (player == currentVictim)
+            priority = 2;
+
+        if (player->CanReachWithMeleeAutoAttack(pAI->me) && priority < 5)
+            ++priority;
+
+        float const distance = pAI->me->GetDistance(player);
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && distance < bestDistance))
+        {
+            bestTarget = player;
+            bestPriority = priority;
+            bestDistance = distance;
+        }
+    }
+
+    return bestTarget;
+}
+
+static Unit* SelectDruidInterruptTarget(BattleBotAI const* pAI, SpellEntry const* pSpellEntry)
+{
+    if (!pAI || !pSpellEntry)
+        return nullptr;
+
+    Unit* currentVictim = pAI->me->GetVictim();
+    if (currentVictim &&
+        currentVictim->IsNonMeleeSpellCasted(false, false, true) &&
+        pAI->CanTryToCastSpell(currentVictim, pSpellEntry))
+        return currentVictim;
+
+    Unit* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestDistance = 0.0f;
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 25.0f);
+    for (Player* player : players)
+    {
+        if (!player || player == pAI->me)
+            continue;
+
+        if (!pAI->IsValidHostileTarget(player) ||
+            pAI->IsBadPlayer(player) ||
+            !player->IsNonMeleeSpellCasted(false, false, true) ||
+            !pAI->me->IsWithinLOSInMap(player) ||
+            !pAI->CanTryToCastSpell(player, pSpellEntry))
+            continue;
+
+        uint8 priority = CombatBotBaseAI::IsHealerClass(player->GetClass()) ? 3 : 2;
+        if (player->HasAura(AURA_WARSONG_FLAG) || player->HasAura(AURA_SILVERWING_FLAG))
+            priority = 4;
+
+        float const distance = pAI->me->GetDistance(player);
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && distance < bestDistance))
+        {
+            bestTarget = player;
+            bestPriority = priority;
+            bestDistance = distance;
+        }
+    }
+
+    return bestTarget;
+}
+
+static Unit* SelectDruidInnervateTarget(BattleBotAI* pAI)
+{
+    if (!pAI || !pAI->m_spells.druid.pInnervate)
+        return nullptr;
+
+    if (pAI->me->GetPowerType() == POWER_MANA &&
+        pAI->me->GetPowerPercent(POWER_MANA) < 15.0f &&
+        pAI->me->GetHealthPercent() > 35.0f &&
+        pAI->CanTryToCastSpell(pAI->me, pAI->m_spells.druid.pInnervate))
+        return pAI->me;
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 30.0f);
+
+    Player* bestTarget = nullptr;
+    float bestMana = 100.0f;
+    for (Player* player : players)
+    {
+        if (!player || player == pAI->me)
+            continue;
+
+        if (player->GetTeam() != pAI->me->GetTeam() ||
+            player->GetPowerType() != POWER_MANA ||
+            !CombatBotBaseAI::IsHealerClass(player->GetClass()) ||
+            !pAI->me->IsWithinLOSInMap(player) ||
+            !pAI->CanTryToCastSpell(player, pAI->m_spells.druid.pInnervate))
+            continue;
+
+        float const manaPercent = player->GetPowerPercent(POWER_MANA);
+        if (manaPercent < 20.0f && (!bestTarget || manaPercent < bestMana))
+        {
+            bestTarget = player;
+            bestMana = manaPercent;
+        }
+    }
+
+    return bestTarget;
+}
+
+static bool TryDruidNatureSwiftnessHeal(BattleBotAI* pAI)
+{
+    if (!pAI || !pAI->m_spells.druid.pNaturesSwiftness)
+        return false;
+
+    Unit* target = pAI->SelectHealTarget(35.0f, 50.0f);
+    if (!target)
+        return false;
+
+    if (pAI->CanTryToCastSpell(pAI->me, pAI->m_spells.druid.pNaturesSwiftness))
+    {
+        if (pAI->DoCastSpell(pAI->me, pAI->m_spells.druid.pNaturesSwiftness) == SPELL_CAST_OK)
+        {
+            pAI->HealInjuredTargetDirect(target);
+            return true;
+        }
+    }
+
+    return false;
+}
+
 uint32 BattleBotAI::GetMountSpellId() const
 {
     if (me->GetLevel() >= 60)
@@ -553,15 +844,35 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
         return SelectAVOpeningRetaliationTarget(pExcept);
     }
 
+    Unit* pRootedFallback = nullptr;
+    float rootedFallbackDistance = FLT_MAX;
+
     if (Unit* pFlagDefenseTarget = BattleBotSelectABFlagDefenseTarget(this, pExcept))
-        return pFlagDefenseTarget;
+    {
+        if (!BattleBotHasEntanglingRoots(pFlagDefenseTarget))
+            return pFlagDefenseTarget;
+
+        pRootedFallback = pFlagDefenseTarget;
+        rootedFallbackDistance = me->GetDistance(pFlagDefenseTarget);
+    }
 
     if (Unit* pFlagDefenseTarget = BattleBotSelectAVFlagDefenseTarget(this, pExcept))
-        return pFlagDefenseTarget;
+    {
+        if (!BattleBotHasEntanglingRoots(pFlagDefenseTarget))
+            return pFlagDefenseTarget;
+
+        float const distance = me->GetDistance(pFlagDefenseTarget);
+        if (!pRootedFallback || distance < rootedFallbackDistance)
+        {
+            pRootedFallback = pFlagDefenseTarget;
+            rootedFallbackDistance = distance;
+        }
+    }
 
     // 1. Check units we are currently in combat with.
 
     std::list<Unit*> targets;
+    std::list<Unit*> rootedTargets;
     HostileReference* pReference = me->GetHostileRefManager().getFirst();
 
     while (pReference)
@@ -573,6 +884,13 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
                 !IsBadPlayer(pTarget) &&
                 me->IsWithinDist(pTarget, VISIBILITY_DISTANCE_NORMAL))
             {
+                if (BattleBotHasEntanglingRoots(pTarget))
+                {
+                    rootedTargets.push_back(pTarget);
+                    pReference = pReference->next();
+                    continue;
+                }
+
                 if (me->GetTeam() == HORDE)
                 {
                     if (pTarget->HasAura(AURA_WARSONG_FLAG))
@@ -600,6 +918,21 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
         return *targets.begin();
     }
 
+    if (!rootedTargets.empty())
+    {
+        rootedTargets.sort([this](Unit* pUnit1, const Unit* pUnit2)
+        {
+            return me->GetDistance(pUnit1) < me->GetDistance(pUnit2);
+        });
+
+        float const distance = me->GetDistance(*rootedTargets.begin());
+        if (!pRootedFallback || distance < rootedFallbackDistance)
+        {
+            pRootedFallback = *rootedTargets.begin();
+            rootedFallbackDistance = distance;
+        }
+    }
+
     // 2. Find enemy player in range.
 
     std::list<Player*> players;
@@ -614,15 +947,18 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
         if (!IsValidHostileTarget(pTarget))
             continue;
 
-        if (me->GetTeam() == HORDE)
+        if (!BattleBotHasEntanglingRoots(pTarget))
         {
-            if (pTarget->HasAura(AURA_WARSONG_FLAG))
-                return pTarget;
-        }
-        else
-        {
-            if (pTarget->HasAura(AURA_SILVERWING_FLAG))
-                return pTarget;
+            if (me->GetTeam() == HORDE)
+            {
+                if (pTarget->HasAura(AURA_WARSONG_FLAG))
+                    return pTarget;
+            }
+            else
+            {
+                if (pTarget->HasAura(AURA_SILVERWING_FLAG))
+                    return pTarget;
+            }
         }
 
         // Aggro weak enemies from further away.
@@ -633,8 +969,21 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
         if (me->GetDistanceZ(pTarget) > 10.0f)
             continue;
 
-        if (me->IsWithinLOSInMap(pTarget))
-            return pTarget;
+        if (!me->IsWithinLOSInMap(pTarget))
+            continue;
+
+        if (BattleBotHasEntanglingRoots(pTarget))
+        {
+            float const distance = me->GetDistance(pTarget);
+            if (!pRootedFallback || distance < rootedFallbackDistance)
+            {
+                pRootedFallback = pTarget;
+                rootedFallbackDistance = distance;
+            }
+            continue;
+        }
+
+        return pTarget;
     }
 
     // 3. Check party attackers.
@@ -659,13 +1008,26 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
                         me->IsWithinDist(pAttacker, maxAggroDistance * 2.0f) &&
                         me->GetDistanceZ(pAttacker) < 10.0f &&
                         me->IsWithinLOSInMap(pAttacker))
+                    {
+                        if (BattleBotHasEntanglingRoots(pAttacker))
+                        {
+                            float const distance = me->GetDistance(pAttacker);
+                            if (!pRootedFallback || distance < rootedFallbackDistance)
+                            {
+                                pRootedFallback = pAttacker;
+                                rootedFallbackDistance = distance;
+                            }
+                            continue;
+                        }
+
                         return pAttacker;
+                    }
                 }
             }
         }
     }
 
-    return nullptr;
+    return pRootedFallback;
 }
 
 Unit* BattleBotAI::SelectFollowTarget() const
@@ -1338,6 +1700,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
     }
 
     if (!pVictim || !IsValidHostileTarget(pVictim) ||
+        BattleBotHasEntanglingRoots(pVictim) ||
         !pVictim->IsWithinDist(me, VISIBILITY_DISTANCE_SMALL))
     {
         if (Unit* pNewVictim = SelectAttackTarget(pVictim))
@@ -3520,6 +3883,9 @@ void BattleBotAI::UpdateOutOfCombatAI_Druid()
     {
         if (m_role == ROLE_MELEE_DPS || m_role == ROLE_TANK)
         {
+            if (BattleBotEnterDruidCombatForm(this))
+                return;
+
             if (m_spells.druid.pCatForm &&
                 !me->IsMounted() &&               // <--- 新增：如果已经骑在马上，绝不变猫
                 CanTryToCastSpell(me, m_spells.druid.pCatForm))
@@ -3557,7 +3923,12 @@ void BattleBotAI::UpdateOutOfCombatAI_Druid()
 
     if (me->GetVictim())
     {
-        if (m_spells.druid.pMoonkinForm &&
+        if (m_role == ROLE_RANGE_DPS &&
+            BattleBotEnterDruidCombatForm(this))
+            return;
+
+        if (m_role == ROLE_RANGE_DPS &&
+            m_spells.druid.pMoonkinForm &&
             CanTryToCastSpell(me, m_spells.druid.pMoonkinForm))
         {
             if (DoCastSpell(me, m_spells.druid.pMoonkinForm) == SPELL_CAST_OK)
@@ -3589,22 +3960,51 @@ void BattleBotAI::UpdateInCombatAI_Druid()
         me->GetShapeshiftForm() == FORM_TRAVEL)
         me->RemoveAurasDueToSpellByCancel(m_spells.druid.pTravelForm->Id);
 
+    if (m_role == ROLE_HEALER &&
+        me->GetShapeshiftForm() != FORM_NONE)
+    {
+        me->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
+        return;
+    }
+
+    ShapeshiftForm const currentForm = me->GetShapeshiftForm();
+    if ((currentForm == FORM_NONE || currentForm == FORM_MOONKIN) &&
+        m_spells.druid.pEntanglingRoots)
+    {
+        if (Unit* pRootTarget = SelectDruidEntanglingRootsTarget(this, m_spells.druid.pEntanglingRoots))
+        {
+            if (DoCastSpell(pRootTarget, m_spells.druid.pEntanglingRoots) == SPELL_CAST_OK)
+                return;
+        }
+    }
+
     if (me->GetShapeshiftForm() == FORM_NONE)
     {
-        if (m_spells.druid.pHibernate &&
-            !me->GetAttackers().empty())
+        if (m_role == ROLE_HEALER)
         {
-            Unit* pAttacker = *me->GetAttackers().begin();
-            if (CanTryToCastSpell(pAttacker, m_spells.druid.pHibernate))
+            if (TryDruidNatureSwiftnessHeal(this))
+                return;
+
+            if (Unit* pTarget = SelectPeriodicHealTarget(80.0f, 90.0f))
             {
-                if (DoCastSpell(pAttacker, m_spells.druid.pHibernate) == SPELL_CAST_OK)
+                if (HealInjuredTargetPeriodic(pTarget))
+                    return;
+            }
+
+            if (Unit* pTarget = SelectHealTarget(60.0f, 75.0f))
+            {
+                if (HealInjuredTargetDirect(pTarget))
                     return;
             }
         }
+        else if (me->GetHealthPercent() < 55.0f)
+        {
+            if (TryDruidNatureSwiftnessHeal(this))
+                return;
 
-        // Heal
-        if (FindAndHealInjuredAlly(80.0f))
-            return;
+            if (HealInjuredTarget(me))
+                return;
+        }
 
         // Dispels
        SpellEntry const* pDispelSpell = m_spells.druid.pAbolishPoison ?
@@ -3643,17 +4043,28 @@ void BattleBotAI::UpdateInCombatAI_Druid()
             }
         }
 
-        if (m_spells.druid.pInnervate &&
-            me->GetVictim() &&
-           (me->GetHealthPercent() > 40.0f) &&
-           (me->GetPowerPercent(POWER_MANA) < 10.0f) &&
-            CanTryToCastSpell(me, m_spells.druid.pInnervate))
+        if (Unit* pInnervateTarget = SelectDruidInnervateTarget(this))
         {
-            if (DoCastSpell(me, m_spells.druid.pInnervate) == SPELL_CAST_OK)
+            if (DoCastSpell(pInnervateTarget, m_spells.druid.pInnervate) == SPELL_CAST_OK)
                 return;
         }
 
-        if (m_spells.druid.pMoonkinForm &&
+        if (m_role == ROLE_HEALER &&
+            m_spells.druid.pEntanglingRoots)
+        {
+            if (Unit* pRootTarget = SelectDruidEntanglingRootsTarget(this, m_spells.druid.pEntanglingRoots))
+            {
+                if (DoCastSpell(pRootTarget, m_spells.druid.pEntanglingRoots) == SPELL_CAST_OK)
+                    return;
+            }
+        }
+
+        if (m_role == ROLE_HEALER &&
+            FindAndPreHealTarget())
+            return;
+
+        if (m_role == ROLE_RANGE_DPS &&
+            m_spells.druid.pMoonkinForm &&
             CanTryToCastSpell(me, m_spells.druid.pMoonkinForm))
         {
             if (DoCastSpell(me, m_spells.druid.pMoonkinForm) == SPELL_CAST_OK)
@@ -3662,6 +4073,9 @@ void BattleBotAI::UpdateInCombatAI_Druid()
 
         if (m_role == ROLE_MELEE_DPS || m_role == ROLE_TANK)
         {
+            if (BattleBotEnterDruidCombatForm(this))
+                return;
+
             if (Unit* pVictim = me->GetVictim())
             {
                 if (m_spells.druid.pBearForm &&
@@ -3700,6 +4114,9 @@ void BattleBotAI::UpdateInCombatAI_Druid()
             if (DoCastSpell(me, m_spells.druid.pBarkskin) == SPELL_CAST_OK)
                 return;
         }
+
+        if (m_role == ROLE_HEALER)
+            return;
 
         switch (form)
         {
@@ -3750,6 +4167,15 @@ void BattleBotAI::UpdateInCombatAI_Druid()
                         CanTryToCastSpell(pVictim, m_spells.druid.pRip))
                     {
                         if (DoCastSpell(pVictim, m_spells.druid.pRip) == SPELL_CAST_OK)
+                            return;
+                    }
+                }
+
+                if (m_spells.druid.pFaerieFireFeral)
+                {
+                    if (Unit* pFaerieTarget = SelectDruidFaerieFireTarget(this, m_spells.druid.pFaerieFireFeral))
+                    {
+                        if (DoCastSpell(pFaerieTarget, m_spells.druid.pFaerieFireFeral) == SPELL_CAST_OK)
                             return;
                     }
                 }
@@ -3807,6 +4233,24 @@ void BattleBotAI::UpdateInCombatAI_Druid()
                     me->GetMotionMaster()->MoveChase(pVictim);
                 }
 
+                if (m_spells.druid.pFeralCharge)
+                {
+                    if (Unit* pInterruptTarget = SelectDruidInterruptTarget(this, m_spells.druid.pFeralCharge))
+                    {
+                        if (DoCastSpell(pInterruptTarget, m_spells.druid.pFeralCharge) == SPELL_CAST_OK)
+                            return;
+                    }
+                }
+
+                if (m_spells.druid.pBash)
+                {
+                    if (Unit* pInterruptTarget = SelectDruidInterruptTarget(this, m_spells.druid.pBash))
+                    {
+                        if (DoCastSpell(pInterruptTarget, m_spells.druid.pBash) == SPELL_CAST_OK)
+                            return;
+                    }
+                }
+
                 if (m_spells.druid.pFeralCharge &&
                     CanTryToCastSpell(pVictim, m_spells.druid.pFeralCharge))
                 {
@@ -3829,11 +4273,13 @@ void BattleBotAI::UpdateInCombatAI_Druid()
                         return;
                 }
 
-                if (m_spells.druid.pFaerieFireFeral &&
-                    CanTryToCastSpell(pVictim, m_spells.druid.pFaerieFireFeral))
+                if (m_spells.druid.pFaerieFireFeral)
                 {
-                    if (DoCastSpell(pVictim, m_spells.druid.pFaerieFireFeral) == SPELL_CAST_OK)
-                        return;
+                    if (Unit* pFaerieTarget = SelectDruidFaerieFireTarget(this, m_spells.druid.pFaerieFireFeral))
+                    {
+                        if (DoCastSpell(pFaerieTarget, m_spells.druid.pFaerieFireFeral) == SPELL_CAST_OK)
+                            return;
+                    }
                 }
 
                 if (m_spells.druid.pDemoralizingRoar &&
@@ -3863,6 +4309,15 @@ void BattleBotAI::UpdateInCombatAI_Druid()
             case FORM_NONE:
             case FORM_MOONKIN:
             {
+                if (m_spells.druid.pEntanglingRoots)
+                {
+                    if (Unit* pRootTarget = SelectDruidEntanglingRootsTarget(this, m_spells.druid.pEntanglingRoots))
+                    {
+                        if (DoCastSpell(pRootTarget, m_spells.druid.pEntanglingRoots) == SPELL_CAST_OK)
+                            return;
+                    }
+                }
+
                 if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == IDLE_MOTION_TYPE &&
                     me->GetDistance(pVictim) > 30.0f)
                 {
@@ -3874,6 +4329,7 @@ void BattleBotAI::UpdateInCombatAI_Druid()
                         (me->GetMotionMaster()->GetCurrentMovementGeneratorType() != DISTANCING_MOTION_TYPE))
                 {
                     if (m_spells.druid.pEntanglingRoots &&
+                        BattleBotCanUseCrowdControl(this, m_spells.druid.pEntanglingRoots, pVictim) &&
                         CanTryToCastSpell(pVictim, m_spells.druid.pEntanglingRoots))
                     {
                         if (DoCastSpell(pVictim, m_spells.druid.pEntanglingRoots) == SPELL_CAST_OK)
@@ -3884,12 +4340,13 @@ void BattleBotAI::UpdateInCombatAI_Druid()
                         return;
                 }
 
-                if (m_spells.druid.pFaerieFire &&
-                   (pVictim->GetClass() == CLASS_ROGUE) &&
-                    CanTryToCastSpell(pVictim, m_spells.druid.pFaerieFire))
+                if (m_spells.druid.pFaerieFire)
                 {
-                    if (DoCastSpell(pVictim, m_spells.druid.pFaerieFire) == SPELL_CAST_OK)
-                        return;
+                    if (Unit* pFaerieTarget = SelectDruidFaerieFireTarget(this, m_spells.druid.pFaerieFire))
+                    {
+                        if (DoCastSpell(pFaerieTarget, m_spells.druid.pFaerieFire) == SPELL_CAST_OK)
+                            return;
+                    }
                 }
 
                 if (m_spells.druid.pInsectSwarm &&
