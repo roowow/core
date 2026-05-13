@@ -881,26 +881,6 @@ void BattleGroundQueue::Update(BattleGroundTypeId bgTypeId, BattleGroundBracketI
     // Check if player can join to an existing battleground
     CheckFreeSlots(bgTypeId, bracketId);
 
-    // --- 核心修改：同类型唯一性限制 ---
-    bool isRunning = false;
-    // 使用公开的迭代器遍历该类型的所有战场实例
-    for (auto itr = sBattleGroundMgr.GetBattleGroundsBegin(bgTypeId); itr != sBattleGroundMgr.GetBattleGroundsEnd(bgTypeId); ++itr)
-    {
-        // 模板(Template)的 ClientInstanceID 永远是 0。
-        // 如果存在 ClientInstanceID 不为 0 的实例，说明真实的战场已经在运行中。
-        if (itr->second->GetClientInstanceID() != 0)
-        {
-            isRunning = true;
-            break;
-        }
-    }
-
-    if (isRunning)
-    {
-        return; // 已经有同类型战场在运行，跳过创建逻辑，让玩家继续排队
-    }
-    // --------------------------------
-
     // When all running battlegrounds are full or if there are no running bgs,
     // check if we can create a new one
     if (CheckCreateNewBg(bgTypeId, bracketId))
