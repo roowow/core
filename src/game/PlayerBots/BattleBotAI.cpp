@@ -451,6 +451,286 @@ static bool BattleBotHasBattlegroundFlag(Unit const* pTarget)
         pTarget->HasAura(AURA_SILVERWING_FLAG));
 }
 
+static bool BattleBotNeedsFreedom(Unit const* pTarget)
+{
+    return pTarget &&
+       (pTarget->HasUnitState(UNIT_STATE_ROOT) ||
+        pTarget->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED));
+}
+
+static Unit* SelectPaladinEmergencyHealTarget(BattleBotAI const* pAI, SpellEntry const* pSpellEntry, float healthPercent)
+{
+    if (!pAI || !pSpellEntry)
+        return nullptr;
+
+    Unit* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestHealth = 100.0f;
+
+    auto considerTarget = [&](Unit* target)
+    {
+        if (!target ||
+            target->GetHealthPercent() >= healthPercent ||
+            !pAI->me->IsValidHelpfulTarget(target) ||
+            !pAI->me->IsWithinDist(target, 30.0f) ||
+            !pAI->me->IsWithinLOSInMap(target) ||
+            !pAI->CanTryToCastSpell(target, pSpellEntry))
+            return;
+
+        float const targetHealth = target->GetHealthPercent();
+        uint8 priority = 1;
+        if (BattleBotHasBattlegroundFlag(target))
+            priority = 6;
+        else if (targetHealth < 20.0f)
+            priority = 5;
+        else if (pAI->GetIncomingdamage(target) > int32(target->GetMaxHealth() / 4))
+            priority = 4;
+        else if (target == pAI->me)
+            priority = 3;
+        else if (targetHealth < 40.0f)
+            priority = 2;
+
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && targetHealth < bestHealth))
+        {
+            bestTarget = target;
+            bestPriority = priority;
+            bestHealth = targetHealth;
+        }
+    };
+
+    considerTarget(pAI->me);
+
+    if (Group* group = pAI->me->GetGroup())
+    {
+        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+        {
+            if (Unit* member = itr->getSource())
+                considerTarget(member);
+        }
+    }
+
+    return bestTarget;
+}
+
+static Unit* SelectPaladinFreedomTarget(BattleBotAI const* pAI)
+{
+    if (!pAI || !pAI->m_spells.paladin.pBlessingOfFreedom)
+        return nullptr;
+
+    Unit* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestHealth = 100.0f;
+
+    auto considerTarget = [&](Unit* target)
+    {
+        if (!target ||
+            !BattleBotNeedsFreedom(target) ||
+            !pAI->me->IsValidHelpfulTarget(target) ||
+            !pAI->me->IsWithinDist(target, 30.0f) ||
+            !pAI->me->IsWithinLOSInMap(target) ||
+            !pAI->CanTryToCastSpell(target, pAI->m_spells.paladin.pBlessingOfFreedom))
+            return;
+
+        uint8 priority = 1;
+        if (BattleBotHasBattlegroundFlag(target))
+            priority = 6;
+        else if (target != pAI->me && CombatBotBaseAI::IsPhysicalDamageClass(target->GetClass()))
+            priority = 4;
+        else if (target == pAI->me)
+            priority = 3;
+
+        float const health = target->GetHealthPercent();
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && health < bestHealth))
+        {
+            bestTarget = target;
+            bestPriority = priority;
+            bestHealth = health;
+        }
+    };
+
+    considerTarget(pAI->me);
+
+    if (Group* group = pAI->me->GetGroup())
+    {
+        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+        {
+            if (Unit* member = itr->getSource())
+                considerTarget(member);
+        }
+    }
+
+    return bestTarget;
+}
+
+static Unit* SelectPaladinHammerOfJusticeTarget(BattleBotAI const* pAI, Unit* currentVictim)
+{
+    if (!pAI || !pAI->m_spells.paladin.pHammerOfJustice)
+        return nullptr;
+
+    Player* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestDistance = 0.0f;
+
+    auto considerTarget = [&](Player* player)
+    {
+        if (!player ||
+            !pAI->IsValidHostileTarget(player) ||
+            pAI->IsBadPlayer(player) ||
+            BattleBotIsHardControlled(player) ||
+            !pAI->me->IsWithinLOSInMap(player) ||
+            !pAI->CanTryToCastSpell(player, pAI->m_spells.paladin.pHammerOfJustice))
+            return;
+
+        bool const isCasting = player->IsNonMeleeSpellCasted(false, false, true);
+        bool const isMeleeThreat = CombatBotBaseAI::IsMeleeDamageClass(player->GetClass()) && pAI->me->GetCombatDistance(player) < 10.0f;
+        Unit* victim = player->GetVictim();
+        bool const isThreateningFriendly = victim && pAI->me->IsValidHelpfulTarget(victim);
+        bool const isThreateningCarrier = isThreateningFriendly && BattleBotHasBattlegroundFlag(victim);
+        bool const isThreateningHealer = isThreateningFriendly && CombatBotBaseAI::IsHealerClass(victim->GetClass());
+        bool const isThreateningSelf = victim == pAI->me && (pAI->GetRole() == ROLE_HEALER || BattleBotHasBattlegroundFlag(pAI->me));
+
+        if (!isCasting && !(isMeleeThreat && (isThreateningCarrier || isThreateningHealer || isThreateningSelf)))
+            return;
+
+        uint8 priority = 0;
+        if (isCasting)
+        {
+            priority = player->GetClass() == CLASS_MAGE ? 8 :
+                CombatBotBaseAI::IsHealerClass(player->GetClass()) ? 7 : 4;
+            if (BattleBotHasBattlegroundFlag(player) && priority < 6)
+                priority = 6;
+        }
+        else if (isThreateningCarrier)
+            priority = 6;
+        else if (isThreateningHealer || isThreateningSelf)
+            priority = 5;
+
+        if (player == currentVictim)
+            ++priority;
+
+        float const distance = pAI->me->GetDistance(player);
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && distance < bestDistance))
+        {
+            bestTarget = player;
+            bestPriority = priority;
+            bestDistance = distance;
+        }
+    };
+
+    if (currentVictim)
+        considerTarget(currentVictim->ToPlayer());
+
+    std::list<Player*> players;
+    pAI->me->GetAlivePlayerListInRange(pAI->me, players, 15.0f);
+    for (Player* player : players)
+        considerTarget(player);
+
+    return bestTarget;
+}
+
+static Unit* SelectPaladinSacrificeTarget(BattleBotAI const* pAI)
+{
+    if (!pAI || !pAI->m_spells.paladin.pBlessingOfSacrifice)
+        return nullptr;
+
+    Unit* bestTarget = nullptr;
+    float bestHealth = 100.0f;
+
+    auto considerTarget = [&](Unit* target)
+    {
+        if (!target ||
+            target == pAI->me ||
+            !BattleBotHasBattlegroundFlag(target) ||
+            !pAI->me->IsValidHelpfulTarget(target) ||
+            !pAI->me->IsWithinDist(target, 30.0f) ||
+            !pAI->me->IsWithinLOSInMap(target) ||
+            !pAI->CanTryToCastSpell(target, pAI->m_spells.paladin.pBlessingOfSacrifice))
+            return;
+
+        if (!target->IsInCombat() && target->GetAttackers().empty() && target->GetHealthPercent() > 90.0f)
+            return;
+
+        float const health = target->GetHealthPercent();
+        if (!bestTarget || health < bestHealth)
+        {
+            bestTarget = target;
+            bestHealth = health;
+        }
+    };
+
+    if (Group* group = pAI->me->GetGroup())
+    {
+        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+        {
+            if (Unit* member = itr->getSource())
+                considerTarget(member);
+        }
+    }
+
+    return bestTarget;
+}
+
+static Unit* SelectPaladinProtectionTarget(BattleBotAI const* pAI)
+{
+    if (!pAI || !pAI->m_spells.paladin.pBlessingOfProtection)
+        return nullptr;
+
+    Unit* bestTarget = nullptr;
+    uint8 bestPriority = 0;
+    float bestHealth = 100.0f;
+
+    auto considerTarget = [&](Unit* target)
+    {
+        if (!target ||
+            BattleBotHasBattlegroundFlag(target) ||
+            CombatBotBaseAI::IsPhysicalDamageClass(target->GetClass()) ||
+            target->GetHealthPercent() > 70.0f ||
+            !pAI->me->IsValidHelpfulTarget(target) ||
+            !pAI->me->IsWithinDist(target, 30.0f) ||
+            !pAI->me->IsWithinLOSInMap(target) ||
+            !pAI->CanTryToCastSpell(target, pAI->m_spells.paladin.pBlessingOfProtection))
+            return;
+
+        bool meleeThreat = false;
+        for (Unit* attacker : target->GetAttackers())
+        {
+            if (attacker && CombatBotBaseAI::IsMeleeDamageClass(attacker->GetClass()) && target->GetCombatDistance(attacker) < 10.0f)
+            {
+                meleeThreat = true;
+                break;
+            }
+        }
+
+        if (!meleeThreat && target->GetHealthPercent() > 35.0f)
+            return;
+
+        uint8 priority = CombatBotBaseAI::IsHealerClass(target->GetClass()) ? 5 : 3;
+        if (target->GetHealthPercent() < 35.0f)
+            ++priority;
+
+        float const health = target->GetHealthPercent();
+        if (!bestTarget || priority > bestPriority || (priority == bestPriority && health < bestHealth))
+        {
+            bestTarget = target;
+            bestPriority = priority;
+            bestHealth = health;
+        }
+    };
+
+    considerTarget(pAI->me);
+
+    if (Group* group = pAI->me->GetGroup())
+    {
+        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+        {
+            if (Unit* member = itr->getSource())
+                considerTarget(member);
+        }
+    }
+
+    return bestTarget;
+}
+
 static Unit* SelectPriestPowerWordShieldTarget(BattleBotAI const* pAI)
 {
     if (!pAI || !pAI->m_spells.priest.pPowerWordShield)
@@ -2284,7 +2564,7 @@ void BattleBotAI::UpdateFlagCarrierAI()
     {
         case CLASS_PALADIN:
         {
-            if (m_spells.paladin.pHolyShock && me->GetHealthPercent() < 90.0f &&
+            if (m_spells.paladin.pHolyShock && me->GetHealthPercent() < 70.0f &&
                 CanTryToCastSpell(me, m_spells.paladin.pHolyShock))
             {
                 me->CastSpell(me, m_spells.paladin.pHolyShock, false);
@@ -2380,6 +2660,12 @@ void BattleBotAI::UpdateFlagCarrierAI()
         {
             case CLASS_PALADIN:
             {
+                if (Unit* pHammerTarget = SelectPaladinHammerOfJusticeTarget(this, pAttacker))
+                {
+                    me->CastSpell(pHammerTarget, m_spells.paladin.pHammerOfJustice, false);
+                    return;
+                }
+
                 if (m_spells.paladin.pHammerOfJustice &&
                     CanTryToCastSpell(pAttacker, m_spells.paladin.pHammerOfJustice))
                 {
@@ -2590,20 +2876,77 @@ void BattleBotAI::UpdateOutOfCombatAI_Paladin()
         m_isBuffing = false;
     }
 
-    FindAndHealInjuredAlly();
 }
 
 void BattleBotAI::UpdateInCombatAI_Paladin()
 {
     if (m_spells.paladin.pDivineShield &&
        (me->GetHealthPercent() < 20.0f) &&
-       (me->GetPowerPercent(POWER_MANA) > 40.0f) &&
-       !me->HasAura(AURA_WARSONG_FLAG) &&
+       !BattleBotHasBattlegroundFlag(me) &&
         CanTryToCastSpell(me, m_spells.paladin.pDivineShield))
     {
         if (DoCastSpell(me, m_spells.paladin.pDivineShield) == SPELL_CAST_OK)
             return;
     }
+
+    if (Unit* pLayTarget = SelectPaladinEmergencyHealTarget(this, m_spells.paladin.pLayOnHands, 18.0f))
+    {
+        if (DoCastSpell(pLayTarget, m_spells.paladin.pLayOnHands) == SPELL_CAST_OK)
+            return;
+    }
+
+    if (Unit* pShockHealTarget = SelectPaladinEmergencyHealTarget(this, m_spells.paladin.pHolyShock, m_role == ROLE_HEALER ? 70.0f : 50.0f))
+    {
+        if (m_spells.paladin.pDivineFavor &&
+            CanTryToCastSpell(me, m_spells.paladin.pDivineFavor))
+            DoCastSpell(me, m_spells.paladin.pDivineFavor);
+
+        if (DoCastSpell(pShockHealTarget, m_spells.paladin.pHolyShock) == SPELL_CAST_OK)
+            return;
+    }
+
+    if (Unit* pFreedomTarget = SelectPaladinFreedomTarget(this))
+    {
+        if (DoCastSpell(pFreedomTarget, m_spells.paladin.pBlessingOfFreedom) == SPELL_CAST_OK)
+            return;
+    }
+
+    if (Unit* pProtectionTarget = SelectPaladinProtectionTarget(this))
+    {
+        if (DoCastSpell(pProtectionTarget, m_spells.paladin.pBlessingOfProtection) == SPELL_CAST_OK)
+            return;
+    }
+
+    if (Unit* pSacrificeTarget = SelectPaladinSacrificeTarget(this))
+    {
+        if (DoCastSpell(pSacrificeTarget, m_spells.paladin.pBlessingOfSacrifice) == SPELL_CAST_OK)
+            return;
+    }
+
+    if (m_spells.paladin.pCleanse)
+    {
+        if (Unit* pFriend = SelectDispelTarget(m_spells.paladin.pCleanse))
+        {
+            if (CanTryToCastSpell(pFriend, m_spells.paladin.pCleanse))
+            {
+                if (DoCastSpell(pFriend, m_spells.paladin.pCleanse) == SPELL_CAST_OK)
+                    return;
+            }
+        }
+    }
+
+    if (m_role == ROLE_HEALER &&
+        FindAndHealInjuredAlly(me->IsTotalImmune() ? 80.0f : 65.0f, 85.0f))
+        return;
+
+    if (Unit* pHammerTarget = SelectPaladinHammerOfJusticeTarget(this, me->GetVictim()))
+    {
+        if (DoCastSpell(pHammerTarget, m_spells.paladin.pHammerOfJustice) == SPELL_CAST_OK)
+            return;
+    }
+
+    if (m_role == ROLE_HEALER)
+        return;
 
     bool const hasSeal = m_spells.paladin.pSeal && me->HasAura(m_spells.paladin.pSeal->Id);
 
@@ -2616,24 +2959,17 @@ void BattleBotAI::UpdateInCombatAI_Paladin()
 
     if (Unit* pVictim = me->GetVictim())
     {
-        if (hasSeal && m_spells.paladin.pJudgement &&
-            CanTryToCastSpell(pVictim, m_spells.paladin.pJudgement))
-        {
-            if (DoCastSpell(pVictim, m_spells.paladin.pJudgement) == SPELL_CAST_OK)
-                return;
-        }
-        if (m_spells.paladin.pHammerOfJustice &&
-            pVictim->IsNonMeleeSpellCasted() &&
-            CanTryToCastSpell(pVictim, m_spells.paladin.pHammerOfJustice))
-        {
-            if (DoCastSpell(pVictim, m_spells.paladin.pHammerOfJustice) == SPELL_CAST_OK)
-                return;
-        }
         if (m_spells.paladin.pHammerOfWrath &&
             pVictim->GetHealthPercent() < 20.0f &&
             CanTryToCastSpell(pVictim, m_spells.paladin.pHammerOfWrath))
         {
             if (DoCastSpell(pVictim, m_spells.paladin.pHammerOfWrath) == SPELL_CAST_OK)
+                return;
+        }
+        if (hasSeal && m_spells.paladin.pJudgement &&
+            CanTryToCastSpell(pVictim, m_spells.paladin.pJudgement))
+        {
+            if (DoCastSpell(pVictim, m_spells.paladin.pJudgement) == SPELL_CAST_OK)
                 return;
         }
         if (m_spells.paladin.pHolyShield &&
@@ -2653,12 +2989,6 @@ void BattleBotAI::UpdateInCombatAI_Paladin()
         if (m_spells.paladin.pHolyShock &&
             CanTryToCastSpell(pVictim, m_spells.paladin.pHolyShock))
         {
-            if (m_spells.paladin.pDivineFavor &&
-                CanTryToCastSpell(me, m_spells.paladin.pDivineFavor))
-            {
-                DoCastSpell(me, m_spells.paladin.pDivineFavor);
-            }
-
             if (DoCastSpell(pVictim, m_spells.paladin.pHolyShock) == SPELL_CAST_OK)
                 return;
         }
@@ -2674,52 +3004,6 @@ void BattleBotAI::UpdateInCombatAI_Paladin()
            !me->CanReachWithMeleeAutoAttack(pVictim))
         {
             me->GetMotionMaster()->MoveChase(pVictim);
-        }
-    }
-
-    if (Unit* pFriend = me->FindLowestHpFriendlyUnit(30.0f, 70, true, me))
-    {
-        if (m_spells.paladin.pBlessingOfProtection &&
-           !IsPhysicalDamageClass(pFriend->GetClass()) &&
-           !pFriend->HasAura(AURA_WARSONG_FLAG) &&
-            CanTryToCastSpell(pFriend, m_spells.paladin.pBlessingOfProtection))
-        {
-            if (DoCastSpell(pFriend, m_spells.paladin.pBlessingOfProtection) == SPELL_CAST_OK)
-                return;
-        }
-        if (m_spells.paladin.pBlessingOfSacrifice &&
-            pFriend->HasAura(AURA_WARSONG_FLAG) &&
-            CanTryToCastSpell(pFriend, m_spells.paladin.pBlessingOfSacrifice))
-        {
-            if (DoCastSpell(pFriend, m_spells.paladin.pBlessingOfSacrifice) == SPELL_CAST_OK)
-                return;
-        }
-        if (m_spells.paladin.pLayOnHands &&
-           (pFriend->GetHealthPercent() < 15.0f) &&
-            CanTryToCastSpell(pFriend, m_spells.paladin.pLayOnHands))
-        {
-            if (DoCastSpell(pFriend, m_spells.paladin.pLayOnHands) == SPELL_CAST_OK)
-                return;
-        }
-    }
-
-    if (m_spells.paladin.pBlessingOfFreedom &&
-       (me->HasUnitState(UNIT_STATE_ROOT) || me->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED)) &&
-        CanTryToCastSpell(me, m_spells.paladin.pBlessingOfFreedom))
-    {
-        if (DoCastSpell(me, m_spells.paladin.pBlessingOfFreedom) == SPELL_CAST_OK)
-            return;
-    }
-
-    if (m_spells.paladin.pCleanse)
-    {
-        if (Unit* pFriend = SelectDispelTarget(m_spells.paladin.pCleanse))
-        {
-            if (CanTryToCastSpell(pFriend, m_spells.paladin.pCleanse))
-            {
-                if (DoCastSpell(pFriend, m_spells.paladin.pCleanse) == SPELL_CAST_OK)
-                    return;
-            }
         }
     }
 
