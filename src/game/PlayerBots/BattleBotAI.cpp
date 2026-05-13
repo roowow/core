@@ -1505,6 +1505,7 @@ static Unit* SelectDruidEntanglingRootsTarget(BattleBotAI const* pAI, SpellEntry
 
         if (!CombatBotBaseAI::IsMeleeDamageClass(player->GetClass()) ||
             BattleBotHasEntanglingRoots(player) ||
+            player->CanReachWithMeleeAutoAttack(pAI->me) ||
             !pAI->IsValidHostileTarget(player) ||
             pAI->IsBadPlayer(player) ||
             !pAI->me->IsWithinLOSInMap(player) ||
@@ -1522,9 +1523,6 @@ static Unit* SelectDruidEntanglingRootsTarget(BattleBotAI const* pAI, SpellEntry
             priority = 3;
         else if (player == currentVictim)
             priority = 2;
-
-        if (player->CanReachWithMeleeAutoAttack(pAI->me) && priority < 5)
-            ++priority;
 
         float const distance = pAI->me->GetDistance(player);
         if (!bestTarget || priority > bestPriority || (priority == bestPriority && distance < bestDistance))
@@ -1790,6 +1788,12 @@ bool BattleBotAI::DrinkAndEat()
 
     if (!isEating && needToEat)
     {
+        if (me->GetClass() == CLASS_DRUID && me->GetShapeshiftForm() != FORM_NONE)
+        {
+            me->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
+            return true;
+        }
+
         if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
         {
             ClearPath();
@@ -5266,7 +5270,10 @@ void BattleBotAI::UpdateInCombatAI_Druid()
         if (Unit* pRootTarget = SelectDruidEntanglingRootsTarget(this, m_spells.druid.pEntanglingRoots))
         {
             if (DoCastSpell(pRootTarget, m_spells.druid.pEntanglingRoots) == SPELL_CAST_OK)
+            {
+                me->AddCooldown(*m_spells.druid.pEntanglingRoots, nullptr, false, 15000);
                 return;
+            }
         }
     }
 
@@ -5347,7 +5354,10 @@ void BattleBotAI::UpdateInCombatAI_Druid()
             if (Unit* pRootTarget = SelectDruidEntanglingRootsTarget(this, m_spells.druid.pEntanglingRoots))
             {
                 if (DoCastSpell(pRootTarget, m_spells.druid.pEntanglingRoots) == SPELL_CAST_OK)
+                {
+                    me->AddCooldown(*m_spells.druid.pEntanglingRoots, nullptr, false, 15000);
                     return;
+                }
             }
         }
 
@@ -5448,17 +5458,19 @@ void BattleBotAI::UpdateInCombatAI_Druid()
 
                 if (me->GetComboPoints() > 4)
                 {
+                    bool const hasRip = m_spells.druid.pRip && pVictim->HasAura(m_spells.druid.pRip->Id);
+                    if (!hasRip &&
+                        m_spells.druid.pRip &&
+                        CanTryToCastSpell(pVictim, m_spells.druid.pRip))
+                    {
+                        if (DoCastSpell(pVictim, m_spells.druid.pRip) == SPELL_CAST_OK)
+                            return;
+                    }
+
                     if (m_spells.druid.pFerociousBite &&
                         CanTryToCastSpell(pVictim, m_spells.druid.pFerociousBite))
                     {
                         if (DoCastSpell(pVictim, m_spells.druid.pFerociousBite) == SPELL_CAST_OK)
-                            return;
-                    }
-
-                    if (m_spells.druid.pRip &&
-                        CanTryToCastSpell(pVictim, m_spells.druid.pRip))
-                    {
-                        if (DoCastSpell(pVictim, m_spells.druid.pRip) == SPELL_CAST_OK)
                             return;
                     }
                 }
@@ -5474,13 +5486,6 @@ void BattleBotAI::UpdateInCombatAI_Druid()
 
                 if (!me->CanReachWithMeleeAutoAttack(pVictim))
                 {
-                    if (m_spells.druid.pFaerieFireFeral &&
-                        CanTryToCastSpell(pVictim, m_spells.druid.pFaerieFireFeral))
-                    {
-                        if (DoCastSpell(pVictim, m_spells.druid.pFaerieFireFeral) == SPELL_CAST_OK)
-                            return;
-                    }
-
                     if (m_spells.druid.pDash &&
                         pVictim->IsMoving() &&
                         CanTryToCastSpell(me, m_spells.druid.pDash))
@@ -5488,6 +5493,13 @@ void BattleBotAI::UpdateInCombatAI_Druid()
                         if (DoCastSpell(me, m_spells.druid.pDash) == SPELL_CAST_OK)
                             return;
                     }
+                }
+
+                if (m_spells.druid.pTigersFury &&
+                    CanTryToCastSpell(me, m_spells.druid.pTigersFury))
+                {
+                    if (DoCastSpell(me, m_spells.druid.pTigersFury) == SPELL_CAST_OK)
+                        return;
                 }
 
                 if (m_spells.druid.pShred &&
@@ -5558,7 +5570,7 @@ void BattleBotAI::UpdateInCombatAI_Druid()
                 }
 
                 if (m_spells.druid.pFrenziedRegeneration &&
-                   (me->GetHealthPercent() < 30.0f) &&
+                   (me->GetHealthPercent() < 50.0f) &&
                     CanTryToCastSpell(me, m_spells.druid.pFrenziedRegeneration))
                 {
                     if (DoCastSpell(me, m_spells.druid.pFrenziedRegeneration) == SPELL_CAST_OK)
@@ -5606,7 +5618,10 @@ void BattleBotAI::UpdateInCombatAI_Druid()
                     if (Unit* pRootTarget = SelectDruidEntanglingRootsTarget(this, m_spells.druid.pEntanglingRoots))
                     {
                         if (DoCastSpell(pRootTarget, m_spells.druid.pEntanglingRoots) == SPELL_CAST_OK)
+                        {
+                            me->AddCooldown(*m_spells.druid.pEntanglingRoots, nullptr, false, 15000);
                             return;
+                        }
                     }
                 }
 
@@ -5620,15 +5635,17 @@ void BattleBotAI::UpdateInCombatAI_Druid()
                         !me->HasUnitState(UNIT_STATE_ROOT) &&
                         (me->GetMotionMaster()->GetCurrentMovementGeneratorType() != DISTANCING_MOTION_TYPE))
                 {
-                    if (m_spells.druid.pEntanglingRoots &&
-                        BattleBotCanUseCrowdControl(this, m_spells.druid.pEntanglingRoots, pVictim) &&
-                        CanTryToCastSpell(pVictim, m_spells.druid.pEntanglingRoots))
-                    {
-                        if (DoCastSpell(pVictim, m_spells.druid.pEntanglingRoots) == SPELL_CAST_OK)
-                            return;
-                    }
                     me->SetCasterChaseDistance(25.0f);
                     if (me->GetMotionMaster()->MoveDistance(pVictim, 25.0f))
+                        return;
+                }
+
+                if (m_spells.druid.pNaturesGrasp &&
+                    pVictim->CanReachWithMeleeAutoAttack(me) &&
+                    !me->HasAura(m_spells.druid.pNaturesGrasp->Id) &&
+                    CanTryToCastSpell(me, m_spells.druid.pNaturesGrasp))
+                {
+                    if (DoCastSpell(me, m_spells.druid.pNaturesGrasp) == SPELL_CAST_OK)
                         return;
                 }
 
@@ -5659,7 +5676,7 @@ void BattleBotAI::UpdateInCombatAI_Druid()
                 }
 
                 if (m_spells.druid.pStarfire &&
-                   (pVictim->GetHealthPercent() > 50.0f) &&
+                   (pVictim->GetHealthPercent() > 30.0f) &&
                     CanTryToCastSpell(pVictim, m_spells.druid.pStarfire))
                 {
                     if (DoCastSpell(pVictim, m_spells.druid.pStarfire) == SPELL_CAST_OK)
