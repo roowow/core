@@ -1881,6 +1881,14 @@ bool CombatBotBaseAI::AreOthersOnSameTarget(ObjectGuid guid, bool checkMelee, bo
     return false;
 }
 
+static bool IsBotRoleTank(Unit* pUnit)
+{
+    if (Player* pPlayer = pUnit->ToPlayer())
+        if (CombatBotBaseAI const* pAI = dynamic_cast<CombatBotBaseAI const*>(pPlayer->AI()))
+            return pAI->m_role == ROLE_TANK;
+    return false;
+}
+
 bool CombatBotBaseAI::FindAndHealInjuredAlly(float selfHealPercent, float groupHealPercent)
 {
     if (!GroupHasBotTank())
@@ -2064,14 +2072,6 @@ bool CombatBotBaseAI::IsValidHealTarget(Unit const* pTarget, float healthPercent
             me->IsValidHelpfulTarget(pTarget) &&
             me->IsWithinLOSInMap(pTarget) &&
             me->IsWithinDist(pTarget, 30.0f);
-}
-
-static bool IsBotRoleTank(Unit const* pUnit)
-{
-    if (Player const* pPlayer = pUnit->ToPlayer())
-        if (CombatBotBaseAI const* pAI = dynamic_cast<CombatBotBaseAI const*>(pPlayer->AI()))
-            return pAI->m_role == ROLE_TANK;
-    return false;
 }
 
 bool CombatBotBaseAI::GroupHasBotTank() const

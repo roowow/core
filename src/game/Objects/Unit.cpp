@@ -3795,7 +3795,6 @@ bool Unit::AddSpellAuraHolder(SpellAuraHolder* holder)
                                 if (holder->HasAuraType(SPELL_AURA_MOD_STUN)           ||
                                     holder->HasAuraType(SPELL_AURA_MOD_FEAR)           ||
                                     holder->HasAuraType(SPELL_AURA_MOD_ROOT)           ||
-                                    holder->HasAuraType(SPELL_AURA_MOD_SLEEP)          ||
                                     holder->HasAuraType(SPELL_AURA_MOD_CHARM)          ||
                                     holder->HasAuraType(SPELL_AURA_MOD_CONFUSE)        ||
                                     holder->HasAuraType(SPELL_AURA_MOD_SILENCE)        ||
