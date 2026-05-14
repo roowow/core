@@ -98,6 +98,10 @@ bool BattleBotIsWSGHomeGuardCandidate(BattleBotAI const* pAI)
     if (!bg || bg->GetTypeID() != BATTLEGROUND_WS)
         return false;
 
+    // Flag carriers are runners, not home guards
+    if (HasEnemyFlagAura(pAI->me))
+        return false;
+
     Map* map = pAI->me->GetMap();
     if (!map)
         return false;
@@ -111,6 +115,11 @@ bool BattleBotIsWSGHomeGuardCandidate(BattleBotAI const* pAI)
                 continue;
 
             if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot())
+                continue;
+
+            // Dead bots and flag carriers cannot actually guard — skip them
+            // so a living bot gets promoted to fill the slot
+            if (!player->IsAlive() || HasEnemyFlagAura(player))
                 continue;
 
             if (player->GetObjectGuid().GetCounter() > pAI->me->GetObjectGuid().GetCounter())
@@ -129,6 +138,7 @@ static bool StartWSGHomeGuardObjective(BattleBotAI* pAI, BattleGroundWS* bgWS)
     Team const team = pAI->me->GetTeam();
     uint8 const ownFlagState = bgWS->GetFlagState(team);
 
+    // Own flag dropped on ground: go recover it immediately
     if (ownFlagState == BG_WS_FLAG_STATE_ON_GROUND)
     {
         if (GameObject* pFlag = pAI->me->GetMap()->GetGameObject(bgWS->GetDroppedFlagGuid(team)))
@@ -141,20 +151,11 @@ static bool StartWSGHomeGuardObjective(BattleBotAI* pAI, BattleGroundWS* bgWS)
         }
     }
 
-    if (ownFlagState == BG_WS_FLAG_STATE_ON_PLAYER)
-    {
-        ObjectGuid const flagPickerGuid = team == HORDE ? bgWS->GetHordeFlagPickerGuid() : bgWS->GetAllianceFlagPickerGuid();
-        if (Player* pEnemyFlagCarrier = pAI->me->GetMap()->GetPlayer(flagPickerGuid))
-        {
-            if (pAI->StartNewPathToPosition(pEnemyFlagCarrier->GetPosition(), vPaths_WS))
-                return true;
-
-            pAI->me->GetMotionMaster()->MovePoint(0, pEnemyFlagCarrier->GetPositionX(), pEnemyFlagCarrier->GetPositionY(), pEnemyFlagCarrier->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
-            return true;
-        }
-    }
-
-    if (ownFlagState == BG_WS_FLAG_STATE_ON_BASE)
+    // Own flag safe or carried by enemy: hold the guard position.
+    // When the enemy carries our flag they run to their own base to score,
+    // not ours — chasing them mid-field achieves nothing and leaves home empty.
+    if (ownFlagState == BG_WS_FLAG_STATE_ON_BASE ||
+        ownFlagState == BG_WS_FLAG_STATE_ON_PLAYER)
     {
         Position const& guardPosition = WSG_GuardPositions[BattleGround::GetTeamIndexByTeamId(team)];
         if (pAI->StartNewPathToPosition(guardPosition, vPaths_WS))
