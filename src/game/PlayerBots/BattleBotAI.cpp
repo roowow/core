@@ -2807,6 +2807,82 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
     UpdateBattleGroundAI();
 
+    // WSG exploit prevention: bots lured into buildings near graveyards
+    {
+        BattleGround* wsgBg = me->GetBattleGround();
+        if (wsgBg && wsgBg->GetTypeID() == BATTLEGROUND_WS)
+        {
+            float const curX = me->GetPositionX();
+            float const curY = me->GetPositionY();
+            bool const inCombat = me->IsInCombat();
+            bool dropCombat = false;
+
+            if (inCombat)
+            {
+                // Home guard bots must not stray >80 yards from own flag room
+                if (BattleBotIsWSGHomeGuardCandidate(this))
+                {
+                    Position const& flagPos = (me->GetTeam() == ALLIANCE) ? WS_FLAG_POS_ALLIANCE : WS_FLAG_POS_HORDE;
+                    if (me->GetDistance2d(flagPos.x, flagPos.y) > 80.0f)
+                        dropCombat = true;
+                }
+
+                // Stuck in building while chasing: can't reach victim and not moving
+                if (!dropCombat && me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
+                {
+                    bool const cantReach = me->GetVictim() && !me->CanReachWithMeleeAutoAttack(me->GetVictim());
+                    bool const notMoved = me->GetDistance2d(m_wsgStuckLastX, m_wsgStuckLastY) < 2.0f;
+                    if (cantReach && notMoved)
+                        ++m_wsgStuckCounter;
+                    else
+                        m_wsgStuckCounter = 0;
+                    if (m_wsgStuckCounter >= 5)
+                        dropCombat = true;
+                }
+                else
+                {
+                    m_wsgStuckCounter = 0;
+                }
+            }
+            else
+            {
+                m_wsgStuckCounter = 0;
+                // Out of combat but physically stuck inside an unexpected building
+                if (!me->IsMoving())
+                {
+                    bool const outdoors = me->GetMap()->GetTerrain()->IsOutdoors(curX, curY, me->GetPositionZ());
+                    if (!outdoors)
+                    {
+                        Position const& ownFlag = (me->GetTeam() == ALLIANCE) ? WS_FLAG_POS_ALLIANCE : WS_FLAG_POS_HORDE;
+                        Position const& enemyFlag = (me->GetTeam() == ALLIANCE) ? WS_FLAG_POS_HORDE : WS_FLAG_POS_ALLIANCE;
+                        if (me->GetDistance2d(ownFlag.x, ownFlag.y) > 25.0f &&
+                            me->GetDistance2d(enemyFlag.x, enemyFlag.y) > 25.0f)
+                        {
+                            ClearPath();
+                            StartNewPathToObjective();
+                        }
+                    }
+                }
+            }
+
+            if (dropCombat)
+            {
+                me->AttackStop(false);
+                StopMoving();
+                ClearPath();
+                StartNewPathToObjective();
+                m_wsgStuckCounter = 0;
+            }
+
+            m_wsgStuckLastX = curX;
+            m_wsgStuckLastY = curY;
+        }
+        else
+        {
+            m_wsgStuckCounter = 0;
+        }
+    }
+
     if (!me->IsInCombat())
     {
         if (CheckForUnreachableTarget())
