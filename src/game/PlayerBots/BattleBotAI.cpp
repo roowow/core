@@ -18,6 +18,7 @@
 #include "BattleBotWaypoints.h"
 #include "BattleGround.h"
 #include "Player.h"
+#include "SpellAuras.h"
 #include "Group.h"
 #include "Creature.h"
 #include "CreatureAI.h"
@@ -4648,6 +4649,7 @@ void BattleBotAI::UpdateInCombatAI_Warlock()
 
 void BattleBotAI::UpdateOutOfCombatAI_Warrior()
 {
+    // Need Battle Stance for Charge; tank will switch to Defensive Stance in combat
     if (m_spells.warrior.pBattleStance &&
         CanTryToCastSpell(me, m_spells.warrior.pBattleStance))
     {
@@ -4679,238 +4681,272 @@ void BattleBotAI::UpdateOutOfCombatAI_Warrior()
     }
 }
 
+// ── helpers used only inside UpdateInCombatAI_Warrior ──────────────────────
+static inline bool WarriorCast(BattleBotAI* ai, Unit* pTarget, SpellEntry const* pSpell)
+{
+    if (!pSpell || !ai->CanTryToCastSpell(pTarget, pSpell))
+        return false;
+    return ai->DoCastSpell(pTarget, pSpell) == SPELL_CAST_OK;
+}
+
 void BattleBotAI::UpdateInCombatAI_Warrior()
 {
+    bool const isTank = (GetRole() == ROLE_TANK);
+
     if (Unit* pVictim = me->GetVictim())
     {
+        // ── INTERRUPT (both roles) ──────────────────────────────────────────
         if (pVictim->IsNonMeleeSpellCasted(false, false, true))
         {
-            if (m_spells.warrior.pPummel &&
-                CanTryToCastSpell(pVictim, m_spells.warrior.pPummel))
+            if (WarriorCast(this, pVictim, m_spells.warrior.pPummel))
+                return;
+            if (IsWearingShield(me) &&
+                WarriorCast(this, pVictim, m_spells.warrior.pShieldBash))
+                return;
+        }
+
+        if (isTank)
+        {
+            // ── TANK: survival cooldowns ────────────────────────────────────
+            if (m_spells.warrior.pLastStand &&
+                me->GetHealthPercent() < 20.0f &&
+                WarriorCast(this, me, m_spells.warrior.pLastStand))
+                return;
+
+            if (IsWearingShield(me))
             {
-                if (DoCastSpell(pVictim, m_spells.warrior.pPummel) == SPELL_CAST_OK)
-                    return;
-            }
-
-            if (m_spells.warrior.pShieldBash &&
-                IsWearingShield(me) &&
-                CanTryToCastSpell(pVictim, m_spells.warrior.pShieldBash))
-            {
-                if (DoCastSpell(pVictim, m_spells.warrior.pShieldBash) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-
-        if (m_spells.warrior.pExecute &&
-           (pVictim->GetHealthPercent() < 20.0f) &&
-            CanTryToCastSpell(pVictim, m_spells.warrior.pExecute))
-        {
-            if (DoCastSpell(pVictim, m_spells.warrior.pExecute) == SPELL_CAST_OK)
-                return;
-        }
-
-        if (m_spells.warrior.pOverpower &&
-            CanTryToCastSpell(pVictim, m_spells.warrior.pOverpower))
-        {
-            if (DoCastSpell(pVictim, m_spells.warrior.pOverpower) == SPELL_CAST_OK)
-                return;
-        }
-
-        if (m_spells.warrior.pLastStand &&
-            me->GetHealthPercent() < 20.0f &&
-            CanTryToCastSpell(me, m_spells.warrior.pLastStand))
-        {
-            if (DoCastSpell(me, m_spells.warrior.pLastStand) == SPELL_CAST_OK)
-                return;
-        }
-
-        if (m_spells.warrior.pConcussionBlow &&
-           (pVictim->IsNonMeleeSpellCasted() || pVictim->IsMoving() || (me->GetHealthPercent() < 50.0f)) &&
-            CanTryToCastSpell(pVictim, m_spells.warrior.pConcussionBlow))
-        {
-            if (DoCastSpell(pVictim, m_spells.warrior.pConcussionBlow) == SPELL_CAST_OK)
-                return;
-        }
-
-        if (me->GetShapeshiftForm() == FORM_DEFENSIVESTANCE &&
-            IsWearingShield(me))
-        {
-            if (!me->GetAttackers().empty() &&
-                IsPhysicalDamageClass(pVictim->GetClass()))
-            {
-                if (m_spells.warrior.pShieldBlock &&
-                    CanTryToCastSpell(me, m_spells.warrior.pShieldBlock))
-                {
-                    if (DoCastSpell(me, m_spells.warrior.pShieldBlock) == SPELL_CAST_OK)
-                        return;
-                }
-
                 if (m_spells.warrior.pShieldWall &&
-                    (me->GetHealthPercent() < 40.0f) &&
-                    CanTryToCastSpell(me, m_spells.warrior.pShieldWall))
-                {
-                    if (DoCastSpell(me, m_spells.warrior.pShieldWall) == SPELL_CAST_OK)
-                        return;
-                }
-            }
+                    me->GetHealthPercent() < 40.0f &&
+                    !me->GetAttackers().empty() &&
+                    WarriorCast(this, me, m_spells.warrior.pShieldWall))
+                    return;
 
-            if (m_spells.warrior.pShieldSlam &&
-                CanTryToCastSpell(me, m_spells.warrior.pShieldSlam))
-            {
-                if (DoCastSpell(me, m_spells.warrior.pShieldSlam) == SPELL_CAST_OK)
+                // ── TANK: threat generators ─────────────────────────────────
+                if (WarriorCast(this, pVictim, m_spells.warrior.pShieldSlam))
                     return;
             }
-        }
 
-        if (pVictim->IsMoving() &&
-           !pVictim->HasUnitState(UNIT_STATE_ROOT) &&
-           !pVictim->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED))
-        {
-            if (m_spells.warrior.pHamstring &&
-                CanTryToCastSpell(pVictim, m_spells.warrior.pHamstring))
-            {
-                if (DoCastSpell(pVictim, m_spells.warrior.pHamstring) == SPELL_CAST_OK)
-                    return;
-            }
-            if (m_spells.warrior.pPiercingHowl &&
-               (me->GetCombatDistance(pVictim) <= 10.0f) &&
-                CanTryToCastSpell(pVictim, m_spells.warrior.pPiercingHowl))
-            {
-                if (DoCastSpell(pVictim, m_spells.warrior.pPiercingHowl) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-
-        if (m_spells.warrior.pRend &&
-           (pVictim->GetClass() == CLASS_ROGUE) &&
-            CanTryToCastSpell(pVictim, m_spells.warrior.pRend))
-        {
-            if (DoCastSpell(pVictim, m_spells.warrior.pRend) == SPELL_CAST_OK)
+            // ── TANK: control ───────────────────────────────────────────────
+            if (WarriorCast(this, pVictim, m_spells.warrior.pConcussionBlow))
                 return;
-        }
 
-        if (m_spells.warrior.pIntimidatingShout &&
-           (me->GetHealthPercent() < 50.0f) &&
-           (GetAttackersInRangeCount(10.0f) > 2) &&
-            CanTryToCastSpell(pVictim, m_spells.warrior.pIntimidatingShout))
-        {
-            if (DoCastSpell(pVictim, m_spells.warrior.pIntimidatingShout) == SPELL_CAST_OK)
-                return;
-        }
-
-        if (m_spells.warrior.pRetaliation &&
-            IsMeleeDamageClass(pVictim->GetClass()) &&
-           (me->GetHealthPercent() > 70.0f) &&
-           ((GetAttackersInRangeCount(10.0f) > 1) || (pVictim->GetClass() == CLASS_ROGUE)) &&
-            CanTryToCastSpell(me, m_spells.warrior.pRetaliation))
-        {
-            if (DoCastSpell(me, m_spells.warrior.pRetaliation) == SPELL_CAST_OK)
-                return;
-        }
-
-        if ((me->GetHealthPercent() > 60.0f) && (pVictim->GetHealthPercent() > 40.0f) &&
-            (pVictim->GetClass() == CLASS_WARLOCK || pVictim->GetClass() == CLASS_PRIEST) &&
-            !me->HasUnitState(UNIT_STATE_ROOT) &&
-            !me->IsImmuneToMechanic(MECHANIC_FEAR))
-        {
-            if (m_spells.warrior.pRecklessness &&
-                CanTryToCastSpell(me, m_spells.warrior.pRecklessness))
+            // ── TANK: debuffs ───────────────────────────────────────────────
+            // Apply Sunder Armor up to 5 stacks
+            if (m_spells.warrior.pSunderArmor)
             {
-                if (DoCastSpell(me, m_spells.warrior.pRecklessness) == SPELL_CAST_OK)
+                SpellAuraHolder const* sunderHolder = pVictim->GetSpellAuraHolder(m_spells.warrior.pSunderArmor->Id);
+                bool const needsSunder = !sunderHolder || sunderHolder->GetStackAmount() < 5;
+                if (needsSunder && WarriorCast(this, pVictim, m_spells.warrior.pSunderArmor))
                     return;
             }
 
-            if (m_spells.warrior.pDeathWish &&
-                CanTryToCastSpell(me, m_spells.warrior.pDeathWish))
+            if (m_spells.warrior.pThunderClap &&
+                IsPhysicalDamageClass(pVictim->GetClass()) &&
+                WarriorCast(this, pVictim, m_spells.warrior.pThunderClap))
+                return;
+
+            if (m_spells.warrior.pDemoralizingShout &&
+                IsPhysicalDamageClass(pVictim->GetClass()) &&
+                !pVictim->HasAura(m_spells.warrior.pDemoralizingShout->Id) &&
+                WarriorCast(this, pVictim, m_spells.warrior.pDemoralizingShout))
+                return;
+
+            // ── TANK: mitigation ────────────────────────────────────────────
+            if (IsWearingShield(me) &&
+                !me->GetAttackers().empty() &&
+                IsPhysicalDamageClass(pVictim->GetClass()) &&
+                WarriorCast(this, me, m_spells.warrior.pShieldBlock))
+                return;
+
+            if (m_spells.warrior.pDisarm &&
+                IsMeleeWeaponClass(pVictim->GetClass()) &&
+                WarriorCast(this, pVictim, m_spells.warrior.pDisarm))
+                return;
+
+            // ── TANK: slows ─────────────────────────────────────────────────
+            if (pVictim->IsMoving() &&
+               !pVictim->HasUnitState(UNIT_STATE_ROOT) &&
+               !pVictim->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED))
             {
-                if (DoCastSpell(me, m_spells.warrior.pDeathWish) == SPELL_CAST_OK)
+                if (WarriorCast(this, pVictim, m_spells.warrior.pHamstring))
+                    return;
+                if (m_spells.warrior.pPiercingHowl &&
+                    me->GetCombatDistance(pVictim) <= 10.0f &&
+                    WarriorCast(this, pVictim, m_spells.warrior.pPiercingHowl))
                     return;
             }
 
-            if (m_spells.warrior.pBerserkerRage &&
-                CanTryToCastSpell(me, m_spells.warrior.pBerserkerRage))
-            {
-                if (DoCastSpell(me, m_spells.warrior.pBerserkerRage) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-
-        if (m_spells.warrior.pMortalStrike &&
-            CanTryToCastSpell(pVictim, m_spells.warrior.pMortalStrike))
-        {
-            if (DoCastSpell(pVictim, m_spells.warrior.pMortalStrike) == SPELL_CAST_OK)
+            // ── TANK: area fear when overwhelmed ────────────────────────────
+            if (m_spells.warrior.pIntimidatingShout &&
+                me->GetHealthPercent() < 50.0f &&
+                GetAttackersInRangeCount(10.0f) > 2 &&
+                WarriorCast(this, pVictim, m_spells.warrior.pIntimidatingShout))
                 return;
-        }
 
-        if (m_spells.warrior.pBloodthirst &&
-            CanTryToCastSpell(pVictim, m_spells.warrior.pBloodthirst))
-        {
-            if (DoCastSpell(pVictim, m_spells.warrior.pBloodthirst) == SPELL_CAST_OK)
+            // ── TANK: execute ───────────────────────────────────────────────
+            if (m_spells.warrior.pExecute &&
+                pVictim->GetHealthPercent() < 20.0f &&
+                WarriorCast(this, pVictim, m_spells.warrior.pExecute))
                 return;
-        }
 
-        if (me->GetHealthPercent() < 20.0f)
-        {
-            if (m_spells.warrior.pDefensiveStance &&
+            // ── TANK: rage dump ─────────────────────────────────────────────
+            if (m_spells.warrior.pCleave &&
+                GetAttackersInRangeCount(10.0f) > 1 &&
+                me->GetPower(POWER_RAGE) > 25 &&
+                WarriorCast(this, pVictim, m_spells.warrior.pCleave))
+                return;
+
+            if (m_spells.warrior.pHeroicStrike &&
+                me->GetPower(POWER_RAGE) > 30 &&
+                WarriorCast(this, pVictim, m_spells.warrior.pHeroicStrike))
+                return;
+
+            // ── TANK: stay in Defensive Stance ─────────────────────────────
+            if (IsWearingShield(me) &&
+                m_spells.warrior.pDefensiveStance &&
                 CanTryToCastSpell(me, m_spells.warrior.pDefensiveStance))
-            {
                 DoCastSpell(me, m_spells.warrior.pDefensiveStance);
-            }
         }
-        else
+        else // DPS
         {
-            if (m_spells.warrior.pBerserkerStance &&
-               (pVictim->GetClass() != CLASS_ROGUE) &&
-                CanTryToCastSpell(me, m_spells.warrior.pBerserkerStance))
+            // ── DPS: execute ────────────────────────────────────────────────
+            if (m_spells.warrior.pExecute &&
+                pVictim->GetHealthPercent() < 20.0f &&
+                WarriorCast(this, pVictim, m_spells.warrior.pExecute))
+                return;
+
+            // ── DPS: proc ──────────────────────────────────────────────────
+            if (WarriorCast(this, pVictim, m_spells.warrior.pOverpower))
+                return;
+
+            // ── DPS: survival ───────────────────────────────────────────────
+            if (m_spells.warrior.pLastStand &&
+                me->GetHealthPercent() < 20.0f &&
+                WarriorCast(this, me, m_spells.warrior.pLastStand))
+                return;
+
+            // ── DPS: offensive cooldowns ────────────────────────────────────
+            // Berserker Rage: fear immunity + rage gen — use broadly in Berserker Stance
+            if (WarriorCast(this, me, m_spells.warrior.pBerserkerRage))
+                return;
+
+            // Recklessness (Battle Stance): vs casters who might fear/kite
+            if (m_spells.warrior.pRecklessness &&
+                !IsPhysicalDamageClass(pVictim->GetClass()) &&
+                WarriorCast(this, me, m_spells.warrior.pRecklessness))
+                return;
+
+            // Death Wish (Berserker Stance): vs casters
+            if (m_spells.warrior.pDeathWish &&
+                !IsPhysicalDamageClass(pVictim->GetClass()) &&
+                WarriorCast(this, me, m_spells.warrior.pDeathWish))
+                return;
+
+            // Retaliation (Battle Stance): vs melee multi-attack
+            if (m_spells.warrior.pRetaliation &&
+                IsMeleeDamageClass(pVictim->GetClass()) &&
+                (GetAttackersInRangeCount(10.0f) > 1 || pVictim->GetClass() == CLASS_ROGUE) &&
+                WarriorCast(this, me, m_spells.warrior.pRetaliation))
+                return;
+
+            // ── DPS: primary damage rotation ────────────────────────────────
+            if (WarriorCast(this, pVictim, m_spells.warrior.pMortalStrike))
+                return;
+
+            if (WarriorCast(this, pVictim, m_spells.warrior.pBloodthirst))
+                return;
+
+            if (WarriorCast(this, pVictim, m_spells.warrior.pWhirlwind))
+                return;
+
+            // ── DPS: control ────────────────────────────────────────────────
+            if (m_spells.warrior.pConcussionBlow &&
+                (pVictim->IsNonMeleeSpellCasted() || me->GetHealthPercent() < 50.0f) &&
+                WarriorCast(this, pVictim, m_spells.warrior.pConcussionBlow))
+                return;
+
+            if (pVictim->IsMoving() &&
+               !pVictim->HasUnitState(UNIT_STATE_ROOT) &&
+               !pVictim->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED))
             {
-                DoCastSpell(me, m_spells.warrior.pBerserkerStance);
+                if (WarriorCast(this, pVictim, m_spells.warrior.pHamstring))
+                    return;
+                if (m_spells.warrior.pPiercingHowl &&
+                    me->GetCombatDistance(pVictim) <= 10.0f &&
+                    WarriorCast(this, pVictim, m_spells.warrior.pPiercingHowl))
+                    return;
             }
-        }
 
-        if (m_spells.warrior.pIntercept &&
-            CanTryToCastSpell(pVictim, m_spells.warrior.pIntercept))
-        {
-            if (DoCastSpell(pVictim, m_spells.warrior.pIntercept) == SPELL_CAST_OK)
+            // Rend: bleed DoT vs physical non-undead
+            if (m_spells.warrior.pRend &&
+                IsPhysicalDamageClass(pVictim->GetClass()) &&
+                pVictim->GetRace() != RACE_UNDEAD &&
+                WarriorCast(this, pVictim, m_spells.warrior.pRend))
                 return;
-        }
 
-        if (m_spells.warrior.pWhirlwind &&
-            CanTryToCastSpell(pVictim, m_spells.warrior.pWhirlwind))
-        {
-            if (DoCastSpell(pVictim, m_spells.warrior.pWhirlwind) == SPELL_CAST_OK)
+            // Area fear when surrounded and low
+            if (m_spells.warrior.pIntimidatingShout &&
+                me->GetHealthPercent() < 50.0f &&
+                GetAttackersInRangeCount(10.0f) > 2 &&
+                WarriorCast(this, pVictim, m_spells.warrior.pIntimidatingShout))
                 return;
-        }
 
-        if (m_spells.warrior.pDisarm &&
-            IsMeleeWeaponClass(pVictim->GetClass()) &&
-            CanTryToCastSpell(pVictim, m_spells.warrior.pDisarm))
-        {
-            if (DoCastSpell(pVictim, m_spells.warrior.pDisarm) == SPELL_CAST_OK)
+            // ── DPS: situational ────────────────────────────────────────────
+            // Sunder Armor vs plate wearers
+            if (m_spells.warrior.pSunderArmor &&
+                (pVictim->GetClass() == CLASS_WARRIOR || pVictim->GetClass() == CLASS_PALADIN) &&
+                me->GetPower(POWER_RAGE) > 20 &&
+                WarriorCast(this, pVictim, m_spells.warrior.pSunderArmor))
                 return;
-        }
 
-        if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == IDLE_MOTION_TYPE
-            && !me->CanReachWithMeleeAutoAttack(pVictim))
-        {
-            me->GetMotionMaster()->MoveChase(pVictim);
-        }
-
-        if (m_spells.warrior.pHeroicStrike &&
-           (me->GetPower(POWER_RAGE) > 30) &&
-            CanTryToCastSpell(pVictim, m_spells.warrior.pHeroicStrike))
-        {
-            if (DoCastSpell(pVictim, m_spells.warrior.pHeroicStrike) == SPELL_CAST_OK)
+            if (m_spells.warrior.pDisarm &&
+                IsMeleeWeaponClass(pVictim->GetClass()) &&
+                WarriorCast(this, pVictim, m_spells.warrior.pDisarm))
                 return;
+
+            // ── DPS: gap closer ─────────────────────────────────────────────
+            if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == IDLE_MOTION_TYPE &&
+                !me->CanReachWithMeleeAutoAttack(pVictim))
+            {
+                me->GetMotionMaster()->MoveChase(pVictim);
+            }
+
+            if (WarriorCast(this, pVictim, m_spells.warrior.pIntercept))
+                return;
+
+            // ── DPS: rage dump ──────────────────────────────────────────────
+            if (m_spells.warrior.pCleave &&
+                GetAttackersInRangeCount(10.0f) > 1 &&
+                me->GetPower(POWER_RAGE) > 25 &&
+                WarriorCast(this, pVictim, m_spells.warrior.pCleave))
+                return;
+
+            if (m_spells.warrior.pHeroicStrike &&
+                me->GetPower(POWER_RAGE) > 30 &&
+                WarriorCast(this, pVictim, m_spells.warrior.pHeroicStrike))
+                return;
+
+            // ── DPS: stance management ──────────────────────────────────────
+            if (me->GetHealthPercent() < 20.0f)
+            {
+                if (m_spells.warrior.pDefensiveStance &&
+                    CanTryToCastSpell(me, m_spells.warrior.pDefensiveStance))
+                    DoCastSpell(me, m_spells.warrior.pDefensiveStance);
+            }
+            else
+            {
+                if (m_spells.warrior.pBerserkerStance &&
+                    pVictim->GetClass() != CLASS_ROGUE &&
+                    CanTryToCastSpell(me, m_spells.warrior.pBerserkerStance))
+                    DoCastSpell(me, m_spells.warrior.pBerserkerStance);
+            }
         }
     }
     else // no victim
     {
         if (m_spells.warrior.pBattleShout &&
-            CanTryToCastSpell(me, m_spells.warrior.pBattleShout))
-        {
-            if (DoCastSpell(me, m_spells.warrior.pBattleShout) == SPELL_CAST_OK)
-                return;
-        }
+            WarriorCast(this, me, m_spells.warrior.pBattleShout))
+            return;
     }
 }
 
