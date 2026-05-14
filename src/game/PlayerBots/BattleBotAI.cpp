@@ -1767,9 +1767,10 @@ bool BattleBotAI::DrinkAndEat()
         return false;
 
     bool const isGuard = BattleBotIsWSGHomeGuardCandidate(this) || BattleBotIsABGuardingOwnedNode(this);
-    float const recoveryThreshold = isGuard ? 90.0f : 60.0f;
-    BattleGround* bg;
-    bool const needToEat = me->GetHealthPercent() < recoveryThreshold && !((bg = me->GetBattleGround()) && bg->GetStatus() == STATUS_WAIT_JOIN);
+    BattleGround* bg = me->GetBattleGround();
+    bool const isWaiting = bg && bg->GetStatus() == STATUS_WAIT_JOIN;
+    float const recoveryThreshold = isWaiting ? 100.0f : (isGuard ? 90.0f : 60.0f);
+    bool const needToEat = me->GetHealthPercent() < recoveryThreshold;
     bool needToDrink = (me->GetPowerType() == POWER_MANA) && (me->GetPowerPercent(POWER_MANA) < recoveryThreshold);
 
     if (needToDrink &&
