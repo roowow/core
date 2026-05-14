@@ -416,8 +416,7 @@ void PlayerBotMgr::Update(uint32 diff)
                                 ++waitingHordePlayers[bgBracketId];
                         }
 
-                        if (!itr.second.groupInfo->isInvitedToBgInstanceGuid)
-                            hasPlayerInQueue[bgBracketId] = true;
+                        hasPlayerInQueue[bgBracketId] = true;
                     }
                 }
             }
@@ -643,14 +642,24 @@ void PlayerBotMgr::Update(uint32 diff)
                 {
                     if (isStartedBg)
                     {
-                        trimBattleBotForStartedBg(inProgressBg[bracketId], ALLIANCE, BattleGroundBracketId(bracketId));
-                        trimBattleBotForStartedBg(inProgressBg[bracketId], HORDE, BattleGroundBracketId(bracketId));
+                        for (auto bgItr = sBattleGroundMgr.GetBattleGroundsBegin(bgTypeId); bgItr != sBattleGroundMgr.GetBattleGroundsEnd(bgTypeId); ++bgItr)
+                        {
+                            BattleGround* runningBg = bgItr->second;
+                            if (!runningBg || runningBg->GetClientInstanceID() == 0 ||
+                                runningBg->GetBracketId() != BattleGroundBracketId(bracketId) ||
+                                runningBg->GetStatus() != STATUS_IN_PROGRESS)
+                                continue;
+                            trimBattleBotForStartedBg(runningBg, ALLIANCE, BattleGroundBracketId(bracketId));
+                            trimBattleBotForStartedBg(runningBg, HORDE, BattleGroundBracketId(bracketId));
+                        }
                     }
 
                     if (waitingAlliancePlayers[bracketId])
-                        freeBattleBotSlotForWaitingPlayer(ALLIANCE, BattleGroundBracketId(bracketId));
+                        if (freeBattleBotSlotForWaitingPlayer(ALLIANCE, BattleGroundBracketId(bracketId)))
+                            --queuedAllianceCount[bracketId];
                     if (waitingHordePlayers[bracketId])
-                        freeBattleBotSlotForWaitingPlayer(HORDE, BattleGroundBracketId(bracketId));
+                        if (freeBattleBotSlotForWaitingPlayer(HORDE, BattleGroundBracketId(bracketId)))
+                            --queuedHordeCount[bracketId];
 
                     uint32 const allianceTarget = std::min<uint32>(maxAutoTeamCount, std::max<uint32>(queueFillTarget, queuedHordeCount[bracketId]));
                     uint32 const hordeTarget = std::min<uint32>(maxAutoTeamCount, std::max<uint32>(queueFillTarget, queuedAllianceCount[bracketId]));
@@ -682,35 +691,56 @@ void PlayerBotMgr::Update(uint32 diff)
                         ++queuedHordeCount[bracketId];
                     }
 
-                    // If the existing BG is locked (full and bots at minimum) for waiting
-                    // real players, generate bots to support opening a second BG.
+                    // If all in-progress BGs are locked (full and bots at minimum) for
+                    // waiting real players, generate bots to support opening a new BG.
                     if (isStartedBg)
                     {
                         uint32 const minBotsPerTeam = bgTypeId == BATTLEGROUND_WS ? BATTLEBOT_WSG_MIN_BOTS_PER_TEAM : 0u;
-                        BattleGround* runningBg = inProgressBg[bracketId];
-                        bool const allianceLocked = waitingAlliancePlayers[bracketId] > 0 &&
-                            runningBg->GetFreeSlotsForTeam(ALLIANCE) == 0 &&
-                            runningBg->GetBotPlayersCountByTeam(ALLIANCE) <= minBotsPerTeam;
-                        bool const hordeLocked = waitingHordePlayers[bracketId] > 0 &&
-                            runningBg->GetFreeSlotsForTeam(HORDE) == 0 &&
-                            runningBg->GetBotPlayersCountByTeam(HORDE) <= minBotsPerTeam;
+                        bool allianceLocked = waitingAlliancePlayers[bracketId] > 0;
+                        bool hordeLocked    = waitingHordePlayers[bracketId] > 0;
+                        uint32 totalExistingAlliance = 0, totalExistingHorde = 0;
+                        uint32 totalFreeAlliance = 0, totalFreeHorde = 0;
+
+                        for (auto bgItr = sBattleGroundMgr.GetBattleGroundsBegin(bgTypeId); bgItr != sBattleGroundMgr.GetBattleGroundsEnd(bgTypeId); ++bgItr)
+                        {
+                            BattleGround* runningBg = bgItr->second;
+                            if (!runningBg || runningBg->GetClientInstanceID() == 0 ||
+                                runningBg->GetBracketId() != BattleGroundBracketId(bracketId) ||
+                                runningBg->GetStatus() != STATUS_IN_PROGRESS)
+                                continue;
+
+                            totalExistingAlliance += runningBg->GetPlayersCountByTeam(ALLIANCE);
+                            totalExistingHorde    += runningBg->GetPlayersCountByTeam(HORDE);
+                            totalFreeAlliance     += runningBg->GetFreeSlotsForTeam(ALLIANCE);
+                            totalFreeHorde        += runningBg->GetFreeSlotsForTeam(HORDE);
+
+                            // Not locked if any BG still has a free slot or removable bots.
+                            if (runningBg->GetFreeSlotsForTeam(ALLIANCE) > 0 ||
+                                runningBg->GetBotPlayersCountByTeam(ALLIANCE) > minBotsPerTeam)
+                                allianceLocked = false;
+                            if (runningBg->GetFreeSlotsForTeam(HORDE) > 0 ||
+                                runningBg->GetBotPlayersCountByTeam(HORDE) > minBotsPerTeam)
+                                hordeLocked = false;
+                        }
 
                         if (allianceLocked || hordeLocked)
                         {
-                            uint32 const newFillTarget    = GetBattleBotFillTarget(bgTypeId, bg);
-                            uint32 const newMaxCount      = GetBattleBotMaxAutoTeamCount(bgTypeId, bg);
+                            uint32 const newFillTarget      = GetBattleBotFillTarget(bgTypeId, bg);
+                            uint32 const newMaxCount        = GetBattleBotMaxAutoTeamCount(bgTypeId, bg);
                             uint32 const newQueueFillTarget = std::min<uint32>(newMaxCount, newFillTarget + 1);
 
-                            // Count players/bots NOT committed to the existing BG.
-                            uint32 const existingBgAlliance = runningBg->GetPlayersCountByTeam(ALLIANCE);
-                            uint32 const existingBgHorde    = runningBg->GetPlayersCountByTeam(HORDE);
-                            uint32 const newBgAllianceCount = queuedAllianceCount[bracketId] > existingBgAlliance
-                                ? queuedAllianceCount[bracketId] - existingBgAlliance : 0;
-                            uint32 const newBgHordeCount = queuedHordeCount[bracketId] > existingBgHorde
-                                ? queuedHordeCount[bracketId] - existingBgHorde : 0;
+                            // Players/bots not committed to any existing BG.
+                            uint32 const newBgAllianceCount = queuedAllianceCount[bracketId] > totalExistingAlliance
+                                ? queuedAllianceCount[bracketId] - totalExistingAlliance : 0;
+                            uint32 const newBgHordeCount = queuedHordeCount[bracketId] > totalExistingHorde
+                                ? queuedHordeCount[bracketId] - totalExistingHorde : 0;
 
-                            uint32 const newAllianceTarget = std::min<uint32>(newMaxCount, std::max<uint32>(newQueueFillTarget, newBgHordeCount));
-                            uint32 const newHordeTarget    = std::min<uint32>(newMaxCount, std::max<uint32>(newQueueFillTarget, newBgAllianceCount));
+                            // Add extra bots to compensate for existing BG free slots that
+                            // will absorb newly queued bots before they reach the new BG.
+                            uint32 const newAllianceTarget = std::min<uint32>(newMaxCount,
+                                std::max<uint32>(newQueueFillTarget, newBgHordeCount) + totalFreeAlliance);
+                            uint32 const newHordeTarget = std::min<uint32>(newMaxCount,
+                                std::max<uint32>(newQueueFillTarget, newBgAllianceCount) + totalFreeHorde);
 
                             for (uint32 i = newBgAllianceCount; i < newAllianceTarget; ++i)
                             {
