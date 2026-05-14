@@ -1850,7 +1850,7 @@ bool BattleBotAI::ShouldUseAVOpeningPassiveCombat() const
     return bg && bg->GetTypeID() == BATTLEGROUND_AV &&
         bg->GetStatus() == STATUS_IN_PROGRESS &&
         !me->IsInCombat() &&
-        bg->GetStartTime() <= 15 * MINUTE * IN_MILLISECONDS &&
+        bg->GetStartTime() <= 20 * MINUTE * IN_MILLISECONDS &&
         !BattleBotIsNearAVFlag(this, 10.0f);
 }
 
