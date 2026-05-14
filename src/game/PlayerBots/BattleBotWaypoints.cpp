@@ -3345,7 +3345,8 @@ bool BattleBotReturnToGuardPositionBeforeRecovery(BattleBotAI* pAI)
         case BATTLEGROUND_AB:
         {
             Position guardPosition;
-            if (FindABOwnedGuardPosition(pAI, guardPosition))
+            if (FindABOwnedGuardPosition(pAI, guardPosition) &&
+                pAI->me->GetDistance2d(guardPosition) <= 80.0f)
                 return MoveGuardBackBeforeRecovery(pAI, guardPosition, AB_GUARD_SEARCH_RADIUS, &vPaths_AB, true);
 
             return false;
