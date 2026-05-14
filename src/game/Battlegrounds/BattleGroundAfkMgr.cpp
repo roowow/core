@@ -463,7 +463,7 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
         state.recentDamageTaken = 0;
         state.recentHealingDone = 0;
         state.recentObjectiveEvents = 0;
-        ApplyStage(bg, guid, state, rule, previousScore);
+        ApplyStage(bg, guid, state, rule, previousScore, false, false);
         MaybeSendActivityNotice(bg, guid, state, rule);
         return;
     }
@@ -549,6 +549,8 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
         reasonMask |= AFK_REASON_OBJECTIVE_EVENT;
     }
 
+    bool const activeContribution = inCombat || effectiveDamageDone || effectiveDamageTaken || effectiveHealingDone || objectiveEvent;
+
     if (bg->GetTypeID() == BATTLEGROUND_AB)
     {
         nearObjective = IsNearABObjective(player);
@@ -617,11 +619,17 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     state.lastY = player->GetPositionY();
     state.lastZ = player->GetPositionZ();
 
-    ApplyStage(bg, guid, state, rule, previousScore);
+    // AV has a large map where players legitimately spend long periods moving or defending
+    // objectives without immediate combat. AB/WSG are small enough that real combat should
+    // always be available, so proximity alone does not count as recovery at kick threshold.
+    bool const kickThresholdRecovery = (bg->GetTypeID() == BATTLEGROUND_AV)
+        ? (activeContribution || nearObjective)
+        : activeContribution;
+    ApplyStage(bg, guid, state, rule, previousScore, kickThresholdRecovery, activeContribution);
     MaybeSendActivityNotice(bg, guid, state, rule);
 }
 
-void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState& state, BattleGroundAfkScoreRule const& rule, uint32 previousScore)
+void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState& state, BattleGroundAfkScoreRule const& rule, uint32 previousScore, bool kickThresholdRecovery, bool activeContribution)
 {
     uint8 targetStage = 0;
     if (state.score >= rule.warning3Score)
@@ -648,7 +656,7 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
             state.lastActivityNoticeTime = m_elapsedTime;
             state.lastActivityNoticeLevel = 0;
             state.noObjectiveContributionChecks = 0;
-            SendRecoveryNotice(bg, guid, state, true);
+            SendRecoveryNotice(bg, guid, state, true, false, false);
             return;
         }
 
@@ -666,7 +674,7 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
         {
             state.lastRecoveryNoticeTime = m_elapsedTime;
             state.lastRecoveryPendingTime = m_elapsedTime;
-            SendRecoveryNotice(bg, guid, state, false);
+            SendRecoveryNotice(bg, guid, state, false, false, false);
         }
         return;
     }
@@ -687,14 +695,14 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
 
     if (state.score >= rule.kickScore && state.stage >= 3)
     {
-        if (scoreDecreasing)
+        if (scoreDecreasing && kickThresholdRecovery)
         {
             state.maxScoreChecks = 0;
             if (recoveryNoticeReady)
             {
                 state.lastRecoveryNoticeTime = m_elapsedTime;
                 state.lastRecoveryPendingTime = m_elapsedTime;
-                SendRecoveryNotice(bg, guid, state, false);
+                SendRecoveryNotice(bg, guid, state, false, true, activeContribution);
             }
             return;
         }
@@ -707,11 +715,11 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
                 std::string const reasons = FormatAfkReasons(state.lastReasonMask);
                 int32 const delta = int32(state.score) - int32(state.lastPreviousScore);
                 uint32 const bgType = bg ? uint32(bg->GetTypeID()) : state.trackBgType;
-                sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] kick player %s (%s) bgType %u bgName %s instance %u elapsed %u stage %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
+                sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] kick player %s (%s) bgType %u bgName %s instance %u elapsed %u stage %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u maxScoreChecks %u.",
                     player->GetName(), guid.GetString().c_str(), bgType, GetAfkBattleGroundName(bgType), bg ? bg->GetInstanceID() : state.trackInstanceId,
                     m_elapsedTime, uint32(state.stage), state.score, state.lastPreviousScore, delta, reasons.c_str(),
                     BoolText(state.lastMoved), state.lastMoveDistance, BoolText(state.lastInCombat), BoolText(state.lastNearObjective),
-                    state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents);
+                    state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents, state.maxScoreChecks);
                 state.kicked = true;
                 player->SendSysMessage("您因长时间未有效参与战场，已被移出战场。");
                 NotifyTeamAfkKick(bg, guid, player->GetName());
@@ -850,7 +858,7 @@ void BattleGroundAfkMgr::SendWarning(BattleGround* bg, ObjectGuid guid, BattleGr
     }
 }
 
-void BattleGroundAfkMgr::SendRecoveryNotice(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState const& state, bool normal) const
+void BattleGroundAfkMgr::SendRecoveryNotice(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState const& state, bool normal, bool atKickThreshold, bool activeContribution) const
 {
     Player* player = sObjectMgr.GetPlayer(guid);
     if (!player)
@@ -864,14 +872,35 @@ void BattleGroundAfkMgr::SendRecoveryNotice(BattleGround* bg, ObjectGuid guid, B
     std::string const reasons = FormatAfkReasons(state.lastReasonMask);
     int32 const delta = int32(state.score) - int32(state.lastPreviousScore);
     uint32 const bgType = bg ? uint32(bg->GetTypeID()) : state.trackBgType;
-    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] recovery %s player %s (%s) bgType %u bgName %s instance %u elapsed %u stage %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
-        normal ? "normal" : "pending", player->GetName(), guid.GetString().c_str(), bgType, GetAfkBattleGroundName(bgType), bg ? bg->GetInstanceID() : state.trackInstanceId,
-        m_elapsedTime, uint32(state.stage), state.score, state.lastPreviousScore, delta, reasons.c_str(),
-        BoolText(state.lastMoved), state.lastMoveDistance, BoolText(state.lastInCombat), BoolText(state.lastNearObjective),
-        state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents);
 
     if (normal)
+    {
+        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] recovery normal player %s (%s) bgType %u bgName %s instance %u elapsed %u stage %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
+            player->GetName(), guid.GetString().c_str(), bgType, GetAfkBattleGroundName(bgType), bg ? bg->GetInstanceID() : state.trackInstanceId,
+            m_elapsedTime, uint32(state.stage), state.score, state.lastPreviousScore, delta, reasons.c_str(),
+            BoolText(state.lastMoved), state.lastMoveDistance, BoolText(state.lastInCombat), BoolText(state.lastNearObjective),
+            state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents);
         player->PSendSysMessage("[%s] 您的战场活动已恢复正常。", currentTime);
-    else
+    }
+    else if (atKickThreshold)
+    {
+        // nearObjHeld: recovery was granted by nearObjective alone (AV), not by real combat contribution
+        bool const nearObjHeld = !activeContribution && state.lastNearObjective;
+        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] recovery kickhold player %s (%s) bgType %u bgName %s instance %u elapsed %u stage %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u activeCont %s nearObjHeld %s.",
+            player->GetName(), guid.GetString().c_str(), bgType, GetAfkBattleGroundName(bgType), bg ? bg->GetInstanceID() : state.trackInstanceId,
+            m_elapsedTime, uint32(state.stage), state.score, state.lastPreviousScore, delta, reasons.c_str(),
+            BoolText(state.lastMoved), state.lastMoveDistance, BoolText(state.lastInCombat), BoolText(state.lastNearObjective),
+            state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents,
+            BoolText(activeContribution), BoolText(nearObjHeld));
         player->PSendSysMessage("[%s] 您的战场活动正在恢复，请持续参与战斗或战场目标，以免被移出。", currentTime);
+    }
+    else
+    {
+        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] recovery pending player %s (%s) bgType %u bgName %s instance %u elapsed %u stage %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u.",
+            player->GetName(), guid.GetString().c_str(), bgType, GetAfkBattleGroundName(bgType), bg ? bg->GetInstanceID() : state.trackInstanceId,
+            m_elapsedTime, uint32(state.stage), state.score, state.lastPreviousScore, delta, reasons.c_str(),
+            BoolText(state.lastMoved), state.lastMoveDistance, BoolText(state.lastInCombat), BoolText(state.lastNearObjective),
+            state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents);
+        player->PSendSysMessage("[%s] 您的战场活动正在恢复，请持续参与战斗或战场目标，以免被移出。", currentTime);
+    }
 }
