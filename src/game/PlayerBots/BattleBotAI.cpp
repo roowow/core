@@ -3598,6 +3598,7 @@ void BattleBotAI::UpdateInCombatAI_Shaman()
 
     if (m_role == ROLE_HEALER)
     {
+        // ── HEALER: mana recovery ───────────────────────────────────────────
         if (m_spells.shaman.pManaTideTotem &&
            (me->GetPowerPercent(POWER_MANA) < 50.0f) &&
             CanTryToCastSpell(me, m_spells.shaman.pManaTideTotem))
@@ -3606,36 +3607,31 @@ void BattleBotAI::UpdateInCombatAI_Shaman()
                 return;
         }
 
+        // ── HEALER: dispel ──────────────────────────────────────────────────
         if (m_spells.shaman.pCureDisease)
         {
             if (Unit* pFriend = SelectDispelTarget(m_spells.shaman.pCureDisease))
-            {
                 if (CanTryToCastSpell(pFriend, m_spells.shaman.pCureDisease))
-                {
                     if (DoCastSpell(pFriend, m_spells.shaman.pCureDisease) == SPELL_CAST_OK)
                         return;
-                }
-            }
         }
 
         if (m_spells.shaman.pCurePoison)
         {
             if (Unit* pFriend = SelectDispelTarget(m_spells.shaman.pCurePoison))
-            {
                 if (CanTryToCastSpell(pFriend, m_spells.shaman.pCurePoison))
-                {
                     if (DoCastSpell(pFriend, m_spells.shaman.pCurePoison) == SPELL_CAST_OK)
                         return;
-                }
-            }
         }
 
-        if (FindAndHealInjuredAlly(55.0f, 90.0f))
+        // ── HEALER: Chain Heal / direct heal — more aggressive threshold ────
+        if (FindAndHealInjuredAlly(55.0f, 85.0f))
             return;
 
         if (FindAndPreHealTarget())
             return;
 
+        // ── HEALER: interrupt and purge ─────────────────────────────────────
         if (Unit* pInterruptTarget = SelectShamanInterruptTarget(this))
         {
             if (DoCastSpell(pInterruptTarget, m_spells.shaman.pEarthShock) == SPELL_CAST_OK)
@@ -3648,6 +3644,8 @@ void BattleBotAI::UpdateInCombatAI_Shaman()
                 return;
         }
 
+        // ── HEALER: control totems only (Grounding, Tremor, Earthbind) ──────
+        // SummonShamanTotems in healer mode already skips fire / Windfury / SoE
         if (SummonShamanTotems())
             return;
 
@@ -3657,99 +3655,115 @@ void BattleBotAI::UpdateInCombatAI_Shaman()
 
     if (Unit* pVictim = me->GetVictim())
     {
-        if (m_role != ROLE_HEALER &&
-            m_spells.shaman.pManaTideTotem &&
-           (me->GetPowerPercent(POWER_MANA) < 50.0f) &&
-            CanTryToCastSpell(me, m_spells.shaman.pManaTideTotem))
+        if (m_role != ROLE_HEALER)
         {
-            if (DoCastSpell(me, m_spells.shaman.pManaTideTotem) == SPELL_CAST_OK)
-                return;
-        }
-
-        if (Unit* pInterruptTarget = SelectShamanInterruptTarget(this))
-        {
-            if (DoCastSpell(pInterruptTarget, m_spells.shaman.pEarthShock) == SPELL_CAST_OK)
-                return;
-        }
-
-        if (m_role != ROLE_HEALER &&
-            m_spells.shaman.pElementalMastery &&
-            me->GetAttackers().empty() &&
-            CanTryToCastSpell(me, m_spells.shaman.pElementalMastery))
-        {
-            if (DoCastSpell(me, m_spells.shaman.pElementalMastery) == SPELL_CAST_OK)
-                return;
-        }
-
-        if (m_role != ROLE_HEALER && SummonShamanTotems())
-            return;
-
-        if (Unit* pPurgeTarget = SelectShamanPurgeTarget(this))
-        {
-            if (DoCastSpell(pPurgeTarget, m_spells.shaman.pPurge) == SPELL_CAST_OK)
-                return;
-        }
-
-        if (m_role == ROLE_MELEE_DPS || m_role == ROLE_TANK)
-        {
-            if (m_spells.shaman.pStormstrike &&
-                CanTryToCastSpell(pVictim, m_spells.shaman.pStormstrike))
+            // ── DPS: mana tide ──────────────────────────────────────────────
+            if (m_spells.shaman.pManaTideTotem &&
+               (me->GetPowerPercent(POWER_MANA) < 50.0f) &&
+                CanTryToCastSpell(me, m_spells.shaman.pManaTideTotem))
             {
-                if (DoCastSpell(pVictim, m_spells.shaman.pStormstrike) == SPELL_CAST_OK)
+                if (DoCastSpell(me, m_spells.shaman.pManaTideTotem) == SPELL_CAST_OK)
                     return;
             }
 
-            if (m_spells.shaman.pFrostShock &&
-                pVictim->IsMoving() &&
-                CanTryToCastSpell(pVictim, m_spells.shaman.pFrostShock))
+            // ── DPS: interrupt ──────────────────────────────────────────────
+            if (Unit* pInterruptTarget = SelectShamanInterruptTarget(this))
             {
-                if (DoCastSpell(pVictim, m_spells.shaman.pFrostShock) == SPELL_CAST_OK)
-                    return;
-            }
-        }
-
-        if (m_role == ROLE_RANGE_DPS)
-        {
-            if (m_spells.shaman.pFlameShock &&
-                CanTryToCastSpell(pVictim, m_spells.shaman.pFlameShock))
-            {
-                if (DoCastSpell(pVictim, m_spells.shaman.pFlameShock) == SPELL_CAST_OK)
+                if (DoCastSpell(pInterruptTarget, m_spells.shaman.pEarthShock) == SPELL_CAST_OK)
                     return;
             }
 
-            if (m_spells.shaman.pChainLightning &&
-                CanTryToCastSpell(pVictim, m_spells.shaman.pChainLightning))
+            // ── DPS: Elemental Mastery before burst ─────────────────────────
+            if (m_spells.shaman.pElementalMastery &&
+                me->GetAttackers().empty() &&
+                CanTryToCastSpell(me, m_spells.shaman.pElementalMastery))
             {
-                if (DoCastSpell(pVictim, m_spells.shaman.pChainLightning) == SPELL_CAST_OK)
+                if (DoCastSpell(me, m_spells.shaman.pElementalMastery) == SPELL_CAST_OK)
                     return;
             }
 
-            if (m_spells.shaman.pLightningBolt &&
-                CanTryToCastSpell(pVictim, m_spells.shaman.pLightningBolt))
+            // ── DPS: purge ──────────────────────────────────────────────────
+            if (Unit* pPurgeTarget = SelectShamanPurgeTarget(this))
             {
-                if (DoCastSpell(pVictim, m_spells.shaman.pLightningBolt) == SPELL_CAST_OK)
+                if (DoCastSpell(pPurgeTarget, m_spells.shaman.pPurge) == SPELL_CAST_OK)
                     return;
             }
-        }
 
-        if (m_spells.shaman.pFlameShock &&
-            CanTryToCastSpell(pVictim, m_spells.shaman.pFlameShock))
-        {
-            if (DoCastSpell(pVictim, m_spells.shaman.pFlameShock) == SPELL_CAST_OK)
+            // ── DPS: melee rotation ─────────────────────────────────────────
+            if (m_role == ROLE_MELEE_DPS || m_role == ROLE_TANK)
+            {
+                if (m_spells.shaman.pStormstrike &&
+                    CanTryToCastSpell(pVictim, m_spells.shaman.pStormstrike))
+                {
+                    if (DoCastSpell(pVictim, m_spells.shaman.pStormstrike) == SPELL_CAST_OK)
+                        return;
+                }
+
+                if (m_spells.shaman.pFlameShock &&
+                    CanTryToCastSpell(pVictim, m_spells.shaman.pFlameShock))
+                {
+                    if (DoCastSpell(pVictim, m_spells.shaman.pFlameShock) == SPELL_CAST_OK)
+                        return;
+                }
+
+                if (m_spells.shaman.pFrostShock &&
+                    pVictim->IsMoving() &&
+                    CanTryToCastSpell(pVictim, m_spells.shaman.pFrostShock))
+                {
+                    if (DoCastSpell(pVictim, m_spells.shaman.pFrostShock) == SPELL_CAST_OK)
+                        return;
+                }
+            }
+
+            // ── DPS: range rotation ─────────────────────────────────────────
+            if (m_role == ROLE_RANGE_DPS)
+            {
+                if (m_spells.shaman.pFlameShock &&
+                    CanTryToCastSpell(pVictim, m_spells.shaman.pFlameShock))
+                {
+                    if (DoCastSpell(pVictim, m_spells.shaman.pFlameShock) == SPELL_CAST_OK)
+                        return;
+                }
+
+                if (m_spells.shaman.pChainLightning &&
+                    CanTryToCastSpell(pVictim, m_spells.shaman.pChainLightning))
+                {
+                    if (DoCastSpell(pVictim, m_spells.shaman.pChainLightning) == SPELL_CAST_OK)
+                        return;
+                }
+
+                if (m_spells.shaman.pLightningBolt &&
+                    CanTryToCastSpell(pVictim, m_spells.shaman.pLightningBolt))
+                {
+                    if (DoCastSpell(pVictim, m_spells.shaman.pLightningBolt) == SPELL_CAST_OK)
+                        return;
+                }
+            }
+            else if (!me->CanReachWithMeleeAutoAttack(pVictim))
+            {
+                // Melee fallback: Lightning Bolt when can't reach
+                if (m_spells.shaman.pLightningBolt &&
+                    CanTryToCastSpell(pVictim, m_spells.shaman.pLightningBolt))
+                {
+                    if (DoCastSpell(pVictim, m_spells.shaman.pLightningBolt) == SPELL_CAST_OK)
+                        return;
+                }
+            }
+
+            // ── DPS: totems AFTER damage rotation ──────────────────────────
+            if (SummonShamanTotems())
                 return;
         }
-
-        if (m_spells.shaman.pLightningBolt &&
-           !me->CanReachWithMeleeAutoAttack(pVictim) &&
-            CanTryToCastSpell(pVictim, m_spells.shaman.pLightningBolt))
+        else
         {
-            if (DoCastSpell(pVictim, m_spells.shaman.pLightningBolt) == SPELL_CAST_OK)
-                return;
+            // Healer: interrupt even on their own victim (fallback path)
+            if (Unit* pInterruptTarget = SelectShamanInterruptTarget(this))
+            {
+                if (DoCastSpell(pInterruptTarget, m_spells.shaman.pEarthShock) == SPELL_CAST_OK)
+                    return;
+            }
         }
     }
-
-    if (SummonShamanTotems())
-        return;
 
     if (m_spells.shaman.pCureDisease &&
         CanTryToCastSpell(me, m_spells.shaman.pCureDisease) &&

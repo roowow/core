@@ -3088,36 +3088,47 @@ bool CombatBotBaseAI::SummonShamanTotems()
         return false;
     };
 
-    SpellEntry const* airTotem = m_spells.shaman.pAirTotem;
+    // Healers skip pure-damage totems (Windfury, Grace of Air, Searing, Magma, etc.)
+    // to avoid wasting GCDs that should go to Chain Heal / Lesser Healing Wave.
+    bool const healerMode = (m_role == ROLE_HEALER);
+
+    // Air: Grounding (anti-caster) for everyone; Windfury/Grace of Air for DPS only
+    SpellEntry const* airTotem = healerMode ? nullptr : m_spells.shaman.pAirTotem;
     if (m_spells.shaman.pGroundingTotem && hasNearbyEnemyCaster())
         airTotem = m_spells.shaman.pGroundingTotem;
-    else if (m_spells.shaman.pWindfuryTotem && hasNearbyPhysicalAlly())
+    else if (!healerMode && m_spells.shaman.pWindfuryTotem && hasNearbyPhysicalAlly())
         airTotem = m_spells.shaman.pWindfuryTotem;
-    else if (m_spells.shaman.pGraceOfAirTotem)
+    else if (!healerMode && m_spells.shaman.pGraceOfAirTotem)
         airTotem = m_spells.shaman.pGraceOfAirTotem;
 
-    SpellEntry const* earthTotem = m_spells.shaman.pEarthTotem;
+    // Earth: Earthbind and Tremor for everyone; Strength of Earth for DPS only
+    SpellEntry const* earthTotem = healerMode ? nullptr : m_spells.shaman.pEarthTotem;
     if (m_spells.shaman.pEarthbindTotem && me->GetVictim() && me->GetVictim()->IsMoving())
         earthTotem = m_spells.shaman.pEarthbindTotem;
     else if (m_spells.shaman.pTremorTotem && hasNearbyFearCaster())
         earthTotem = m_spells.shaman.pTremorTotem;
-    else if (m_spells.shaman.pStrengthOfEarthTotem && hasNearbyPhysicalAlly())
+    else if (!healerMode && m_spells.shaman.pStrengthOfEarthTotem && hasNearbyPhysicalAlly())
         earthTotem = m_spells.shaman.pStrengthOfEarthTotem;
 
-    SpellEntry const* fireTotem = m_spells.shaman.pFireTotem;
-    if (m_spells.shaman.pMagmaTotem && GetAttackersInRangeCount(8.0f) >= 2)
-        fireTotem = m_spells.shaman.pMagmaTotem;
-    else if (m_spells.shaman.pSearingTotem)
-        fireTotem = m_spells.shaman.pSearingTotem;
+    // Fire: skip entirely for healers (Searing/Magma provide no healing benefit)
+    SpellEntry const* fireTotem = healerMode ? nullptr : m_spells.shaman.pFireTotem;
+    if (!healerMode)
+    {
+        if (m_spells.shaman.pMagmaTotem && GetAttackersInRangeCount(8.0f) >= 2)
+            fireTotem = m_spells.shaman.pMagmaTotem;
+        else if (m_spells.shaman.pSearingTotem)
+            fireTotem = m_spells.shaman.pSearingTotem;
+    }
 
-    SpellEntry const* waterTotem = m_spells.shaman.pWaterTotem;
+    // Water: cleansing totems and Mana Spring for everyone; Healing Stream for DPS only
+    SpellEntry const* waterTotem = healerMode ? nullptr : m_spells.shaman.pWaterTotem;
     if (m_spells.shaman.pPoisonCleansingTotem && m_spells.shaman.pCurePoison && SelectDispelTarget(m_spells.shaman.pCurePoison))
         waterTotem = m_spells.shaman.pPoisonCleansingTotem;
     else if (m_spells.shaman.pDiseaseCleansingTotem && m_spells.shaman.pCureDisease && SelectDispelTarget(m_spells.shaman.pCureDisease))
         waterTotem = m_spells.shaman.pDiseaseCleansingTotem;
     else if (m_spells.shaman.pManaSpringTotem && me->GetPowerType() == POWER_MANA && me->GetPowerPercent(POWER_MANA) < 80.0f)
         waterTotem = m_spells.shaman.pManaSpringTotem;
-    else if (m_spells.shaman.pHealingStreamTotem && SelectHealTarget(100.0f, 95.0f))
+    else if (!healerMode && m_spells.shaman.pHealingStreamTotem && SelectHealTarget(100.0f, 95.0f))
         waterTotem = m_spells.shaman.pHealingStreamTotem;
 
     auto shouldSummonTotem = [this](TotemSlot slot, SpellEntry const* spell) -> bool
