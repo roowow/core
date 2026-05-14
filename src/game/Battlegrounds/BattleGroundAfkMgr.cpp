@@ -554,7 +554,7 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     if (bg->GetTypeID() == BATTLEGROUND_AB)
     {
         nearObjective = IsNearABObjective(player);
-        if (nearObjective)
+        if (nearObjective && activeContribution)
         {
             score -= AFK_AB_OBJECTIVE_SCORE_REDUCE;
             reasonMask |= AFK_REASON_NEAR_OBJECTIVE;
@@ -585,8 +585,13 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
         }
     }
 
+    // AB: nearObjective only counts as effective contribution when actively contributing
+    // (combat/damage/heal/objective), preventing idle walkers from resetting the chain penalty.
+    // WSG/AV: movement near an objective is sufficient (flag chasers, defenders).
+    bool const nearObjectiveEffective = nearObjective && (
+        bg->GetTypeID() == BATTLEGROUND_AB ? activeContribution : (moved || inCombat));
     bool const effectiveContribution = effectiveDamageDone || effectiveDamageTaken || effectiveHealingDone ||
-        objectiveEvent || (nearObjective && (moved || inCombat));
+        objectiveEvent || nearObjectiveEffective;
     if (effectiveContribution)
         state.noObjectiveContributionChecks = 0;
     else
