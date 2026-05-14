@@ -158,6 +158,14 @@ void WorldSession::RequestBgJoinQueue(ObjectGuid battlemaster, uint32 instanceId
     if (instanceId)
         bg = sBattleGroundMgr.GetBattleGroundThroughClientInstance(instanceId, bgTypeId);
 
+    // If the player selected a specific instance that is already ending, drop the preference
+    // so they can be matched to any available instance instead of waiting forever.
+    if (bg && bg->GetStatus() >= STATUS_WAIT_LEAVE)
+    {
+        instanceId = 0;
+        bg = nullptr;
+    }
+
     if (!bg && !(bg = sBattleGroundMgr.GetBattleGroundTemplate(bgTypeId)))
     {
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Battleground: no available bg / template found");

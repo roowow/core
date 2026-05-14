@@ -193,6 +193,8 @@ void PlayerBotMgr::OnPlayerInWorld(Player* player)
     }
 }
 
+uint32 const BATTLEBOT_WSG_MIN_BOTS_PER_TEAM = 5;
+
 static uint32 GetBattleBotFillTarget(BattleGroundTypeId bgTypeId, BattleGround const* bg)
 {
     uint32 desiredCount = bg->GetMinPlayersPerTeam();
@@ -544,7 +546,7 @@ void PlayerBotMgr::Update(uint32 diff)
                 }
 
                 if (runningBg->GetPlayersCountByTeam(team) > target &&
-                    runningBg->GetBotPlayersCountByTeam(team) &&
+                    runningBg->GetBotPlayersCountByTeam(team) > (bgTypeId == BATTLEGROUND_WS ? BATTLEBOT_WSG_MIN_BOTS_PER_TEAM : 0) &&
                     runningBg->DeleteBattleBot(team))
                 {
                     if (team == ALLIANCE)
@@ -587,7 +589,8 @@ void PlayerBotMgr::Update(uint32 diff)
                         return true;
                     }
 
-                    if (runningBg->GetBotPlayersCountByTeam(team) && runningBg->DeleteBattleBot(team))
+                    if (runningBg->GetBotPlayersCountByTeam(team) > (bgTypeId == BATTLEGROUND_WS ? BATTLEBOT_WSG_MIN_BOTS_PER_TEAM : 0) &&
+                        runningBg->DeleteBattleBot(team))
                     {
                         runningBg->AddToBGFreeSlotQueue();
                         sBattleGroundMgr.ScheduleQueueUpdate(BattleGroundQueueTypeId(queueType), bgTypeId, bracketId);

@@ -1457,10 +1457,19 @@ void BattleGroundMgr::BuildBattleGroundListPacket(WorldPacket* data, ObjectGuid 
     *data << uint32(0); // number of bg instances
 
     uint32 bracketId = player->GetBattleGroundBracketIdFromLevel(bgTypeId);
-    ClientBattleGroundIdSet const& ids = m_clientBattleGroundIds[bgTypeId][bracketId];
-    for (const auto id : ids)
+    // Only send instances that are still joinable; STATUS_WAIT_LEAVE instances are ending
+    // and their client IDs are not removed until the BG object is destroyed (~2 min later).
+    // Sending them causes players to queue for a specific instance that will never invite them.
+    for (auto const& itr : m_battleGrounds[bgTypeId])
     {
-        *data << uint32(id);
+        BattleGround const* runningBg = itr.second;
+        if (!runningBg || runningBg->GetClientInstanceID() == 0)
+            continue;
+        if (runningBg->GetBracketId() != BattleGroundBracketId(bracketId))
+            continue;
+        if (runningBg->GetStatus() >= STATUS_WAIT_LEAVE)
+            continue;
+        *data << uint32(runningBg->GetClientInstanceID());
         ++count;
     }
     data->put<uint32>(countPos, count);
