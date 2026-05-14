@@ -1304,6 +1304,11 @@ void BattleGround::RecordAfkObjective(ObjectGuid guid)
     m_afkMgr.RecordObjective(guid);
 }
 
+void BattleGround::RecordAfkCrowdControl(ObjectGuid guid)
+{
+    m_afkMgr.RecordCrowdControl(guid);
+}
+
 bool BattleGround::AddObject(uint32 type, uint32 entry, float x, float y, float z, float o, float rotation0, float rotation1, float rotation2, float rotation3)
 {
     // must be created this way, adding to godatamap would add it to the base map of the instance

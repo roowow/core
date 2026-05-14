@@ -390,6 +390,12 @@ void BattleGroundAfkMgr::RecordObjective(ObjectGuid guid)
     state.recentObjectiveEvents = std::min<uint32>(state.recentObjectiveEvents + 1, 1000);
 }
 
+void BattleGroundAfkMgr::RecordCrowdControl(ObjectGuid guid)
+{
+    BattleGroundAfkPlayerState& state = m_playerStates[guid];
+    state.recentCrowdControl = std::min<uint32>(state.recentCrowdControl + 1, 1000);
+}
+
 BattleGroundAfkScoreRule BattleGroundAfkMgr::GetRule(BattleGround const* bg) const
 {
     switch (bg->GetTypeID())
@@ -463,6 +469,7 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
         state.recentDamageTaken = 0;
         state.recentHealingDone = 0;
         state.recentObjectiveEvents = 0;
+        state.recentCrowdControl = 0;
         ApplyStage(bg, guid, state, rule, previousScore, false, false);
         MaybeSendActivityNotice(bg, guid, state, rule);
         return;
@@ -490,10 +497,12 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     uint32 const recentDamageTaken = state.recentDamageTaken;
     uint32 const recentHealingDone = state.recentHealingDone;
     uint32 const recentObjectiveEvents = state.recentObjectiveEvents;
+    uint32 const recentCrowdControl = state.recentCrowdControl;
     bool const effectiveDamageDone = state.recentDamageDone >= AFK_EFFECTIVE_DAMAGE_THRESHOLD;
     bool const effectiveDamageTaken = state.recentDamageTaken >= AFK_EFFECTIVE_DAMAGE_THRESHOLD;
     bool const effectiveHealingDone = state.recentHealingDone >= AFK_EFFECTIVE_HEALING_THRESHOLD;
     bool const objectiveEvent = state.recentObjectiveEvents > 0;
+    bool const crowdControlEvent = state.recentCrowdControl > 0;
     bool nearObjective = false;
     uint32 reasonMask = AFK_REASON_NONE;
 
@@ -549,7 +558,13 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
         reasonMask |= AFK_REASON_OBJECTIVE_EVENT;
     }
 
-    bool const activeContribution = inCombat || effectiveDamageDone || effectiveDamageTaken || effectiveHealingDone || objectiveEvent;
+    if (crowdControlEvent)
+    {
+        score -= AFK_OBJECTIVE_SCORE_REDUCE;
+        reasonMask |= AFK_REASON_OBJECTIVE_EVENT;
+    }
+
+    bool const activeContribution = inCombat || effectiveDamageDone || effectiveDamageTaken || effectiveHealingDone || objectiveEvent || crowdControlEvent;
 
     if (bg->GetTypeID() == BATTLEGROUND_AB)
     {
@@ -591,7 +606,7 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     bool const nearObjectiveEffective = nearObjective && (
         bg->GetTypeID() == BATTLEGROUND_AB ? activeContribution : (moved || inCombat));
     bool const effectiveContribution = effectiveDamageDone || effectiveDamageTaken || effectiveHealingDone ||
-        objectiveEvent || nearObjectiveEffective;
+        objectiveEvent || crowdControlEvent || nearObjectiveEffective;
     if (effectiveContribution)
         state.noObjectiveContributionChecks = 0;
     else
@@ -608,6 +623,7 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     state.recentDamageTaken = 0;
     state.recentHealingDone = 0;
     state.recentObjectiveEvents = 0;
+    state.recentCrowdControl = 0;
 
     state.score = uint32(ClampAfkScore(score));
     state.lastPreviousScore = previousScore;

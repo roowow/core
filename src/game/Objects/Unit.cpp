@@ -3772,6 +3772,47 @@ bool Unit::AddSpellAuraHolder(SpellAuraHolder* holder)
     }
     // When we call _AddSpellAuraHolder, we must have a free aura slot
     holder->_AddSpellAuraHolder();
+
+    // Record CC contribution for AFK detection when a player applies CC to a hostile target.
+    // Record CC contribution for AFK detection: caster and target must both be
+    // non-bot players in the same battleground, and the aura must be a CC type.
+    if (!holder->IsPositive())
+    {
+        if (Player* targetPlayer = ToPlayer())
+        {
+            if (!targetPlayer->IsBot())
+            {
+                if (BattleGround* bg = targetPlayer->GetBattleGround())
+                {
+                    if (Unit* caster = holder->GetCaster())
+                    {
+                        if (Player* casterPlayer = caster->ToPlayer())
+                        {
+                            if (!casterPlayer->IsBot() &&
+                                casterPlayer->GetBattleGround() == bg &&
+                                casterPlayer->IsHostileTo(this))
+                            {
+                                if (holder->HasAuraType(SPELL_AURA_MOD_STUN)           ||
+                                    holder->HasAuraType(SPELL_AURA_MOD_FEAR)           ||
+                                    holder->HasAuraType(SPELL_AURA_MOD_ROOT)           ||
+                                    holder->HasAuraType(SPELL_AURA_MOD_SLEEP)          ||
+                                    holder->HasAuraType(SPELL_AURA_MOD_CHARM)          ||
+                                    holder->HasAuraType(SPELL_AURA_MOD_CONFUSE)        ||
+                                    holder->HasAuraType(SPELL_AURA_MOD_SILENCE)        ||
+                                    holder->HasAuraType(SPELL_AURA_MOD_PACIFY)         ||
+                                    holder->HasAuraType(SPELL_AURA_MOD_PACIFY_SILENCE) ||
+                                    holder->HasAuraType(SPELL_AURA_TRANSFORM))
+                                {
+                                    bg->RecordAfkCrowdControl(casterPlayer->GetObjectGuid());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     return true;
 }
 
