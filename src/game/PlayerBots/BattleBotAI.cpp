@@ -3321,6 +3321,7 @@ void BattleBotAI::UpdateFlagCarrierAI()
             case CLASS_HUNTER:
             {
                 if (m_spells.hunter.pAspectOfTheCheetah &&
+                    !me->InBattleGround() &&
                     CanTryToCastSpell(me, m_spells.hunter.pAspectOfTheCheetah))
                 {
                     me->CastSpell(me, m_spells.hunter.pAspectOfTheCheetah, false);
@@ -3856,6 +3857,7 @@ void BattleBotAI::UpdateInCombatAI_Shaman()
 void BattleBotAI::UpdateOutOfCombatAI_Hunter()
 {
     if (m_spells.hunter.pAspectOfTheCheetah &&
+       !me->InBattleGround() &&
        !me->IsMounted() &&
         CanTryToCastSpell(me, m_spells.hunter.pAspectOfTheCheetah))
     {
