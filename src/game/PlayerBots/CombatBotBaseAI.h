@@ -110,6 +110,7 @@ public:
     bool IsValidHealTarget(Unit const* pTarget, float healthPercent = 100.0f) const;
     bool IsValidHostileTarget(Unit const* pTarget) const;
     bool IsValidDispelTarget(Unit const* pTarget, SpellEntry const* pSpellEntry) const;
+    bool GroupHasBotTank() const;
     bool FindAndPreHealTarget();
     bool FindAndHealInjuredAlly(float selfHealPercent = 100.0f, float groupHealPercent = 100.0f);
     bool HealInjuredTarget(Unit* pTarget);

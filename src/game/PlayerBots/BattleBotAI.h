@@ -68,6 +68,7 @@ public:
     bool UpdateAVStartWaveWaitingAI();
     bool AttackStart(Unit* pVictim);
     Unit* SelectAttackTarget(Unit* pExcept = nullptr) const;
+    Unit* SelectHealerOffensiveTarget() const;
     Unit* SelectFollowTarget() const;
 
     void OnJustRevived();

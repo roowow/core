@@ -2023,6 +2023,45 @@ bool BattleBotAI::ShouldIgnoreCombat() const
     return false;
 }
 
+Unit* BattleBotAI::SelectHealerOffensiveTarget() const
+{
+    // Find an enemy within 30m that a nearby ally is already fighting.
+    // Keeps healer close to the allied skirmish rather than wandering.
+    float const maxRange = 30.0f;
+    Unit* pBestTarget = nullptr;
+    float bestDistance = maxRange + 1.0f;
+
+    std::list<Player*> players;
+    me->GetAlivePlayerListInRange(me, players, maxRange);
+
+    for (Player* pAlly : players)
+    {
+        if (pAlly == me || me->GetTeam() != pAlly->GetTeam())
+            continue;
+
+        Unit* pAllyVictim = pAlly->GetVictim();
+        if (!pAllyVictim || !IsValidHostileTarget(pAllyVictim))
+            continue;
+
+        float const dist = me->GetDistance(pAllyVictim);
+        if (dist > maxRange)
+            continue;
+
+        if (BattleBotHasBlind(pAllyVictim) || BattleBotHasEntanglingRoots(pAllyVictim))
+            continue;
+
+        if (!me->IsWithinLOSInMap(pAllyVictim))
+            continue;
+
+        if (dist < bestDistance)
+        {
+            bestDistance = dist;
+            pBestTarget = pAllyVictim;
+        }
+    }
+    return pBestTarget;
+}
+
 Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
 {
     // Ignore attackers while carrying flag, just keep running.
@@ -2911,6 +2950,16 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                     return;
                 }
             }
+            else if (IsRangedDamageClass(me->GetClass()))
+            {
+                // Healer: attack an enemy a nearby ally is already fighting.
+                // AttackStart sets caster chase distance so we stay at range.
+                if (Unit* pOffensiveTarget = SelectHealerOffensiveTarget())
+                {
+                    AttackStart(pOffensiveTarget);
+                    return;
+                }
+            }
 
             if (UseMount())
                 return;
@@ -2983,6 +3032,17 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                 }
             }
         }
+        else if (IsRangedDamageClass(me->GetClass()))
+        {
+            if (Unit* pNewVictim = SelectHealerOffensiveTarget())
+            {
+                if (pVictim != pNewVictim)
+                {
+                    AttackStart(pNewVictim);
+                    return;
+                }
+            }
+        }
 
         if (me->GetVictim() && BattleBotHasBlind(me->GetVictim()))
         {
@@ -3010,7 +3070,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         }
 
         if (!me->HasUnitState(UNIT_STATE_MELEE_ATTACKING) &&
-           (m_role != ROLE_HEALER) &&
+           (m_role != ROLE_HEALER || IsRangedDamageClass(me->GetClass())) &&
             IsValidHostileTarget(pVictim) &&
             AttackStart(pVictim))
             return;
@@ -4471,7 +4531,6 @@ void BattleBotAI::UpdateInCombatAI_Priest()
             }
 
             if (m_spells.priest.pSmite &&
-                m_role != ROLE_HEALER &&
                 CanTryToCastSpell(pVictim, m_spells.priest.pSmite))
             {
                 if (DoCastSpell(pVictim, m_spells.priest.pSmite) == SPELL_CAST_OK)
@@ -4481,7 +4540,7 @@ void BattleBotAI::UpdateInCombatAI_Priest()
 
         if (me->HasSpell(BB_SPELL_SHOOT_WAND) &&
            !me->IsMoving() &&
-           (me->GetPowerPercent(POWER_MANA) < 5.0f) &&
+           (me->GetPowerPercent(POWER_MANA) < (m_role == ROLE_HEALER ? 30.0f : 5.0f)) &&
            !me->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
             me->CastSpell(pVictim, BB_SPELL_SHOOT_WAND, false);
     }
@@ -5416,17 +5475,8 @@ void BattleBotAI::UpdateInCombatAI_Druid()
             if (TryDruidNatureSwiftnessHeal(this))
                 return;
 
-            if (Unit* pTarget = SelectPeriodicHealTarget(80.0f, 90.0f))
-            {
-                if (HealInjuredTargetPeriodic(pTarget))
-                    return;
-            }
-
-            if (Unit* pTarget = SelectHealTarget(60.0f, 75.0f))
-            {
-                if (HealInjuredTargetDirect(pTarget))
-                    return;
-            }
+            if (FindAndHealInjuredAlly(60.0f, 90.0f))
+                return;
         }
         else if (me->GetHealthPercent() < 55.0f)
         {
@@ -5550,7 +5600,26 @@ void BattleBotAI::UpdateInCombatAI_Druid()
         }
 
         if (m_role == ROLE_HEALER)
+        {
+            // Healer druids: cast Moonfire/Wrath in caster form only.
+            if (form == FORM_NONE)
+            {
+                if (m_spells.druid.pMoonfire &&
+                    CanTryToCastSpell(pVictim, m_spells.druid.pMoonfire))
+                {
+                    if (DoCastSpell(pVictim, m_spells.druid.pMoonfire) == SPELL_CAST_OK)
+                        return;
+                }
+
+                if (m_spells.druid.pWrath &&
+                    CanTryToCastSpell(pVictim, m_spells.druid.pWrath))
+                {
+                    if (DoCastSpell(pVictim, m_spells.druid.pWrath) == SPELL_CAST_OK)
+                        return;
+                }
+            }
             return;
+        }
 
         switch (form)
         {

@@ -1883,11 +1883,78 @@ bool CombatBotBaseAI::AreOthersOnSameTarget(ObjectGuid guid, bool checkMelee, bo
 
 bool CombatBotBaseAI::FindAndHealInjuredAlly(float selfHealPercent, float groupHealPercent)
 {
-    Unit* pTarget = SelectHealTarget(selfHealPercent, groupHealPercent);
-    if (!pTarget)
+    if (!GroupHasBotTank())
+    {
+        // No tank in group: existing behavior, no restrictions.
+        Unit* pTarget = SelectHealTarget(selfHealPercent, groupHealPercent);
+        if (!pTarget)
+            return false;
+        return HealInjuredTarget(pTarget);
+    }
+
+    // Tank present: healer self-preservation is always top priority.
+    if (me->GetHealthPercent() < selfHealPercent &&
+       (!me->InBattleGround() || me->IsInCombat()))
+        return HealInjuredTarget(me);
+
+    if (IsInDuel())
         return false;
 
-    return HealInjuredTarget(pTarget);
+    Group* pGroup = me->GetGroup();
+    if (!pGroup)
+        return false;
+
+    // Pass 1: tanks — raised threshold (90%), any healing spell.
+    {
+        Unit* pBest = nullptr;
+        float bestHp = 100.0f;
+        for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
+        {
+            if (Unit* pMember = itr->getSource())
+            {
+                if (pMember == me || !IsBotRoleTank(pMember))
+                    continue;
+                if (IsValidHealTarget(pMember, 90.0f) && pMember->GetHealthPercent() < bestHp)
+                {
+                    bestHp = pMember->GetHealthPercent();
+                    pBest = pMember;
+                }
+            }
+        }
+        if (pBest)
+            return HealInjuredTarget(pBest);
+    }
+
+    // Pass 2: non-tanks at groupHealPercent threshold.
+    // HP < 50%: any spell (emergency). HP >= 50%: HoT only.
+    {
+        Unit* pBest = nullptr;
+        float bestHp = 100.0f;
+        for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
+        {
+            if (Unit* pMember = itr->getSource())
+            {
+                if (pMember == me || IsBotRoleTank(pMember))
+                    continue;
+                if (pBest && AreOthersOnSameTarget(pMember->GetObjectGuid(), false, true))
+                    continue;
+                if (IsValidHealTarget(pMember, groupHealPercent) && pMember->GetHealthPercent() < bestHp)
+                {
+                    bestHp = pMember->GetHealthPercent();
+                    pBest = pMember;
+                }
+            }
+        }
+        if (pBest)
+        {
+            if (pBest->GetHealthPercent() < 50.0f)
+                return HealInjuredTarget(pBest);
+            else
+                return HealInjuredTargetPeriodic(pBest);
+        }
+    }
+
+    return false;
 }
 
 template <class T>
@@ -1999,6 +2066,30 @@ bool CombatBotBaseAI::IsValidHealTarget(Unit const* pTarget, float healthPercent
             me->IsWithinDist(pTarget, 30.0f);
 }
 
+static bool IsBotRoleTank(Unit const* pUnit)
+{
+    if (Player const* pPlayer = pUnit->ToPlayer())
+        if (CombatBotBaseAI const* pAI = dynamic_cast<CombatBotBaseAI const*>(pPlayer->AI()))
+            return pAI->m_role == ROLE_TANK;
+    return false;
+}
+
+bool CombatBotBaseAI::GroupHasBotTank() const
+{
+    if (Group* pGroup = me->GetGroup())
+    {
+        for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
+        {
+            if (Unit* pMember = itr->getSource())
+            {
+                if (pMember != me && IsBotRoleTank(pMember))
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
 Unit* CombatBotBaseAI::SelectHealTarget(float selfHealPercent, float groupHealPercent) const
 {
     if (me->GetHealthPercent() < selfHealPercent &&
@@ -2022,7 +2113,7 @@ Unit* CombatBotBaseAI::SelectHealTarget(float selfHealPercent, float groupHealPe
                     continue;
 
                 // Avoid all healers picking same target.
-                if (pTarget && !IsTankClass(pMember->GetClass()) && AreOthersOnSameTarget(pMember->GetObjectGuid(), false, true))
+                if (pTarget && !IsBotRoleTank(pMember) && AreOthersOnSameTarget(pMember->GetObjectGuid(), false, true))
                     continue;
 
                 // Check if we should heal party member.
@@ -2094,7 +2185,7 @@ bool CombatBotBaseAI::FindAndPreHealTarget()
                         continue;
 
                     // Avoid all healers picking same target.
-                    if (pTarget && !IsTankClass(pMember->GetClass()) && AreOthersOnSameTarget(pMember->GetObjectGuid(), false, true))
+                    if (pTarget && !IsBotRoleTank(pMember) && AreOthersOnSameTarget(pMember->GetObjectGuid(), false, true))
                         continue;
 
                     int32 incomingDamage = GetIncomingdamage(pMember);
