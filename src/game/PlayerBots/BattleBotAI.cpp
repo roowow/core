@@ -2903,10 +2903,13 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
         if (!pVictim || !IsValidHostileTarget(pVictim))
         {
-            if (pVictim = SelectAttackTarget(pVictim))
+            if (m_role != ROLE_HEALER)
             {
-                AttackStart(pVictim);
-                return;
+                if (pVictim = SelectAttackTarget(pVictim))
+                {
+                    AttackStart(pVictim);
+                    return;
+                }
             }
 
             if (UseMount())
@@ -2969,12 +2972,15 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         BattleBotHasEntanglingRoots(pVictim) ||
         !pVictim->IsWithinDist(me, VISIBILITY_DISTANCE_SMALL))
     {
-        if (Unit* pNewVictim = SelectAttackTarget(pVictim))
+        if (m_role != ROLE_HEALER)
         {
-            if (pVictim != pNewVictim)
+            if (Unit* pNewVictim = SelectAttackTarget(pVictim))
             {
-                AttackStart(pNewVictim);
-                return;
+                if (pVictim != pNewVictim)
+                {
+                    AttackStart(pNewVictim);
+                    return;
+                }
             }
         }
 
