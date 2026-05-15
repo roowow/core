@@ -3632,7 +3632,11 @@ bool BattleBotAI::StartNewPathToObjective()
                             {
                                 uint8 const rescueCap = IsAVKeyObjective(objective.first) ? AV_RESCUE_MAX_BOTS : AV_RESCUE_MAX_BOTS_TOWER;
                                 if (CountAVRescueBots(this, pGO->GetPosition()) < rescueCap)
+                                {
+                                    if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
+                                        return true;
                                     return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                                }
                             }
                         }
                     }
@@ -3682,7 +3686,11 @@ bool BattleBotAI::StartNewPathToObjective()
                             {
                                 uint8 const rescueCap = IsAVKeyObjective(objective.first) ? AV_RESCUE_MAX_BOTS : AV_RESCUE_MAX_BOTS_TOWER;
                                 if (CountAVRescueBots(this, pGO->GetPosition()) < rescueCap)
+                                {
+                                    if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
+                                        return true;
                                     return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                                }
                             }
                         }
                     }
