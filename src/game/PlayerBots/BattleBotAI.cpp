@@ -3095,6 +3095,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         }
 
         if (me->GetVictim() &&
+           me->GetVictim()->IsPlayer() &&
            (me != me->GetVictim()->GetVictim()))
         {
             me->AttackStop(false);
@@ -4929,6 +4930,13 @@ void BattleBotAI::UpdateInCombatAI_Warrior()
                 m_spells.warrior.pDefensiveStance &&
                 CanTryToCastSpell(me, m_spells.warrior.pDefensiveStance))
                 DoCastSpell(me, m_spells.warrior.pDefensiveStance);
+
+            // ── TANK: close distance (e.g. after fear) ──────────────────────
+            if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == IDLE_MOTION_TYPE &&
+                !me->CanReachWithMeleeAutoAttack(pVictim))
+            {
+                me->GetMotionMaster()->MoveChase(pVictim);
+            }
         }
         else // DPS
         {

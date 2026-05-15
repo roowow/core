@@ -3,7 +3,8 @@
     "allow": [
       "Bash(python -c ' *)",
       "Bash(python -c \"print\\('hello'\\)\")",
-      "Bash(python3 -c *)"
+      "Bash(python3 -c *)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }
