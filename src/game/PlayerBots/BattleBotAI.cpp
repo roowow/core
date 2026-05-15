@@ -1848,11 +1848,15 @@ float BattleBotAI::GetMaxAggroDistanceForMap() const
 bool BattleBotAI::ShouldUseAVOpeningPassiveCombat() const
 {
     BattleGround* bg = me->GetBattleGround();
-    return bg && bg->GetTypeID() == BATTLEGROUND_AV &&
-        bg->GetStatus() == STATUS_IN_PROGRESS &&
-        !me->IsInCombat() &&
-        bg->GetStartTime() <= 20 * MINUTE * IN_MILLISECONDS &&
-        !BattleBotIsNearAVFlag(this, 10.0f);
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV ||
+        bg->GetStatus() != STATUS_IN_PROGRESS ||
+        me->IsInCombat() ||
+        BattleBotIsNearAVFlag(this, 10.0f))
+        return false;
+
+    uint32 const t = bg->GetStartTime();
+    return t <= 20 * MINUTE * IN_MILLISECONDS ||
+           t > 40 * MINUTE * IN_MILLISECONDS;
 }
 
 Unit* BattleBotAI::SelectAVOpeningObjectiveNpcTarget(Unit* pExcept) const

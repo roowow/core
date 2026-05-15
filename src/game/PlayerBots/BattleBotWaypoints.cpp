@@ -280,14 +280,16 @@ std::vector<uint32> const vFlagsAB = { GO_AB_ALLIANCE_BANNER , GO_AB_CONTESTED_B
 #define AB_GUARD_KEEP_RADIUS   20.0f
 #define AB_GUARD_EXCESS_RADIUS 45.0f
 #define AB_GUARD_ASSIGN_RADIUS 20.0f
-#define AV_FLAG_DEFENSE_RADIUS 55.0f
-#define AV_SHORT_GUARD_RADIUS  45.0f
-#define AV_GUARD_REQUIRED_BOTS 2
+#define AV_FLAG_DEFENSE_RADIUS    55.0f
+#define AV_SHORT_GUARD_RADIUS     45.0f
+#define AV_NATIVE_GY_GUARD_BOTS   1
+#define AV_CAPTURED_GY_GUARD_BOTS 2
+#define AV_FINAL_PUSH_MINUTES     40
 
 static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, float radius);
-static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, float radius, Position& outPosition);
+static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, float radius, Position& outPosition, uint32* outMatchedObjective = nullptr);
 static bool GetAVNativeGraveyardFallbackPosition(uint32 node, Position& outPosition);
-static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos);
+static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos, uint8 requiredBots = AV_CAPTURED_GY_GUARD_BOTS);
 
 static Position const AB_GuardPositions[5] =
 {
@@ -996,9 +998,12 @@ void AV_AtFlag(BattleBotAI* pAI)
         return;
 
     Position guardPosition;
-    if (FindNearbyAVKeyDefensePosition(pAI, AV_SHORT_GUARD_RADIUS, guardPosition))
+    uint32 foundObjective = 0;
+    if (FindNearbyAVKeyDefensePosition(pAI, AV_SHORT_GUARD_RADIUS, guardPosition, &foundObjective))
     {
-        if (!IsAVExcessShortGuardBot(pAI, guardPosition))
+        uint8 const required = IsAVNativeGraveyard(pAI->me->GetTeam(), foundObjective)
+            ? AV_NATIVE_GY_GUARD_BOTS : AV_CAPTURED_GY_GUARD_BOTS;
+        if (!IsAVExcessShortGuardBot(pAI, guardPosition, required))
         {
             pAI->ClearPath();
             pAI->StopMoving();
@@ -2873,6 +2878,28 @@ static bool IsAVGuardAssignmentPaused(BattleGround const* bg)
         bg->GetStartTime() <= 5 * MINUTE * IN_MILLISECONDS;
 }
 
+static bool IsAVFinalPush(BattleGround const* bg)
+{
+    return bg && bg->GetTypeID() == BATTLEGROUND_AV &&
+        bg->GetStatus() == STATUS_IN_PROGRESS &&
+        bg->GetStartTime() > AV_FINAL_PUSH_MINUTES * MINUTE * IN_MILLISECONDS;
+}
+
+static bool IsAVNativeGraveyard(Team team, uint32 objective)
+{
+    if (team == HORDE)
+    {
+        for (uint32 node : AV_HordeNativeGraveyards)
+            if (node == objective) return true;
+    }
+    else
+    {
+        for (uint32 node : AV_AllianceNativeGraveyards)
+            if (node == objective) return true;
+    }
+    return false;
+}
+
 template<std::size_t N>
 static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, uint32 const (&objectives)[N], float radius)
 {
@@ -2920,18 +2947,19 @@ static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, float ra
 }
 
 template<std::size_t N>
-static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, uint32 const (&objectives)[N], float radius, Position& outPosition)
+static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, uint32 const (&objectives)[N], float radius, Position& outPosition, uint32* outMatchedObjective = nullptr)
 {
     BattleGround* bg = pAI->me->GetBattleGround();
     Map* map = pAI->me->GetMap();
     if (!bg || !map || bg->GetTypeID() != BATTLEGROUND_AV)
         return false;
 
-    if (IsAVGuardAssignmentPaused(bg))
+    if (IsAVGuardAssignmentPaused(bg) || IsAVFinalPush(bg))
         return false;
 
     bool found = false;
     float bestDistance = FLT_MAX;
+    uint32 bestObjective = 0;
     uint32 const controlledState = GetAVControlledStateForTeam(pAI->me->GetTeam());
     uint32 const assaultedState = GetAVAssaultedStateForTeam(pAI->me->GetTeam());
     uint32 const enemyAssaultedState = GetAVEnemyAssaultedStateForTeam(pAI->me->GetTeam());
@@ -2969,16 +2997,20 @@ static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, uint32 const 
         {
             outPosition = guardPosition;
             bestDistance = distance;
+            bestObjective = objective;
             found = true;
         }
     }
 
+    if (found && outMatchedObjective)
+        *outMatchedObjective = bestObjective;
+
     return found;
 }
 
-static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, float radius, Position& outPosition)
+static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, float radius, Position& outPosition, uint32* outMatchedObjective)
 {
-    return FindNearbyAVKeyDefensePosition(pAI, AV_KeyDefenseObjectives, radius, outPosition);
+    return FindNearbyAVKeyDefensePosition(pAI, AV_KeyDefenseObjectives, radius, outPosition, outMatchedObjective);
 }
 
 static GameObject* GetAVControlledGraveyardObject(BattleBotAI const* pAI, uint32 node)
@@ -3126,7 +3158,7 @@ static uint8 CountAVShortGuardBots(BattleBotAI* pAI, Position const& pos, bool i
     return count;
 }
 
-static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos)
+static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos, uint8 requiredBots)
 {
     Map* map = pAI->me->GetMap();
     if (!map)
@@ -3160,7 +3192,7 @@ static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos)
         }
     }
 
-    return lowerGuidGuards >= AV_GUARD_REQUIRED_BOTS;
+    return lowerGuidGuards >= requiredBots;
 }
 
 template<std::size_t N>
@@ -3266,13 +3298,13 @@ static bool FindAVRearGuardPosition(BattleBotAI* pAI, uint32 const (&objectives)
         }
 
         uint8 const guardCount = CountAVShortGuardBots(pAI, guardPosition, false, false);
-        if (guardCount >= AV_GUARD_REQUIRED_BOTS)
+        if (guardCount >= AV_NATIVE_GY_GUARD_BOTS)
         {
             ++index;
             continue;
         }
 
-        uint8 const neededGuards = AV_GUARD_REQUIRED_BOTS - guardCount;
+        uint8 const neededGuards = AV_NATIVE_GY_GUARD_BOTS - guardCount;
         if (!IsAVRearGuardCandidate(pAI, objectives, rearPosition, neededGuards, index))
         {
             ++index;
@@ -3288,7 +3320,8 @@ static bool FindAVRearGuardPosition(BattleBotAI* pAI, uint32 const (&objectives)
 
 static bool FindAVRearGuardPosition(BattleBotAI* pAI, Position& outPosition)
 {
-    if (IsAVGuardAssignmentPaused(pAI->me->GetBattleGround()))
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (IsAVGuardAssignmentPaused(bg) || IsAVFinalPush(bg))
         return false;
 
     if (pAI->me->GetTeam() == HORDE)
@@ -3355,9 +3388,14 @@ bool BattleBotReturnToGuardPositionBeforeRecovery(BattleBotAI* pAI)
         case BATTLEGROUND_AV:
         {
             Position guardPosition;
-            if (FindNearbyAVKeyDefensePosition(pAI, AV_FLAG_DEFENSE_RADIUS, guardPosition) &&
-                !IsAVExcessShortGuardBot(pAI, guardPosition))
-                return MoveGuardBackBeforeRecovery(pAI, guardPosition, 20.0f, nullptr);
+            uint32 foundObjective = 0;
+            if (FindNearbyAVKeyDefensePosition(pAI, AV_FLAG_DEFENSE_RADIUS, guardPosition, &foundObjective))
+            {
+                uint8 const required = IsAVNativeGraveyard(pAI->me->GetTeam(), foundObjective)
+                    ? AV_NATIVE_GY_GUARD_BOTS : AV_CAPTURED_GY_GUARD_BOTS;
+                if (!IsAVExcessShortGuardBot(pAI, guardPosition, required))
+                    return MoveGuardBackBeforeRecovery(pAI, guardPosition, 20.0f, nullptr);
+            }
 
             Position rearGuardPosition;
             if (FindAVRearGuardPosition(pAI, rearGuardPosition) &&
@@ -3477,9 +3515,14 @@ bool BattleBotAI::StartNewPathToObjective()
             }
 
             Position guardPosition;
-            if (FindNearbyAVKeyDefensePosition(this, AV_SHORT_GUARD_RADIUS, guardPosition))
-                if (!IsAVExcessShortGuardBot(this, guardPosition))
+            uint32 foundObjective = 0;
+            if (FindNearbyAVKeyDefensePosition(this, AV_SHORT_GUARD_RADIUS, guardPosition, &foundObjective))
+            {
+                uint8 const required = IsAVNativeGraveyard(me->GetTeam(), foundObjective)
+                    ? AV_NATIVE_GY_GUARD_BOTS : AV_CAPTURED_GY_GUARD_BOTS;
+                if (!IsAVExcessShortGuardBot(this, guardPosition, required))
                     return true;
+            }
 
             if (me->GetTeam() == HORDE)
             {
@@ -3561,17 +3604,11 @@ bool BattleBotAI::StartNewPathToObjective()
                     }
                 }
 
-                // Attack closest objective.
-                WorldObject* pAttackObjectiveObject = nullptr;
-                float attackObjectiveDistance = FLT_MAX;
-
+                // Attack Galvangar first if alive, then first uncaptured objective in order.
                 if (!bg->IsActiveEvent(BG_AV_NodeEventCaptainDead_H, 0))
                 {
                     if (Creature* pGalvangar = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_CAPTAIN_H, 0)))
-                    {
-                        pAttackObjectiveObject = pGalvangar;
-                        attackObjectiveDistance = me->GetDistance(pGalvangar);
-                    }
+                        return StartNewPathToPosition(pGalvangar->GetPosition(), vPaths_AV);
                 }
 
                 for (const auto& objective : AV_AllianceAttackObjectives)
@@ -3579,19 +3616,9 @@ bool BattleBotAI::StartNewPathToObjective()
                     if (bg->IsActiveEvent(objective.first, HORDE_ASSAULTED) || bg->IsActiveEvent(objective.first, HORDE_CONTROLLED) || bg->IsActiveEvent(objective.first, NEUTRAL_CONTROLLED))
                     {
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
-                        {
-                            float const distance = me->GetDistance(pGO);
-                            if (attackObjectiveDistance > distance)
-                            {
-                                pAttackObjectiveObject = pGO;
-                                attackObjectiveDistance = distance;
-                            }
-                        }
+                            return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                     }
                 }
-
-                if (pAttackObjectiveObject)
-                    return StartNewPathToPosition(pAttackObjectiveObject->GetPosition(), vPaths_AV);
             }
             break;
         }
