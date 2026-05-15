@@ -64,9 +64,9 @@ public:
     bool ShouldUseAVOpeningPassiveCombat() const;
     Unit* SelectAVOpeningObjectiveNpcTarget(Unit* pExcept = nullptr) const;
     Unit* SelectAVOpeningRetaliationTarget(Unit* pExcept = nullptr) const;
-    uint32 GetAVStartWaveDelay() const;
-    bool ShouldWaitForAVStartWave();
-    bool UpdateAVStartWaveWaitingAI();
+    uint32 GetAVPhase1WaveDelay() const;
+    bool ShouldWaitForAVPhase1Wave();
+    bool UpdateAVPhase1WaitingAI();
     bool AttackStart(Unit* pVictim);
     Unit* SelectAttackTarget(Unit* pExcept = nullptr) const;
     Unit* SelectHealerOffensiveTarget() const;
@@ -138,6 +138,17 @@ public:
     uint8 m_bgStuckCounter = 0;
     float m_bgStuckLastX = 0.0f;
     float m_bgStuckLastY = 0.0f;
+
+    // AV tower stuck detection: timeout + skip for non-key tower objectives
+    uint32 m_avCurrentObjective = 0;
+    time_t m_avObjectiveTime = 0;
+    uint32 m_avSkipObjective = 0;
+    time_t m_avSkipObjectiveExpiry = 0;
+
+    // Movement progress checkpoint: detects outdoor pathfinding loops
+    uint8 m_bgProgressTicks = 0;
+    float m_bgProgressX = 0.0f;
+    float m_bgProgressY = 0.0f;
 };
 
 #endif

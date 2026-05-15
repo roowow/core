@@ -285,7 +285,6 @@ std::vector<uint32> const vFlagsAB = { GO_AB_ALLIANCE_BANNER , GO_AB_CONTESTED_B
 #define AV_NATIVE_GY_GUARD_BOTS    1
 #define AV_CAPTURING_GY_GUARD_BOTS 5
 #define AV_CAPTURED_GY_GUARD_BOTS  3
-#define AV_FINAL_PUSH_MINUTES     40
 #define AV_RESCUE_RADIUS          80.0f
 #define AV_RESCUE_MAX_BOTS        3
 #define AV_RESCUE_MAX_BOTS_TOWER  1
@@ -296,8 +295,9 @@ static bool GetAVNativeGraveyardFallbackPosition(uint32 node, Position& outPosit
 static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos, uint8 requiredBots = AV_CAPTURED_GY_GUARD_BOTS);
 static bool IsAVNativeGraveyard(Team team, uint32 objective);
 static bool IsAVNativeGraveyardDefensible(BattleBotAI const* pAI, uint32 node);
-static bool IsAVTotalAssaultActive(BattleBotAI const* pAI, BattleGround* bg);
-static uint8 GetAVRequiredGuardBots(BattleGround* bg, Team team, uint32 objective);
+static uint8 GetAVPhase(BattleBotAI const* pAI, BattleGround const* bg);
+static bool IsAVTotalAssaultActive(BattleBotAI const* pAI, BattleGround const* bg);
+static uint8 GetAVRequiredGuardBots(BattleBotAI const* pAI, BattleGround* bg, uint32 objective);
 static uint8 CountAVRescueBots(BattleBotAI* pAI, Position const& pos);
 static bool IsAVKeyObjective(uint32 objectiveId);
 static uint8 CountFriendlyPlayersAtObjective(BattleBotAI const* pAI, Position const& pos);
@@ -1012,7 +1012,7 @@ void AV_AtFlag(BattleBotAI* pAI)
     uint32 foundObjective = 0;
     if (FindNearbyAVKeyDefensePosition(pAI, AV_SHORT_GUARD_RADIUS, guardPosition, &foundObjective))
     {
-        uint8 const required = GetAVRequiredGuardBots(pAI->me->GetBattleGround(), pAI->me->GetTeam(), foundObjective);
+        uint8 const required = GetAVRequiredGuardBots(pAI, pAI->me->GetBattleGround(), foundObjective);
         if (!IsAVExcessShortGuardBot(pAI, guardPosition, required))
         {
             pAI->ClearPath();
@@ -2881,18 +2881,36 @@ static uint32 GetAVEnemyControlledStateForTeam(Team team)
     return team == HORDE ? ALLIANCE_CONTROLLED : HORDE_CONTROLLED;
 }
 
-static bool IsAVGuardAssignmentPaused(BattleGround const* bg)
+// Phase 1: battle just started — all bots push forward, no guard assignment.
+// Phase 2: first key enemy GY secured (Stonehearth for Horde, Iceblood for Alliance).
+// Phase 3: second key enemy GY secured — total assault, converge and rush boss.
+static uint8 GetHordeAVPhase(BattleGround const* bg)
 {
-    return bg && bg->GetTypeID() == BATTLEGROUND_AV &&
-        bg->GetStatus() == STATUS_IN_PROGRESS &&
-        bg->GetStartTime() <= 10 * MINUTE * IN_MILLISECONDS;
+    if (bg->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_ASSAULTED) ||
+        bg->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_CONTROLLED))
+        return 3;
+    if (bg->IsActiveEvent(BG_AV_STONEHEARTH_GY, HORDE_ASSAULTED) ||
+        bg->IsActiveEvent(BG_AV_STONEHEARTH_GY, HORDE_CONTROLLED))
+        return 2;
+    return 1;
 }
 
-static bool IsAVFinalPush(BattleGround const* bg)
+static uint8 GetAllianceAVPhase(BattleGround const* bg)
 {
-    return bg && bg->GetTypeID() == BATTLEGROUND_AV &&
-        bg->GetStatus() == STATUS_IN_PROGRESS &&
-        bg->GetStartTime() > AV_FINAL_PUSH_MINUTES * MINUTE * IN_MILLISECONDS;
+    if (bg->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED) ||
+        bg->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_CONTROLLED))
+        return 3;
+    if (bg->IsActiveEvent(BG_AV_ICEBLOOD_GY, ALLIANCE_ASSAULTED) ||
+        bg->IsActiveEvent(BG_AV_ICEBLOOD_GY, ALLIANCE_CONTROLLED))
+        return 2;
+    return 1;
+}
+
+static uint8 GetAVPhase(BattleBotAI const* pAI, BattleGround const* bg)
+{
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV || bg->GetStatus() != STATUS_IN_PROGRESS)
+        return 1;
+    return pAI->me->GetTeam() == HORDE ? GetHordeAVPhase(bg) : GetAllianceAVPhase(bg);
 }
 
 static bool IsAVNativeGraveyard(Team team, uint32 objective)
@@ -2910,10 +2928,20 @@ static bool IsAVNativeGraveyard(Team team, uint32 objective)
     return false;
 }
 
-static uint8 GetAVRequiredGuardBots(BattleGround* bg, Team team, uint32 objective)
+static uint8 GetAVRequiredGuardBots(BattleBotAI const* pAI, BattleGround* bg, uint32 objective)
 {
+    Team const team = pAI->me->GetTeam();
+
+    // Own native GYs always get 1 guard (in phase 2+; phase 1 is excluded upstream).
     if (IsAVNativeGraveyard(team, objective))
         return AV_NATIVE_GY_GUARD_BOTS;
+
+    // In phase 3, the phase-2 GY gets reduced to 1 guard so bots are freed for the assault.
+    uint32 const phase2GY = (team == HORDE) ? (uint32)BG_AV_STONEHEARTH_GY : (uint32)BG_AV_ICEBLOOD_GY;
+    if (objective == phase2GY && GetAVPhase(pAI, bg) >= 3)
+        return AV_NATIVE_GY_GUARD_BOTS;
+
+    // Capturing (assaulted): 5 guards; fully captured: 3 guards.
     if (bg->IsActiveEvent(objective, GetAVAssaultedStateForTeam(team)))
         return AV_CAPTURING_GY_GUARD_BOTS;
     return AV_CAPTURED_GY_GUARD_BOTS;
@@ -2973,7 +3001,7 @@ static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, uint32 const 
     if (!bg || !map || bg->GetTypeID() != BATTLEGROUND_AV)
         return false;
 
-    if (IsAVGuardAssignmentPaused(bg) || IsAVFinalPush(bg))
+    if (GetAVPhase(pAI, bg) == 1)
         return false;
 
     bool found = false;
@@ -3244,15 +3272,10 @@ static uint8 CountFriendlyPlayersAtObjective(BattleBotAI const* pAI, Position co
     return count;
 }
 
-static bool IsAVTotalAssaultActive(BattleBotAI const* pAI, BattleGround* bg)
+static bool IsAVTotalAssaultActive(BattleBotAI const* pAI, BattleGround const* bg)
 {
-    if (pAI->me->GetTeam() == HORDE)
-        return bg->IsActiveEvent(BG_AV_STONEHEARTH_GY, HORDE_CONTROLLED);
-    else
-        return bg->IsActiveEvent(BG_AV_FROSTWOLF_RELIEF_HUT_GY, ALLIANCE_CONTROLLED);
+    return GetAVPhase(pAI, bg) >= 3;
 }
-
-#define AV_TOTAL_ASSAULT_DEFENDERS 5
 
 static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos, uint8 requiredBots)
 {
@@ -3433,7 +3456,7 @@ static bool FindAVRearGuardPosition(BattleBotAI* pAI, uint32 const (&objectives)
 static bool FindAVRearGuardPosition(BattleBotAI* pAI, Position& outPosition)
 {
     BattleGround* bg = pAI->me->GetBattleGround();
-    if (IsAVGuardAssignmentPaused(bg) || IsAVFinalPush(bg))
+    if (GetAVPhase(pAI, bg) == 1)
         return false;
 
     if (pAI->me->GetTeam() == HORDE)
@@ -3503,7 +3526,7 @@ bool BattleBotReturnToGuardPositionBeforeRecovery(BattleBotAI* pAI)
             uint32 foundObjective = 0;
             if (FindNearbyAVKeyDefensePosition(pAI, AV_FLAG_DEFENSE_RADIUS, guardPosition, &foundObjective))
             {
-                uint8 const required = GetAVRequiredGuardBots(pAI->me->GetBattleGround(), pAI->me->GetTeam(), foundObjective);
+                uint8 const required = GetAVRequiredGuardBots(pAI, pAI->me->GetBattleGround(), foundObjective);
                 if (!IsAVExcessShortGuardBot(pAI, guardPosition, required))
                     return MoveGuardBackBeforeRecovery(pAI, guardPosition, 20.0f, nullptr);
             }
@@ -3629,19 +3652,25 @@ bool BattleBotAI::StartNewPathToObjective()
             uint32 foundObjective = 0;
             if (FindNearbyAVKeyDefensePosition(this, AV_SHORT_GUARD_RADIUS, guardPosition, &foundObjective))
             {
-                uint8 const required = GetAVRequiredGuardBots(bg, me->GetTeam(), foundObjective);
+                uint8 const required = GetAVRequiredGuardBots(this, bg, foundObjective);
                 if (!IsAVExcessShortGuardBot(this, guardPosition, required))
                     return true;
             }
 
-            // Total assault mode: key enemy GY captured → all bots converge to it then rush boss
+            // Phase 3 (total assault): converge at the phase-3 GY then rush boss.
             if (IsAVTotalAssaultActive(this, bg))
             {
                 if (me->GetTeam() == HORDE)
                 {
-                    if (GameObject* pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_STONEHEARTH_GY, HORDE_CONTROLLED)))
+                    // Phase-3 GY: Stormpike GY (雷矛). Try controlled state first, then assaulted.
+                    GameObject* pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_STORMPIKE_GY, HORDE_CONTROLLED));
+                    if (!pGY)
+                        pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_STORMPIKE_GY, HORDE_ASSAULTED));
+                    if (pGY)
                     {
-                        if (CountFriendlyPlayersAtObjective(this, pGY->GetPosition()) < AV_TOTAL_ASSAULT_DEFENDERS)
+                        uint8 const defenders = bg->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_ASSAULTED)
+                            ? AV_CAPTURING_GY_GUARD_BOTS : AV_CAPTURED_GY_GUARD_BOTS;
+                        if (CountFriendlyPlayersAtObjective(this, pGY->GetPosition()) < defenders)
                         {
                             if (me->IsWithinDist(pGY, AV_RESCUE_RADIUS))
                                 return true;
@@ -3653,9 +3682,15 @@ bool BattleBotAI::StartNewPathToObjective()
                 }
                 else // ALLIANCE
                 {
-                    if (GameObject* pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_FROSTWOLF_RELIEF_HUT_GY, ALLIANCE_CONTROLLED)))
+                    // Phase-3 GY: Frostwolf GY (霜狼). Try controlled state first, then assaulted.
+                    GameObject* pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_FROSTWOLF_GY, ALLIANCE_CONTROLLED));
+                    if (!pGY)
+                        pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED));
+                    if (pGY)
                     {
-                        if (CountFriendlyPlayersAtObjective(this, pGY->GetPosition()) < AV_TOTAL_ASSAULT_DEFENDERS)
+                        uint8 const defenders = bg->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED)
+                            ? AV_CAPTURING_GY_GUARD_BOTS : AV_CAPTURED_GY_GUARD_BOTS;
+                        if (CountFriendlyPlayersAtObjective(this, pGY->GetPosition()) < defenders)
                         {
                             if (me->IsWithinDist(pGY, AV_RESCUE_RADIUS))
                                 return true;
@@ -3681,9 +3716,8 @@ bool BattleBotAI::StartNewPathToObjective()
                         return StartNewPathToPosition(pVanndar->GetPosition(), vPaths_AV);
                 }
 
-                // Snowfall GY: only ~20% of bots (by GUID) are candidates, preventing mass simultaneous routing.
-                // Up to 5 physically routed, only 2 physically stay.
-                if ((me->GetObjectGuid().GetCounter() % 5) == 0)
+                // Phase 1 Snowfall (Horde): 1 guard via 10% GUID gate.
+                if ((me->GetObjectGuid().GetCounter() % 10) == 0)
                 {
                     if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
                     {
@@ -3693,9 +3727,8 @@ bool BattleBotAI::StartNewPathToObjective()
                                 {
                                     if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
                                     {
-                                        if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < 2)
+                                        if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < 1)
                                             return true;
-                                        // 2+ physical defenders already here, continue to next objective
                                     }
                                     else
                                         return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
@@ -3713,6 +3746,10 @@ bool BattleBotAI::StartNewPathToObjective()
                 {
                     if (bg->IsActiveEvent(objective.first, ALLIANCE_ASSAULTED))
                     {
+                        if (!IsAVKeyObjective(objective.first) &&
+                            objective.first == m_avSkipObjective && time(nullptr) < m_avSkipObjectiveExpiry)
+                            continue;
+
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
                         {
                             if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
@@ -3721,7 +3758,26 @@ bool BattleBotAI::StartNewPathToObjective()
                                 if (CountAVRescueBots(this, pGO->GetPosition()) < rescueCap)
                                 {
                                     if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
+                                    {
+                                        if (!IsAVKeyObjective(objective.first))
+                                        {
+                                            if (me->IsInCombat())
+                                                m_avObjectiveTime = time(nullptr);
+                                            else if (m_avCurrentObjective != objective.first)
+                                            {
+                                                m_avCurrentObjective = objective.first;
+                                                m_avObjectiveTime = time(nullptr);
+                                            }
+                                            else if (time(nullptr) - m_avObjectiveTime > 60)
+                                            {
+                                                m_avSkipObjective = objective.first;
+                                                m_avSkipObjectiveExpiry = time(nullptr) + 90;
+                                                m_avCurrentObjective = 0;
+                                                continue;
+                                            }
+                                        }
                                         return true;
+                                    }
                                     return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                                 }
                             }
@@ -3735,8 +3791,30 @@ bool BattleBotAI::StartNewPathToObjective()
                     {
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
                         {
-                            if (!IsAVKeyObjective(objective.first) && CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) >= 1)
-                                continue;
+                            if (!IsAVKeyObjective(objective.first))
+                            {
+                                if (objective.first == m_avSkipObjective && time(nullptr) < m_avSkipObjectiveExpiry)
+                                    continue;
+                                if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) >= 5)
+                                    continue;
+                                if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
+                                {
+                                    if (me->IsInCombat())
+                                        m_avObjectiveTime = time(nullptr);
+                                    else if (m_avCurrentObjective != objective.first)
+                                    {
+                                        m_avCurrentObjective = objective.first;
+                                        m_avObjectiveTime = time(nullptr);
+                                    }
+                                    else if (time(nullptr) - m_avObjectiveTime > 60)
+                                    {
+                                        m_avSkipObjective = objective.first;
+                                        m_avSkipObjectiveExpiry = time(nullptr) + 90;
+                                        m_avCurrentObjective = 0;
+                                        continue;
+                                    }
+                                }
+                            }
                             return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                         }
                     }
@@ -3755,8 +3833,7 @@ bool BattleBotAI::StartNewPathToObjective()
                         return StartNewPathToPosition(pDrek->GetPosition(), vPaths_AV);
                 }
 
-                // Snowfall GY: only ~20% of bots (by GUID) are candidates, preventing mass simultaneous routing.
-                // Up to 5 physically routed, only 2 physically stay.
+                // Phase 1 Snowfall (Alliance): 5 guards while capturing, 3 once fully held.
                 if ((me->GetObjectGuid().GetCounter() % 5) == 0)
                 if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
                 {
@@ -3766,9 +3843,10 @@ bool BattleBotAI::StartNewPathToObjective()
                             {
                                 if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
                                 {
-                                    if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < 2)
+                                    uint8 const snowfallCap = bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED)
+                                        ? AV_CAPTURED_GY_GUARD_BOTS : AV_CAPTURING_GY_GUARD_BOTS;
+                                    if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < snowfallCap)
                                         return true;
-                                    // 2+ physical defenders already here, continue to next objective
                                 }
                                 else
                                     return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
@@ -3795,6 +3873,10 @@ bool BattleBotAI::StartNewPathToObjective()
                                 continue;
                         }
 
+                        if (!IsAVKeyObjective(objective.first) &&
+                            objective.first == m_avSkipObjective && time(nullptr) < m_avSkipObjectiveExpiry)
+                            continue;
+
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
                         {
                             if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
@@ -3803,7 +3885,26 @@ bool BattleBotAI::StartNewPathToObjective()
                                 if (CountAVRescueBots(this, pGO->GetPosition()) < rescueCap)
                                 {
                                     if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
+                                    {
+                                        if (!IsAVKeyObjective(objective.first))
+                                        {
+                                            if (me->IsInCombat())
+                                                m_avObjectiveTime = time(nullptr);
+                                            else if (m_avCurrentObjective != objective.first)
+                                            {
+                                                m_avCurrentObjective = objective.first;
+                                                m_avObjectiveTime = time(nullptr);
+                                            }
+                                            else if (time(nullptr) - m_avObjectiveTime > 60)
+                                            {
+                                                m_avSkipObjective = objective.first;
+                                                m_avSkipObjectiveExpiry = time(nullptr) + 90;
+                                                m_avCurrentObjective = 0;
+                                                continue;
+                                            }
+                                        }
                                         return true;
+                                    }
                                     return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                                 }
                             }
@@ -3824,8 +3925,30 @@ bool BattleBotAI::StartNewPathToObjective()
                     {
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
                         {
-                            if (!IsAVKeyObjective(objective.first) && CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) >= 1)
-                                continue;
+                            if (!IsAVKeyObjective(objective.first))
+                            {
+                                if (objective.first == m_avSkipObjective && time(nullptr) < m_avSkipObjectiveExpiry)
+                                    continue;
+                                if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) >= 5)
+                                    continue;
+                                if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
+                                {
+                                    if (me->IsInCombat())
+                                        m_avObjectiveTime = time(nullptr);
+                                    else if (m_avCurrentObjective != objective.first)
+                                    {
+                                        m_avCurrentObjective = objective.first;
+                                        m_avObjectiveTime = time(nullptr);
+                                    }
+                                    else if (time(nullptr) - m_avObjectiveTime > 60)
+                                    {
+                                        m_avSkipObjective = objective.first;
+                                        m_avSkipObjectiveExpiry = time(nullptr) + 90;
+                                        m_avCurrentObjective = 0;
+                                        continue;
+                                    }
+                                }
+                            }
                             return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                         }
                     }

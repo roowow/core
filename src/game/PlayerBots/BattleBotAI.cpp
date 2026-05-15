@@ -1932,7 +1932,7 @@ Unit* BattleBotAI::SelectAVOpeningRetaliationTarget(Unit* pExcept) const
     return nullptr;
 }
 
-uint32 BattleBotAI::GetAVStartWaveDelay() const
+uint32 BattleBotAI::GetAVPhase1WaveDelay() const
 {
     uint32 const guid = me->GetObjectGuid().GetCounter();
     uint32 const bucket = guid % 10;
@@ -1943,7 +1943,7 @@ uint32 BattleBotAI::GetAVStartWaveDelay() const
     return 15;
 }
 
-bool BattleBotAI::ShouldWaitForAVStartWave()
+bool BattleBotAI::ShouldWaitForAVPhase1Wave()
 {
     BattleGround* bg = me->GetBattleGround();
     if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
@@ -1970,15 +1970,15 @@ bool BattleBotAI::ShouldWaitForAVStartWave()
         if (bg->GetStartTime() > 3 * MINUTE * IN_MILLISECONDS)
             m_avStartWaveReleaseTime = sWorld.GetGameTime();
         else
-            m_avStartWaveReleaseTime = sWorld.GetGameTime() + GetAVStartWaveDelay();
+            m_avStartWaveReleaseTime = sWorld.GetGameTime() + GetAVPhase1WaveDelay();
     }
 
     return sWorld.GetGameTime() < m_avStartWaveReleaseTime;
 }
 
-bool BattleBotAI::UpdateAVStartWaveWaitingAI()
+bool BattleBotAI::UpdateAVPhase1WaitingAI()
 {
-    if (!ShouldWaitForAVStartWave())
+    if (!ShouldWaitForAVPhase1Wave())
         return false;
 
     ClearPath();
@@ -2468,6 +2468,11 @@ void BattleBotAI::OnJustDied()
     ClearPath();
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
         StopMoving();
+    m_avCurrentObjective = 0;
+    m_avObjectiveTime = 0;
+    m_avSkipObjective = 0;
+    m_avSkipObjectiveExpiry = 0;
+    m_bgProgressTicks = 0;
 }
 
 void BattleBotAI::OnJustRevived()
@@ -2541,6 +2546,11 @@ void BattleBotAI::OnLeaveBattleGround()
     m_avStartWaveInitialized = false;
     m_avStartWaveBgInstance = 0;
     m_avStartWaveReleaseTime = 0;
+    m_avCurrentObjective = 0;
+    m_avObjectiveTime = 0;
+    m_avSkipObjective = 0;
+    m_avSkipObjectiveExpiry = 0;
+    m_bgProgressTicks = 0;
 
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
         StopMoving();
@@ -2833,7 +2843,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         return;
     }
 
-    if (UpdateAVStartWaveWaitingAI())
+    if (UpdateAVPhase1WaitingAI())
         return;
 
     if (!me->IsInCombat())
@@ -2952,6 +2962,50 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             else
             {
                 m_bgStuckCounter = 0;
+                // Out of combat but physically stuck inside a building (e.g. bunker in AV)
+                if (!me->IsMoving() && currentBg->GetTypeID() == BATTLEGROUND_AV)
+                {
+                    bool const outdoors = me->GetMap()->GetTerrain()->IsOutdoors(curX, curY, me->GetPositionZ());
+                    if (!outdoors)
+                    {
+                        // Allow bots to remain indoors when fighting the boss
+                        bool nearBoss = false;
+                        if (Creature* pBossA = me->GetMap()->GetCreature(currentBg->GetSingleCreatureGuid(BG_AV_BOSS_A, 0)))
+                            nearBoss |= me->GetDistance(pBossA) < 60.0f;
+                        if (!nearBoss)
+                            if (Creature* pBossH = me->GetMap()->GetCreature(currentBg->GetSingleCreatureGuid(BG_AV_BOSS_H, 0)))
+                                nearBoss |= me->GetDistance(pBossH) < 60.0f;
+                        if (!nearBoss)
+                        {
+                            ClearPath();
+                            StartNewPathToObjective();
+                        }
+                    }
+                }
+            }
+
+            // Checkpoint-based movement progress detection: catches outdoor pathfinding loops
+            // (e.g. bot circling in terrain pit below a tower, IsMoving=true but net position near zero)
+            if (!me->IsInCombat() && me->IsMoving())
+            {
+                ++m_bgProgressTicks;
+                if (m_bgProgressTicks >= 10) // 10 * 2s = 20 seconds
+                {
+                    if (me->GetDistance2d(m_bgProgressX, m_bgProgressY) < 15.0f)
+                    {
+                        ClearPath();
+                        StartNewPathToObjective();
+                    }
+                    m_bgProgressX = curX;
+                    m_bgProgressY = curY;
+                    m_bgProgressTicks = 0;
+                }
+            }
+            else
+            {
+                m_bgProgressTicks = 0;
+                m_bgProgressX = curX;
+                m_bgProgressY = curY;
             }
 
             m_bgStuckLastX = curX;
@@ -2982,11 +3036,11 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
         if (!pVictim || !IsValidHostileTarget(pVictim))
         {
-            // In AV total assault mode, don't initiate combat — only fight back if attacked.
+            // In AV phase 3 (total assault), don't initiate combat — only fight back if attacked.
             BattleGround* bgForAssault = me->GetBattleGround();
             bool const avTotalAssault = bgForAssault && bgForAssault->GetTypeID() == BATTLEGROUND_AV &&
-                ((me->GetTeam() == HORDE   && bgForAssault->IsActiveEvent(BG_AV_STONEHEARTH_GY,        HORDE_CONTROLLED)) ||
-                 (me->GetTeam() == ALLIANCE && bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_RELIEF_HUT_GY, ALLIANCE_CONTROLLED)));
+                ((me->GetTeam() == HORDE    && (bgForAssault->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_ASSAULTED)    || bgForAssault->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_CONTROLLED)))    ||
+                 (me->GetTeam() == ALLIANCE && (bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED) || bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_CONTROLLED))));
 
             if (!avTotalAssault)
             {
