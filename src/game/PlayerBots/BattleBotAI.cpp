@@ -16,6 +16,7 @@
 
 #include "BattleBotAI.h"
 #include "BattleBotWaypoints.h"
+#include "OO/OOMgr.h"
 #include "BattleGround.h"
 #include "Player.h"
 #include "SpellAuras.h"
@@ -2541,6 +2542,9 @@ void BattleBotAI::OnLeaveBattleGround()
 
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
         StopMoving();
+
+    // Release the theme slot so a new BG of this type can pick a fresh theme.
+    sOOMgr.RemoveBgTheme(m_battlegroundId);
 
     // Temporary battlebots are removed after bg ends.
     if (m_temporary)

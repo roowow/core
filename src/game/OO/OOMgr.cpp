@@ -233,13 +233,26 @@ std::string OOMgr::GetBotName(uint32 instanceId, bool isAlliance)
     if (BotNameThemes.empty())
         return "";
 
-    // Assign a random theme and random side-flip to this BG instance on first access.
-    // instanceId == 0 is valid here: continent instancing is usually off, so all bots
-    // share slot 0 as a pool; Alliance/Horde still get opposite sides within that slot.
+    // Assign a theme to this key on first access, picking one not already in use
+    // by another active BG so each concurrent battleground gets its own theme.
     auto it = BgBotNameThemeMap.find(instanceId);
     if (it == BgBotNameThemeMap.end())
     {
-        uint32 themeIndex = urand(0, (uint32)BotNameThemes.size() - 1);
+        // Collect indices currently locked by other active BGs
+        std::set<uint32> usedIndices;
+        for (auto const& kv : BgBotNameThemeMap)
+            usedIndices.insert(kv.second.first);
+
+        // Pick from themes not in use; fall back to any random theme if all are taken
+        std::vector<uint32> available;
+        for (uint32 i = 0; i < (uint32)BotNameThemes.size(); ++i)
+            if (usedIndices.find(i) == usedIndices.end())
+                available.push_back(i);
+
+        uint32 themeIndex = available.empty()
+            ? urand(0, (uint32)BotNameThemes.size() - 1)
+            : available[urand(0, (uint32)available.size() - 1)];
+
         bool sidesFlipped = urand(0, 1) == 1;
         BgBotNameThemeMap[instanceId] = {themeIndex, sidesFlipped};
         it = BgBotNameThemeMap.find(instanceId);

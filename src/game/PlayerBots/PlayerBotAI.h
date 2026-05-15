@@ -44,6 +44,7 @@ class PlayerBotAI: public PlayerAI
         virtual void BeforeAddToMap(Player* player) {} // me=nullptr at call
         // Helpers
         bool SpawnNewPlayer(WorldSession* sess, uint8 classId, uint32 raceId, uint32 mapId, uint32 instanceId, float dx, float dy, float dz, float o, Player* pClone = nullptr);
+        virtual uint32 GetBotNameThemeKey(uint32 instanceId) const { return instanceId; }
         PlayerBotEntry* botEntry;
 };
 

@@ -80,7 +80,7 @@ bool PlayerBotAI::SpawnNewPlayer(WorldSession* sess, uint8 class_, uint32 race_,
     ASSERT(botEntry);
 
     bool const isAlliance = (Player::TeamForRace(race_) == ALLIANCE);
-    std::string name = sOOMgr.GetBotName(instanceId, isAlliance);
+    std::string name = sOOMgr.GetBotName(GetBotNameThemeKey(instanceId), isAlliance);
     if (name.empty() || sObjectMgr.GetPlayer(name.c_str()))
         name = sObjectMgr.GeneratePetName(1863); // Succubus name fallback
 

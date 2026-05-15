@@ -47,6 +47,7 @@ public:
     {
         return SpawnNewPlayer(sess, m_class, m_race, m_mapId, m_instanceId, m_x, m_y, m_z, m_o);
     }
+    uint32 GetBotNameThemeKey(uint32 /*instanceId*/) const override { return m_battlegroundId; }
   
     void OnPlayerLogin() final;
     void UpdateAI(uint32 const diff) final;
