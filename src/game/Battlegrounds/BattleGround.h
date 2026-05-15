@@ -233,6 +233,7 @@ class BattleGround
         void RecordAfkHealingDone(ObjectGuid guid, uint32 amount);
         void RecordAfkObjective(ObjectGuid guid);
         void RecordAfkCrowdControl(ObjectGuid guid);
+        void RecordAfkKill(ObjectGuid guid, bool realPlayer);
 
         static BattleGroundTeamIndex GetTeamIndexByTeamId(Team team) { return team == ALLIANCE ? BG_TEAM_ALLIANCE : BG_TEAM_HORDE; }
         uint32 GetPlayersCountByTeam(Team team) const { return m_playersCount[GetTeamIndexByTeamId(team)]; }

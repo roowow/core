@@ -79,6 +79,8 @@ class OOMgr
 
         std::vector<std::string > GetPVPText(uint32 prace, uint32 plass);
 
+        void HandleBGKillAnnounce(Player* killer, Player* victim);
+
         std::map< uint32, uint32 > PartyQuestTexts {
             {32022, 22015},
             {32023, 22016},

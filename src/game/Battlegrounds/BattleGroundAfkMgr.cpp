@@ -56,6 +56,8 @@ int32 const AFK_DAMAGE_DONE_SCORE_REDUCE = 3;
 int32 const AFK_DAMAGE_TAKEN_SCORE_REDUCE = 2;
 int32 const AFK_HEALING_DONE_SCORE_REDUCE = 3;
 int32 const AFK_OBJECTIVE_SCORE_REDUCE = 6;
+int32 const AFK_BOT_KILL_SCORE_REDUCE = 4;
+int32 const AFK_PLAYER_KILL_SCORE_REDUCE = 10;
 uint32 const AFK_RECOVERY_NORMAL_MARGIN = 4;
 uint32 const AFK_DEAD_GRACE_CHECKS = 4;
 int32 const AFK_DEAD_IDLE_SCORE = 2;
@@ -396,6 +398,15 @@ void BattleGroundAfkMgr::RecordCrowdControl(ObjectGuid guid)
     state.recentCrowdControl = std::min<uint32>(state.recentCrowdControl + 1, 1000);
 }
 
+void BattleGroundAfkMgr::RecordKill(ObjectGuid guid, bool realPlayer)
+{
+    BattleGroundAfkPlayerState& state = m_playerStates[guid];
+    if (realPlayer)
+        state.recentPlayerKills = std::min<uint32>(state.recentPlayerKills + 1, 100);
+    else
+        state.recentBotKills = std::min<uint32>(state.recentBotKills + 1, 100);
+}
+
 BattleGroundAfkScoreRule BattleGroundAfkMgr::GetRule(BattleGround const* bg) const
 {
     switch (bg->GetTypeID())
@@ -503,6 +514,8 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     bool const effectiveHealingDone = state.recentHealingDone >= AFK_EFFECTIVE_HEALING_THRESHOLD;
     bool const objectiveEvent = state.recentObjectiveEvents > 0;
     bool const crowdControlEvent = state.recentCrowdControl > 0;
+    bool const botKill = state.recentBotKills > 0;
+    bool const playerKill = state.recentPlayerKills > 0;
     bool nearObjective = false;
     uint32 reasonMask = AFK_REASON_NONE;
 
@@ -564,7 +577,12 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
         reasonMask |= AFK_REASON_OBJECTIVE_EVENT;
     }
 
-    bool const activeContribution = inCombat || effectiveDamageDone || effectiveDamageTaken || effectiveHealingDone || objectiveEvent || crowdControlEvent;
+    if (botKill)
+        score -= int32(std::min(state.recentBotKills, 3u)) * AFK_BOT_KILL_SCORE_REDUCE;
+    if (playerKill)
+        score -= int32(std::min(state.recentPlayerKills, 2u)) * AFK_PLAYER_KILL_SCORE_REDUCE;
+
+    bool const activeContribution = inCombat || effectiveDamageDone || effectiveDamageTaken || effectiveHealingDone || objectiveEvent || crowdControlEvent || botKill || playerKill;
 
     if (bg->GetTypeID() == BATTLEGROUND_AB)
     {
@@ -606,7 +624,7 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     bool const nearObjectiveEffective = nearObjective && (
         bg->GetTypeID() == BATTLEGROUND_AB ? activeContribution : (moved || inCombat));
     bool const effectiveContribution = effectiveDamageDone || effectiveDamageTaken || effectiveHealingDone ||
-        objectiveEvent || crowdControlEvent || nearObjectiveEffective;
+        objectiveEvent || crowdControlEvent || nearObjectiveEffective || botKill || playerKill;
     if (effectiveContribution)
         state.noObjectiveContributionChecks = 0;
     else
@@ -624,6 +642,8 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     state.recentHealingDone = 0;
     state.recentObjectiveEvents = 0;
     state.recentCrowdControl = 0;
+    state.recentBotKills = 0;
+    state.recentPlayerKills = 0;
 
     state.score = uint32(ClampAfkScore(score));
     state.lastPreviousScore = previousScore;

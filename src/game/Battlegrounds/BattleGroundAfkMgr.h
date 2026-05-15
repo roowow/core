@@ -63,6 +63,8 @@ struct BattleGroundAfkPlayerState
     uint32 recentHealingDone = 0;
     uint32 recentObjectiveEvents = 0;
     uint32 recentCrowdControl = 0;
+    uint32 recentBotKills = 0;
+    uint32 recentPlayerKills = 0;
     uint32 noObjectiveContributionChecks = 0;
     uint32 deadChecks = 0;
     uint32 maxScoreChecks = 0;
@@ -87,6 +89,7 @@ public:
     void RecordHealingDone(ObjectGuid guid, uint32 amount);
     void RecordObjective(ObjectGuid guid);
     void RecordCrowdControl(ObjectGuid guid);
+    void RecordKill(ObjectGuid guid, bool realPlayer);
 
 private:
     BattleGroundAfkScoreRule GetRule(BattleGround const* bg) const;

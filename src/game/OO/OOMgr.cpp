@@ -7,6 +7,9 @@
 #include "IO/Filesystem/FileSystem.h"
 
 #include "OO/OOMgr.h"
+#include "Player.h"
+#include "BattleGround.h"
+#include "WorldPacket.h"
 
 #include <fstream>
 #include <sstream>
@@ -288,4 +291,146 @@ std::vector<std::string> OOMgr::GetPVPText(uint32 prace, uint32 plass) {
     }
 
     return tmpTexts;
+}
+
+// ---------------------------------------------------------------------------
+// BG kill announcement helpers
+// ---------------------------------------------------------------------------
+
+namespace
+{
+
+static std::string GetClassColorStr(uint8 pClass)
+{
+    switch (pClass)
+    {
+        case CLASS_WARRIOR: return "C79C6E";
+        case CLASS_PALADIN: return "F58CBA";
+        case CLASS_HUNTER:  return "ABD473";
+        case CLASS_ROGUE:   return "FFF569";
+        case CLASS_PRIEST:  return "FFFFFF";
+        case CLASS_SHAMAN:  return "0070DE";
+        case CLASS_MAGE:    return "69CCF0";
+        case CLASS_WARLOCK: return "9482C9";
+        case CLASS_DRUID:   return "FF7D0A";
+        default:            return "FFFFFF";
+    }
+}
+
+static char const* GetClassNameZH(uint8 pClass)
+{
+    switch (pClass)
+    {
+        case CLASS_WARRIOR: return "战士";
+        case CLASS_PALADIN: return "圣骑士";
+        case CLASS_HUNTER:  return "猎人";
+        case CLASS_ROGUE:   return "盗贼";
+        case CLASS_PRIEST:  return "牧师";
+        case CLASS_SHAMAN:  return "萨满";
+        case CLASS_MAGE:    return "法师";
+        case CLASS_WARLOCK: return "术士";
+        case CLASS_DRUID:   return "德鲁伊";
+        default:            return "英雄";
+    }
+}
+
+template<std::size_t N>
+static char const* PickRand(char const* const (&arr)[N])
+{
+    return arr[urand(0, N - 1)];
+}
+
+static char const* GetClassKillPrefix(uint8 pClass)
+{
+    static char const* const sWarrior[] = { "怒斩千军！", "铁拳破敌！", "横刀立马！", "战意沸腾！", "不可阻挡！" };
+    static char const* const sPaladin[] = { "圣光审判！", "以光之名！", "圣战临身！", "神圣降临！", "圣光常护！" };
+    static char const* const sHunter[]  = { "箭如雨下！", "猎物已至！", "穿云利箭！", "无处遁形！", "野性追踪！" };
+    static char const* const sRogue[]   = { "暗影突袭！", "背刺奏效！", "毒刃出鞘！", "神出鬼没！", "一击毙命！" };
+    static char const* const sPriest[]  = { "黑暗降临！", "魂归冥府！", "影法显威！", "毒奶奉上！", "圣言审判！" };
+    static char const* const sShaman[]  = { "雷霆万钧！", "元素之怒！", "图腾显威！", "大地的愤怒！", "雷霆觉醒！" };
+    static char const* const sMage[]    = { "法术席卷！", "奥术爆发！", "冰封千里！", "炎爆四起！", "魔法无敌！" };
+    static char const* const sWarlock[] = { "灵魂已夺！", "黑暗诅咒！", "恶魔附身！", "痛苦永恒！", "绝望深渊！" };
+    static char const* const sDruid[]   = { "自然觉醒！", "月焰天击！", "狂暴突袭！", "大地之怒！", "万物皆服！" };
+    static char const* const sGeneric[] = { "英雄显威！", "以一敌众！", "所向披靡！", "铁骨铮铮！", "势不可当！" };
+
+    switch (pClass)
+    {
+        case CLASS_WARRIOR: return PickRand(sWarrior);
+        case CLASS_PALADIN: return PickRand(sPaladin);
+        case CLASS_HUNTER:  return PickRand(sHunter);
+        case CLASS_ROGUE:   return PickRand(sRogue);
+        case CLASS_PRIEST:  return PickRand(sPriest);
+        case CLASS_SHAMAN:  return PickRand(sShaman);
+        case CLASS_MAGE:    return PickRand(sMage);
+        case CLASS_WARLOCK: return PickRand(sWarlock);
+        case CLASS_DRUID:   return PickRand(sDruid);
+        default:            return PickRand(sGeneric);
+    }
+}
+
+static char const* GetBGKillVerb(BattleGroundTypeId bgType)
+{
+    static char const* const sAV[] = {
+        "在阿尔特拉克山谷的烽火中击杀了",
+        "于冰雪山谷的血战中斩落了",
+        "在旷日持久的攻城战中击败了",
+        "以钢铁之志在战场上征服了",
+        "于两军决战的前线击倒了",
+    };
+    static char const* const sWSG[] = {
+        "在战歌峡谷的旗帜争夺中击倒了",
+        "于护旗阵地截杀了",
+        "以闪电般的速度击败了",
+        "在旗帜争夺战中斩落了",
+        "于峡谷丛林中伏击了",
+    };
+    static char const* const sAB[] = {
+        "在阿拉希盆地的据点争夺中击败了",
+        "于资源要冲处斩杀了",
+        "以一夫当关之势击倒了",
+        "在攻城略地中击败了",
+        "守卫据点，斩落了",
+    };
+    static char const* const sDefault[] = {
+        "击杀了", "斩落了", "击败了", "终结了", "打败了",
+    };
+
+    switch (bgType)
+    {
+        case BATTLEGROUND_AV: return PickRand(sAV);
+        case BATTLEGROUND_WS: return PickRand(sWSG);
+        case BATTLEGROUND_AB: return PickRand(sAB);
+        default:              return PickRand(sDefault);
+    }
+}
+
+} // anonymous namespace
+
+void OOMgr::HandleBGKillAnnounce(Player* killer, Player* victim)
+{
+    if (!killer || !victim)
+        return;
+    if (killer->IsGameMaster() || killer->IsBot() || victim->IsBot())
+        return;
+    if (killer->GetTeam() == victim->GetTeam())
+        return;
+    if (!killer->InBattleGround())
+        return;
+    BattleGround* bg = killer->GetBattleGround();
+    if (!bg)
+        return;
+
+    char const* prefix = GetClassKillPrefix(killer->GetClass());
+    char const* verb   = GetBGKillVerb(bg->GetTypeID());
+
+    std::string message = std::string(prefix)
+        + " |cFF" + GetClassColorStr(killer->GetClass()) + killer->GetName()
+        + "|r（" + std::to_string(killer->GetLevel()) + "级" + GetClassNameZH(killer->GetClass()) + "） "
+        + verb
+        + " |cFF" + GetClassColorStr(victim->GetClass()) + victim->GetName()
+        + "|r（" + std::to_string(victim->GetLevel()) + "级" + GetClassNameZH(victim->GetClass()) + "）";
+
+    WorldPacket data;
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_BG_SYSTEM_NEUTRAL, message.c_str());
+    bg->SendPacketToAll(&data);
 }
