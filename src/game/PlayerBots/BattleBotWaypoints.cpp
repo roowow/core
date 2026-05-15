@@ -3138,7 +3138,10 @@ static uint8 CountAVShortGuardBots(BattleBotAI* pAI, Position const& pos, bool i
     if (!map)
         return 0;
 
-    uint8 count = 0;
+    uint8 settledCount = 0;  // non-combat, within 45 yards, not actively moving away
+    uint8 combatCount  = 0;  // in-combat, within 45 yards
+    uint8 enRouteCount = 0;  // assigned to this position, not yet arrived, not in combat
+
     for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
     {
         if (Player* player = itr->getSource())
@@ -3149,9 +3152,12 @@ static uint8 CountAVShortGuardBots(BattleBotAI* pAI, Position const& pos, bool i
             if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
                 continue;
 
-            if (IsAVShortGuardingPosition(player, pos) && IsABSettledGuardBot(player, pAI->me))
+            if (IsAVShortGuardingPosition(player, pos))
             {
-                ++count;
+                if (player->IsInCombat() || player->GetVictim())
+                    ++combatCount;
+                else if (IsABSettledGuardBot(player, pAI->me))
+                    ++settledCount;
                 continue;
             }
 
@@ -3159,11 +3165,18 @@ static uint8 CountAVShortGuardBots(BattleBotAI* pAI, Position const& pos, bool i
                 !player->IsInCombat() &&
                 !player->GetVictim() &&
                 IsABAssignedToGuardPosition(player, pos))
-                ++count;
+                ++enRouteCount;
         }
     }
 
-    return count;
+    // During total assault, no headcount caps — all bots at the captured GY count fully.
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (IsAVTotalAssaultActive(pAI, bg))
+        return settledCount + combatCount + enRouteCount;
+
+    return std::min<uint8>(settledCount, 1) +
+           std::min<uint8>(combatCount,  5) +
+           std::min<uint8>(enRouteCount, 3);
 }
 
 static uint8 CountAVRescueBots(BattleBotAI* pAI, Position const& pos)
