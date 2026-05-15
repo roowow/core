@@ -295,6 +295,7 @@ static bool GetAVNativeGraveyardFallbackPosition(uint32 node, Position& outPosit
 static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos, uint8 requiredBots = AV_CAPTURED_GY_GUARD_BOTS);
 static bool IsAVNativeGraveyard(Team team, uint32 objective);
 static bool IsAVNativeGraveyardDefensible(BattleBotAI const* pAI, uint32 node);
+static bool IsAVTotalAssaultActive(BattleBotAI const* pAI, BattleGround* bg);
 static uint8 CountAVRescueBots(BattleBotAI* pAI, Position const& pos);
 static bool IsAVKeyObjective(uint32 objectiveId);
 static uint8 CountFriendlyPlayersAtObjective(BattleBotAI const* pAI, Position const& pos);
