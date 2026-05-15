@@ -3299,14 +3299,23 @@ static bool FindAVRearGuardPosition(BattleBotAI* pAI, uint32 const (&objectives)
             continue;
         }
 
-        uint8 const guardCount = CountAVShortGuardBots(pAI, guardPosition, false, false);
-        if (guardCount >= AV_NATIVE_GY_GUARD_BOTS)
+        uint8 const physicalCount = CountAVShortGuardBots(pAI, guardPosition, false, false);
+        if (physicalCount >= AV_NATIVE_GY_GUARD_BOTS)
         {
             ++index;
             continue;
         }
 
-        uint8 const neededGuards = AV_NATIVE_GY_GUARD_BOTS - guardCount;
+        // Physical requirement not yet met — allow redundancy for en-route bots
+        uint8 const totalCount = CountAVShortGuardBots(pAI, guardPosition, true, false);
+        uint8 const guardThreshold = std::min<uint8>(AV_NATIVE_GY_GUARD_BOTS + 2u, 5u);
+        if (totalCount >= guardThreshold)
+        {
+            ++index;
+            continue;
+        }
+
+        uint8 const neededGuards = guardThreshold - totalCount;
         if (!IsAVRearGuardCandidate(pAI, objectives, rearPosition, neededGuards, index))
         {
             ++index;
