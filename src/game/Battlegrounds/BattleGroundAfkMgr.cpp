@@ -680,7 +680,10 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
     else if (state.score >= rule.warning1Score)
         targetStage = 1;
 
-    bool const cooldownReady = !state.lastWarnTime || m_elapsedTime >= state.lastWarnTime + AFK_WARNING_COOLDOWN;
+    uint32 const effectiveCooldown = (state.score >= rule.kickScore * 2u)
+        ? AFK_WARNING_COOLDOWN / 2
+        : AFK_WARNING_COOLDOWN;
+    bool const cooldownReady = !state.lastWarnTime || m_elapsedTime >= state.lastWarnTime + effectiveCooldown;
     bool const scoreDecreasing = state.score < previousScore;
     bool const recoveryNoticeReady = !state.lastRecoveryNoticeTime || m_elapsedTime >= state.lastRecoveryNoticeTime + AFK_RECOVERY_NOTICE_COOLDOWN;
 

@@ -191,11 +191,11 @@ void HumanVerifyMgr::Finish(Player* player, HumanVerifyState const& state, Human
         player->PlayerTalkClass->CloseGossip();
 
     if (result == HumanVerifyResult::Passed)
-        player->SendSysMessage("Human verification passed.");
+        player->SendSysMessage("人机验证通过。");
     else if (result == HumanVerifyResult::TimedOut)
-        player->SendSysMessage("Human verification timed out.");
+        player->SendSysMessage("人机验证超时，未在规定时间内作答。");
     else
-        player->SendSysMessage("Human verification failed.");
+        player->SendSysMessage("人机验证失败，答错次数过多。");
 
     sLog.Out(LOG_ANTICHEAT, LOG_LVL_BASIC, "[HumanVerify] finished player %s (%s) result %s failures %u/%u reason %s.",
         player->GetName(), player->GetObjectGuid().GetString().c_str(), HumanVerifyResultName(result),
