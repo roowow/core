@@ -3666,22 +3666,26 @@ bool BattleBotAI::StartNewPathToObjective()
                         return StartNewPathToPosition(pVanndar->GetPosition(), vPaths_AV);
                 }
 
-                // Snowfall GY: up to 5 bots routed there, only 2 physically stay.
-                if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
+                // Snowfall GY: only ~20% of bots (by GUID) are candidates, preventing mass simultaneous routing.
+                // Up to 5 physically routed, only 2 physically stay.
+                if ((me->GetObjectGuid().GetCounter() % 5) == 0)
                 {
-                    if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED)))
-                        if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
-                            if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < 5)
-                            {
-                                if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
+                    if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
+                    {
+                        if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED)))
+                            if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
+                                if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < 5)
                                 {
-                                    if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < 2)
-                                        return true;
-                                    // 2+ physical defenders already here, continue to next objective
+                                    if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
+                                    {
+                                        if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < 2)
+                                            return true;
+                                        // 2+ physical defenders already here, continue to next objective
+                                    }
+                                    else
+                                        return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                                 }
-                                else
-                                    return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
-                            }
+                    }
                 }
 
                 if (!bg->IsActiveEvent(BG_AV_NodeEventCaptainDead_A, 0))
@@ -3736,7 +3740,9 @@ bool BattleBotAI::StartNewPathToObjective()
                         return StartNewPathToPosition(pDrek->GetPosition(), vPaths_AV);
                 }
 
-                // Snowfall GY: up to 5 bots routed there, only 2 physically stay.
+                // Snowfall GY: only ~20% of bots (by GUID) are candidates, preventing mass simultaneous routing.
+                // Up to 5 physically routed, only 2 physically stay.
+                if ((me->GetObjectGuid().GetCounter() % 5) == 0)
                 if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
                 {
                     if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED)))
