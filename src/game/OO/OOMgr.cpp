@@ -179,7 +179,7 @@ void OOMgr::Update(uint32 diff)
 
 void OOMgr::LoadBotNameThemes()
 {
-    std::string const dirPath = "./src/game/OO/BattleBotNames/";
+    std::string const dirPath = "./BattleBotNames/";
     std::vector<std::string> files = IO::Filesystem::GetAllFilesInFolder(dirPath, IO::Filesystem::OutputFilePath::FullFilePath);
 
     uint32 count = 0;
@@ -230,18 +230,12 @@ void OOMgr::LoadBotNameThemes()
 
 std::string OOMgr::GetBotName(uint32 instanceId, bool isAlliance)
 {
-    // Fall back to legacy DB names when no themes loaded or non-instanced map
-    if (BotNameThemes.empty() || instanceId == 0)
-    {
-        int32 count = 0;
-        while (count < (int32)BattleBotNames.size() && !BattleBotNames[count].empty())
-            ++count;
-        if (count == 0)
-            return "";
-        return BattleBotNames[urand(0, count - 1)];
-    }
+    if (BotNameThemes.empty())
+        return "";
 
-    // Assign a random theme and random side-flip to this BG instance on first access
+    // Assign a random theme and random side-flip to this BG instance on first access.
+    // instanceId == 0 is valid here: continent instancing is usually off, so all bots
+    // share slot 0 as a pool; Alliance/Horde still get opposite sides within that slot.
     auto it = BgBotNameThemeMap.find(instanceId);
     if (it == BgBotNameThemeMap.end())
     {
@@ -252,7 +246,6 @@ std::string OOMgr::GetBotName(uint32 instanceId, bool isAlliance)
     }
 
     BotNameTheme const& theme = BotNameThemes[it->second.first];
-    // XOR: if sides are flipped, Alliance gets 反方 names and Horde gets 正方 names
     bool useFirstSide = (isAlliance != it->second.second);
     std::vector<std::string> const& names = useFirstSide ? theme.allianceNames : theme.hordeNames;
     if (names.empty())
