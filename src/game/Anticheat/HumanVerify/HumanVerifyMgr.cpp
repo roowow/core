@@ -166,17 +166,20 @@ void HumanVerifyMgr::SendGossip(Player* player, HumanVerifyState const& state) c
     if (!player || !player->PlayerTalkClass)
         return;
 
-    player->PSendSysMessage("Human verification required. Please choose number %u.", state.question);
-
     PlayerMenu* menu = player->PlayerTalkClass;
     menu->ClearMenus();
+
+    // Push question text into client NPC-text cache at id=0, then reference it via SendGossipMenu(0)
+    std::string questionText = "请选择正确的数字：" + std::to_string(state.question);
+    menu->SendTalking("人机验证", questionText.c_str());
+
     for (uint32 option : state.options)
     {
         std::string label = std::to_string(option);
         menu->GetGossipMenu().AddMenuItem(GOSSIP_ICON_CHAT, label.c_str(), HUMAN_VERIFY_GOSSIP_SENDER, HUMAN_VERIFY_GOSSIP_ACTION_BASE + option);
     }
 
-    menu->SendGossipMenu(DEFAULT_GOSSIP_MESSAGE, player->GetObjectGuid());
+    menu->SendGossipMenu(0, player->GetObjectGuid());
 }
 
 void HumanVerifyMgr::Finish(Player* player, HumanVerifyState const& state, HumanVerifyResult result)
