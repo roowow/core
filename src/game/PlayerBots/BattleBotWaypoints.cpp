@@ -282,8 +282,9 @@ std::vector<uint32> const vFlagsAB = { GO_AB_ALLIANCE_BANNER , GO_AB_CONTESTED_B
 #define AB_GUARD_ASSIGN_RADIUS 20.0f
 #define AV_FLAG_DEFENSE_RADIUS    55.0f
 #define AV_SHORT_GUARD_RADIUS     45.0f
-#define AV_NATIVE_GY_GUARD_BOTS   1
-#define AV_CAPTURED_GY_GUARD_BOTS 2
+#define AV_NATIVE_GY_GUARD_BOTS    1
+#define AV_CAPTURING_GY_GUARD_BOTS 5
+#define AV_CAPTURED_GY_GUARD_BOTS  3
 #define AV_FINAL_PUSH_MINUTES     40
 #define AV_RESCUE_RADIUS          80.0f
 #define AV_RESCUE_MAX_BOTS        3
@@ -1010,8 +1011,7 @@ void AV_AtFlag(BattleBotAI* pAI)
     uint32 foundObjective = 0;
     if (FindNearbyAVKeyDefensePosition(pAI, AV_SHORT_GUARD_RADIUS, guardPosition, &foundObjective))
     {
-        uint8 const required = IsAVNativeGraveyard(pAI->me->GetTeam(), foundObjective)
-            ? AV_NATIVE_GY_GUARD_BOTS : AV_CAPTURED_GY_GUARD_BOTS;
+        uint8 const required = GetAVRequiredGuardBots(pAI->me->GetBattleGround(), pAI->me->GetTeam(), foundObjective);
         if (!IsAVExcessShortGuardBot(pAI, guardPosition, required))
         {
             pAI->ClearPath();
@@ -2909,6 +2909,15 @@ static bool IsAVNativeGraveyard(Team team, uint32 objective)
     return false;
 }
 
+static uint8 GetAVRequiredGuardBots(BattleGround* bg, Team team, uint32 objective)
+{
+    if (IsAVNativeGraveyard(team, objective))
+        return AV_NATIVE_GY_GUARD_BOTS;
+    if (bg->IsActiveEvent(objective, GetAVAssaultedStateForTeam(team)))
+        return AV_CAPTURING_GY_GUARD_BOTS;
+    return AV_CAPTURED_GY_GUARD_BOTS;
+}
+
 template<std::size_t N>
 static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, uint32 const (&objectives)[N], float radius)
 {
@@ -3486,8 +3495,7 @@ bool BattleBotReturnToGuardPositionBeforeRecovery(BattleBotAI* pAI)
             uint32 foundObjective = 0;
             if (FindNearbyAVKeyDefensePosition(pAI, AV_FLAG_DEFENSE_RADIUS, guardPosition, &foundObjective))
             {
-                uint8 const required = IsAVNativeGraveyard(pAI->me->GetTeam(), foundObjective)
-                    ? AV_NATIVE_GY_GUARD_BOTS : AV_CAPTURED_GY_GUARD_BOTS;
+                uint8 const required = GetAVRequiredGuardBots(pAI->me->GetBattleGround(), pAI->me->GetTeam(), foundObjective);
                 if (!IsAVExcessShortGuardBot(pAI, guardPosition, required))
                     return MoveGuardBackBeforeRecovery(pAI, guardPosition, 20.0f, nullptr);
             }
@@ -3613,8 +3621,7 @@ bool BattleBotAI::StartNewPathToObjective()
             uint32 foundObjective = 0;
             if (FindNearbyAVKeyDefensePosition(this, AV_SHORT_GUARD_RADIUS, guardPosition, &foundObjective))
             {
-                uint8 const required = IsAVNativeGraveyard(me->GetTeam(), foundObjective)
-                    ? AV_NATIVE_GY_GUARD_BOTS : AV_CAPTURED_GY_GUARD_BOTS;
+                uint8 const required = GetAVRequiredGuardBots(bg, me->GetTeam(), foundObjective);
                 if (!IsAVExcessShortGuardBot(this, guardPosition, required))
                     return true;
             }
