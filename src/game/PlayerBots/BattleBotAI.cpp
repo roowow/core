@@ -2933,6 +2933,31 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                 m_bgStuckCounter = 0;
             }
 
+            // Checkpoint-based movement progress detection; excludes FOLLOW to avoid
+            // false positives for home guard bots patrolling near the flag room.
+            if (!inCombat && me->IsMoving() &&
+                me->GetMotionMaster()->GetCurrentMovementGeneratorType() != FOLLOW_MOTION_TYPE)
+            {
+                ++m_bgProgressTicks;
+                if (m_bgProgressTicks >= 10) // 10 * 2s = 20 seconds
+                {
+                    if (me->GetDistance2d(m_bgProgressX, m_bgProgressY) < 15.0f)
+                    {
+                        ClearPath();
+                        StartNewPathToObjective();
+                    }
+                    m_bgProgressX = curX;
+                    m_bgProgressY = curY;
+                    m_bgProgressTicks = 0;
+                }
+            }
+            else
+            {
+                m_bgProgressTicks = 0;
+                m_bgProgressX = curX;
+                m_bgProgressY = curY;
+            }
+
             m_bgStuckLastX = curX;
             m_bgStuckLastY = curY;
         }
@@ -2962,20 +2987,25 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             else
             {
                 m_bgStuckCounter = 0;
-                // Out of combat but physically stuck inside a building (e.g. bunker in AV)
-                if (!me->IsMoving() && currentBg->GetTypeID() == BATTLEGROUND_AV)
+                // Out of combat but physically stuck inside a building (bunker in AV, tower in AB)
+                if (!me->IsInCombat() && !me->IsMoving())
                 {
                     bool const outdoors = me->GetMap()->GetTerrain()->IsOutdoors(curX, curY, me->GetPositionZ());
                     if (!outdoors)
                     {
-                        // Allow bots to remain indoors when fighting the boss
-                        bool nearBoss = false;
-                        if (Creature* pBossA = me->GetMap()->GetCreature(currentBg->GetSingleCreatureGuid(BG_AV_BOSS_A, 0)))
-                            nearBoss |= me->GetDistance(pBossA) < 60.0f;
-                        if (!nearBoss)
-                            if (Creature* pBossH = me->GetMap()->GetCreature(currentBg->GetSingleCreatureGuid(BG_AV_BOSS_H, 0)))
-                                nearBoss |= me->GetDistance(pBossH) < 60.0f;
-                        if (!nearBoss)
+                        bool shouldReroute = true;
+                        if (currentBg->GetTypeID() == BATTLEGROUND_AV)
+                        {
+                            // Allow bots to remain indoors when fighting the AV boss
+                            if (Creature* pBossA = me->GetMap()->GetCreature(currentBg->GetSingleCreatureGuid(BG_AV_BOSS_A, 0)))
+                                if (me->GetDistance(pBossA) < 60.0f)
+                                    shouldReroute = false;
+                            if (shouldReroute)
+                                if (Creature* pBossH = me->GetMap()->GetCreature(currentBg->GetSingleCreatureGuid(BG_AV_BOSS_H, 0)))
+                                    if (me->GetDistance(pBossH) < 60.0f)
+                                        shouldReroute = false;
+                        }
+                        if (shouldReroute)
                         {
                             ClearPath();
                             StartNewPathToObjective();
