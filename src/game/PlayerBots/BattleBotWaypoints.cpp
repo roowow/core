@@ -290,6 +290,8 @@ static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, float ra
 static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, float radius, Position& outPosition, uint32* outMatchedObjective = nullptr);
 static bool GetAVNativeGraveyardFallbackPosition(uint32 node, Position& outPosition);
 static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos, uint8 requiredBots = AV_CAPTURED_GY_GUARD_BOTS);
+static bool IsAVNativeGraveyard(Team team, uint32 objective);
+static bool IsAVNativeGraveyardDefensible(BattleBotAI const* pAI, uint32 node);
 
 static Position const AB_GuardPositions[5] =
 {
