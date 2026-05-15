@@ -58,6 +58,7 @@ int32 const AFK_HEALING_DONE_SCORE_REDUCE = 3;
 int32 const AFK_OBJECTIVE_SCORE_REDUCE = 6;
 int32 const AFK_BOT_KILL_SCORE_REDUCE = 4;
 int32 const AFK_PLAYER_KILL_SCORE_REDUCE = 10;
+int32 const AFK_WSG_FLAG_CARRIER_SCORE_REDUCE = 6;
 uint32 const AFK_RECOVERY_NORMAL_MARGIN = 4;
 uint32 const AFK_DEAD_GRACE_CHECKS = 4;
 int32 const AFK_DEAD_IDLE_SCORE = 2;
@@ -518,33 +519,44 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     bool const playerKill = state.recentPlayerKills > 0;
     bool nearObjective = false;
     uint32 reasonMask = AFK_REASON_NONE;
+    bool const wsgFlagCarrier = (bg->GetTypeID() == BATTLEGROUND_WS) && IsWSGFlagCarrier(player);
 
-    if (!moved)
+    if (wsgFlagCarrier)
     {
-        score += rule.noMovementScore;
-        reasonMask |= AFK_REASON_NO_MOVE;
+        // Carrying the flag counts as active contribution: skip all penalties, apply reduction.
+        score -= AFK_WSG_FLAG_CARRIER_SCORE_REDUCE;
+        nearObjective = true;
+        reasonMask |= AFK_REASON_NEAR_OBJECTIVE;
     }
     else
     {
-        score -= rule.movementReduce;
-        reasonMask |= AFK_REASON_MOVED;
-    }
+        if (!moved)
+        {
+            score += rule.noMovementScore;
+            reasonMask |= AFK_REASON_NO_MOVE;
+        }
+        else
+        {
+            score -= rule.movementReduce;
+            reasonMask |= AFK_REASON_MOVED;
+        }
 
-    if (!inCombat)
-    {
-        score += rule.noCombatScore;
-        reasonMask |= AFK_REASON_NO_COMBAT;
-    }
-    else
-    {
-        score -= rule.combatReduce;
-        reasonMask |= AFK_REASON_COMBAT;
-    }
+        if (!inCombat)
+        {
+            score += rule.noCombatScore;
+            reasonMask |= AFK_REASON_NO_COMBAT;
+        }
+        else
+        {
+            score -= rule.combatReduce;
+            reasonMask |= AFK_REASON_COMBAT;
+        }
 
-    if (!moved && !inCombat)
-    {
-        score += rule.noContributionScore;
-        reasonMask |= AFK_REASON_NO_CONTRIBUTION;
+        if (!moved && !inCombat)
+        {
+            score += rule.noContributionScore;
+            reasonMask |= AFK_REASON_NO_CONTRIBUTION;
+        }
     }
 
     if (effectiveDamageDone)
@@ -582,7 +594,7 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     if (playerKill)
         score -= int32(std::min(state.recentPlayerKills, 2u)) * AFK_PLAYER_KILL_SCORE_REDUCE;
 
-    bool const activeContribution = inCombat || effectiveDamageDone || effectiveDamageTaken || effectiveHealingDone || objectiveEvent || crowdControlEvent || botKill || playerKill;
+    bool const activeContribution = inCombat || effectiveDamageDone || effectiveDamageTaken || effectiveHealingDone || objectiveEvent || crowdControlEvent || botKill || playerKill || wsgFlagCarrier;
 
     if (bg->GetTypeID() == BATTLEGROUND_AB)
     {
@@ -599,8 +611,9 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
             reasonMask |= AFK_REASON_NEAR_START;
         }
     }
-    else if (bg->GetTypeID() == BATTLEGROUND_WS)
+    else if (bg->GetTypeID() == BATTLEGROUND_WS && !wsgFlagCarrier)
     {
+        // Flag carriers are already handled above; only evaluate others here.
         nearObjective = IsNearWSGObjective(bg, player);
         if (nearObjective)
         {
@@ -621,10 +634,12 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     // AB: nearObjective only counts as effective contribution when actively contributing
     // (combat/damage/heal/objective), preventing idle walkers from resetting the chain penalty.
     // WSG/AV: movement near an objective is sufficient (flag chasers, defenders).
+    // WSG flag carrier: always effective regardless of movement.
     bool const nearObjectiveEffective = nearObjective && (
+        wsgFlagCarrier ? true :
         bg->GetTypeID() == BATTLEGROUND_AB ? activeContribution : (moved || inCombat));
     bool const effectiveContribution = effectiveDamageDone || effectiveDamageTaken || effectiveHealingDone ||
-        objectiveEvent || crowdControlEvent || nearObjectiveEffective || botKill || playerKill;
+        objectiveEvent || crowdControlEvent || nearObjectiveEffective || botKill || playerKill || wsgFlagCarrier;
     if (effectiveContribution)
         state.noObjectiveContributionChecks = 0;
     else
