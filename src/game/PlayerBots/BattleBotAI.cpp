@@ -2565,8 +2565,8 @@ bool BattleBotAI::CheckForUnreachableTarget()
 
                 if (pTarget->IsCreature() && !me->IsMoving())
                 {
-                    // Cheating to prevent getting stuck because of bad mmaps.
-                    me->NearTeleportTo(pTarget->GetPosition());
+                    me->AttackStop(false);
+                    StopMoving();
                     return true;
                 }
 

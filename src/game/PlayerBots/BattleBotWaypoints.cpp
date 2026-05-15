@@ -190,14 +190,14 @@ void WSG_AtAllianceFlag(BattleBotAI* pAI)
                 else
                 {
                     pAI->ClearPath();
-                    pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), 353.0f);
+                    pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ());
                     return;
                 }
             }
             else if (pAI->me->HasAura(AURA_WARSONG_FLAG))
             {
                 pAI->ClearPath();
-                pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), 353.0f);
+                pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ());
                 return;
             }
         }
