@@ -3220,6 +3220,16 @@ static uint8 CountFriendlyPlayersAtObjective(BattleBotAI const* pAI, Position co
     return count;
 }
 
+static bool IsAVTotalAssaultActive(BattleBotAI const* pAI, BattleGround* bg)
+{
+    if (pAI->me->GetTeam() == HORDE)
+        return bg->IsActiveEvent(BG_AV_STONEHEARTH_GY, HORDE_CONTROLLED);
+    else
+        return bg->IsActiveEvent(BG_AV_FROSTWOLF_RELIEF_HUT_GY, ALLIANCE_CONTROLLED);
+}
+
+#define AV_TOTAL_ASSAULT_DEFENDERS 5
+
 static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos, uint8 requiredBots)
 {
     Map* map = pAI->me->GetMap();
@@ -3595,6 +3605,40 @@ bool BattleBotAI::StartNewPathToObjective()
                     return true;
             }
 
+            // Total assault mode: key enemy GY captured → all bots converge to it then rush boss
+            if (IsAVTotalAssaultActive(this, bg))
+            {
+                if (me->GetTeam() == HORDE)
+                {
+                    if (GameObject* pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_STONEHEARTH_GY, HORDE_CONTROLLED)))
+                    {
+                        if (CountFriendlyPlayersAtObjective(this, pGY->GetPosition()) < AV_TOTAL_ASSAULT_DEFENDERS)
+                        {
+                            if (me->IsWithinDist(pGY, AV_RESCUE_RADIUS))
+                                return true;
+                            return StartNewPathToPosition(pGY->GetPosition(), vPaths_AV);
+                        }
+                    }
+                    if (Creature* pVanndar = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_BOSS_A, 0)))
+                        return StartNewPathToPosition(pVanndar->GetPosition(), vPaths_AV);
+                }
+                else // ALLIANCE
+                {
+                    if (GameObject* pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_FROSTWOLF_RELIEF_HUT_GY, ALLIANCE_CONTROLLED)))
+                    {
+                        if (CountFriendlyPlayersAtObjective(this, pGY->GetPosition()) < AV_TOTAL_ASSAULT_DEFENDERS)
+                        {
+                            if (me->IsWithinDist(pGY, AV_RESCUE_RADIUS))
+                                return true;
+                            return StartNewPathToPosition(pGY->GetPosition(), vPaths_AV);
+                        }
+                    }
+                    if (Creature* pDrek = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_BOSS_H, 0)))
+                        return StartNewPathToPosition(pDrek->GetPosition(), vPaths_AV);
+                }
+                return false;
+            }
+
             if (me->GetTeam() == HORDE)
             {
                 // End Boss
@@ -3608,12 +3652,17 @@ bool BattleBotAI::StartNewPathToObjective()
                         return StartNewPathToPosition(pVanndar->GetPosition(), vPaths_AV);
                 }
 
-                // Only go to Snowfall Graveyard if already close to it.
+                // Only go to Snowfall Graveyard if already close to it, cap at 5 bots.
                 if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
                 {
                     if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED)))
                         if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
-                            return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);  
+                            if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < 5)
+                            {
+                                if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
+                                    return true;
+                                return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                            }
                 }
 
                 if (!bg->IsActiveEvent(BG_AV_NodeEventCaptainDead_A, 0))
@@ -3668,12 +3717,17 @@ bool BattleBotAI::StartNewPathToObjective()
                         return StartNewPathToPosition(pDrek->GetPosition(), vPaths_AV);
                 }
 
-                // Only go to Snowfall Graveyard if already close to it.
+                // Only go to Snowfall Graveyard if already close to it, cap at 5 bots.
                 if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
                 {
                     if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED)))
                         if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
-                            return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                            if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < 5)
+                            {
+                                if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
+                                    return true;
+                                return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                            }
                 }
                 
                 for (const auto& objective : AV_AllianceDefendObjectives)

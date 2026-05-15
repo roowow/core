@@ -1936,13 +1936,10 @@ uint32 BattleBotAI::GetAVStartWaveDelay() const
     uint32 const guid = me->GetObjectGuid().GetCounter();
     uint32 const bucket = guid % 10;
 
-    if (bucket < 4)
+    if (bucket < 5)
         return 0;
 
-    if (bucket < 7)
-        return 30;
-
-    return 60;
+    return 15;
 }
 
 bool BattleBotAI::ShouldWaitForAVStartWave()
@@ -2984,22 +2981,31 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
         if (!pVictim || !IsValidHostileTarget(pVictim))
         {
-            if (m_role != ROLE_HEALER)
+            // In AV total assault mode, don't initiate combat — only fight back if attacked.
+            BattleGround* bgForAssault = me->GetBattleGround();
+            bool const avTotalAssault = bgForAssault && bgForAssault->GetTypeID() == BATTLEGROUND_AV &&
+                ((me->GetTeam() == HORDE   && bgForAssault->IsActiveEvent(BG_AV_STONEHEARTH_GY,        HORDE_CONTROLLED)) ||
+                 (me->GetTeam() == ALLIANCE && bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_RELIEF_HUT_GY, ALLIANCE_CONTROLLED)));
+
+            if (!avTotalAssault)
             {
-                if (pVictim = SelectAttackTarget(pVictim))
+                if (m_role != ROLE_HEALER)
                 {
-                    AttackStart(pVictim);
-                    return;
+                    if (pVictim = SelectAttackTarget(pVictim))
+                    {
+                        AttackStart(pVictim);
+                        return;
+                    }
                 }
-            }
-            else if (IsRangedDamageClass(me->GetClass()))
-            {
-                // Healer: attack an enemy a nearby ally is already fighting.
-                // AttackStart sets caster chase distance so we stay at range.
-                if (Unit* pOffensiveTarget = SelectHealerOffensiveTarget())
+                else if (IsRangedDamageClass(me->GetClass()))
                 {
-                    AttackStart(pOffensiveTarget);
-                    return;
+                    // Healer: attack an enemy a nearby ally is already fighting.
+                    // AttackStart sets caster chase distance so we stay at range.
+                    if (Unit* pOffensiveTarget = SelectHealerOffensiveTarget())
+                    {
+                        AttackStart(pOffensiveTarget);
+                        return;
+                    }
                 }
             }
 
