@@ -79,26 +79,10 @@ bool PlayerBotAI::SpawnNewPlayer(WorldSession* sess, uint8 class_, uint32 race_,
 {
     ASSERT(botEntry);
 
-    int32 BattleBotNamesCount = 0;
-    for (int i = 0; i < sOOMgr.BattleBotNames.size(); i++) {
-        if (!sOOMgr.BattleBotNames[i].empty())
-        {
-            BattleBotNamesCount++;
-        }
-        else
-        {
-            break;
-        }
-    }
-
-    int index = rand() % BattleBotNamesCount;
-    std::string botName = sOOMgr.BattleBotNames[index];
-    std::string name = botName;
-    Player* tmpPlayer = sObjectMgr.GetPlayer(botName.c_str()); // if name is used
-    if (tmpPlayer)
-    {
-        name = sObjectMgr.GeneratePetName(1863); // Succubus name
-    }
+    bool const isAlliance = (Player::TeamForRace(race_) == ALLIANCE);
+    std::string name = sOOMgr.GetBotName(instanceId, isAlliance);
+    if (name.empty() || sObjectMgr.GetPlayer(name.c_str()))
+        name = sObjectMgr.GeneratePetName(1863); // Succubus name fallback
 
     normalizePlayerName(name);
 

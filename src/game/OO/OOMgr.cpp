@@ -4,8 +4,12 @@
 #include "ProgressBar.h"
 #include "Policies/SingletonImp.h"
 #include "Util.h"
+#include "IO/Filesystem/FileSystem.h"
 
 #include "OO/OOMgr.h"
+
+#include <fstream>
+#include <sstream>
 
 INSTANTIATE_SINGLETON_1(OOMgr);
 
@@ -41,23 +45,26 @@ void OOMgr::Load()
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u OO PVP texts", pcount);
 
+    // Bot Name Themes (file-based, per-faction)
+    LoadBotNameThemes();
+
     // for (auto & element : GetPVPText(2, 2)) {
     //     printf("dd %s \n", element.c_str());
     // }
 
     // Bot Name
-    uint32 bindex = 0;
-    std::unique_ptr<QueryResult> bresult(CharacterDatabase.Query("SELECT name FROM `character_name` where name not in (SELECT Name from characters)"));
-    if (bresult)
-    {
-         do
-        {
-            Field* fields   = bresult->Fetch();
-            BattleBotNames[bindex] = fields[0].GetString();
-            bindex++;
-        }
-        while (bresult->NextRow());
-    }
+    // uint32 bindex = 0;
+    // std::unique_ptr<QueryResult> bresult(CharacterDatabase.Query("SELECT name FROM `character_name` where name not in (SELECT Name from characters)"));
+    // if (bresult)
+    // {
+    //      do
+    //     {
+    //         Field* fields   = bresult->Fetch();
+    //         BattleBotNames[bindex] = fields[0].GetString();
+    //         bindex++;
+    //     }
+    //     while (bresult->NextRow());
+    // }
 
     /// Build Bank
     // SELECT `guild_id`, `guild_rank`, `withdraw_item`, `withdraw_cod` FROM `character_guild_bank`
@@ -168,6 +175,95 @@ void OOMgr::Update(uint32 diff)
     //     sWorld.SendWorldText(entry.stringId);
     //     _current = 0;
     // }
+}
+
+void OOMgr::LoadBotNameThemes()
+{
+    std::string const dirPath = "./src/game/OO/BattleBotNames/";
+    std::vector<std::string> files = IO::Filesystem::GetAllFilesInFolder(dirPath, IO::Filesystem::OutputFilePath::FullFilePath);
+
+    uint32 count = 0;
+    for (std::string const& filePath : files)
+    {
+        // only .txt files
+        if (filePath.size() < 4 || filePath.substr(filePath.size() - 4) != ".txt")
+            continue;
+
+        std::ifstream file(filePath);
+        if (!file.is_open())
+            continue;
+
+        BotNameTheme theme;
+        // derive theme name from filename (strip path and extension)
+        size_t slash = filePath.find_last_of("/\\");
+        std::string filename = (slash != std::string::npos) ? filePath.substr(slash + 1) : filePath;
+        theme.name = filename.substr(0, filename.size() - 4);
+
+        bool inAlliance = false, inHorde = false;
+        std::string line;
+        while (std::getline(file, line))
+        {
+            // trim trailing whitespace/CR
+            while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' ' || line.back() == '\t'))
+                line.pop_back();
+            if (line.empty() || line[0] == '#')
+                continue;
+
+            if (line == "[正方]") { inAlliance = true;  inHorde = false; continue; }
+            if (line == "[反方]") { inAlliance = false; inHorde = true;  continue; }
+
+            if (inAlliance)
+                theme.allianceNames.push_back(line);
+            else if (inHorde)
+                theme.hordeNames.push_back(line);
+        }
+
+        if (!theme.allianceNames.empty() || !theme.hordeNames.empty())
+        {
+            BotNameThemes.push_back(std::move(theme));
+            ++count;
+        }
+    }
+
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u BotName themes from %s", count, dirPath.c_str());
+}
+
+std::string OOMgr::GetBotName(uint32 instanceId, bool isAlliance)
+{
+    // Fall back to legacy DB names when no themes loaded or non-instanced map
+    if (BotNameThemes.empty() || instanceId == 0)
+    {
+        int32 count = 0;
+        while (count < (int32)BattleBotNames.size() && !BattleBotNames[count].empty())
+            ++count;
+        if (count == 0)
+            return "";
+        return BattleBotNames[urand(0, count - 1)];
+    }
+
+    // Assign a random theme and random side-flip to this BG instance on first access
+    auto it = BgBotNameThemeMap.find(instanceId);
+    if (it == BgBotNameThemeMap.end())
+    {
+        uint32 themeIndex = urand(0, (uint32)BotNameThemes.size() - 1);
+        bool sidesFlipped = urand(0, 1) == 1;
+        BgBotNameThemeMap[instanceId] = {themeIndex, sidesFlipped};
+        it = BgBotNameThemeMap.find(instanceId);
+    }
+
+    BotNameTheme const& theme = BotNameThemes[it->second.first];
+    // XOR: if sides are flipped, Alliance gets 反方 names and Horde gets 正方 names
+    bool useFirstSide = (isAlliance != it->second.second);
+    std::vector<std::string> const& names = useFirstSide ? theme.allianceNames : theme.hordeNames;
+    if (names.empty())
+        return "";
+
+    return names[urand(0, (uint32)names.size() - 1)];
+}
+
+void OOMgr::RemoveBgTheme(uint32 instanceId)
+{
+    BgBotNameThemeMap.erase(instanceId);
 }
 
 std::vector<std::string> OOMgr::GetPVPText(uint32 prace, uint32 plass) {

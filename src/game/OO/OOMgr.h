@@ -6,13 +6,22 @@
 #include "GameObject.h"
 #include "Chat.h"
 
+#include <map>
+#include <string>
 #include <vector>
 
 ////////////////////
 // Broadcast
 // Load character_name
-// Load character_pvp_text 
+// Load character_pvp_text
 ///////////////////
+
+struct BotNameTheme
+{
+    std::string name;
+    std::vector<std::string> allianceNames;
+    std::vector<std::string> hordeNames;
+};
 
 struct OOBroadCastEntry
 {
@@ -43,6 +52,14 @@ class OOMgr
         void Update(uint32 diff);
 
         std::array< std::string, 10000 > BattleBotNames;
+        std::vector<BotNameTheme> BotNameThemes;
+        // bgInstanceId -> {themeIndex, sidesFlipped}
+        // sidesFlipped=false: Alliance=正方 Horde=反方; true: reversed
+        std::map<uint32, std::pair<uint32, bool>> BgBotNameThemeMap;
+
+        std::string GetBotName(uint32 instanceId, bool isAlliance);
+        void RemoveBgTheme(uint32 instanceId);
+
         std::map< uint32, std::map< uint32, std::vector<std::string>> >  PVPTexts;
 
         std::map< uint32, uint32 > SnowBallObjects;
@@ -94,6 +111,9 @@ class OOMgr
         std::vector<OOBroadCastEntry> entries;
         time_t _constInterval;
         time_t _current;
+
+    private:
+        void LoadBotNameThemes();
 };
 
 #define sOOMgr MaNGOS::Singleton<OOMgr>::Instance()
