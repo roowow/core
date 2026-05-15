@@ -134,10 +134,10 @@ public:
     uint32 m_avStartWaveBgInstance = 0;
     time_t m_avStartWaveReleaseTime = 0;
 
-    // WSG exploit prevention: bots lured into buildings near graveyards
-    uint8 m_wsgStuckCounter = 0;
-    float m_wsgStuckLastX = 0.0f;
-    float m_wsgStuckLastY = 0.0f;
+    // BG melee stuck detection: bots unable to reach target inside buildings
+    uint8 m_bgStuckCounter = 0;
+    float m_bgStuckLastX = 0.0f;
+    float m_bgStuckLastY = 0.0f;
 };
 
 #endif

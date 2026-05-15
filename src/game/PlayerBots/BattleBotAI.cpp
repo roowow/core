@@ -2858,10 +2858,10 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
     UpdateBattleGroundAI();
 
-    // WSG exploit prevention: bots lured into buildings near graveyards
+    // BG melee stuck detection + WSG exploit prevention
     {
-        BattleGround* wsgBg = me->GetBattleGround();
-        if (wsgBg && wsgBg->GetTypeID() == BATTLEGROUND_WS)
+        BattleGround* currentBg = me->GetBattleGround();
+        if (currentBg && currentBg->GetTypeID() == BATTLEGROUND_WS)
         {
             float const curX = me->GetPositionX();
             float const curY = me->GetPositionY();
@@ -2882,22 +2882,22 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                 if (!dropCombat && me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
                 {
                     bool const cantReach = me->GetVictim() && !me->CanReachWithMeleeAutoAttack(me->GetVictim());
-                    bool const notMoved = me->GetDistance2d(m_wsgStuckLastX, m_wsgStuckLastY) < 2.0f;
+                    bool const notMoved = me->GetDistance2d(m_bgStuckLastX, m_bgStuckLastY) < 2.0f;
                     if (cantReach && notMoved)
-                        ++m_wsgStuckCounter;
+                        ++m_bgStuckCounter;
                     else
-                        m_wsgStuckCounter = 0;
-                    if (m_wsgStuckCounter >= 5)
+                        m_bgStuckCounter = 0;
+                    if (m_bgStuckCounter >= 5)
                         dropCombat = true;
                 }
                 else
                 {
-                    m_wsgStuckCounter = 0;
+                    m_bgStuckCounter = 0;
                 }
             }
             else
             {
-                m_wsgStuckCounter = 0;
+                m_bgStuckCounter = 0;
                 // Out of combat but physically stuck inside an unexpected building
                 if (!me->IsMoving())
                 {
@@ -2922,15 +2922,46 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                 StopMoving();
                 ClearPath();
                 StartNewPathToObjective();
-                m_wsgStuckCounter = 0;
+                m_bgStuckCounter = 0;
             }
 
-            m_wsgStuckLastX = curX;
-            m_wsgStuckLastY = curY;
+            m_bgStuckLastX = curX;
+            m_bgStuckLastY = curY;
+        }
+        else if (currentBg && (currentBg->GetTypeID() == BATTLEGROUND_AV || currentBg->GetTypeID() == BATTLEGROUND_AB))
+        {
+            float const curX = me->GetPositionX();
+            float const curY = me->GetPositionY();
+
+            if (me->IsInCombat() &&
+                me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
+            {
+                bool const cantReach = me->GetVictim() && !me->CanReachWithMeleeAutoAttack(me->GetVictim());
+                bool const notMoved = me->GetDistance2d(m_bgStuckLastX, m_bgStuckLastY) < 2.0f;
+                if (cantReach && notMoved)
+                    ++m_bgStuckCounter;
+                else
+                    m_bgStuckCounter = 0;
+                if (m_bgStuckCounter >= 5)
+                {
+                    me->AttackStop(false);
+                    StopMoving();
+                    ClearPath();
+                    StartNewPathToObjective();
+                    m_bgStuckCounter = 0;
+                }
+            }
+            else
+            {
+                m_bgStuckCounter = 0;
+            }
+
+            m_bgStuckLastX = curX;
+            m_bgStuckLastY = curY;
         }
         else
         {
-            m_wsgStuckCounter = 0;
+            m_bgStuckCounter = 0;
         }
     }
 
