@@ -3263,6 +3263,7 @@ static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos, uint8
     if (!IsAVShortGuardingPosition(pAI->me, pos))
         return false;
 
+    uint8 combatCount = 0;
     uint8 lowerGuidGuards = 0;
     for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
     {
@@ -3274,11 +3275,14 @@ static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos, uint8
             if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
                 continue;
 
-            if (player->IsInCombat() || player->GetVictim())
-                continue;
-
             if (!IsAVShortGuardingPosition(player, pos))
                 continue;
+
+            if (player->IsInCombat() || player->GetVictim())
+            {
+                ++combatCount;
+                continue;
+            }
 
             if (!IsABSettledGuardBot(player, pAI->me))
                 continue;
@@ -3288,7 +3292,10 @@ static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos, uint8
         }
     }
 
-    return lowerGuidGuards >= requiredBots;
+    // In-combat bots at this position count toward the cap — prevents unlimited bots
+    // from being pulled in when a captured GY is under attack.
+    uint8 const cappedCombat = std::min<uint8>(combatCount, requiredBots);
+    return cappedCombat + lowerGuidGuards >= requiredBots;
 }
 
 template<std::size_t N>
@@ -3772,6 +3779,22 @@ bool BattleBotAI::StartNewPathToObjective()
                 {
                     if (bg->IsActiveEvent(objective.first, HORDE_ASSAULTED))
                     {
+                        // Bots near rear-base GYs skip the adjacent towers to avoid infinite GY<->tower loops.
+                        if (objective.first == BG_AV_DUN_BALDAR_SOUTH_BUNKER || objective.first == BG_AV_DUN_BALDAR_NORTH_BUNKER)
+                        {
+                            Position aidStationPos;
+                            GetAVNativeGraveyardFallbackPosition(BG_AV_STORMPIKE_AID_STATION_GY, aidStationPos);
+                            if (me->IsWithinDist3d(aidStationPos.x, aidStationPos.y, aidStationPos.z, 150.0f))
+                                continue;
+                        }
+                        else if (objective.first == BG_AV_ICEWING_BUNKER || objective.first == BG_AV_STONEHEARTH_BUNKER)
+                        {
+                            Position stonehearthPos;
+                            GetAVNativeGraveyardFallbackPosition(BG_AV_STONEHEARTH_GY, stonehearthPos);
+                            if (me->IsWithinDist3d(stonehearthPos.x, stonehearthPos.y, stonehearthPos.z, 150.0f))
+                                continue;
+                        }
+
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
                         {
                             if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
