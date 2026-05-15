@@ -1,15 +1,24 @@
+FORCE=0
+for arg in "$@"; do
+    [ "$arg" = "--force" ] && FORCE=1
+done
+
 cd /home/rogical/vmangos-dev/core
 
 BEFORE=$(git rev-parse HEAD)
 git pull
 AFTER=$(git rev-parse HEAD)
 
-if [ "$BEFORE" = "$AFTER" ]; then
+if [ "$BEFORE" = "$AFTER" ] && [ "$FORCE" = "0" ]; then
     echo "No new commits, skipping deploy."
     exit 0
 fi
 
-echo "New commits detected ($BEFORE -> $AFTER), deploying..."
+if [ "$BEFORE" = "$AFTER" ]; then
+    echo "No new commits, but --force specified, deploying..."
+else
+    echo "New commits detected ($BEFORE -> $AFTER), deploying..."
+fi
 
 cd ../build
 
