@@ -18,6 +18,9 @@ make -j20
 make install
 
 cd ..
+BUILD_TIME=$(date '+%Y-%m-%d %H:%M')
+sed -i "s|^Motd = .*|Motd = \"欢迎进入开发测试服！ | 构建：$BUILD_TIME\"|" /home/rogical/vmangos-dev/etc/mangosd.conf
+
 ./wowadmin.sh wrestart
 
 sleep 20
