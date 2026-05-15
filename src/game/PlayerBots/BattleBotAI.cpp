@@ -18,6 +18,7 @@
 #include "BattleBotWaypoints.h"
 #include "OO/OOMgr.h"
 #include "BattleGround.h"
+#include "BattleGroundAV.h"
 #include "Player.h"
 #include "SpellAuras.h"
 #include "Group.h"
