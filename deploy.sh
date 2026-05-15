@@ -1,6 +1,15 @@
 cd /home/rogical/vmangos-dev/core
 
+BEFORE=$(git rev-parse HEAD)
 git pull
+AFTER=$(git rev-parse HEAD)
+
+if [ "$BEFORE" = "$AFTER" ]; then
+    echo "No new commits, skipping deploy."
+    exit 0
+fi
+
+echo "New commits detected ($BEFORE -> $AFTER), deploying..."
 
 cd ../build
 
