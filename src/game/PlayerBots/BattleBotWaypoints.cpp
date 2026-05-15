@@ -287,6 +287,7 @@ std::vector<uint32> const vFlagsAB = { GO_AB_ALLIANCE_BANNER , GO_AB_CONTESTED_B
 #define AV_FINAL_PUSH_MINUTES     40
 #define AV_RESCUE_RADIUS          80.0f
 #define AV_RESCUE_MAX_BOTS        3
+#define AV_RESCUE_MAX_BOTS_TOWER  1
 
 static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, float radius);
 static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, float radius, Position& outPosition, uint32* outMatchedObjective = nullptr);
@@ -295,6 +296,8 @@ static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos, uint8
 static bool IsAVNativeGraveyard(Team team, uint32 objective);
 static bool IsAVNativeGraveyardDefensible(BattleBotAI const* pAI, uint32 node);
 static uint8 CountAVRescueBots(BattleBotAI* pAI, Position const& pos);
+static bool IsAVKeyObjective(uint32 objectiveId);
+static uint8 CountFriendlyPlayersAtObjective(BattleBotAI const* pAI, Position const& pos);
 
 static Position const AB_GuardPositions[5] =
 {
@@ -3187,6 +3190,36 @@ static uint8 CountAVRescueBots(BattleBotAI* pAI, Position const& pos)
     return count;
 }
 
+static bool IsAVKeyObjective(uint32 objectiveId)
+{
+    for (uint32 key : AV_KeyDefenseObjectives)
+        if (key == objectiveId)
+            return true;
+    return false;
+}
+
+static uint8 CountFriendlyPlayersAtObjective(BattleBotAI const* pAI, Position const& pos)
+{
+    Map* map = pAI->me->GetMap();
+    if (!map)
+        return 0;
+
+    uint8 count = 0;
+    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
+    {
+        if (Player* player = itr->getSource())
+        {
+            if (player == pAI->me)
+                continue;
+            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsAlive())
+                continue;
+            if (player->GetDistance(pos) <= AV_FLAG_DEFENSE_RADIUS)
+                ++count;
+        }
+    }
+    return count;
+}
+
 static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos, uint8 requiredBots)
 {
     Map* map = pAI->me->GetMap();
@@ -3597,7 +3630,8 @@ bool BattleBotAI::StartNewPathToObjective()
                         {
                             if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
                             {
-                                if (CountAVRescueBots(this, pGO->GetPosition()) < AV_RESCUE_MAX_BOTS)
+                                uint8 const rescueCap = IsAVKeyObjective(objective.first) ? AV_RESCUE_MAX_BOTS : AV_RESCUE_MAX_BOTS_TOWER;
+                                if (CountAVRescueBots(this, pGO->GetPosition()) < rescueCap)
                                     return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                             }
                         }
@@ -3609,7 +3643,11 @@ bool BattleBotAI::StartNewPathToObjective()
                     if (bg->IsActiveEvent(objective.first, ALLIANCE_ASSAULTED) || bg->IsActiveEvent(objective.first, ALLIANCE_CONTROLLED) || bg->IsActiveEvent(objective.first, NEUTRAL_CONTROLLED))
                     {
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
+                        {
+                            if (!IsAVKeyObjective(objective.first) && CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) >= 1)
+                                continue;
                             return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                        }
                     }
                 }
             }
@@ -3642,7 +3680,8 @@ bool BattleBotAI::StartNewPathToObjective()
                         {
                             if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
                             {
-                                if (CountAVRescueBots(this, pGO->GetPosition()) < AV_RESCUE_MAX_BOTS)
+                                uint8 const rescueCap = IsAVKeyObjective(objective.first) ? AV_RESCUE_MAX_BOTS : AV_RESCUE_MAX_BOTS_TOWER;
+                                if (CountAVRescueBots(this, pGO->GetPosition()) < rescueCap)
                                     return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                             }
                         }
@@ -3661,7 +3700,11 @@ bool BattleBotAI::StartNewPathToObjective()
                     if (bg->IsActiveEvent(objective.first, HORDE_ASSAULTED) || bg->IsActiveEvent(objective.first, HORDE_CONTROLLED) || bg->IsActiveEvent(objective.first, NEUTRAL_CONTROLLED))
                     {
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
+                        {
+                            if (!IsAVKeyObjective(objective.first) && CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) >= 1)
+                                continue;
                             return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                        }
                     }
                 }
             }
