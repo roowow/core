@@ -573,10 +573,7 @@ void PlayerBotMgr::Update(uint32 diff)
                     if (runningBg->GetBracketId() != bracketId)
                         continue;
 
-                    if (runningBg->GetStatus() <= STATUS_WAIT_QUEUE || runningBg->GetStatus() >= STATUS_WAIT_LEAVE)
-                        continue;
-
-                    if (runningBg->GetStatus() != STATUS_IN_PROGRESS)
+                    if (runningBg->GetStatus() < STATUS_WAIT_JOIN || runningBg->GetStatus() >= STATUS_WAIT_LEAVE)
                         continue;
 
                     if (runningBg->GetFreeSlotsForTeam(team) > 0)

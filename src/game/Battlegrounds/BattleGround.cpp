@@ -297,7 +297,12 @@ void BattleGround::Update(uint32 diff)
             delete this;
         // update queue to avoid bg remaining indefinitely until player logs back in if he logs out after it pops
         else if (GetStatus() <= STATUS_WAIT_JOIN && (GetBgMap()->GetCreateTime() + 2 * MINUTE) < time(nullptr))
+        {
             sBattleGroundMgr.ScheduleQueueUpdate(BattleGroundMgr::BgQueueTypeId(GetTypeID()), GetTypeID(), GetBracketId());
+            // Force-close if still stuck after 3 minutes — all 80s invite windows are long expired
+            if ((GetBgMap()->GetCreateTime() + 3 * MINUTE) < time(nullptr))
+                delete this;
+        }
 
         return;
     }
