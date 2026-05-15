@@ -2883,7 +2883,7 @@ static bool IsAVGuardAssignmentPaused(BattleGround const* bg)
 {
     return bg && bg->GetTypeID() == BATTLEGROUND_AV &&
         bg->GetStatus() == STATUS_IN_PROGRESS &&
-        bg->GetStartTime() <= 5 * MINUTE * IN_MILLISECONDS;
+        bg->GetStartTime() <= 10 * MINUTE * IN_MILLISECONDS;
 }
 
 static bool IsAVFinalPush(BattleGround const* bg)
@@ -3652,7 +3652,7 @@ bool BattleBotAI::StartNewPathToObjective()
                         return StartNewPathToPosition(pVanndar->GetPosition(), vPaths_AV);
                 }
 
-                // Only go to Snowfall Graveyard if already close to it, cap at 5 bots.
+                // Snowfall GY: up to 5 bots routed there, only 2 physically stay.
                 if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
                 {
                     if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED)))
@@ -3660,8 +3660,13 @@ bool BattleBotAI::StartNewPathToObjective()
                             if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < 5)
                             {
                                 if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
-                                    return true;
-                                return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                                {
+                                    if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < 2)
+                                        return true;
+                                    // 2+ physical defenders already here, continue to next objective
+                                }
+                                else
+                                    return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                             }
                 }
 
@@ -3717,7 +3722,7 @@ bool BattleBotAI::StartNewPathToObjective()
                         return StartNewPathToPosition(pDrek->GetPosition(), vPaths_AV);
                 }
 
-                // Only go to Snowfall Graveyard if already close to it, cap at 5 bots.
+                // Snowfall GY: up to 5 bots routed there, only 2 physically stay.
                 if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
                 {
                     if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED)))
@@ -3725,8 +3730,13 @@ bool BattleBotAI::StartNewPathToObjective()
                             if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < 5)
                             {
                                 if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
-                                    return true;
-                                return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                                {
+                                    if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < 2)
+                                        return true;
+                                    // 2+ physical defenders already here, continue to next objective
+                                }
+                                else
+                                    return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                             }
                 }
                 
