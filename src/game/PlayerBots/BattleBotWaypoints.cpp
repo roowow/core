@@ -285,6 +285,8 @@ std::vector<uint32> const vFlagsAB = { GO_AB_ALLIANCE_BANNER , GO_AB_CONTESTED_B
 #define AV_NATIVE_GY_GUARD_BOTS   1
 #define AV_CAPTURED_GY_GUARD_BOTS 2
 #define AV_FINAL_PUSH_MINUTES     40
+#define AV_RESCUE_RADIUS          80.0f
+#define AV_RESCUE_MAX_BOTS        3
 
 static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, float radius);
 static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, float radius, Position& outPosition, uint32* outMatchedObjective = nullptr);
@@ -292,6 +294,7 @@ static bool GetAVNativeGraveyardFallbackPosition(uint32 node, Position& outPosit
 static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos, uint8 requiredBots = AV_CAPTURED_GY_GUARD_BOTS);
 static bool IsAVNativeGraveyard(Team team, uint32 objective);
 static bool IsAVNativeGraveyardDefensible(BattleBotAI const* pAI, uint32 node);
+static uint8 CountAVRescueBots(BattleBotAI* pAI, Position const& pos);
 
 static Position const AB_GuardPositions[5] =
 {
@@ -3160,6 +3163,30 @@ static uint8 CountAVShortGuardBots(BattleBotAI* pAI, Position const& pos, bool i
     return count;
 }
 
+static uint8 CountAVRescueBots(BattleBotAI* pAI, Position const& pos)
+{
+    Map* map = pAI->me->GetMap();
+    if (!map)
+        return 0;
+
+    uint8 count = 0;
+    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
+    {
+        if (Player* player = itr->getSource())
+        {
+            if (player == pAI->me)
+                continue;
+            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
+                continue;
+            if (player->GetDistance(pos) <= AV_RESCUE_RADIUS)
+                ++count;
+            else if (!player->IsInCombat() && IsABAssignedToGuardPosition(player, pos))
+                ++count;
+        }
+    }
+    return count;
+}
+
 static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos, uint8 requiredBots)
 {
     Map* map = pAI->me->GetMap();
@@ -3567,8 +3594,13 @@ bool BattleBotAI::StartNewPathToObjective()
                     if (bg->IsActiveEvent(objective.first, ALLIANCE_ASSAULTED))
                     {
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
+                        {
                             if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
-                                return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                            {
+                                if (CountAVRescueBots(this, pGO->GetPosition()) < AV_RESCUE_MAX_BOTS)
+                                    return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                            }
+                        }
                     }
                 }
 
@@ -3602,15 +3634,17 @@ bool BattleBotAI::StartNewPathToObjective()
                             return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                 }
                 
-                // Chance to defend.
-                if (roll_chance_u(25))
+                for (const auto& objective : AV_AllianceDefendObjectives)
                 {
-                    for (const auto& objective : AV_AllianceDefendObjectives)
+                    if (bg->IsActiveEvent(objective.first, HORDE_ASSAULTED))
                     {
-                        if (bg->IsActiveEvent(objective.first, HORDE_ASSAULTED))
+                        if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
                         {
-                            if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
-                                return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                            if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
+                            {
+                                if (CountAVRescueBots(this, pGO->GetPosition()) < AV_RESCUE_MAX_BOTS)
+                                    return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                            }
                         }
                     }
                 }
