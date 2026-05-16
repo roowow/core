@@ -380,6 +380,7 @@ class BattleGround
         int32  m_startDelayTime;
         bool   m_prematureCountDown;
         uint32 m_prematureCountDownTimer;
+        uint32 m_noRealPlayerTimer;         // grace period before ending a bot-only in-progress BG
         char const* m_name;
 
         /* Player lists */

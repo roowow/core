@@ -235,6 +235,7 @@ BattleGround::BattleGround()
 
     m_prematureCountDown = false;
     m_prematureCountDownTimer = 0;
+    m_noRealPlayerTimer = 0;
 
     m_startDelayTime = 0;
     m_startDelayTimes[BG_STARTING_EVENT_FIRST]  = BG_START_DELAY_2M;
@@ -305,6 +306,32 @@ void BattleGround::Update(uint32 diff)
         }
 
         return;
+    }
+
+    /*********************************************************/
+    /***        NO-REAL-PLAYER GRACE PERIOD SYSTEM         ***/
+    /*********************************************************/
+
+    // If only bots remain in an in-progress BG, give real players time to rejoin
+    // (disconnect recovery, or a new queued player entering the existing instance).
+    // After the grace period expires, end the BG so it doesn't run forever bot-only.
+    if (GetStatus() == STATUS_IN_PROGRESS && GetPlayersSize() > 0)
+    {
+        uint32 const botCount = GetBotPlayersCountByTeam(ALLIANCE) + GetBotPlayersCountByTeam(HORDE);
+        if (GetPlayersSize() <= botCount)
+        {
+            if (!m_noRealPlayerTimer)
+                m_noRealPlayerTimer = 5 * MINUTE * IN_MILLISECONDS;
+            else if (m_noRealPlayerTimer <= diff)
+            {
+                EndBattleGround(TEAM_NONE);
+                return;
+            }
+            else
+                m_noRealPlayerTimer -= diff;
+        }
+        else
+            m_noRealPlayerTimer = 0;
     }
 
     /*********************************************************/
