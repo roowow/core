@@ -1854,8 +1854,13 @@ bool BattleBotAI::ShouldUseAVOpeningPassiveCombat() const
         return false;
 
     uint32 const t = bg->GetStartTime();
-    return t <= 20 * MINUTE * IN_MILLISECONDS ||
-           t > 40 * MINUTE * IN_MILLISECONDS;
+
+    // Rush phase (0-30 min): passive everywhere not at a flag.
+    if (t <= 30 * MINUTE * IN_MILLISECONDS)
+        return true;
+
+    // Post-30 min: passive unless within objective radius.
+    return !BattleBotIsNearAVFlag(this, AV_FLAG_DEFENSE_RADIUS);
 }
 
 Unit* BattleBotAI::SelectAVOpeningObjectiveNpcTarget(Unit* pExcept) const
