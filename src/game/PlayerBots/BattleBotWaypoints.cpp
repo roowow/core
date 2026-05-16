@@ -74,7 +74,7 @@ std::vector<uint32> const vFlagsAB = { GO_AB_ALLIANCE_BANNER , GO_AB_CONTESTED_B
                                        GO_AB_STABLE_BANNER, GO_AB_BLACKSMITH_BANNER, GO_AB_FARM_BANNER, GO_AB_LUMBER_MILL_BANNER,
                                        GO_AB_GOLD_MINE_BANNER };
 
-static bool IsABFlagOpenable(BattleBotAI* pAI, GameObject* pGo)
+static bool IsABFlagOpenable(BattleBotAI const* pAI, GameObject* pGo)
 {
     if (!pGo || !pGo->isSpawned())
         return false;
