@@ -2883,16 +2883,17 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                         dropCombat = true;
                 }
 
-                // Stuck in building while chasing: can't reach victim and not moving
+                // Stuck while chasing: can't reach victim. Stationary 10s or oscillating 30s.
                 if (!dropCombat && me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
                 {
                     bool const cantReach = me->GetVictim() && !me->CanReachWithMeleeAutoAttack(me->GetVictim());
                     bool const notMoved = me->GetDistance2d(m_bgStuckLastX, m_bgStuckLastY) < 2.0f;
-                    if (cantReach && notMoved)
+                    if (cantReach)
                         ++m_bgStuckCounter;
                     else
                         m_bgStuckCounter = 0;
-                    if (m_bgStuckCounter >= 5)
+                    uint8 const stuckThreshold = notMoved ? 5 : 15;
+                    if (m_bgStuckCounter >= stuckThreshold)
                         dropCombat = true;
                 }
                 else
@@ -2943,7 +2944,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
             // Checkpoint-based movement progress detection; excludes FOLLOW to avoid
             // false positives for home guard bots patrolling near the flag room.
-            if (!inCombat && me->IsMoving() &&
+            if (me->IsMoving() &&
                 me->GetMotionMaster()->GetCurrentMovementGeneratorType() != FOLLOW_MOTION_TYPE)
             {
                 ++m_bgProgressTicks;
@@ -2951,6 +2952,12 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                 {
                     if (me->GetDistance2d(m_bgProgressX, m_bgProgressY) < 15.0f)
                     {
+                        if (inCombat)
+                        {
+                            me->AttackStop(false);
+                            StopMoving();
+                            m_bgStuckCounter = 0;
+                        }
                         ClearPath();
                         StartNewPathToObjective();
                     }
@@ -2979,17 +2986,24 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             {
                 bool const cantReach = me->GetVictim() && !me->CanReachWithMeleeAutoAttack(me->GetVictim());
                 bool const notMoved = me->GetDistance2d(m_bgStuckLastX, m_bgStuckLastY) < 2.0f;
-                if (cantReach && notMoved)
+                if (cantReach)
                     ++m_bgStuckCounter;
                 else
                     m_bgStuckCounter = 0;
-                if (m_bgStuckCounter >= 5)
+                // Stationary + can't reach: 10s. Oscillating + can't reach: 30s.
+                // The longer threshold avoids false positives when legitimately
+                // chasing a running target that stays just out of melee range.
+                uint8 const stuckThreshold = notMoved ? 5 : 15;
+                if (m_bgStuckCounter >= stuckThreshold)
                 {
                     me->AttackStop(false);
                     StopMoving();
                     ClearPath();
                     StartNewPathToObjective();
                     m_bgStuckCounter = 0;
+                    m_bgProgressTicks = 0;
+                    m_bgProgressX = curX;
+                    m_bgProgressY = curY;
                 }
             }
             else
