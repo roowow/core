@@ -1684,42 +1684,53 @@ void CombatBotBaseAI::PopulateSpellData()
             else
                 m_spells.paladin.pSeal = pSealOfRighteousness;
 
-            if (pBlessingOfSanctuary && m_role == ROLE_TANK)
-                m_spells.paladin.pBlessingBuff = pBlessingOfSanctuary;
-            else
+            // Blessing: role-based selection instead of random.
+            // Tank: Sanctuary (threat reduction + damage absorb)
+            // Healer / ranged caster: Kings > Wisdom (sustain)
+            // Melee DPS: Kings > Might (raw AP)
+            // Fallback chain ensures a blessing is always set if any are known.
+            if (m_role == ROLE_TANK)
             {
-                std::vector<SpellEntry const*> blessings;
-                if (pBlessingOfLight)
-                    blessings.push_back(pBlessingOfLight);
-                if (pBlessingOfMight)
-                    blessings.push_back(pBlessingOfMight);
-                if (pBlessingOfWisdom)
-                    blessings.push_back(pBlessingOfWisdom);
-                if (pBlessingOfKings)
-                    blessings.push_back(pBlessingOfKings);
-                if (pBlessingOfSanctuary)
-                    blessings.push_back(pBlessingOfSanctuary);
-                if (!blessings.empty())
-                    m_spells.paladin.pBlessingBuff = SelectRandomContainerElement(blessings);
+                m_spells.paladin.pBlessingBuff = pBlessingOfSanctuary
+                    ? pBlessingOfSanctuary
+                    : (pBlessingOfKings ? pBlessingOfKings : pBlessingOfMight);
+            }
+            else if (m_role == ROLE_HEALER)
+            {
+                m_spells.paladin.pBlessingBuff = pBlessingOfKings
+                    ? pBlessingOfKings
+                    : (pBlessingOfWisdom ? pBlessingOfWisdom : pBlessingOfMight);
+            }
+            else // ROLE_MELEE_DPS
+            {
+                m_spells.paladin.pBlessingBuff = pBlessingOfKings
+                    ? pBlessingOfKings
+                    : (pBlessingOfMight ? pBlessingOfMight : pBlessingOfWisdom);
             }
 
-            std::vector<SpellEntry const*> auras;
-            if (pDevotionAura)
-                auras.push_back(pDevotionAura);
-            if (pConcentrationAura)
-                auras.push_back(pConcentrationAura);
-            if (pRetributionAura)
-                auras.push_back(pRetributionAura);
-            if (pSanctityAura)
-                auras.push_back(pSanctityAura);
-            if (pShadowResistanceAura)
-                auras.push_back(pShadowResistanceAura);
-            if (pFrostResistanceAura)
-                auras.push_back(pFrostResistanceAura);
-            if (pFireResistanceAura)
-                auras.push_back(pFireResistanceAura);
-            if (!auras.empty())
-                m_spells.paladin.pAura = SelectRandomContainerElement(auras);
+            // Aura: role-based selection instead of random.
+            // Healer: Concentration Aura (resist spell pushback while casting heals)
+            // Melee DPS / Ret: Sanctity Aura (Holy dmg bonus) > Retribution Aura (retaliation dmg)
+            // Tank / default: Devotion Aura (armor bonus for sustained survivability)
+            if (m_role == ROLE_HEALER)
+            {
+                m_spells.paladin.pAura = pConcentrationAura
+                    ? pConcentrationAura : pDevotionAura;
+            }
+            else if (m_role == ROLE_MELEE_DPS)
+            {
+                if (pSanctityAura)
+                    m_spells.paladin.pAura = pSanctityAura;
+                else if (pRetributionAura)
+                    m_spells.paladin.pAura = pRetributionAura;
+                else
+                    m_spells.paladin.pAura = pDevotionAura;
+            }
+            else
+            {
+                m_spells.paladin.pAura = pDevotionAura
+                    ? pDevotionAura : pRetributionAura;
+            }
 
             break;
         }
