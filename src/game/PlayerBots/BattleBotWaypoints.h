@@ -17,6 +17,9 @@
 #ifndef MANGOS_BattleBotWaypoints_H
 #define MANGOS_BattleBotWaypoints_H
 
+#define AV_FLAG_DEFENSE_RADIUS    55.0f
+#define AV_RESCUE_RADIUS          80.0f
+
 #include "SharedDefines.h"
 #include <vector>
 

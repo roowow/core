@@ -1281,9 +1281,6 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
     return true;
 }
 
-#define AV_FLAG_DEFENSE_RADIUS    55.0f
-#define AV_RESCUE_RADIUS          80.0f
-
 static uint32 AV_KeyDefenseObjectives[] =
 {
     BG_AV_STORMPIKE_AID_STATION_GY,
