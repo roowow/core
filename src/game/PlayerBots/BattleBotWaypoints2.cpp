@@ -308,7 +308,8 @@ static bool IsABAssignedToGuardPosition(Player* player, Position const& pos)
 {
     if (BattleBotAI* pBotAI = dynamic_cast<BattleBotAI*>(player->AI()))
     {
-        if (pBotAI->m_currentPath)
+        // Guard against empty path: front()/back() on an empty vector is UB.
+        if (pBotAI->m_currentPath && !pBotAI->m_currentPath->empty())
         {
             BattleBotWaypoint const& targetPoint = pBotAI->m_movingInReverse ? pBotAI->m_currentPath->front() : pBotAI->m_currentPath->back();
             if (GetDistance3D(targetPoint, pos) <= AB_GUARD_ASSIGN_RADIUS)

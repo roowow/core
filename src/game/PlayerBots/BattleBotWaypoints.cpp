@@ -228,8 +228,11 @@ void AtCaveExit(BattleBotAI* pAI)
 
 void MoveToNextPointSpecial(BattleBotAI* pAI)
 {
-    if (!pAI->m_currentPath)
+    if (!pAI->m_currentPath || pAI->m_currentPath->empty())
+    {
+        pAI->ClearPath();
         return;
+    }
 
     uint32 const lastPointInPath = pAI->m_movingInReverse ? 0 : ((*pAI->m_currentPath).size() - 1);
 
@@ -246,7 +249,16 @@ void MoveToNextPointSpecial(BattleBotAI* pAI)
     else
         pAI->m_currentPoint++;
 
-    BattleBotWaypoint& nextPoint = pAI->m_currentPath->at(pAI->m_currentPoint);
+    // Defensive: m_currentPoint can be stale (e.g. set to closestPoint-1 with
+    // closestPoint==0 underflows to UINT32_MAX before wraparound on ++). Drop the
+    // path instead of throwing out_of_range from at() and aborting the world thread.
+    if (pAI->m_currentPoint >= pAI->m_currentPath->size())
+    {
+        pAI->ClearPath();
+        return;
+    }
+
+    BattleBotWaypoint& nextPoint = (*pAI->m_currentPath)[pAI->m_currentPoint];
 
     pAI->me->GetMotionMaster()->MovePoint(pAI->m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, MOVE_RUN_MODE);
 }
@@ -1053,11 +1065,23 @@ std::vector<BattleBotPath*> const vPaths_ObjectiveOnly =
 void BattleBotAI::MovementInform(uint32 movementType, uint32 data)
 {
     if (movementType == POINT_MOTION_TYPE)
-    { 
-        if (m_currentPath && m_currentPath->at(data).pFunc)
-            (*m_currentPath->at(data).pFunc)(this);
+    {
+        // Guard against stale callbacks: a queued PointMovementGenerator can fire its
+        // Finalize() after the path has been swapped (e.g. MotionMaster::Clear() from
+        // class AI). The `data` index refers to the *previous* path, so it may be out
+        // of range for the current one. Without this check, vector::at() throws and
+        // aborts the world thread.
+        if (m_currentPath && data < m_currentPath->size())
+        {
+            if ((*m_currentPath)[data].pFunc)
+                (*(*m_currentPath)[data].pFunc)(this);
+            else
+                MoveToNextPoint();
+        }
         else
+        {
             MoveToNextPoint();
+        }
 
         ActivateNearbyAreaTrigger();
     }
@@ -1065,8 +1089,11 @@ void BattleBotAI::MovementInform(uint32 movementType, uint32 data)
 
 void BattleBotAI::MoveToNextPoint()
 {
-    if (!m_currentPath)
+    if (!m_currentPath || m_currentPath->empty())
+    {
+        ClearPath();
         return;
+    }
 
     uint32 const lastPointInPath = m_movingInReverse ? 0 : ((*m_currentPath).size() - 1);
 
@@ -1083,7 +1110,16 @@ void BattleBotAI::MoveToNextPoint()
     else
         m_currentPoint++;
 
-    BattleBotWaypoint& nextPoint = m_currentPath->at(m_currentPoint);
+    // Defensive: m_currentPoint can be stale (e.g. set to closestPoint-1 with
+    // closestPoint==0 underflows to UINT32_MAX before wraparound on ++). Drop the
+    // path instead of throwing out_of_range from at() and aborting the world thread.
+    if (m_currentPoint >= m_currentPath->size())
+    {
+        ClearPath();
+        return;
+    }
+
+    BattleBotWaypoint& nextPoint = (*m_currentPath)[m_currentPoint];
 
     me->GetMotionMaster()->MovePoint(m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
 }
