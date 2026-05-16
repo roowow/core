@@ -3114,8 +3114,10 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         if (!pVictim || !IsValidHostileTarget(pVictim))
         {
             // In AV phase 3 (total assault), don't initiate combat — only fight back if attacked.
+            // Exception: bots holding a GY during active capture must still fight incoming defenders.
             BattleGround* bgForAssault = me->GetBattleGround();
-            bool const avTotalAssault = bgForAssault && bgForAssault->GetTypeID() == BATTLEGROUND_AV &&
+            bool const avTotalAssault = !BattleBotIsInAVGyCaptureHold(this) &&
+                bgForAssault && bgForAssault->GetTypeID() == BATTLEGROUND_AV &&
                 ((me->GetTeam() == HORDE    && (bgForAssault->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_ASSAULTED)    || bgForAssault->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_CONTROLLED)))    ||
                  (me->GetTeam() == ALLIANCE && (bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED) || bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_CONTROLLED))));
 
