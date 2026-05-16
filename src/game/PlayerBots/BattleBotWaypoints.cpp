@@ -1494,6 +1494,219 @@ Unit* BattleBotSelectAVFlagDefenseTarget(BattleBotAI const* pAI, Unit* pExcept)
     return bestTarget;
 }
 
+// -----------------------------------------------------------------------
+// AV graveyard guard system
+// -----------------------------------------------------------------------
+
+static uint32 const AV_AllianceNativeGYs[] =
+{
+    BG_AV_STORMPIKE_AID_STATION_GY,
+    BG_AV_STORMPIKE_GY,
+    BG_AV_STONEHEARTH_GY,
+};
+
+static uint32 const AV_HordeNativeGYs[] =
+{
+    BG_AV_FROSTWOLF_RELIEF_HUT_GY,
+    BG_AV_FROSTWOLF_GY,
+    BG_AV_ICEBLOOD_GY,
+};
+
+static bool IsAVNativeGY(Team team, uint32 node)
+{
+    uint32 const* arr = (team == HORDE) ? AV_HordeNativeGYs : AV_AllianceNativeGYs;
+    for (uint32 i = 0; i < 3; ++i)
+        if (arr[i] == node)
+            return true;
+    return false;
+}
+
+static uint8 CountAVBotsAssignedToGY(Map* map, Team team, uint32 node)
+{
+    uint8 count = 0;
+    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
+    {
+        if (Player* player = itr->getSource())
+        {
+            if (player->GetTeam() != team || !player->IsBot() || !player->IsAlive())
+                continue;
+            if (BattleBotAI* pBotAI = dynamic_cast<BattleBotAI*>(player->AI()))
+                if (pBotAI->m_avAssignedGY == node)
+                    ++count;
+        }
+    }
+    return count;
+}
+
+static bool IsAVExcessGuardForGY(BattleBotAI const* pAI, uint32 node, uint8 keepCount)
+{
+    Map* map = pAI->me->GetMap();
+    uint8 lowerGuidGuards = 0;
+    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
+    {
+        if (Player* player = itr->getSource())
+        {
+            if (player == pAI->me || player->GetTeam() != pAI->me->GetTeam() ||
+                !player->IsBot() || !player->IsAlive())
+                continue;
+            if (BattleBotAI* pBotAI = dynamic_cast<BattleBotAI*>(player->AI()))
+                if (pBotAI->m_avAssignedGY == node &&
+                    player->GetObjectGuid().GetCounter() < pAI->me->GetObjectGuid().GetCounter())
+                    ++lowerGuidGuards;
+        }
+    }
+    return lowerGuidGuards >= keepCount;
+}
+
+static bool GetAVGYPosition(BattleGround* bg, Map* map, Team team, uint32 node, Position& outPos)
+{
+    uint32 const states[] = {
+        GetAVControlledStateForTeam(team),
+        GetAVAssaultedStateForTeam(team),
+        GetAVEnemyAssaultedStateForTeam(team),
+    };
+    for (uint32 state : states)
+    {
+        if (!bg->IsActiveEvent(node, state))
+            continue;
+        if (GameObject* pGO = map->GetGameObject(bg->GetSingleGameObjectGuid(node, state)))
+        {
+            outPos = pGO->GetPosition();
+            return true;
+        }
+    }
+    return GetAVNativeGraveyardFallbackPosition(node, outPos);
+}
+
+static bool FindAVGYToGuard(BattleBotAI* pAI, uint32& outNode)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    Map* map = pAI->me->GetMap();
+    if (!bg || !map || bg->GetTypeID() != BATTLEGROUND_AV)
+        return false;
+
+    Team const team = pAI->me->GetTeam();
+    uint32 const ownControlled = GetAVControlledStateForTeam(team);
+    uint32 const ownAssaulted  = GetAVAssaultedStateForTeam(team);
+    uint32 const* enemyNative  = (team == HORDE) ? AV_AllianceNativeGYs : AV_HordeNativeGYs;
+    uint32 const* ownNative    = (team == HORDE) ? AV_HordeNativeGYs    : AV_AllianceNativeGYs;
+
+    // Priority 1: We are actively capturing an enemy GY — all bots converge
+    for (uint32 i = 0; i < 3; ++i)
+    {
+        if (bg->IsActiveEvent(enemyNative[i], ownAssaulted))
+        {
+            outNode = enemyNative[i];
+            return true;
+        }
+    }
+
+    // Priority 2: We fully control a captured GY — keep 3 guards
+    for (uint32 i = 0; i < 3; ++i)
+    {
+        if (bg->IsActiveEvent(enemyNative[i], ownControlled) &&
+            CountAVBotsAssignedToGY(map, team, enemyNative[i]) < 3)
+        {
+            outNode = enemyNative[i];
+            return true;
+        }
+    }
+
+    // Priority 3: Own native GYs after 5 minutes — 1 guard each, GUID-spread
+    if (bg->GetStartTime() < 5 * 60 * 1000u)
+        return false;
+
+    uint32 const guidBase = pAI->me->GetObjectGuid().GetCounter();
+    for (uint32 attempt = 0; attempt < 3; ++attempt)
+    {
+        uint32 const node = ownNative[(guidBase + attempt) % 3];
+        if (bg->IsActiveEvent(node, ownControlled) &&
+            CountAVBotsAssignedToGY(map, team, node) < 1)
+        {
+            outNode = node;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool BattleBotSelectAVGuardObjective(BattleBotAI* pAI)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    Map* map = pAI->me->GetMap();
+    if (!bg || !map)
+        return false;
+
+    Team const team = pAI->me->GetTeam();
+    uint32 const ownControlled = GetAVControlledStateForTeam(team);
+    uint32 const ownAssaulted  = GetAVAssaultedStateForTeam(team);
+    uint32 const node          = pAI->m_avAssignedGY;
+    bool const isNative        = IsAVNativeGY(team, node);
+
+    bool const weControl    = bg->IsActiveEvent(node, ownControlled);
+    bool const weCapturing  = bg->IsActiveEvent(node, ownAssaulted);
+
+    if (weControl)
+    {
+        // Release excess guards once GY is fully controlled
+        uint8 const keepCount = isNative ? 1 : 3;
+        if (IsAVExcessGuardForGY(pAI, node, keepCount))
+        {
+            pAI->m_avAssignedGY = 0;
+            return false;
+        }
+    }
+    else if (!weCapturing)
+    {
+        // GY no longer ours
+        if (!isNative)
+        {
+            // Captured enemy GY lost — release and return to attack
+            pAI->m_avAssignedGY = 0;
+            return false;
+        }
+        // Native GY lost — keep assignment and go recapture
+    }
+
+    Position gyPos;
+    if (!GetAVGYPosition(bg, map, team, node, gyPos))
+    {
+        pAI->m_avAssignedGY = 0;
+        return false;
+    }
+
+    if (pAI->me->GetDistance(gyPos) > 25.0f)
+        return pAI->StartNewPathToPosition(gyPos, vPaths_AV);
+
+    // At the GY — attempt to capture flag if it's capturable
+    AtFlag(pAI, vFlagsAV);
+    return true;
+}
+
+void BattleBotUpdateAVGuardBehavior(BattleBotAI* pAI)
+{
+    if (pAI->m_avAssignedGY == 0 || !pAI->me->IsInCombat() || !pAI->me->GetVictim())
+        return;
+
+    BattleGround* bg = pAI->me->GetBattleGround();
+    Map* map = pAI->me->GetMap();
+    if (!bg || !map)
+        return;
+
+    Position gyPos;
+    if (!GetAVGYPosition(bg, map, pAI->me->GetTeam(), pAI->m_avAssignedGY, gyPos))
+        return;
+
+    // Break off combat if enemy moves too far from the guarded GY
+    if (pAI->me->GetVictim()->GetDistance(gyPos) > AV_FLAG_DEFENSE_RADIUS + 20.0f)
+    {
+        pAI->me->AttackStop();
+        pAI->ClearPath();
+        pAI->me->GetMotionMaster()->MovePoint(0, gyPos.x, gyPos.y, gyPos.z,
+            MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+    }
+}
+
 static std::pair<uint32, uint32> AV_HordeAttackObjectives[] =
 {
     // Attack
@@ -1553,6 +1766,17 @@ bool BattleBotAI::StartNewPathToObjective()
             return BattleBotSelectABObjective(this);
         case BATTLEGROUND_AV:
         {
+            // Guard assignment takes priority over normal attack routing.
+            if (m_avAssignedGY != 0)
+                return BattleBotSelectAVGuardObjective(this);
+
+            uint32 guardGY = 0;
+            if (FindAVGYToGuard(this, guardGY))
+            {
+                m_avAssignedGY = guardGY;
+                return BattleBotSelectAVGuardObjective(this);
+            }
+
             // Alliance and Horde code is intentionally different.
             // Horde bots are more united and always go together.
             // Alliance bots can pick random objective.

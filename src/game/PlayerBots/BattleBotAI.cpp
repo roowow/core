@@ -1835,8 +1835,8 @@ float BattleBotAI::GetMaxAggroDistanceForMap() const
     if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
         return 50.0f;
 
-    // Restore full aggro range while holding a GY being captured by our team.
-    if (BattleBotIsInAVGyCaptureHold(this))
+    // Guard bots and bots holding a capture keep full aggro range.
+    if (m_avAssignedGY != 0 || BattleBotIsInAVGyCaptureHold(this))
         return 50.0f;
 
     return 20.0f;
@@ -1848,6 +1848,7 @@ bool BattleBotAI::ShouldUseAVOpeningPassiveCombat() const
     if (!bg || bg->GetTypeID() != BATTLEGROUND_AV ||
         bg->GetStatus() != STATUS_IN_PROGRESS ||
         me->IsInCombat() ||
+        m_avAssignedGY != 0 ||
         BattleBotIsNearAVFlag(this, 10.0f) ||
         BattleBotIsInAVGyCaptureHold(this))
         return false;
@@ -2479,6 +2480,17 @@ void BattleBotAI::OnJustRevived()
     //Bholder->UpdateAuraDuration();
 
     SummonPetIfNeeded();
+
+    // AV guard bots immediately head back to their assigned GY after revive.
+    if (m_avAssignedGY != 0)
+    {
+        ClearPath();
+        if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
+            StopMoving();
+        StartNewPathToObjective();
+        return;
+    }
+
     if (BattleBotIsWSGHomeGuardCandidate(this))
     {
         ClearPath();
@@ -2547,6 +2559,7 @@ void BattleBotAI::OnLeaveBattleGround()
     m_avObjectiveTime = 0;
     m_avSkipObjective = 0;
     m_avSkipObjectiveExpiry = 0;
+    m_avAssignedGY = 0;
     m_bgProgressTicks = 0;
 
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
@@ -3116,7 +3129,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             // In AV phase 3 (total assault), don't initiate combat — only fight back if attacked.
             // Exception: bots holding a GY during active capture must still fight incoming defenders.
             BattleGround* bgForAssault = me->GetBattleGround();
-            bool const avTotalAssault = !BattleBotIsInAVGyCaptureHold(this) &&
+            bool const avTotalAssault = m_avAssignedGY == 0 && !BattleBotIsInAVGyCaptureHold(this) &&
                 bgForAssault && bgForAssault->GetTypeID() == BATTLEGROUND_AV &&
                 ((me->GetTeam() == HORDE    && (bgForAssault->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_ASSAULTED)    || bgForAssault->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_CONTROLLED)))    ||
                  (me->GetTeam() == ALLIANCE && (bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED) || bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_CONTROLLED))));
@@ -3278,6 +3291,9 @@ void BattleBotAI::UpdateBattleGroundAI()
 
     switch (bg->GetTypeID())
     {
+        case BATTLEGROUND_AV:
+            BattleBotUpdateAVGuardBehavior(this);
+            break;
         case BATTLEGROUND_WS:
         {
             // Pick up dropped flags.

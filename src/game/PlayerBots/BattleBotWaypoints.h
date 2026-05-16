@@ -77,5 +77,6 @@ bool BattleBotIsNearOpenObjectiveFlag(BattleBotAI const* pAI, float radius);
 bool BattleBotIsABGuardingOwnedNode(BattleBotAI const* pAI);
 bool BattleBotIsWSGHomeGuardCandidate(BattleBotAI const* pAI);
 bool BattleBotIsInAVGyCaptureHold(BattleBotAI const* pAI);
+void BattleBotUpdateAVGuardBehavior(BattleBotAI* pAI);
 
 #endif

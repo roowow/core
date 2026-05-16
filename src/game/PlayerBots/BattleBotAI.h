@@ -144,6 +144,7 @@ public:
     time_t m_avObjectiveTime = 0;
     uint32 m_avSkipObjective = 0;
     time_t m_avSkipObjectiveExpiry = 0;
+    uint32 m_avAssignedGY = 0;
 
     // Movement progress checkpoint: detects outdoor pathfinding loops
     uint8 m_bgProgressTicks = 0;
