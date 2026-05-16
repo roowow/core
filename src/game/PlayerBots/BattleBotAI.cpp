@@ -1937,7 +1937,7 @@ uint32 BattleBotAI::GetAVPhase1WaveDelay() const
     if (bucket < 5)
         return 0;
 
-    return 15;
+    return 30;
 }
 
 bool BattleBotAI::ShouldWaitForAVPhase1Wave()
