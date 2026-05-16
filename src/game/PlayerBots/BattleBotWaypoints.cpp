@@ -2564,8 +2564,15 @@ std::vector<BattleBotPath*> const vPaths_ObjectiveOnly =
 {
     &vPath_AV_Stonehearth_Bunker_First_Crossroad_to_Stonehearth_Bunker_Flag,
     &vPath_AV_Icewing_Bunker_Crossroad_to_Icewing_Bunker_Flag,
+    // Alliance base bunker area: all approach and interior paths.
+    // Excluded from random path selection; only used when explicitly routing to defend/attack bunker objectives.
+    &vPath_AV_Stormpike_Crossroad_to_Alliance_Base_Bunker_First_Crossroad,
     &vPath_AV_Alliance_Base_Bunker_First_Crossroad_to_Alliance_Base_North_Bunker,
+    &vPath_AV_Alliance_Base_Bunker_First_Crossroad_to_Alliance_Base_Bunker_Second_Crossroad,
     &vPath_AV_Alliance_Base_Bunker_Second_Crossroad_to_Alliance_Base_South_Bunker,
+    &vPath_AV_Alliance_Base_Bunker_Second_Crossroad_to_Alliance_Base_Bunker_Third_Crossroad,
+    &vPath_AV_Alliance_Base_Bunker_Third_Crossroad_to_Alliance_Base_Flag,
+    &vPath_AV_Alliance_Base_Bunker_Third_Crossroad_to_Alliance_Base_Vanndar_Stormpike,
     &vPath_AV_Horde_Base_First_Crossroads_to_East_Frostwolf_Tower_Flag,
     &vPath_AV_Horde_Base_First_Crossroads_to_West_Frostwolf_Tower_Flag,
     &vPath_AV_Iceblood_Tower_to_Iceblood_Tower_Flag,
