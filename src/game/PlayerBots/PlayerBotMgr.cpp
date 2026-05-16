@@ -78,6 +78,19 @@ void PlayerBotMgr::Load()
     // 2- Configuration
     LoadConfig();
 
+    // Override autojoin flags from saved_variables if a runtime toggle was previously issued.
+    // This ensures the state survives server crashes and restarts.
+    // If no DB entry exists (fresh start), the config-file value is kept as-is.
+    {
+        bool exists = false;
+        uint32 val = sObjectMgr.GetSavedVariable(VAR_BATTLEBOT_AUTOJOIN_AV, 0, &exists);
+        if (exists) m_confBattleBotAutoJoin_1 = val != 0;
+        val = sObjectMgr.GetSavedVariable(VAR_BATTLEBOT_AUTOJOIN_WSG, 0, &exists);
+        if (exists) m_confBattleBotAutoJoin_2 = val != 0;
+        val = sObjectMgr.GetSavedVariable(VAR_BATTLEBOT_AUTOJOIN_AB, 0, &exists);
+        if (exists) m_confBattleBotAutoJoin_3 = val != 0;
+    }
+
     // 3- Load usable account ID
     std::unique_ptr<QueryResult> result = LoginDatabase.PQuery(
                               "SELECT MAX(`id`)"
@@ -1065,13 +1078,16 @@ void PlayerBotMgr::SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId)
     switch (bgTypeId)
     {
         case 1:
-            m_confBattleBotAutoJoin_1 = payload ? true : false;
+            m_confBattleBotAutoJoin_1 = payload;
+            sObjectMgr.SetSavedVariable(VAR_BATTLEBOT_AUTOJOIN_AV,  payload ? 1 : 0, true);
             break;
         case 2:
-            m_confBattleBotAutoJoin_2 = payload ? true : false;
+            m_confBattleBotAutoJoin_2 = payload;
+            sObjectMgr.SetSavedVariable(VAR_BATTLEBOT_AUTOJOIN_WSG, payload ? 1 : 0, true);
             break;
         case 3:
-            m_confBattleBotAutoJoin_3 = payload ? true : false;
+            m_confBattleBotAutoJoin_3 = payload;
+            sObjectMgr.SetSavedVariable(VAR_BATTLEBOT_AUTOJOIN_AB,  payload ? 1 : 0, true);
             break;
         default:
             break;
