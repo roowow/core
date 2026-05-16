@@ -3892,9 +3892,6 @@ bool BattleBotAI::StartNewPathToObjective()
             }
             else // ALLIANCE
             {
-                // Phase 1 Snowfall (Alliance): 30% GUID gate; cap = 5 while capturing, 3 when fully held.
-                // Phase 2+: gate removed — snowfallCap alone limits numbers.
-                if (GetAVPhase(this, bg) >= 2 || (me->GetObjectGuid().GetCounter() % 10) < 3)
                 if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_CONTROLLED) ||
                     bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_ASSAULTED) ||
                     bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED))
