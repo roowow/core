@@ -2066,7 +2066,12 @@ bool CombatBotBaseAI::HealInjuredTargetDirect(Unit* pTarget)
 bool CombatBotBaseAI::IsValidHealTarget(Unit const* pTarget, float healthPercent) const
 {
     if (me->InBattleGround() && !pTarget->IsInCombat())
-        return false;
+    {
+        // Flag carriers and critically injured allies still need healing even outside combat.
+        bool const carriesFlag = pTarget->HasAura(23333) || pTarget->HasAura(23335);
+        if (!carriesFlag && pTarget->GetHealthPercent() >= 40.0f)
+            return false;
+    }
 
     return (pTarget->GetHealthPercent() < healthPercent) &&
             me->IsValidHelpfulTarget(pTarget) &&
@@ -2098,6 +2103,24 @@ Unit* CombatBotBaseAI::SelectHealTarget(float selfHealPercent, float groupHealPe
 
     if (IsInDuel())
         return nullptr;
+
+    // In battlegrounds, flag carriers take highest heal priority regardless of HP.
+    if (me->InBattleGround())
+    {
+        if (Group* pGroup = me->GetGroup())
+        {
+            for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
+            {
+                if (Unit* pMember = itr->getSource())
+                {
+                    if (pMember != me &&
+                       (pMember->HasAura(23333) || pMember->HasAura(23335)) &&
+                        IsValidHealTarget(pMember, groupHealPercent))
+                        return pMember;
+                }
+            }
+        }
+    }
 
     Unit* pTarget = nullptr;
     float healthPercent = 100.0f;
@@ -2146,6 +2169,9 @@ Unit* CombatBotBaseAI::SelectPeriodicHealTarget(float selfHealPercent, float gro
     if (IsInDuel())
         return nullptr;
 
+    Unit* pBest = nullptr;
+    float bestHp = 100.0f;
+
     if (Group* pGroup = me->GetGroup())
     {
         for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
@@ -2156,15 +2182,18 @@ Unit* CombatBotBaseAI::SelectPeriodicHealTarget(float selfHealPercent, float gro
                 if (pMember == me)
                     continue;
 
-                // Check if we should heal party member.
                 if (IsValidHealTarget(pMember, groupHealPercent) &&
-                   !pMember->HasAuraType(SPELL_AURA_PERIODIC_HEAL))
-                    return pMember;
+                   !pMember->HasAuraType(SPELL_AURA_PERIODIC_HEAL) &&
+                    pMember->GetHealthPercent() < bestHp)
+                {
+                    bestHp = pMember->GetHealthPercent();
+                    pBest = pMember;
+                }
             }
         }
     }
 
-    return nullptr;
+    return pBest;
 }
 
 bool CombatBotBaseAI::FindAndPreHealTarget()
@@ -2341,6 +2370,24 @@ Player* CombatBotBaseAI::SelectBuffTarget(SpellEntry const* pSpellEntry) const
     Group* pGroup = me->GetGroup();
     if (pGroup)
     {
+        // In battlegrounds, buff flag carriers first.
+        if (me->InBattleGround())
+        {
+            for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
+            {
+                if (Player* pMember = itr->getSource())
+                {
+                    if ((pMember->HasAura(23333) || pMember->HasAura(23335)) &&
+                        me->IsValidHelpfulTarget(pMember) &&
+                        !pMember->IsGameMaster() &&
+                        IsValidBuffTarget(pMember, pSpellEntry) &&
+                        me->IsWithinLOSInMap(pMember) &&
+                        me->IsWithinDist(pMember, 30.0f))
+                        return pMember;
+                }
+            }
+        }
+
         for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
         {
             if (Player* pMember = itr->getSource())
@@ -2415,6 +2462,9 @@ Player* CombatBotBaseAI::SelectBuffTarget(SpellEntry const* pSingleSpellEntry, S
 
 Player* CombatBotBaseAI::SelectDispelTarget(SpellEntry const* pSpellEntry) const
 {
+    Player* pBest = nullptr;
+    uint8 bestPriority = 0;
+
     Group* pGroup = me->GetGroup();
     if (pGroup)
     {
@@ -2422,17 +2472,30 @@ Player* CombatBotBaseAI::SelectDispelTarget(SpellEntry const* pSpellEntry) const
         {
             if (Player* pMember = itr->getSource())
             {
-                if (me->IsValidHelpfulTarget(pMember) &&
-                   !pMember->IsGameMaster() &&
-                    IsValidDispelTarget(pMember, pSpellEntry) &&
-                    me->IsWithinLOSInMap(pMember) &&
-                    me->IsWithinDist(pMember, 30.0f))
-                    return pMember;
+                if (!me->IsValidHelpfulTarget(pMember) ||
+                    pMember->IsGameMaster() ||
+                    !IsValidDispelTarget(pMember, pSpellEntry) ||
+                    !me->IsWithinLOSInMap(pMember) ||
+                    !me->IsWithinDist(pMember, 30.0f))
+                    continue;
+
+                // Flag carrier > healer > others
+                uint8 priority = 1;
+                if (pMember->HasAura(23333) || pMember->HasAura(23335))
+                    priority = 3;
+                else if (IsHealerClass(pMember->GetClass()))
+                    priority = 2;
+
+                if (!pBest || priority > bestPriority)
+                {
+                    pBest = pMember;
+                    bestPriority = priority;
+                }
             }
         }
     }
 
-    return nullptr;
+    return pBest;
 }
 
 void CombatBotBaseAI::SummonPetIfNeeded()
