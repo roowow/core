@@ -3871,15 +3871,6 @@ void BattleBotAI::UpdateInCombatAI_Shaman()
 
     if (m_role == ROLE_HEALER)
     {
-        // ── HEALER: mana recovery ───────────────────────────────────────────
-        if (m_spells.shaman.pManaTideTotem &&
-           (me->GetPowerPercent(POWER_MANA) < 50.0f) &&
-            CanTryToCastSpell(me, m_spells.shaman.pManaTideTotem))
-        {
-            if (DoCastSpell(me, m_spells.shaman.pManaTideTotem) == SPELL_CAST_OK)
-                return;
-        }
-
         // ── HEALER: dispel ──────────────────────────────────────────────────
         if (m_spells.shaman.pCureDisease)
         {
@@ -3930,15 +3921,6 @@ void BattleBotAI::UpdateInCombatAI_Shaman()
     {
         if (m_role != ROLE_HEALER)
         {
-            // ── DPS: mana tide ──────────────────────────────────────────────
-            if (m_spells.shaman.pManaTideTotem &&
-               (me->GetPowerPercent(POWER_MANA) < 50.0f) &&
-                CanTryToCastSpell(me, m_spells.shaman.pManaTideTotem))
-            {
-                if (DoCastSpell(me, m_spells.shaman.pManaTideTotem) == SPELL_CAST_OK)
-                    return;
-            }
-
             // ── DPS: interrupt ──────────────────────────────────────────────
             if (Unit* pInterruptTarget = SelectShamanInterruptTarget(this))
             {
