@@ -2897,7 +2897,18 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                 }
                 else
                 {
-                    m_bgStuckCounter = 0;
+                    // After CC (e.g. fear): attack state remains active but chase was
+                    // interrupted. Detect: standing still, victim out of melee range,
+                    // not rooted (rooted bots legitimately can't move).
+                    if (!me->IsMoving() && !me->IsRooted() &&
+                        me->GetVictim() && !me->CanReachWithMeleeAutoAttack(me->GetVictim()))
+                    {
+                        ++m_bgStuckCounter;
+                        if (m_bgStuckCounter >= 3) // 3 * 2s = 6 seconds
+                            dropCombat = true;
+                    }
+                    else
+                        m_bgStuckCounter = 0;
                 }
             }
             else
@@ -2983,7 +2994,26 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             }
             else
             {
-                m_bgStuckCounter = 0;
+                // After CC (e.g. fear): attack state remains active but chase was
+                // interrupted. Detect: standing still, victim out of melee range,
+                // not rooted (rooted bots legitimately can't move).
+                if (me->IsInCombat() && !me->IsMoving() && !me->IsRooted() &&
+                    me->GetVictim() && !me->CanReachWithMeleeAutoAttack(me->GetVictim()))
+                {
+                    ++m_bgStuckCounter;
+                    if (m_bgStuckCounter >= 3) // 3 * 2s = 6 seconds
+                    {
+                        me->AttackStop(false);
+                        StopMoving();
+                        ClearPath();
+                        StartNewPathToObjective();
+                        m_bgStuckCounter = 0;
+                    }
+                }
+                else
+                {
+                    m_bgStuckCounter = 0;
+                }
                 // Out of combat but physically stuck inside a building (bunker in AV, tower in AB)
                 if (!me->IsInCombat() && !me->IsMoving())
                 {
