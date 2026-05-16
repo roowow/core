@@ -994,7 +994,9 @@ bool BattleBotTryCaptureNearbyObjective(BattleBotAI* pAI)
             if (AtFlag(pAI, vFlagsAV))
                 return true;
 
-            if (MoveToNearbyAVOpenFlag(pAI))
+            // During GY capture hold, skip routing to nearby flags — those bots must
+            // fight incoming enemies instead of swarming toward the flag being captured.
+            if (!BattleBotIsInAVGyCaptureHold(pAI) && MoveToNearbyAVOpenFlag(pAI))
                 return true;
 
             return false;
@@ -3750,15 +3752,11 @@ bool BattleBotAI::StartNewPathToObjective()
                     GameObject* pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_STORMPIKE_GY, HORDE_CONTROLLED));
                     if (!pGY)
                         pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_STORMPIKE_GY, HORDE_ASSAULTED));
-                    if (pGY)
-                    {
-                        if (CountFriendlyPlayersAtObjective(this, pGY->GetPosition()) < 10)
-                        {
-                            if (me->IsWithinDist(pGY, AV_RESCUE_RADIUS))
-                                return true;
-                            return StartNewPathToPosition(pGY->GetPosition(), vPaths_AV);
-                        }
-                    }
+                    // Only hold at GY if already within rescue radius — routing distant bots
+                    // back to the GY causes a bounce-back loop once bots enter the Alliance base.
+                    if (pGY && me->IsWithinDist(pGY, AV_RESCUE_RADIUS) &&
+                        CountFriendlyPlayersAtObjective(this, pGY->GetPosition()) < 10)
+                        return true;
                     if (Creature* pVanndar = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_BOSS_A, 0)))
                         return StartNewPathToPosition(pVanndar->GetPosition(), vPaths_AV);
                 }
@@ -3768,15 +3766,9 @@ bool BattleBotAI::StartNewPathToObjective()
                     GameObject* pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_FROSTWOLF_GY, ALLIANCE_CONTROLLED));
                     if (!pGY)
                         pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED));
-                    if (pGY)
-                    {
-                        if (CountFriendlyPlayersAtObjective(this, pGY->GetPosition()) < 10)
-                        {
-                            if (me->IsWithinDist(pGY, AV_RESCUE_RADIUS))
-                                return true;
-                            return StartNewPathToPosition(pGY->GetPosition(), vPaths_AV);
-                        }
-                    }
+                    if (pGY && me->IsWithinDist(pGY, AV_RESCUE_RADIUS) &&
+                        CountFriendlyPlayersAtObjective(this, pGY->GetPosition()) < 10)
+                        return true;
                     if (Creature* pDrek = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_BOSS_H, 0)))
                         return StartNewPathToPosition(pDrek->GetPosition(), vPaths_AV);
                 }
