@@ -378,7 +378,7 @@ void PlayerBotMgr::Update(uint32 diff)
         ++iter;
     }
 
-    if ((m_lastBattleBotQueueUpdate <= (sWorld.GetGameTime() - 10)))
+    if ((m_lastBattleBotQueueUpdate <= (sWorld.GetGameTime() - 5)))
     {
         m_lastBattleBotQueueUpdate = sWorld.GetGameTime();
         for (uint32 queueType = BATTLEGROUND_QUEUE_AV; queueType < MAX_BATTLEGROUND_QUEUE_TYPES; ++queueType)
@@ -661,6 +661,7 @@ void PlayerBotMgr::Update(uint32 diff)
                     uint32 const allianceTarget = std::min<uint32>(maxAutoTeamCount, std::max<uint32>(queueFillTarget, queuedHordeCount[bracketId]));
                     uint32 const hordeTarget = std::min<uint32>(maxAutoTeamCount, std::max<uint32>(queueFillTarget, queuedAllianceCount[bracketId]));
 
+                    bool botsAdded = false;
                     for (uint32 i = queuedAllianceCount[bracketId]; i < allianceTarget; ++i)
                     {
                         uint32 const botLevel = urand(minLevel, maxLevel);
@@ -673,6 +674,7 @@ void PlayerBotMgr::Update(uint32 diff)
                             AddBattleBot(BattleGroundQueueTypeId(queueType), ALLIANCE, botLevel, true);
                         }
                         ++queuedAllianceCount[bracketId];
+                        botsAdded = true;
                     }
                     for (uint32 i = queuedHordeCount[bracketId]; i < hordeTarget; ++i)
                     {
@@ -686,7 +688,10 @@ void PlayerBotMgr::Update(uint32 diff)
                             AddBattleBot(BattleGroundQueueTypeId(queueType), HORDE, botLevel, true);
                         }
                         ++queuedHordeCount[bracketId];
+                        botsAdded = true;
                     }
+                    if (botsAdded)
+                        sBattleGroundMgr.ScheduleQueueUpdate(BattleGroundQueueTypeId(queueType), bgTypeId, BattleGroundBracketId(bracketId));
 
                     // If all in-progress BGs are locked (full and bots at minimum) for
                     // waiting real players, generate bots to support opening a new BG.
@@ -739,18 +744,23 @@ void PlayerBotMgr::Update(uint32 diff)
                             uint32 const newHordeTarget = std::min<uint32>(newMaxCount,
                                 std::max<uint32>(newQueueFillTarget, newBgAllianceCount) + totalFreeHorde);
 
+                            bool newBotsAdded = false;
                             for (uint32 i = newBgAllianceCount; i < newAllianceTarget; ++i)
                             {
                                 uint32 const botLevel = urand(minLevel, maxLevel);
                                 AddBattleBot(BattleGroundQueueTypeId(queueType), ALLIANCE, maxLevel > 50 ? maxLevel : botLevel, true);
                                 ++queuedAllianceCount[bracketId];
+                                newBotsAdded = true;
                             }
                             for (uint32 i = newBgHordeCount; i < newHordeTarget; ++i)
                             {
                                 uint32 const botLevel = urand(minLevel, maxLevel);
                                 AddBattleBot(BattleGroundQueueTypeId(queueType), HORDE, maxLevel > 50 ? maxLevel : botLevel, true);
                                 ++queuedHordeCount[bracketId];
+                                newBotsAdded = true;
                             }
+                            if (newBotsAdded)
+                                sBattleGroundMgr.ScheduleQueueUpdate(BattleGroundQueueTypeId(queueType), bgTypeId, BattleGroundBracketId(bracketId));
                         }
                     }
                 }
