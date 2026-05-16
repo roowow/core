@@ -2966,17 +2966,35 @@ static bool IsAVNativeGraveyard(Team team, uint32 objective)
 static uint8 GetAVRequiredGuardBots(BattleBotAI const* pAI, BattleGround* bg, uint32 objective)
 {
     Team const team = pAI->me->GetTeam();
+    uint8 const phase = GetAVPhase(pAI, bg);
+    uint32 const enemyAssaultedState = GetAVEnemyAssaultedStateForTeam(team);
 
-    // Own native GYs always get 1 guard (in phase 2+; phase 1 is excluded upstream).
+    // Own native GYs: 1 guard when controlled, 2 when under enemy assault.
     if (IsAVNativeGraveyard(team, objective))
-        return AV_NATIVE_GY_GUARD_BOTS;
+        return bg->IsActiveEvent(objective, enemyAssaultedState) ? 2 : AV_NATIVE_GY_GUARD_BOTS;
 
-    // In phase 3, the phase-2 GY gets reduced to 1 guard so bots are freed for the assault.
+    // Phase-2 GY (Iceblood for Alliance, Stonehearth for Horde): in phase 3, reduced to 1/2.
     uint32 const phase2GY = (team == HORDE) ? (uint32)BG_AV_STONEHEARTH_GY : (uint32)BG_AV_ICEBLOOD_GY;
-    if (objective == phase2GY && GetAVPhase(pAI, bg) >= 3)
-        return AV_NATIVE_GY_GUARD_BOTS;
+    if (objective == phase2GY && phase >= 3)
+        return bg->IsActiveEvent(objective, enemyAssaultedState) ? 2 : AV_NATIVE_GY_GUARD_BOTS;
 
-    // Capturing (assaulted): 5 guards; fully captured: 3 guards.
+    // Snowfall: guard counts differ by team and phase.
+    if (objective == BG_AV_SNOWFALL_GY)
+    {
+        bool const capturing = bg->IsActiveEvent(objective, GetAVAssaultedStateForTeam(team));
+        if (team == ALLIANCE)
+        {
+            if (phase >= 3) return capturing ? 2 : 1;
+            return capturing ? 5 : 2;  // Phase 1/2
+        }
+        else // HORDE
+        {
+            if (phase >= 3) return 0;  // No Snowfall guard in Phase 3
+            return capturing ? 3 : 1;  // Phase 1/2
+        }
+    }
+
+    // Default: capturing = 5 guards, fully captured = 3 guards.
     if (bg->IsActiveEvent(objective, GetAVAssaultedStateForTeam(team)))
         return AV_CAPTURING_GY_GUARD_BOTS;
     return AV_CAPTURED_GY_GUARD_BOTS;
@@ -3467,7 +3485,7 @@ static bool FindAVRearGuardPosition(BattleBotAI* pAI, uint32 const (&objectives)
 
         // Physical requirement not yet met — allow redundancy for en-route bots
         uint8 const totalCount = CountAVShortGuardBots(pAI, guardPosition, true, false);
-        uint8 const guardThreshold = std::min<uint8>(AV_NATIVE_GY_GUARD_BOTS + 2u, 5u);
+        uint8 const guardThreshold = std::min<uint8>(AV_NATIVE_GY_GUARD_BOTS + 1u, 5u);
         if (totalCount >= guardThreshold)
         {
             ++index;
@@ -3726,9 +3744,7 @@ bool BattleBotAI::StartNewPathToObjective()
                         pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_STORMPIKE_GY, HORDE_ASSAULTED));
                     if (pGY)
                     {
-                        uint8 const defenders = bg->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_ASSAULTED)
-                            ? AV_CAPTURING_GY_GUARD_BOTS : AV_CAPTURED_GY_GUARD_BOTS;
-                        if (CountFriendlyPlayersAtObjective(this, pGY->GetPosition()) < defenders)
+                        if (CountFriendlyPlayersAtObjective(this, pGY->GetPosition()) < 10)
                         {
                             if (me->IsWithinDist(pGY, AV_RESCUE_RADIUS))
                                 return true;
@@ -3746,9 +3762,7 @@ bool BattleBotAI::StartNewPathToObjective()
                         pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED));
                     if (pGY)
                     {
-                        uint8 const defenders = bg->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED)
-                            ? AV_CAPTURING_GY_GUARD_BOTS : AV_CAPTURED_GY_GUARD_BOTS;
-                        if (CountFriendlyPlayersAtObjective(this, pGY->GetPosition()) < defenders)
+                        if (CountFriendlyPlayersAtObjective(this, pGY->GetPosition()) < 10)
                         {
                             if (me->IsWithinDist(pGY, AV_RESCUE_RADIUS))
                                 return true;
@@ -3774,23 +3788,22 @@ bool BattleBotAI::StartNewPathToObjective()
                         return StartNewPathToPosition(pVanndar->GetPosition(), vPaths_AV);
                 }
 
-                // Phase 1 Snowfall (Horde): 1 guard via 10% GUID gate.
-                if ((me->GetObjectGuid().GetCounter() % 10) == 0)
+                // Snowfall (Horde): skip in Phase 3; Phase 1/2: controlled=1, capturing=3 via 10% gate.
+                if (GetAVPhase(this, bg) < 3 && (me->GetObjectGuid().GetCounter() % 10) == 0)
                 {
                     if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
                     {
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED)))
                             if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
-                                if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < 5)
+                            {
+                                uint8 const snowfallCap = bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_CONTROLLED) ? 1 : 3;
+                                if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < snowfallCap)
                                 {
                                     if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
-                                    {
-                                        if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < 1)
-                                            return true;
-                                    }
-                                    else
-                                        return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                                        return true;
+                                    return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                                 }
+                            }
                     }
                 }
 
@@ -3887,35 +3900,26 @@ bool BattleBotAI::StartNewPathToObjective()
             }
             else // ALLIANCE
             {
-                // End boss
-                if (!bg->IsActiveEvent(BG_AV_ICEBLOOD_TOWER, HORDE_CONTROLLED) &&
-                    !bg->IsActiveEvent(BG_AV_TOWER_POINT_TOWER, HORDE_CONTROLLED) &&
-                    !bg->IsActiveEvent(BG_AV_EAST_FROSTWOLF_TOWER, HORDE_CONTROLLED) &&
-                    !bg->IsActiveEvent(BG_AV_WEST_FROSTWOLF_TOWER, HORDE_CONTROLLED) &&
-                    !bg->IsActiveEvent(BG_AV_FROSTWOLF_RELIEF_HUT_GY, HORDE_CONTROLLED))
-                {
-                    if (Creature* pDrek = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_BOSS_H, 0)))
-                        return StartNewPathToPosition(pDrek->GetPosition(), vPaths_AV);
-                }
-
-                // Phase 1 Snowfall (Alliance): 5 guards while capturing, 3 once fully held.
-                if ((me->GetObjectGuid().GetCounter() % 5) == 0)
+                // Phase 1 Snowfall (Alliance): 10 guards while capturing, 5 once fully held.
+                // 30% of bots (counter % 10 < 3) are assigned to Snowfall; the rest focus on Galvangar.
+                // Phase 2+: gate removed — cap alone limits numbers.
+                if (GetAVPhase(this, bg) >= 2 || (me->GetObjectGuid().GetCounter() % 10) < 3)
                 if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
                 {
                     if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED)))
                         if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
-                            if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < 5)
+                        {
+                            uint8 const avPhase = GetAVPhase(this, bg);
+                            uint8 const snowfallCap = (avPhase >= 3) ? 2 :
+                                (avPhase >= 2) ? 5 :
+                                bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED) ? 3 : 5;
+                            if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < snowfallCap)
                             {
                                 if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
-                                {
-                                    uint8 const snowfallCap = bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED)
-                                        ? AV_CAPTURED_GY_GUARD_BOTS : AV_CAPTURING_GY_GUARD_BOTS;
-                                    if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < snowfallCap)
-                                        return true;
-                                }
-                                else
-                                    return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                                    return true;
+                                return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                             }
+                        }
                 }
                 
                 for (const auto& objective : AV_AllianceDefendObjectives)
@@ -4025,6 +4029,10 @@ bool BattleBotAI::StartNewPathToObjective()
                         }
                     }
                 }
+
+                // All attack objectives cleared — march to boss.
+                if (Creature* pDrek = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_BOSS_H, 0)))
+                    return StartNewPathToPosition(pDrek->GetPosition(), vPaths_AV);
             }
             break;
         }
