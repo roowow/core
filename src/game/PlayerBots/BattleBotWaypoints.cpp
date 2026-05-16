@@ -3900,26 +3900,30 @@ bool BattleBotAI::StartNewPathToObjective()
             }
             else // ALLIANCE
             {
-                // Phase 1 Snowfall (Alliance): 10 guards while capturing, 5 once fully held.
-                // 30% of bots (counter % 10 < 3) are assigned to Snowfall; the rest focus on Galvangar.
-                // Phase 2+: gate removed — cap alone limits numbers.
+                // Phase 1 Snowfall (Alliance): 30% GUID gate; cap = 5 while capturing, 3 when fully held.
+                // Phase 2+: gate removed — snowfallCap alone limits numbers.
                 if (GetAVPhase(this, bg) >= 2 || (me->GetObjectGuid().GetCounter() % 10) < 3)
-                if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
+                if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_CONTROLLED) ||
+                    bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_ASSAULTED) ||
+                    bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED))
                 {
-                    if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED)))
-                        if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
+                    GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED));
+                    if (!pGO) pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED));
+                    if (!pGO) pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, ALLIANCE_ASSAULTED));
+                    if (!pGO) pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, HORDE_ASSAULTED));
+                    if (pGO && me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
+                    {
+                        uint8 const avPhase = GetAVPhase(this, bg);
+                        uint8 const snowfallCap = (avPhase >= 3) ? 2 :
+                            (avPhase >= 2) ? 5 :
+                            bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED) ? 3 : 5;
+                        if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < snowfallCap)
                         {
-                            uint8 const avPhase = GetAVPhase(this, bg);
-                            uint8 const snowfallCap = (avPhase >= 3) ? 2 :
-                                (avPhase >= 2) ? 5 :
-                                bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED) ? 3 : 5;
-                            if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < snowfallCap)
-                            {
-                                if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
-                                    return true;
-                                return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
-                            }
+                            if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
+                                return true;
+                            return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                         }
+                    }
                 }
                 
                 for (const auto& objective : AV_AllianceDefendObjectives)
