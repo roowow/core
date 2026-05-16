@@ -976,25 +976,29 @@ uint8 SelectRandomRaceForClass(uint8 playerClass, Team playerTeam)
 
 void PlayerBotMgr::AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam, uint32 botLevel, bool temporary)
 {
-    // Tier 1 (3x): Warrior, Mage, Hunter
-    // Tier 2 (2x): Priest, Rogue, Paladin/Shaman
-    // Tier 3 (1x): Druid, Warlock
+    // Tier 1 (6x): Warrior, Mage, Hunter
+    // Tier 2 (4x): Priest, Rogue, Paladin/Shaman
+    // Tier 3 (3x): Druid, Warlock
     std::vector<uint32> availableClasses = {
-        CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR,
-        CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,
-        CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,
-        CLASS_PRIEST,  CLASS_PRIEST,
-        CLASS_ROGUE,   CLASS_ROGUE,
-        CLASS_DRUID,
-        CLASS_WARLOCK,
+        CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR,
+        CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,
+        CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,
+        CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,
+        CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
+        CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,
+        CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK,
     };
     if (botTeam == HORDE)
     {
         availableClasses.push_back(CLASS_SHAMAN);
         availableClasses.push_back(CLASS_SHAMAN);
+        availableClasses.push_back(CLASS_SHAMAN);
+        availableClasses.push_back(CLASS_SHAMAN);
     }
     else
     {
+        availableClasses.push_back(CLASS_PALADIN);
+        availableClasses.push_back(CLASS_PALADIN);
         availableClasses.push_back(CLASS_PALADIN);
         availableClasses.push_back(CLASS_PALADIN);
     }
