@@ -3011,15 +3011,21 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                 }
             }
 
-            // Checkpoint-based movement progress detection: catches outdoor pathfinding loops
-            // (e.g. bot circling in terrain pit below a tower, IsMoving=true but net position near zero)
-            if (!me->IsInCombat() && me->IsMoving())
+            // Checkpoint-based movement progress detection: catches both outdoor pathfinding
+            // loops (out-of-combat) and in-combat terrain-pit loops where the bot oscillates
+            // without making net progress (e.g. chasing an enemy above a pit).
+            if (me->IsMoving())
             {
                 ++m_bgProgressTicks;
                 if (m_bgProgressTicks >= 10) // 10 * 2s = 20 seconds
                 {
                     if (me->GetDistance2d(m_bgProgressX, m_bgProgressY) < 15.0f)
                     {
+                        if (me->IsInCombat())
+                        {
+                            me->AttackStop(false);
+                            StopMoving();
+                        }
                         ClearPath();
                         StartNewPathToObjective();
                     }
