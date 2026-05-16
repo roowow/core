@@ -3681,6 +3681,26 @@ bool BattleBotAI::StartNewPathToObjective()
                     return true;
             }
 
+            // GY capture hold: all bots within rescue range of a GY being actively captured by
+            // our team stay put until fully controlled, preventing premature departure mid-capture.
+            {
+                uint32 const capturingState = GetAVAssaultedStateForTeam(me->GetTeam());
+                for (uint32 const objective : AV_KeyDefenseObjectives)
+                {
+                    if (objective == BG_AV_SNOWFALL_GY)
+                        continue;
+                    if (!bg->IsActiveEvent(objective, capturingState))
+                        continue;
+                    Position gyPos;
+                    if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective, capturingState)))
+                        gyPos = pGO->GetPosition();
+                    else if (!GetAVNativeGraveyardFallbackPosition(objective, gyPos))
+                        continue;
+                    if (me->IsWithinDist3d(gyPos.x, gyPos.y, gyPos.z, AV_RESCUE_RADIUS))
+                        return true;
+                }
+            }
+
             // Phase 3 (total assault): converge at the phase-3 GY then rush boss.
             if (IsAVTotalAssaultActive(this, bg))
             {
@@ -3811,6 +3831,13 @@ bool BattleBotAI::StartNewPathToObjective()
 
                 for (const auto& objective : AV_HordeAttackObjectives)
                 {
+                    // Phase 3: skip rear objectives now behind the front line.
+                    if (GetAVPhase(this, bg) >= 3 &&
+                        (objective.first == BG_AV_STONEHEARTH_BUNKER ||
+                         objective.first == BG_AV_STONEHEARTH_GY ||
+                         objective.first == BG_AV_ICEWING_BUNKER))
+                        continue;
+
                     if (bg->IsActiveEvent(objective.first, ALLIANCE_ASSAULTED) || bg->IsActiveEvent(objective.first, ALLIANCE_CONTROLLED) || bg->IsActiveEvent(objective.first, NEUTRAL_CONTROLLED))
                     {
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
@@ -3945,6 +3972,13 @@ bool BattleBotAI::StartNewPathToObjective()
 
                 for (const auto& objective : AV_AllianceAttackObjectives)
                 {
+                    // Phase 3: skip rear objectives now behind the front line.
+                    if (GetAVPhase(this, bg) >= 3 &&
+                        (objective.first == BG_AV_ICEBLOOD_TOWER ||
+                         objective.first == BG_AV_ICEBLOOD_GY ||
+                         objective.first == BG_AV_TOWER_POINT_TOWER))
+                        continue;
+
                     if (bg->IsActiveEvent(objective.first, HORDE_ASSAULTED) || bg->IsActiveEvent(objective.first, HORDE_CONTROLLED) || bg->IsActiveEvent(objective.first, NEUTRAL_CONTROLLED))
                     {
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
