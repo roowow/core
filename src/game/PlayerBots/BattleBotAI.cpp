@@ -1835,6 +1835,10 @@ float BattleBotAI::GetMaxAggroDistanceForMap() const
     if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
         return 50.0f;
 
+    // Restore full aggro range while holding a GY being captured by our team.
+    if (BattleBotIsInAVGyCaptureHold(this))
+        return 50.0f;
+
     return 20.0f;
 }
 
@@ -1844,7 +1848,8 @@ bool BattleBotAI::ShouldUseAVOpeningPassiveCombat() const
     if (!bg || bg->GetTypeID() != BATTLEGROUND_AV ||
         bg->GetStatus() != STATUS_IN_PROGRESS ||
         me->IsInCombat() ||
-        BattleBotIsNearAVFlag(this, 10.0f))
+        BattleBotIsNearAVFlag(this, 10.0f) ||
+        BattleBotIsInAVGyCaptureHold(this))
         return false;
 
     uint32 const t = bg->GetStartTime();
