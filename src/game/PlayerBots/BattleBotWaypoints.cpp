@@ -288,6 +288,7 @@ std::vector<uint32> const vFlagsAB = { GO_AB_ALLIANCE_BANNER , GO_AB_CONTESTED_B
 #define AV_RESCUE_RADIUS          80.0f
 #define AV_RESCUE_MAX_BOTS        3
 #define AV_RESCUE_MAX_BOTS_TOWER  1
+#define AV_ATTACK_MAX_BOTS_TOWER  2
 
 static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, float radius);
 static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, float radius, Position& outPosition, uint32* outMatchedObjective = nullptr);
@@ -2850,12 +2851,7 @@ static std::pair<uint32, uint32> AV_HordeAttackObjectives[] =
 
 static std::pair<uint32, uint32> AV_HordeDefendObjectives[] =
 {
-    // Defend
     { BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED },
-    { BG_AV_EAST_FROSTWOLF_TOWER, ALLIANCE_ASSAULTED },
-    { BG_AV_WEST_FROSTWOLF_TOWER, ALLIANCE_ASSAULTED },
-    { BG_AV_TOWER_POINT_TOWER, ALLIANCE_ASSAULTED },
-    { BG_AV_ICEBLOOD_TOWER, ALLIANCE_ASSAULTED },
 };
 
 static std::pair<uint32, uint32> AV_AllianceAttackObjectives[] =
@@ -2872,12 +2868,7 @@ static std::pair<uint32, uint32> AV_AllianceAttackObjectives[] =
 
 static std::pair<uint32, uint32> AV_AllianceDefendObjectives[] =
 {
-    // Defend
     { BG_AV_STORMPIKE_GY, HORDE_ASSAULTED },
-    { BG_AV_DUN_BALDAR_SOUTH_BUNKER, HORDE_ASSAULTED },
-    { BG_AV_DUN_BALDAR_NORTH_BUNKER, HORDE_ASSAULTED },
-    { BG_AV_ICEWING_BUNKER, HORDE_ASSAULTED },
-    { BG_AV_STONEHEARTH_BUNKER, HORDE_ASSAULTED },
 };
 
 static uint32 AV_KeyDefenseObjectives[] =
@@ -3869,7 +3860,7 @@ bool BattleBotAI::StartNewPathToObjective()
                             {
                                 if (objective.first == m_avSkipObjective && time(nullptr) < m_avSkipObjectiveExpiry)
                                     continue;
-                                if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) >= 5)
+                                if (CountAVRescueBots(this, pGO->GetPosition()) >= AV_ATTACK_MAX_BOTS_TOWER)
                                     continue;
                                 if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
                                 {
@@ -4010,7 +4001,7 @@ bool BattleBotAI::StartNewPathToObjective()
                             {
                                 if (objective.first == m_avSkipObjective && time(nullptr) < m_avSkipObjectiveExpiry)
                                     continue;
-                                if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) >= 5)
+                                if (CountAVRescueBots(this, pGO->GetPosition()) >= AV_ATTACK_MAX_BOTS_TOWER)
                                     continue;
                                 if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
                                 {
