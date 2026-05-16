@@ -2192,12 +2192,16 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
     me->GetAlivePlayerListInRange(me, players, VISIBILITY_DISTANCE_NORMAL);
     float const maxAggroDistance = GetMaxAggroDistanceForMap();
 
+    Player* bestStep2Target = nullptr;
+    uint8 bestStep2Priority = 0;
+    float bestStep2Distance = FLT_MAX;
+
     for (const auto& pTarget : players)
     {
         if (pTarget == pExcept)
             continue;
 
-        if (!IsValidHostileTarget(pTarget))
+        if (!IsValidHostileTarget(pTarget) || IsBadPlayer(pTarget))
             continue;
 
         if (BattleBotHasBlind(pTarget))
@@ -2239,8 +2243,26 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
             continue;
         }
 
-        return pTarget;
+        // Priority: healer > attacking a friendly > low HP > closest
+        uint8 priority = 1;
+        if (IsHealerClass(pTarget->GetClass()))
+            priority = 4;
+        else if (pTarget->GetVictim() && me->IsValidHelpfulTarget(pTarget->GetVictim()))
+            priority = 3;
+        else if (pTarget->GetHealthPercent() < 30.0f)
+            priority = 2;
+
+        float const distance = me->GetDistance(pTarget);
+        if (!bestStep2Target || priority > bestStep2Priority || (priority == bestStep2Priority && distance < bestStep2Distance))
+        {
+            bestStep2Target = pTarget;
+            bestStep2Priority = priority;
+            bestStep2Distance = distance;
+        }
     }
+
+    if (bestStep2Target)
+        return bestStep2Target;
 
     // 3. Check party attackers.
 
@@ -2344,7 +2366,10 @@ Unit* BattleBotAI::SelectFollowTarget() const
            (pTarget->IsMounted() == me->IsMounted()) &&
            (me->GetDistance2d(pTarget) <= 20.0f) &&
            (me->GetDistanceZ(pTarget) <= 3.0f))
-            pHealerFollowTarget = pTarget;
+        {
+            if (!pHealerFollowTarget || me->GetDistance(pTarget) < me->GetDistance(pHealerFollowTarget))
+                pHealerFollowTarget = pTarget;
+        }
     }
 
     return pHealerFollowTarget;
@@ -2628,7 +2653,10 @@ bool BattleBotAI::IsBadPlayer(Unit const* pTarget) const
     if (pTarget->IsMounted())
         return true;
 
-    if (pTarget->HasAura(783))
+    if (pTarget->HasAura(783))   // Druid Travel Form
+        return true;
+
+    if (pTarget->HasAura(5421))  // Druid Aquatic Form
         return true;
 
     return false;
@@ -3183,6 +3211,21 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             else if (FollowMovementGenerator<Player> const* pMoveGen = dynamic_cast<FollowMovementGenerator<Player> const*>(me->GetMotionMaster()->GetCurrent()))
             {
                 Unit* pTarget = pMoveGen->GetTarget();
+
+                // Re-evaluate: switch to flag carrier if one appeared while following someone else.
+                if (pTarget && !BattleBotHasBattlegroundFlag(pTarget))
+                {
+                    if (Unit* pNewFollowTarget = SelectFollowTarget())
+                    {
+                        if (pNewFollowTarget != pTarget)
+                        {
+                            ClearPath();
+                            me->GetMotionMaster()->MoveFollow(pNewFollowTarget, frand(3.0f, 5.0f), frand(0.0f, 3.0f));
+                            return;
+                        }
+                    }
+                }
+
                 if (!pTarget || !pTarget->IsAlive() || !pTarget->IsWithinDist(me, VISIBILITY_DISTANCE_NORMAL))
                 {
                     StopMoving();
