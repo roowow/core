@@ -438,13 +438,13 @@ static bool BattleBotShouldUsePsychicScream(BattleBotAI const* pAI)
 
     if (pAI->GetRole() == ROLE_HEALER)
     {
-        if (nearbyThreats > 1 || pAI->me->GetHealthPercent() < 70.0f)
+        if (nearbyThreats > 1 || pAI->me->GetHealthPercent() < 80.0f)
             return true;
 
         return BattleBotIsNearOpenObjectiveFlag(pAI, 18.0f);
     }
 
-    return nearbyThreats > 1 || pAI->me->GetHealthPercent() < 50.0f;
+    return nearbyThreats > 1 || pAI->me->GetHealthPercent() < 80.0f;
 }
 
 static bool BattleBotHasBattlegroundFlag(Unit const* pTarget)
