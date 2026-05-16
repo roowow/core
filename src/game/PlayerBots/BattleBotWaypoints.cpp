@@ -3871,27 +3871,11 @@ bool BattleBotAI::StartNewPathToObjective()
                         {
                             if (!IsAVKeyObjective(objective.first))
                             {
-                                if (objective.first == m_avSkipObjective && time(nullptr) < m_avSkipObjectiveExpiry)
+                                // Skip towers unless already in combat within range.
+                                if (!me->IsInCombat() || !me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
                                     continue;
                                 if (CountAVRescueBots(this, pGO->GetPosition()) >= AV_ATTACK_MAX_BOTS_TOWER)
                                     continue;
-                                if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
-                                {
-                                    if (me->IsInCombat())
-                                        m_avObjectiveTime = time(nullptr);
-                                    else if (m_avCurrentObjective != objective.first)
-                                    {
-                                        m_avCurrentObjective = objective.first;
-                                        m_avObjectiveTime = time(nullptr);
-                                    }
-                                    else if (time(nullptr) - m_avObjectiveTime > 60)
-                                    {
-                                        m_avSkipObjective = objective.first;
-                                        m_avSkipObjectiveExpiry = time(nullptr) + 90;
-                                        m_avCurrentObjective = 0;
-                                        continue;
-                                    }
-                                }
                             }
                             return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                         }
@@ -4007,27 +3991,11 @@ bool BattleBotAI::StartNewPathToObjective()
                         {
                             if (!IsAVKeyObjective(objective.first))
                             {
-                                if (objective.first == m_avSkipObjective && time(nullptr) < m_avSkipObjectiveExpiry)
+                                // Skip towers unless already in combat within range.
+                                if (!me->IsInCombat() || !me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
                                     continue;
                                 if (CountAVRescueBots(this, pGO->GetPosition()) >= AV_ATTACK_MAX_BOTS_TOWER)
                                     continue;
-                                if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
-                                {
-                                    if (me->IsInCombat())
-                                        m_avObjectiveTime = time(nullptr);
-                                    else if (m_avCurrentObjective != objective.first)
-                                    {
-                                        m_avCurrentObjective = objective.first;
-                                        m_avObjectiveTime = time(nullptr);
-                                    }
-                                    else if (time(nullptr) - m_avObjectiveTime > 60)
-                                    {
-                                        m_avSkipObjective = objective.first;
-                                        m_avSkipObjectiveExpiry = time(nullptr) + 90;
-                                        m_avCurrentObjective = 0;
-                                        continue;
-                                    }
-                                }
                             }
                             return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                         }
