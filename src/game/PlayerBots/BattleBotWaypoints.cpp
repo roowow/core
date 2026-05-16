@@ -2573,6 +2573,7 @@ std::vector<BattleBotPath*> const vPaths_ObjectiveOnly =
     &vPath_AV_Alliance_Base_Bunker_Second_Crossroad_to_Alliance_Base_Bunker_Third_Crossroad,
     &vPath_AV_Alliance_Base_Bunker_Third_Crossroad_to_Alliance_Base_Flag,
     &vPath_AV_Alliance_Base_Bunker_Third_Crossroad_to_Alliance_Base_Vanndar_Stormpike,
+    &vPath_AV_TowerPoint_Bottom_to_Tower_Point_Flag,
     &vPath_AV_Horde_Base_First_Crossroads_to_East_Frostwolf_Tower_Flag,
     &vPath_AV_Horde_Base_First_Crossroads_to_West_Frostwolf_Tower_Flag,
     &vPath_AV_Iceblood_Tower_to_Iceblood_Tower_Flag,
@@ -3985,11 +3986,16 @@ bool BattleBotAI::StartNewPathToObjective()
 
                 for (const auto& objective : AV_AllianceAttackObjectives)
                 {
+                    // Phase 2+: skip Tower Point Tower — bots must pass through
+                    // that area to reach Frostwolf GY, and routing them into the
+                    // tower causes a permanent loop with the elevated guards.
+                    if (GetAVPhase(this, bg) >= 2 &&
+                        objective.first == BG_AV_TOWER_POINT_TOWER)
+                        continue;
                     // Phase 3: skip rear objectives now behind the front line.
                     if (GetAVPhase(this, bg) >= 3 &&
                         (objective.first == BG_AV_ICEBLOOD_TOWER ||
-                         objective.first == BG_AV_ICEBLOOD_GY ||
-                         objective.first == BG_AV_TOWER_POINT_TOWER))
+                         objective.first == BG_AV_ICEBLOOD_GY))
                         continue;
 
                     if (bg->IsActiveEvent(objective.first, HORDE_ASSAULTED) || bg->IsActiveEvent(objective.first, HORDE_CONTROLLED) || bg->IsActiveEvent(objective.first, NEUTRAL_CONTROLLED))
