@@ -2567,7 +2567,6 @@ std::vector<BattleBotPath*> const vPaths_ObjectiveOnly =
     &vPath_AV_Alliance_Base_Bunker_Second_Crossroad_to_Alliance_Base_South_Bunker,
     &vPath_AV_Horde_Base_First_Crossroads_to_East_Frostwolf_Tower_Flag,
     &vPath_AV_Horde_Base_First_Crossroads_to_West_Frostwolf_Tower_Flag,
-    &vPath_AV_TowerPoint_Bottom_to_Tower_Point_Flag,
     &vPath_AV_Iceblood_Tower_to_Iceblood_Tower_Flag,
 };
 

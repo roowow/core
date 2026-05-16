@@ -4,7 +4,8 @@
       "Bash(python -c ' *)",
       "Bash(python -c \"print\\('hello'\\)\")",
       "Bash(python3 -c *)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(grep -v \"//\")"
     ]
   }
 }
