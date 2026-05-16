@@ -1709,33 +1709,29 @@ bool BattleBotAI::UseMount()
     if (me->IsMounted())
         return false;
 
-    // --- 德鲁伊核心优化：上马前主动解除变形状态（猫/熊/旅行形态等） ---
-    // 必须放在模型检查之前，否则变身的德鲁伊会被直接拦截
-    if (me->GetClass() == CLASS_DRUID && me->GetShapeshiftForm() != FORM_NONE)
-    {
-        me->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
-    }
-    // ---------------------------------------------------------------
-
-    // 现在的德鲁伊已经恢复人型了，可以顺利通过这行检查
-    if (me->GetDisplayId() != me->GetNativeDisplayId())
-        return false;
-
-    // if (me->GetClass() == CLASS_ROGUE)
-    //     return false;
-
     if (BattleGround* bg = me->GetBattleGround())
+    {
         if (bg->GetStatus() == STATUS_WAIT_JOIN)
             return false;
+        // Don't strip shapeshift form and then fail to mount because we're moving in AV/WSG.
+        if (me->IsMoving() && (bg->GetTypeID() == BATTLEGROUND_AV || bg->GetTypeID() == BATTLEGROUND_WS))
+            return false;
+    }
 
     if (me->HasAura(AURA_WARSONG_FLAG) ||
         me->HasAura(AURA_SILVERWING_FLAG))
         return false;
 
-    // --- 核心优化：如果可以上马，主动破除潜行状态 ---
+    // Druid: remove shapeshift before checking display ID and mounting,
+    // but only after all blocking conditions have already passed.
+    if (me->GetClass() == CLASS_DRUID && me->GetShapeshiftForm() != FORM_NONE)
+        me->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
+
+    if (me->GetDisplayId() != me->GetNativeDisplayId())
+        return false;
+
     if (me->HasAura(SPELL_AURA_MOD_STEALTH))
         me->RemoveSpellsCausingAura(SPELL_AURA_MOD_STEALTH);
-    // --------------------------------------------------
 
     uint32 spellId = GetMountSpellId();
     if (!spellId)
@@ -1743,10 +1739,6 @@ bool BattleBotAI::UseMount()
 
     if (me->IsMoving())
     {
-        if (BattleGround* bg = me->GetBattleGround())
-            if (bg->GetTypeID() == BATTLEGROUND_AV || bg->GetTypeID() == BATTLEGROUND_WS)
-                return false;
-
         ClearPath();
         StopMoving();
     }
