@@ -2556,6 +2556,21 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
     &vPath_AV_Stormpike_Graveyard_to_Stormpike_Flag,
 };
 
+// Paths that lead into tower/bunker interiors for flag capture.
+// Only used when a specific defend/capture objective requires it;
+// excluded from random path selection to prevent bots looping inside bunkers.
+std::vector<BattleBotPath*> const vPaths_ObjectiveOnly =
+{
+    &vPath_AV_Stonehearth_Bunker_First_Crossroad_to_Stonehearth_Bunker_Flag,
+    &vPath_AV_Icewing_Bunker_Crossroad_to_Icewing_Bunker_Flag,
+    &vPath_AV_Alliance_Base_Bunker_First_Crossroad_to_Alliance_Base_North_Bunker,
+    &vPath_AV_Alliance_Base_Bunker_Second_Crossroad_to_Alliance_Base_South_Bunker,
+    &vPath_AV_Horde_Base_First_Crossroads_to_East_Frostwolf_Tower_Flag,
+    &vPath_AV_Horde_Base_First_Crossroads_to_West_Frostwolf_Tower_Flag,
+    &vPath_AV_TowerPoint_Bottom_to_Tower_Point_Flag,
+    &vPath_AV_Iceblood_Tower_to_Iceblood_Tower_Flag,
+};
+
 void BattleBotAI::MovementInform(uint32 movementType, uint32 data)
 {
     if (movementType == POINT_MOTION_TYPE)
@@ -2633,6 +2648,9 @@ bool BattleBotAI::StartNewPathFromBeginning()
 
     for (const auto& pPath : *vPaths)
     {
+        if (std::find(vPaths_ObjectiveOnly.begin(), vPaths_ObjectiveOnly.end(), pPath) != vPaths_ObjectiveOnly.end())
+            continue;
+
         BattleBotWaypoint* pStart = &((*pPath)[0]);
         if (me->GetDistance(pStart->x, pStart->y, pStart->z) < INTERACTION_DISTANCE)
             availablePaths.emplace_back(AvailablePath(pPath, false));
@@ -2687,6 +2705,9 @@ void BattleBotAI::StartNewPathFromAnywhere()
 
     for (const auto& pPath : *vPaths)
     {
+        if (std::find(vPaths_ObjectiveOnly.begin(), vPaths_ObjectiveOnly.end(), pPath) != vPaths_ObjectiveOnly.end())
+            continue;
+
         for (uint32 i = 0; i < pPath->size(); i++)
         {
             BattleBotWaypoint& waypoint = ((*pPath)[i]);
@@ -3596,8 +3617,11 @@ bool BattleBotAI::StartNewPathToObjective()
     if (!bg)
         return false;
 
+    if (bg->GetStatus() == STATUS_WAIT_JOIN)
+        return false;
+
     // Do not start new path if out of combat and currently regenerating (eating/drinking) to avoid interrupting regen.
-    bool const needToEat = me->GetHealthPercent() < 90.0f && !((bg = me->GetBattleGround()) && bg->GetStatus() == STATUS_WAIT_JOIN);
+    bool const needToEat = me->GetHealthPercent() < 90.0f;
     bool const needToDrink = (me->GetPowerType() == POWER_MANA) && (me->GetPowerPercent(POWER_MANA) < 90.0f);
     if (!me->IsInCombat())
     {
@@ -3869,7 +3893,7 @@ bool BattleBotAI::StartNewPathToObjective()
                         {
                             Position stonehearthPos;
                             GetAVNativeGraveyardFallbackPosition(BG_AV_STONEHEARTH_GY, stonehearthPos);
-                            if (me->IsWithinDist3d(stonehearthPos.x, stonehearthPos.y, stonehearthPos.z, 150.0f))
+                            if (me->IsWithinDist3d(stonehearthPos.x, stonehearthPos.y, stonehearthPos.z, 210.0f))
                                 continue;
                         }
 

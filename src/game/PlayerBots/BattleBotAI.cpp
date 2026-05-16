@@ -3097,7 +3097,14 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             if (UseMount())
                 return;
 
-            if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() != FOLLOW_MOTION_TYPE)
+            BattleGround* bgForFollow = me->GetBattleGround();
+            bool const isWaitJoin = bgForFollow && bgForFollow->GetStatus() == STATUS_WAIT_JOIN;
+            if (isWaitJoin)
+            {
+                if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
+                    StopMoving();
+            }
+            else if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() != FOLLOW_MOTION_TYPE)
             {
                 if (Unit* pFollowTarget = SelectFollowTarget())
                 {
