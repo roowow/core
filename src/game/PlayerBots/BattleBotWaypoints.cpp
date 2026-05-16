@@ -801,30 +801,6 @@ bool BattleBotIsNearAVFlag(BattleBotAI const* pAI, float radius)
     return false;
 }
 
-bool BattleBotIsInAVGyCaptureHold(BattleBotAI const* pAI)
-{
-    BattleGround* bg = pAI->me->GetBattleGround();
-    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
-        return false;
-
-    uint32 const capturingState = GetAVAssaultedStateForTeam(pAI->me->GetTeam());
-    for (uint32 const objective : AV_KeyDefenseObjectives)
-    {
-        if (objective == BG_AV_SNOWFALL_GY)
-            continue;
-        if (!bg->IsActiveEvent(objective, capturingState))
-            continue;
-        Position gyPos;
-        if (GameObject* pGO = pAI->me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective, capturingState)))
-            gyPos = pGO->GetPosition();
-        else if (!GetAVNativeGraveyardFallbackPosition(objective, gyPos))
-            continue;
-        if (pAI->me->IsWithinDist3d(gyPos.x, gyPos.y, gyPos.z, AV_RESCUE_RADIUS))
-            return true;
-    }
-    return false;
-}
-
 bool BattleBotIsNearOpenObjectiveFlag(BattleBotAI const* pAI, float radius)
 {
     BattleGround* bg = pAI->me->GetBattleGround();
@@ -2909,6 +2885,30 @@ static uint32 GetAVAssaultedStateForTeam(Team team)
 static uint32 GetAVEnemyAssaultedStateForTeam(Team team)
 {
     return team == HORDE ? ALLIANCE_ASSAULTED : HORDE_ASSAULTED;
+}
+
+bool BattleBotIsInAVGyCaptureHold(BattleBotAI const* pAI)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
+        return false;
+
+    uint32 const capturingState = GetAVAssaultedStateForTeam(pAI->me->GetTeam());
+    for (uint32 const objective : AV_KeyDefenseObjectives)
+    {
+        if (objective == BG_AV_SNOWFALL_GY)
+            continue;
+        if (!bg->IsActiveEvent(objective, capturingState))
+            continue;
+        Position gyPos;
+        if (GameObject* pGO = pAI->me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective, capturingState)))
+            gyPos = pGO->GetPosition();
+        else if (!GetAVNativeGraveyardFallbackPosition(objective, gyPos))
+            continue;
+        if (pAI->me->IsWithinDist3d(gyPos.x, gyPos.y, gyPos.z, AV_RESCUE_RADIUS))
+            return true;
+    }
+    return false;
 }
 
 static uint32 GetAVEnemyControlledStateForTeam(Team team)
