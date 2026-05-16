@@ -5,7 +5,11 @@
       "Bash(python -c \"print\\('hello'\\)\")",
       "Bash(python3 -c *)",
       "WebFetch(domain:github.com)",
-      "Bash(grep -v \"//\")"
+      "Bash(grep -v \"//\")",
+      "Bash(awk '/^@@/{hunk=$0; lines=\"\"} {lines=lines\"\\\\n\"$0} /BattleBotTryCaptureNearbyObjective|AtFlag|ReleaseABExcess|IsABFlagOpenable/{if\\(hunk\\) print hunk; hunk=\"\"}')",
+      "Bash(git diff *)",
+      "Read(//tmp/**)",
+      "Bash(grep -n \"^//\")"
     ]
   }
 }

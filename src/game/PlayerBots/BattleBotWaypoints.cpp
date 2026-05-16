@@ -1,4 +1,4 @@
-/*
+﻿/*
 * This program is free software; you can redistribute it and/or modify
 * it under the terms of the GNU General Public License as published by
 * the Free Software Foundation; either version 2 of the License, or
@@ -26,7 +26,7 @@
 #include "BattleGroundAB.h"
 #include "BattleGroundAV.h"
 #include "BattleGroundWS.h"
-#include "DBCStores.h"
+#include "BattleBotWaypoints2.h"
 #include "Geometry.h"
 #include <cstddef>
 
@@ -64,208 +64,7 @@ enum CreaturesAV
     NPC_AV_BALINDA   = 11949
 };
 
-enum GameObjectsWS
-{
-    GO_WS_SILVERWING_FLAG = 179830,
-    GO_WS_WARSONG_FLAG    = 179831
-};
-
-enum AreaTriggersWS
-{
-    AT_SILVERWING_FLAG = 3646,
-    AT_WARSONG_FLAG    = 3647
-};
-
-static Position const WSG_GuardPositions[BG_TEAMS_COUNT] =
-{
-    { 1519.53f, 1481.87f, 352.024f, 0.0f },  // Alliance flag room
-    { 933.331f, 1433.72f, 345.536f, 0.0f }   // Horde flag room
-};
-
-#define WSG_GUARD_REQUIRED_BOTS 2
-
-static bool HasEnemyFlagAura(Player* player)
-{
-    if (player->GetTeam() == ALLIANCE)
-        return player->HasAura(AURA_WARSONG_FLAG);
-
-    return player->HasAura(AURA_SILVERWING_FLAG);
-}
-
-bool BattleBotIsWSGHomeGuardCandidate(BattleBotAI const* pAI)
-{
-    BattleGround* bg = pAI->me->GetBattleGround();
-    if (!bg || bg->GetTypeID() != BATTLEGROUND_WS)
-        return false;
-
-    // Flag carriers are runners, not home guards
-    if (HasEnemyFlagAura(pAI->me))
-        return false;
-
-    Map* map = pAI->me->GetMap();
-    if (!map)
-        return false;
-
-    uint8 higherGuidCandidates = 0;
-    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
-    {
-        if (Player* player = itr->getSource())
-        {
-            if (player == pAI->me)
-                continue;
-
-            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot())
-                continue;
-
-            // Dead bots and flag carriers cannot actually guard — skip them
-            // so a living bot gets promoted to fill the slot
-            if (!player->IsAlive() || HasEnemyFlagAura(player))
-                continue;
-
-            if (player->GetObjectGuid().GetCounter() > pAI->me->GetObjectGuid().GetCounter())
-                ++higherGuidCandidates;
-        }
-    }
-
-    return higherGuidCandidates < WSG_GUARD_REQUIRED_BOTS;
-}
-
-static bool StartWSGHomeGuardObjective(BattleBotAI* pAI, BattleGroundWS* bgWS)
-{
-    if (!bgWS || !BattleBotIsWSGHomeGuardCandidate(pAI))
-        return false;
-
-    Team const team = pAI->me->GetTeam();
-    uint8 const ownFlagState = bgWS->GetFlagState(team);
-
-    // Own flag dropped on ground: go recover it immediately
-    if (ownFlagState == BG_WS_FLAG_STATE_ON_GROUND)
-    {
-        if (GameObject* pFlag = pAI->me->GetMap()->GetGameObject(bgWS->GetDroppedFlagGuid(team)))
-        {
-            if (pAI->StartNewPathToPosition(pFlag->GetPosition(), vPaths_WS))
-                return true;
-
-            pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
-            return true;
-        }
-    }
-
-    // Own flag safe or carried by enemy: hold the guard position.
-    // When the enemy carries our flag they run to their own base to score,
-    // not ours — chasing them mid-field achieves nothing and leaves home empty.
-    if (ownFlagState == BG_WS_FLAG_STATE_ON_BASE ||
-        ownFlagState == BG_WS_FLAG_STATE_ON_PLAYER)
-    {
-        Position const& guardPosition = WSG_GuardPositions[BattleGround::GetTeamIndexByTeamId(team)];
-        if (pAI->StartNewPathToPosition(guardPosition, vPaths_WS))
-            return true;
-
-        if (pAI->me->GetDistance(guardPosition) <= 25.0f)
-            return true;
-
-        pAI->me->GetMotionMaster()->MovePoint(0, guardPosition.x, guardPosition.y, guardPosition.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
-        return true;
-    }
-
-    return false;
-}
-
-void WSG_AtAllianceFlag(BattleBotAI* pAI)
-{
-    if (GameObject* pFlag = pAI->me->FindNearestGameObject(GO_WS_SILVERWING_FLAG, 25.0f))
-    {
-        if (pFlag->isSpawned())
-        {
-            if (pAI->me->GetTeam() == HORDE)
-            {
-                if (pAI->me->IsWithinDistInMap(pFlag, INTERACTION_DISTANCE))
-                {
-                    pAI->ClearPath();
-                    WorldPackets::Misc::GameObjectUse packet;
-                    packet.guid = pFlag->GetObjectGuid();
-                    pAI->me->GetSession()->HandleGameObjectUseOpcode(packet);
-                    return;
-                }
-                else
-                {
-                    pAI->ClearPath();
-                    pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ());
-                    return;
-                }
-            }
-            else if (pAI->me->HasAura(AURA_WARSONG_FLAG))
-            {
-                pAI->ClearPath();
-                pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ());
-                return;
-            }
-        }
-    }
-
-    pAI->MoveToNextPoint();
-}
-
-void WSG_AtHordeFlag(BattleBotAI* pAI)
-{
-    if (GameObject* pFlag = pAI->me->FindNearestGameObject(GO_WS_WARSONG_FLAG, 25.0f))
-    {
-        if (pFlag->isSpawned())
-        {
-            if (pAI->me->GetTeam() == ALLIANCE)
-            {
-                if (pAI->me->IsWithinDistInMap(pFlag, INTERACTION_DISTANCE))
-                {
-                    pAI->ClearPath();
-                    WorldPackets::Misc::GameObjectUse packet;
-                    packet.guid = pFlag->GetObjectGuid();
-                    pAI->me->GetSession()->HandleGameObjectUseOpcode(packet);
-                    return;
-                }
-                else
-                {
-                    pAI->ClearPath();
-                    pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ());
-                    return;
-                }
-            }
-            else if (pAI->me->HasAura(AURA_SILVERWING_FLAG))
-            {
-                pAI->ClearPath();
-                pAI->me->GetMotionMaster()->MovePoint(0, pFlag->GetPositionX(), pFlag->GetPositionY(), pFlag->GetPositionZ());
-                return;
-            }
-        }
-    }
-
-    pAI->MoveToNextPoint();
-}
-
-void WSG_AtAllianceGraveyard(BattleBotAI* pAI)
-{
-    if ((pAI->me->GetTeam() == ALLIANCE) && !pAI->me->IsMounted() && urand(0, 1))
-    {
-        pAI->ClearPath();
-        pAI->DoGraveyardJump();
-    }
-    else
-        pAI->MoveToNextPoint();
-}
-
-void WSG_AtHordeGraveyard(BattleBotAI* pAI)
-{
-    if ((pAI->me->GetTeam() == HORDE) && !pAI->me->IsMounted() && urand(0, 1))
-    {
-        pAI->ClearPath();
-        pAI->DoGraveyardJump();
-    }
-    else
-        pAI->MoveToNextPoint();
-}
-
 #define SPELL_CAPTURE_BANNER 21651
-#define BB_SPELL_FOOD 1131
-#define BB_SPELL_DRINK 1137
 
 std::vector<uint32> const vFlagsAV = { GO_AV_HORDE_BANNER1 , GO_AV_HORDE_BANNER2 , GO_AV_ALLIANCE_BANNER1 , GO_AV_ALLIANCE_BANNER2 ,
                                        GO_AV_CONTESTED_BANNER1 , GO_AV_CONTESTED_BANNER2 , GO_AV_CONTESTED_BANNER3 ,
@@ -275,404 +74,7 @@ std::vector<uint32> const vFlagsAB = { GO_AB_ALLIANCE_BANNER , GO_AB_CONTESTED_B
                                        GO_AB_STABLE_BANNER, GO_AB_BLACKSMITH_BANNER, GO_AB_FARM_BANNER, GO_AB_LUMBER_MILL_BANNER,
                                        GO_AB_GOLD_MINE_BANNER };
 
-#define AB_GUARD_REQUIRED_BOTS 2
-#define AB_GUARD_SEARCH_RADIUS 35.0f
-#define AB_GUARD_KEEP_RADIUS   20.0f
-#define AB_GUARD_EXCESS_RADIUS 45.0f
-#define AB_GUARD_ASSIGN_RADIUS 20.0f
-#define AV_FLAG_DEFENSE_RADIUS    55.0f
-#define AV_SHORT_GUARD_RADIUS     45.0f
-#define AV_NATIVE_GY_GUARD_BOTS    1
-#define AV_CAPTURING_GY_GUARD_BOTS 5
-#define AV_CAPTURED_GY_GUARD_BOTS  3
-#define AV_RESCUE_RADIUS          80.0f
-#define AV_RESCUE_MAX_BOTS        3
-#define AV_RESCUE_MAX_BOTS_TOWER  1
-#define AV_ATTACK_MAX_BOTS_TOWER  2
-
-static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, float radius);
-static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, float radius, Position& outPosition, uint32* outMatchedObjective = nullptr);
-static bool GetAVNativeGraveyardFallbackPosition(uint32 node, Position& outPosition);
-static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos, uint8 requiredBots = AV_CAPTURED_GY_GUARD_BOTS);
-static bool IsAVNativeGraveyard(Team team, uint32 objective);
-static bool IsAVNativeGraveyardDefensible(BattleBotAI const* pAI, uint32 node);
-static uint8 GetAVPhase(BattleBotAI const* pAI, BattleGround const* bg);
-static bool IsAVTotalAssaultActive(BattleBotAI const* pAI, BattleGround const* bg);
-static uint8 GetAVRequiredGuardBots(BattleBotAI const* pAI, BattleGround* bg, uint32 objective);
-static uint8 CountAVRescueBots(BattleBotAI* pAI, Position const& pos);
-static bool IsAVKeyObjective(uint32 objectiveId);
-static uint8 CountFriendlyPlayersAtObjective(BattleBotAI const* pAI, Position const& pos);
-
-static Position const AB_GuardPositions[5] =
-{
-    { 1167.98f, 1202.9f, -56.4743f, 0.0f },   // Stables
-    { 978.269f, 1043.84f, -44.4588f, 0.0f },  // Blacksmith
-    { 804.429f, 874.961f, -55.2691f, 0.0f },  // Farm
-    { 853.921f, 1150.92f, 11.543f, 0.0f },    // Lumber Mill
-    { 1144.9f, 850.049f, -110.522f, 0.0f }   // Gold Mine
-};
-
-static bool IsABSettledGuardBot(Player* player, Player* currentBot)
-{
-    if (player->IsInCombat() || player->GetVictim())
-        return false;
-
-    if (player == currentBot)
-        return true;
-
-    if (!player->IsMoving())
-        return true;
-
-    switch (player->GetMotionMaster()->GetCurrentMovementGeneratorType())
-    {
-        case POINT_MOTION_TYPE:
-        case FOLLOW_MOTION_TYPE:
-            return false;
-        default:
-            return true;
-    }
-}
-
-static bool IsABAssignedToGuardPosition(Player* player, Position const& pos)
-{
-    if (BattleBotAI* pBotAI = dynamic_cast<BattleBotAI*>(player->AI()))
-    {
-        if (pBotAI->m_currentPath)
-        {
-            BattleBotWaypoint const& targetPoint = pBotAI->m_movingInReverse ? pBotAI->m_currentPath->front() : pBotAI->m_currentPath->back();
-            if (GetDistance3D(targetPoint, pos) <= AB_GUARD_ASSIGN_RADIUS)
-                return true;
-        }
-    }
-
-    float x, y, z;
-    if (player->GetMotionMaster()->GetDestination(x, y, z) &&
-        GetDistance3D(x, y, z, pos.x, pos.y, pos.z) <= AB_GUARD_ASSIGN_RADIUS)
-        return true;
-
-    return false;
-}
-
-static uint8 CountABGuardBots(BattleBotAI* pAI, Position const& pos, bool includeAssigned)
-{
-    Map* map = pAI->me->GetMap();
-    if (!map)
-        return 0;
-
-    uint8 count = 0;
-    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
-    {
-        if (Player* player = itr->getSource())
-        {
-            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
-                continue;
-
-            if (player->GetDistance(pos) <= AB_GUARD_SEARCH_RADIUS &&
-                IsABSettledGuardBot(player, pAI->me))
-            {
-                ++count;
-                continue;
-            }
-
-            if (includeAssigned &&
-                !player->IsInCombat() &&
-                !player->GetVictim() &&
-                IsABAssignedToGuardPosition(player, pos))
-                ++count;
-        }
-    }
-
-    return count;
-}
-
-static bool IsABGuardingPosition(Player* player, Position const& pos, bool includeAssigned)
-{
-    if (player->IsInCombat() || player->GetVictim())
-        return false;
-
-    if (player->GetDistance(pos) <= AB_GUARD_EXCESS_RADIUS)
-        return true;
-
-    if (includeAssigned && IsABAssignedToGuardPosition(player, pos))
-        return true;
-
-    return false;
-}
-
-static uint8 GetABRequiredGuardBots(BattleGround* bg, Team team);
-
-static bool IsABExcessGuardBot(BattleBotAI* pAI, Position const& pos)
-{
-    BattleGround* bg = pAI->me->GetBattleGround();
-    Map* map = pAI->me->GetMap();
-    if (!bg || !map)
-        return false;
-
-    if (!IsABGuardingPosition(pAI->me, pos, true))
-        return false;
-
-    uint8 const requiredGuards = GetABRequiredGuardBots(bg, pAI->me->GetTeam());
-    bool const currentIsHealer = pAI->GetRole() == ROLE_HEALER;
-    uint8 preferredGuards = 0;
-    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
-    {
-        if (Player* player = itr->getSource())
-        {
-            if (player == pAI->me)
-                continue;
-
-            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
-                continue;
-
-            if (player->IsInCombat() || player->GetVictim())
-                continue;
-
-            if (!IsABGuardingPosition(player, pos, true))
-                continue;
-
-            bool playerIsHealer = false;
-            if (BattleBotAI* pBotAI = dynamic_cast<BattleBotAI*>(player->AI()))
-                playerIsHealer = pBotAI->GetRole() == ROLE_HEALER;
-
-            if (currentIsHealer)
-            {
-                if (!playerIsHealer ||
-                    player->GetObjectGuid().GetCounter() < pAI->me->GetObjectGuid().GetCounter())
-                    ++preferredGuards;
-            }
-            else if (!playerIsHealer &&
-                     player->GetObjectGuid().GetCounter() < pAI->me->GetObjectGuid().GetCounter())
-                ++preferredGuards;
-        }
-    }
-
-    return preferredGuards >= requiredGuards;
-}
-
-static bool IsABNodeOccupiedByTeam(BattleGround* bg, Team team, uint8 node)
-{
-    if (!bg)
-        return false;
-
-    BattleGroundTeamIndex const teamIndex = BattleGround::GetTeamIndexByTeamId(team);
-    return bg->IsActiveEvent(node, teamIndex + BG_AB_NODE_TYPE_OCCUPIED);
-}
-
-bool BattleBotIsABGuardingOwnedNode(BattleBotAI const* pAI)
-{
-    BattleGround* bg = pAI->me->GetBattleGround();
-    if (!bg || bg->GetTypeID() != BATTLEGROUND_AB)
-        return false;
-
-    if (pAI->me->IsInCombat() || pAI->me->GetVictim())
-        return false;
-
-    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
-    {
-        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
-            continue;
-
-        if (IsABGuardingPosition(pAI->me, AB_GuardPositions[i], true))
-            return true;
-    }
-
-    return false;
-}
-
-static bool IsABNodeContestedByTeam(BattleGround* bg, Team team, uint8 node)
-{
-    if (!bg)
-        return false;
-
-    BattleGroundTeamIndex const teamIndex = BattleGround::GetTeamIndexByTeamId(team);
-    return bg->IsActiveEvent(node, teamIndex + BG_AB_NODE_TYPE_CONTESTED);
-}
-
-Unit* BattleBotSelectABFlagDefenseTarget(BattleBotAI const* pAI, Unit* pExcept)
-{
-    BattleGround* bg = pAI->me->GetBattleGround();
-    if (!bg || bg->GetTypeID() != BATTLEGROUND_AB)
-        return nullptr;
-
-    CombatBotRoles const role = pAI->GetRole();
-    if (role != ROLE_MELEE_DPS && role != ROLE_RANGE_DPS && role != ROLE_TANK)
-        return nullptr;
-
-    Position const* defendPosition = nullptr;
-    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
-    {
-        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
-            continue;
-
-        if (pAI->me->GetDistance2d(AB_GuardPositions[i]) <= AB_GUARD_EXCESS_RADIUS)
-        {
-            defendPosition = &AB_GuardPositions[i];
-            break;
-        }
-    }
-
-    if (!defendPosition)
-        return nullptr;
-
-    std::list<Player*> players;
-    pAI->me->GetAlivePlayerListInRange(pAI->me, players, VISIBILITY_DISTANCE_NORMAL);
-
-    Player* bestTarget = nullptr;
-    float bestDistanceToFlag = FLT_MAX;
-    for (Player* player : players)
-    {
-        if (player == pExcept)
-            continue;
-
-        if (!pAI->IsValidHostileTarget(player) || pAI->IsBadPlayer(player))
-            continue;
-
-        if (player->GetDistance(*defendPosition) > AB_GUARD_EXCESS_RADIUS)
-            continue;
-
-        if (pAI->me->GetDistanceZ(player) > 10.0f)
-            continue;
-
-        if (!pAI->me->IsWithinLOSInMap(player))
-            continue;
-
-        float const distanceToFlag = player->GetDistance(*defendPosition);
-        if (!bestTarget || distanceToFlag < bestDistanceToFlag)
-        {
-            bestTarget = player;
-            bestDistanceToFlag = distanceToFlag;
-        }
-    }
-
-    return bestTarget;
-}
-
-static uint8 CountABOccupiedNodesByTeam(BattleGround* bg, Team team)
-{
-    if (!bg)
-        return 0;
-
-    uint8 count = 0;
-    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
-        if (IsABNodeOccupiedByTeam(bg, team, i))
-            ++count;
-
-    return count;
-}
-
-static uint8 GetABRequiredGuardBots(BattleGround* bg, Team team)
-{
-    return CountABOccupiedNodesByTeam(bg, team) >= 3 ? 1 : AB_GUARD_REQUIRED_BOTS;
-}
-
-static uint8 GetABHomeNode(Team team)
-{
-    return team == ALLIANCE ? BG_AB_NODE_STABLES : BG_AB_NODE_FARM;
-}
-
-static Position const& SelectABPositionForBot(BattleBotAI* pAI, std::vector<uint8> const& nodes)
-{
-    return AB_GuardPositions[nodes[pAI->me->GetObjectGuid().GetCounter() % nodes.size()]];
-}
-
-static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
-{
-    BattleGround* bg = pAI->me->GetBattleGround();
-    if (!bg)
-        return false;
-
-    uint8 const homeNode = GetABHomeNode(pAI->me->GetTeam());
-    if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), homeNode) &&
-        CountABGuardBots(pAI, AB_GuardPositions[homeNode], true) < AB_GUARD_REQUIRED_BOTS)
-    {
-        outPosition = AB_GuardPositions[homeNode];
-        return true;
-    }
-
-    uint8 bestCount = AB_GUARD_REQUIRED_BOTS;
-    std::vector<uint8> bestNodes;
-
-    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
-    {
-        if (IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
-            continue;
-
-        uint8 count = CountABGuardBots(pAI, AB_GuardPositions[i], true);
-        if (count >= AB_GUARD_REQUIRED_BOTS)
-            continue;
-
-        if (count < bestCount)
-        {
-            bestCount = count;
-            bestNodes.clear();
-        }
-
-        if (count == bestCount)
-        {
-            bestNodes.push_back(i);
-        }
-    }
-
-    if (bestNodes.empty())
-        return false;
-
-    outPosition = SelectABPositionForBot(pAI, bestNodes);
-    return true;
-}
-
-static bool FindABOwnedGuardPosition(BattleBotAI* pAI, Position& outPosition)
-{
-    BattleGround* bg = pAI->me->GetBattleGround();
-    if (!bg)
-        return false;
-
-    uint8 const requiredGuards = GetABRequiredGuardBots(bg, pAI->me->GetTeam());
-
-    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
-    {
-        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
-            continue;
-
-        if (pAI->me->GetDistance(AB_GuardPositions[i]) <= AB_GUARD_EXCESS_RADIUS &&
-            !IsABExcessGuardBot(pAI, AB_GuardPositions[i]))
-        {
-            outPosition = AB_GuardPositions[i];
-            return true;
-        }
-    }
-
-    uint8 bestCount = requiredGuards;
-    std::vector<uint8> bestNodes;
-
-    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
-    {
-        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
-            continue;
-
-        uint8 count = CountABGuardBots(pAI, AB_GuardPositions[i], true);
-        if (count >= requiredGuards)
-            continue;
-
-        if (count < bestCount)
-        {
-            bestCount = count;
-            bestNodes.clear();
-        }
-
-        if (count == bestCount)
-        {
-            bestNodes.push_back(i);
-        }
-    }
-
-    if (bestNodes.empty())
-        return false;
-
-    outPosition = SelectABPositionForBot(pAI, bestNodes);
-    return true;
-}
-
-static bool IsABFlagOpenable(BattleBotAI const* pAI, GameObject* pGo)
+static bool IsABFlagOpenable(BattleBotAI* pAI, GameObject* pGo)
 {
     if (!pGo || !pGo->isSpawned())
         return false;
@@ -788,175 +190,6 @@ bool AtFlag(BattleBotAI* pAI, std::vector<uint32> const& vFlagIds)
     return false;
 }
 
-bool BattleBotIsNearAVFlag(BattleBotAI const* pAI, float radius)
-{
-    BattleGround* bg = pAI->me->GetBattleGround();
-    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
-        return false;
-
-    for (uint32 const bannerId : vFlagsAV)
-        if (pAI->me->FindNearestGameObject(bannerId, radius))
-            return true;
-
-    return false;
-}
-
-bool BattleBotIsNearOpenObjectiveFlag(BattleBotAI const* pAI, float radius)
-{
-    BattleGround* bg = pAI->me->GetBattleGround();
-    if (!bg || bg->GetStatus() != STATUS_IN_PROGRESS)
-        return false;
-
-    std::vector<uint32> const* flags = nullptr;
-    switch (bg->GetTypeID())
-    {
-        case BATTLEGROUND_AB:
-            flags = &vFlagsAB;
-            break;
-        case BATTLEGROUND_AV:
-            flags = &vFlagsAV;
-            break;
-        default:
-            return false;
-    }
-
-    for (uint32 const bannerId : *flags)
-        if (GameObject* pGo = pAI->me->FindNearestGameObject(bannerId, radius))
-            if (IsABFlagOpenable(pAI, pGo))
-                return true;
-
-    return false;
-}
-
-static bool MoveToNearbyABOpenFlag(BattleBotAI* pAI)
-{
-    GameObject* pBestFlag = nullptr;
-    float bestDistance = FLT_MAX;
-
-    for (uint32 const bannerId : vFlagsAB)
-    {
-        if (GameObject* pGo = pAI->me->FindNearestGameObject(bannerId, AB_GUARD_EXCESS_RADIUS))
-        {
-            if (!IsABFlagOpenable(pAI, pGo))
-                continue;
-
-            float const distance = pAI->me->GetDistance(pGo);
-            if (distance < bestDistance)
-            {
-                pBestFlag = pGo;
-                bestDistance = distance;
-            }
-        }
-    }
-
-    if (!pBestFlag)
-        return false;
-
-    pAI->me->RemoveAurasDueToSpellByCancel(BB_SPELL_FOOD);
-    pAI->me->RemoveAurasDueToSpellByCancel(BB_SPELL_DRINK);
-    if (pAI->me->GetStandState() != UNIT_STAND_STATE_STAND)
-        pAI->me->SetStandState(UNIT_STAND_STATE_STAND);
-
-    pAI->ClearPath();
-    pAI->me->GetMotionMaster()->MovePoint(0, pBestFlag->GetPositionX(), pBestFlag->GetPositionY(), pBestFlag->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
-    return true;
-}
-
-static bool MoveToNearbyAVOpenFlag(BattleBotAI* pAI)
-{
-    GameObject* pBestFlag = nullptr;
-    float bestDistance = FLT_MAX;
-
-    for (uint32 const bannerId : vFlagsAV)
-    {
-        if (GameObject* pGo = pAI->me->FindNearestGameObject(bannerId, AV_FLAG_DEFENSE_RADIUS))
-        {
-            if (!IsABFlagOpenable(pAI, pGo))
-                continue;
-
-            float const distance = pAI->me->GetDistance(pGo);
-            if (distance < bestDistance)
-            {
-                pBestFlag = pGo;
-                bestDistance = distance;
-            }
-        }
-    }
-
-    if (!pBestFlag)
-        return false;
-
-    pAI->me->RemoveAurasDueToSpellByCancel(BB_SPELL_FOOD);
-    pAI->me->RemoveAurasDueToSpellByCancel(BB_SPELL_DRINK);
-    if (pAI->me->GetStandState() != UNIT_STAND_STATE_STAND)
-        pAI->me->SetStandState(UNIT_STAND_STATE_STAND);
-
-    pAI->ClearPath();
-    pAI->me->GetMotionMaster()->MovePoint(0, pBestFlag->GetPositionX(), pBestFlag->GetPositionY(), pBestFlag->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
-    return true;
-}
-
-void AB_AtFlag(BattleBotAI* pAI)
-{
-    if (AtFlag(pAI, vFlagsAB))
-        return;
-
-    BattleGround* bg = pAI->me->GetBattleGround();
-    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
-    {
-        if (pAI->me->GetDistance(AB_GuardPositions[i]) > AB_GUARD_EXCESS_RADIUS)
-            continue;
-
-        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i) &&
-            !IsABNodeContestedByTeam(bg, pAI->me->GetTeam(), i))
-            continue;
-
-        if (!IsABExcessGuardBot(pAI, AB_GuardPositions[i]))
-        {
-            pAI->ClearPath();
-            pAI->StopMoving();
-            return;
-        }
-    }
-
-    pAI->MoveToNextPoint();
-}
-
-static bool ReleaseABExcessGuard(BattleBotAI* pAI)
-{
-    BattleGround* bg = pAI->me->GetBattleGround();
-    if (!bg || bg->GetTypeID() != BATTLEGROUND_AB)
-        return false;
-
-    if (pAI->m_currentPath || pAI->me->IsMoving() || !pAI->me->IsStopped())
-        return false;
-
-    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
-    {
-        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i) &&
-            !IsABNodeContestedByTeam(bg, pAI->me->GetTeam(), i))
-            continue;
-
-        if (!IsABGuardingPosition(pAI->me, AB_GuardPositions[i], true))
-            continue;
-
-        if (!IsABExcessGuardBot(pAI, AB_GuardPositions[i]))
-            return false;
-
-        pAI->ClearPath();
-        if (pAI->StartNewPathToObjective())
-            return true;
-
-        if (pAI->StartNewPathFromBeginning())
-            return true;
-
-        pAI->StartNewPathFromAnywhere();
-        return true;
-    }
-
-    return false;
-}
-
 bool BattleBotTryCaptureNearbyObjective(BattleBotAI* pAI)
 {
     BattleGround* bg = pAI->me->GetBattleGround();
@@ -966,41 +199,7 @@ bool BattleBotTryCaptureNearbyObjective(BattleBotAI* pAI)
     switch (bg->GetTypeID())
     {
         case BATTLEGROUND_AB:
-        {
-            if (AtFlag(pAI, vFlagsAB))
-                return true;
-
-            if (MoveToNearbyABOpenFlag(pAI))
-                return true;
-
-            if (pAI->me->HasAura(BB_SPELL_FOOD) || pAI->me->HasAura(BB_SPELL_DRINK))
-                return false;
-
-            bool needToEat = pAI->me->GetHealthPercent() < 90.0f;
-            bool needToDrink = (pAI->me->GetPowerType() == POWER_MANA) && (pAI->me->GetPowerPercent(POWER_MANA) < 90.0f);
-            if (needToDrink &&
-                pAI->me->GetClass() == CLASS_DRUID &&
-                pAI->me->GetShapeshiftForm() != FORM_NONE &&
-               (pAI->GetRole() == ROLE_MELEE_DPS || pAI->GetRole() == ROLE_TANK))
-                needToDrink = false;
-
-            if (needToEat || needToDrink)
-                return false;
-
-            return ReleaseABExcessGuard(pAI);
-        }
-        case BATTLEGROUND_AV:
-        {
-            if (AtFlag(pAI, vFlagsAV))
-                return true;
-
-            // During GY capture hold, skip routing to nearby flags — those bots must
-            // fight incoming enemies instead of swarming toward the flag being captured.
-            if (!BattleBotIsInAVGyCaptureHold(pAI) && MoveToNearbyAVOpenFlag(pAI))
-                return true;
-
-            return false;
-        }
+            return BattleBotTryCaptureNearbyABObjective(pAI);
         default:
             return false;
     }
@@ -1010,19 +209,6 @@ void AV_AtFlag(BattleBotAI* pAI)
 {
     if (AtFlag(pAI, vFlagsAV))
         return;
-
-    Position guardPosition;
-    uint32 foundObjective = 0;
-    if (FindNearbyAVKeyDefensePosition(pAI, AV_SHORT_GUARD_RADIUS, guardPosition, &foundObjective))
-    {
-        uint8 const required = GetAVRequiredGuardBots(pAI, pAI->me->GetBattleGround(), foundObjective);
-        if (!IsAVExcessShortGuardBot(pAI, guardPosition, required))
-        {
-            pAI->ClearPath();
-            pAI->StopMoving();
-            return;
-        }
-    }
 
     pAI->MoveToNextPoint();
 }
@@ -1062,694 +248,8 @@ void MoveToNextPointSpecial(BattleBotAI* pAI)
 
     BattleBotWaypoint& nextPoint = pAI->m_currentPath->at(pAI->m_currentPoint);
 
-    uint32 moveFlags = MOVE_RUN_MODE;
-    if (BattleGround* bg = pAI->me->GetBattleGround())
-        if (bg->GetTypeID() == BATTLEGROUND_WS)
-            moveFlags = MOVE_NONE;
-
-    pAI->me->GetMotionMaster()->MovePoint(pAI->m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, moveFlags);
+    pAI->me->GetMotionMaster()->MovePoint(pAI->m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, MOVE_RUN_MODE);
 }
-
-std::vector<RecordedMovementPacket> vAllianceGraveyardJumpPath =
-{
-    { MSG_MOVE_START_FORWARD, 0, 1, 1415.33f, 1554.79f, 343.156f, 2.34205f },
-    { MSG_MOVE_START_TURN_LEFT, 187, 17, 1414.42f, 1555.73f, 343.121f, 2.34205f },
-    { MSG_MOVE_HEARTBEAT, 500, 17, 1411.19f, 1556.42f, 343.355f, 3.52015f },
-    { MSG_MOVE_STOP_TURN, 124, 1, 1410.44f, 1555.99f, 343.451f, 3.81232f },
-    { MSG_MOVE_HEARTBEAT, 500, 1, 1407.7f, 1553.81f, 343.604f, 3.81232f },
-    { MSG_MOVE_HEARTBEAT, 500, 1, 1404.96f, 1551.63f, 343.158f, 3.81232f },
-    { MSG_MOVE_HEARTBEAT, 500, 1, 1402.22f, 1549.46f, 340.935f, 3.81232f },
-    { MSG_MOVE_HEARTBEAT, 500, 8193, 1399.47f, 1547.28f, 338.344f, 3.81232f },
-    { MSG_MOVE_HEARTBEAT, 500, 24577, 1396.73f, 1545.11f, 333.791f, 3.81232f },
-    { MSG_MOVE_FALL_LAND, 402, 1, 1394.27f, 1543.15f, 326.633f, 3.81232f },
-    { MSG_MOVE_HEARTBEAT, 500, 8193, 1391.53f, 1540.97f, 324.186f, 3.81232f },
-    { MSG_MOVE_FALL_LAND, 197, 1, 1390.44f, 1540.12f, 321.966f, 3.81232f },
-    { MSG_MOVE_STOP, 473, 0, 1387.85f, 1538.06f, 321.855f, 3.81232f },
-};
-
-std::vector<RecordedMovementPacket> vHordeGraveyardJumpPath =
-{
-    { MSG_MOVE_START_FORWARD, 0, 1, 1029.14f, 1387.49f, 340.836f, 6.23605f },
-    { MSG_MOVE_HEARTBEAT, 500, 1, 1032.64f, 1387.33f, 340.57f, 6.23605f },
-    { MSG_MOVE_HEARTBEAT, 500, 1, 1036.13f, 1387.16f, 340.638f, 6.23605f },
-    { MSG_MOVE_START_TURN_LEFT, 154, 17, 1037.21f, 1387.11f, 340.699f, 6.23605f },
-    { MSG_MOVE_STOP_TURN, 63, 1, 1037.65f, 1387.12f, 340.705f, 0.101309f },
-    { MSG_MOVE_HEARTBEAT, 500, 1, 1041.13f, 1387.48f, 340.679f, 0.101309f },
-    { MSG_MOVE_START_TURN_LEFT, 311, 17, 1043.3f, 1387.7f, 340.672f, 0.101309f },
-    { MSG_MOVE_STOP_TURN, 93, 1, 1043.93f, 1387.83f, 340.67f, 0.320435f },
-    { MSG_MOVE_HEARTBEAT, 500, 1, 1047.25f, 1388.93f, 340.558f, 0.320435f },
-    { MSG_MOVE_HEARTBEAT, 500, 1, 1050.58f, 1390.04f, 340.305f, 0.320435f },
-    { MSG_MOVE_START_TURN_LEFT, 451, 17, 1053.57f, 1391.03f, 340.038f, 0.320435f },
-    { MSG_MOVE_STOP_TURN, 31, 1, 1053.78f, 1391.11f, 340.02f, 0.393477f },
-    { MSG_MOVE_HEARTBEAT, 500, 1, 1057.01f, 1392.45f, 339.548f, 0.393477f },
-    { MSG_MOVE_HEARTBEAT, 500, 8193, 1060.24f, 1393.79f, 337.843f, 0.393477f },
-    { MSG_MOVE_HEARTBEAT, 500, 24577, 1063.47f, 1395.13f, 333.618f, 0.393477f },
-    { MSG_MOVE_FALL_LAND, 497, 1, 1066.69f, 1396.47f, 324.635f, 0.393477f },
-    { MSG_MOVE_START_TURN_LEFT, 297, 17, 1068.61f, 1397.26f, 324.331f, 0.393477f },
-    { MSG_MOVE_STOP_TURN, 47, 1, 1068.9f, 1397.41f, 324.296f, 0.504218f },
-    { MSG_MOVE_HEARTBEAT, 500, 1, 1071.97f, 1399.1f, 323.823f, 0.504218f },
-    { MSG_MOVE_START_TURN_RIGHT, 124, 33, 1072.73f, 1399.52f, 323.799f, 0.504218f },
-    { MSG_MOVE_STOP_TURN, 124, 1, 1073.54f, 1399.82f, 323.78f, 0.21205f },
-    { MSG_MOVE_START_TURN_RIGHT, 219, 33, 1075.04f, 1400.14f, 323.761f, 0.21205f },
-    { MSG_MOVE_STOP_TURN, 78, 1, 1075.58f, 1400.21f, 323.651f, 0.0282667f },
-    { MSG_MOVE_STOP, 327, 0, 1077.87f, 1400.27f, 323.154f, 0.0282667f },
-};
-
-// Horde Flag Room to Horde Graveyard
-BattleBotPath vPath_WSG_HordeFlagRoom_to_HordeGraveyard =
-{
-    { 933.331f, 1433.72f, 345.536f, &WSG_AtHordeFlag },
-    { 944.859f, 1423.05f, 345.437f, nullptr },
-    { 966.691f, 1422.53f, 345.223f, nullptr },
-    { 979.588f, 1422.84f, 345.46f, nullptr },
-    { 997.806f, 1422.52f, 344.623f, nullptr },
-    { 1008.53f, 1417.02f, 343.206f, nullptr },
-    { 1016.42f, 1402.33f, 341.352f, nullptr },
-    { 1029.14f, 1387.49f, 340.836f, &WSG_AtHordeGraveyard },
-};
-// Horde Graveyard to Horde Tunnel
-BattleBotPath vPath_WSG_HordeGraveyard_to_HordeTunnel =
-{
-    { 1029.14f, 1387.49f, 340.836f, nullptr },
-    { 1034.95f, 1392.62f, 340.856f, nullptr },
-    { 1038.21f, 1406.43f, 341.562f, nullptr },
-    { 1043.87f, 1426.9f, 339.197f, nullptr },
-    { 1054.53f, 1441.47f, 339.725f, nullptr },
-    { 1056.33f, 1456.03f, 341.463f, nullptr },
-    { 1057.39f, 1469.98f, 342.148f, nullptr },
-    { 1057.67f, 1487.55f, 342.537f, nullptr },
-    { 1048.7f, 1505.37f, 341.117f, nullptr },
-    { 1042.19f, 1521.69f, 338.003f, nullptr },
-    { 1050.01f, 1538.22f, 332.43f, nullptr },
-    { 1068.15f, 1548.1f, 321.446f, nullptr },
-    { 1088.14f, 1538.45f, 316.398f, nullptr },
-    { 1101.26f, 1522.79f, 314.918f, nullptr },
-    { 1114.67f, 1503.18f, 312.947f, nullptr },
-    { 1126.45f, 1487.4f, 314.136f, nullptr },
-    { 1124.37f, 1462.28f, 315.853f, nullptr },
-};
-// Horde Tunnel to Horde Flag Room
-BattleBotPath vPath_WSG_HordeTunnel_to_HordeFlagRoom =
-{
-    { 1124.37f, 1462.28f, 315.853f, nullptr },
-    { 1106.87f, 1462.13f, 316.558f, nullptr },
-    { 1089.44f, 1461.04f, 316.332f, nullptr },
-    { 1072.07f, 1459.46f, 317.449f, nullptr },
-    { 1051.09f, 1459.89f, 323.126f, nullptr },
-    { 1030.1f, 1459.58f, 330.204f, nullptr },
-    { 1010.76f, 1457.49f, 334.896f, nullptr },
-    { 1005.47f, 1448.19f, 335.864f, nullptr },
-    { 999.974f, 1458.49f, 335.632f, nullptr },
-    { 982.632f, 1459.18f, 336.127f, nullptr },
-    { 965.049f, 1459.15f, 338.076f, nullptr },
-    { 944.526f, 1459.0f, 344.207f, nullptr },
-    { 937.479f, 1451.12f, 345.553f, nullptr },
-    { 933.331f, 1433.72f, 345.536f, &WSG_AtHordeFlag },
-};
-// Horde Tunnel to Alliance Tunnel 1
-BattleBotPath vPath_WSG_HordeTunnel_to_AllianceTunnel_1 =
-{
-    { 1124.37f, 1462.28f, 315.853f, nullptr },
-    { 1135.07f, 1462.43f, 315.569f, nullptr },
-    { 1152.2f, 1465.51f, 311.056f, nullptr },
-    { 1172.62f, 1470.34f, 306.812f, nullptr },
-    { 1193.1f, 1475.0f, 305.155f, nullptr },
-    { 1212.99f, 1477.94f, 306.929f, nullptr },
-    { 1233.88f, 1476.29f, 308.015f, nullptr },
-    { 1250.52f, 1470.94f, 309.8f, nullptr },
-    { 1266.09f, 1465.75f, 312.242f, nullptr },
-    { 1283.31f, 1463.55f, 311.819f, nullptr },
-    { 1297.11f, 1461.2f, 315.485f, nullptr },
-    { 1314.31f, 1460.76f, 317.926f, nullptr },
-    { 1329.8f, 1461.24f, 320.267f, nullptr },
-    { 1348.02f, 1461.06f, 323.167f, nullptr },
-};
-// Horde Tunnel to Alliance Tunnel 2
-BattleBotPath vPath_WSG_HordeTunnel_to_AllianceTunnel_2 =
-{
-    { 1124.37f, 1462.28f, 315.853f, nullptr },
-    { 1138.61f, 1452.12f, 312.988f, nullptr },
-    { 1154.35f, 1442.42f, 310.728f, nullptr },
-    { 1171.29f, 1438.04f, 307.462f, nullptr },
-    { 1185.03f, 1435.43f, 309.484f, nullptr },
-    { 1202.24f, 1432.26f, 310.193f, nullptr },
-    { 1219.48f, 1429.2f, 310.301f, nullptr },
-    { 1235.94f, 1429.97f, 309.727f, nullptr },
-    { 1249.3f, 1434.12f, 312.37f, nullptr },
-    { 1265.88f, 1439.71f, 314.373f, nullptr },
-    { 1282.87f, 1443.85f, 314.907f, nullptr },
-    { 1300.06f, 1447.16f, 316.737f, nullptr },
-    { 1313.79f, 1449.86f, 317.651f, nullptr },
-    { 1329.76f, 1457.36f, 320.37f, nullptr },
-    { 1348.02f, 1461.06f, 323.167f, nullptr },
-};
-// Horde GY Jump to Horde Tunnel
-BattleBotPath vPath_WSG_HordeGYJump_to_HordeTunnel =
-{
-    { 1077.87f, 1400.27f, 323.153f, nullptr },
-    { 1088.42f, 1402.68f, 319.605f, nullptr },
-    { 1104.34f, 1409.4f, 315.304f, nullptr },
-    { 1115.4f, 1418.91f, 313.772f, nullptr },
-    { 1122.83f, 1430.74f, 312.765f, nullptr },
-    { 1125.26f, 1442.56f, 313.996f, nullptr },
-    { 1124.37f, 1462.28f, 315.853f, nullptr },
-};
-// Horde GY Jump to Alliance Tunnel
-BattleBotPath vPath_WSG_HordeGYJump_to_AllianceTunnel =
-{
-    { 1077.87f, 1400.27f, 323.153f, nullptr },
-    { 1091.57f, 1397.37f, 317.739f, nullptr },
-    { 1113.14f, 1398.07f, 314.937f, nullptr },
-    { 1133.88f, 1401.36f, 314.333f, nullptr },
-    { 1151.25f, 1403.39f, 310.679f, nullptr },
-    { 1172.17f, 1405.13f, 308.046f, nullptr },
-    { 1192.63f, 1409.01f, 306.914f, nullptr },
-    { 1212.59f, 1415.38f, 308.805f, nullptr },
-    { 1228.5f, 1422.68f, 309.404f, nullptr },
-    { 1242.89f, 1431.01f, 310.664f, nullptr },
-    { 1259.33f, 1436.99f, 314.488f, nullptr },
-    { 1276.1f, 1442.0f, 314.162f, nullptr },
-    { 1299.13f, 1450.26f, 317.148f, nullptr },
-    { 1315.54f, 1456.24f, 318.449f, nullptr },
-    { 1330.63f, 1460.27f, 320.435f, nullptr },
-    { 1348.02f, 1461.06f, 323.167f, nullptr },
-};
-// Alliance Flag Room to Alliance Graveyard
-BattleBotPath vPath_WSG_AllianceFlagRoom_to_AllianceGraveyard =
-{
-    { 1519.53f, 1481.87f, 352.024f, &WSG_AtAllianceFlag },
-    { 1508.27f, 1493.17f, 352.005f, nullptr },
-    { 1490.78f, 1493.51f, 352.141f, nullptr },
-    { 1469.79f, 1494.13f, 351.774f, nullptr },
-    { 1453.65f, 1494.39f, 350.614f, nullptr },
-    { 1443.51f, 1501.75f, 348.317f, nullptr },
-    { 1443.33f, 1517.78f, 345.534f, nullptr },
-    { 1443.55f, 1533.4f, 343.148f, nullptr },
-    { 1441.47f, 1548.12f, 342.752f, nullptr },
-    { 1433.79f, 1552.67f, 342.763f, nullptr },
-    { 1422.88f, 1552.37f, 342.751f, nullptr },
-    { 1415.33f, 1554.79f, 343.156f, &WSG_AtAllianceGraveyard },
-};
-// Alliance Graveyard to Alliance Tunnel
-BattleBotPath vPath_WSG_AllianceGraveyard_to_AllianceTunnel =
-{
-    { 1415.33f, 1554.79f, 343.156f, nullptr },
-    { 1428.29f, 1551.79f, 342.751f, nullptr },
-    { 1441.51f, 1545.79f, 342.757f, nullptr },
-    { 1441.15f, 1530.35f, 343.712f, nullptr },
-    { 1435.53f, 1517.29f, 346.698f, nullptr },
-    { 1424.81f, 1499.24f, 349.486f, nullptr },
-    { 1416.31f, 1483.94f, 348.536f, nullptr },
-    { 1408.83f, 1468.4f, 347.648f, nullptr },
-    { 1404.64f, 1449.79f, 347.279f, nullptr },
-    { 1405.34f, 1432.33f, 345.792f, nullptr },
-    { 1406.38f, 1416.18f, 344.755f, nullptr },
-    { 1400.22f, 1401.87f, 340.496f, nullptr },
-    { 1385.96f, 1394.15f, 333.829f, nullptr },
-    { 1372.38f, 1390.75f, 328.722f, nullptr },
-    { 1362.93f, 1390.02f, 327.034f, nullptr },
-    { 1357.91f, 1398.07f, 325.674f, nullptr },
-    { 1354.17f, 1411.56f, 324.327f, nullptr },
-    { 1351.44f, 1430.38f, 323.506f, nullptr },
-    { 1350.36f, 1444.43f, 323.388f, nullptr },
-    { 1348.02f, 1461.06f, 323.167f, nullptr },
-};
-// Alliance Tunnel to Alliance Flag Room
-BattleBotPath vPath_WSG_AllianceTunnel_to_AllianceFlagRoom =
-{
-    { 1348.02f, 1461.06f, 323.167f, nullptr },
-    { 1359.8f, 1461.49f, 324.527f, nullptr },
-    { 1372.47f, 1461.61f, 324.354f, nullptr },
-    { 1389.08f, 1461.12f, 325.913f, nullptr },
-    { 1406.57f, 1460.48f, 330.615f, nullptr },
-    { 1424.04f, 1459.57f, 336.029f, nullptr },
-    { 1442.5f, 1459.7f, 342.024f, nullptr },
-    { 1449.59f, 1469.14f, 342.65f, nullptr },
-    { 1458.03f, 1458.43f, 342.746f, nullptr },
-    { 1469.4f, 1458.14f, 342.794f, nullptr },
-    { 1489.06f, 1457.86f, 342.794f, nullptr },
-    { 1502.27f, 1457.52f, 347.589f, nullptr },
-    { 1512.87f, 1457.81f, 352.039f, nullptr },
-    { 1517.53f, 1468.79f, 352.033f, nullptr },
-    { 1519.53f, 1481.87f, 352.024f, &WSG_AtAllianceFlag },
-};
-// Alliance GY Jump to Alliance Tunnel
-BattleBotPath vPath_WSG_AllianceGYJump_to_AllianceTunnel =
-{
-    { 1387.85f, 1538.06f, 321.854f, nullptr },
-    { 1376.87f, 1529.48f, 321.66f, nullptr },
-    { 1369.76f, 1521.76f, 318.544f, nullptr },
-    { 1360.97f, 1508.68f, 320.007f, nullptr },
-    { 1355.78f, 1495.7f, 323.959f, nullptr },
-    { 1351.58f, 1482.36f, 324.189f, nullptr },
-    { 1348.02f, 1461.06f, 323.167f, nullptr },
-};
-// Alliance GY Jump to Horde Tunnel
-BattleBotPath vPath_WSG_AllianceGYJump_to_HordeTunnel =
-{
-    { 1387.85f, 1538.06f, 321.855f, nullptr },
-    { 1377.58f, 1535.88f, 321.053f, nullptr },
-    { 1363.98f, 1532.59f, 319.913f, nullptr },
-    { 1353.94f, 1529.5f, 316.643f, nullptr },
-    { 1340.71f, 1524.94f, 315.246f, nullptr },
-    { 1330.75f, 1521.6f, 314.868f, nullptr },
-    { 1320.73f, 1518.48f, 316.097f, nullptr },
-    { 1307.28f, 1514.6f, 318.134f, nullptr },
-    { 1297.12f, 1511.95f, 318.073f, nullptr },
-    { 1283.61f, 1508.28f, 316.707f, nullptr },
-    { 1273.51f, 1505.39f, 314.615f, nullptr },
-    { 1263.49f, 1502.27f, 311.343f, nullptr },
-    { 1250.22f, 1497.81f, 309.106f, nullptr },
-    { 1237.31f, 1492.4f, 307.577f, nullptr },
-    { 1224.04f, 1487.97f, 306.302f, nullptr },
-    { 1213.89f, 1485.29f, 305.739f, nullptr },
-    { 1203.69f, 1482.8f, 306.177f, nullptr },
-    { 1190.05f, 1479.62f, 303.89f, nullptr },
-    { 1179.83f, 1477.22f, 303.686f, nullptr },
-    { 1169.65f, 1474.65f, 305.842f, nullptr },
-    { 1156.05f, 1471.33f, 310.002f, nullptr },
-    { 1142.54f, 1467.68f, 311.727f, nullptr },
-    { 1135.4f, 1465.54f, 315.622f, nullptr },
-    { 1124.37f, 1462.28f, 315.853f, nullptr },
-};
-// Horde GY Jump to Alliance Flag Room through Side Entrance
-BattleBotPath vPath_WSG_HordeGYJump_to_AllianceFlagRoom =
-{
-    { 1077.87f, 1400.27f, 323.153f, nullptr },
-    { 1084.45f, 1388.76f, 319.724f, nullptr },
-    { 1088.27f, 1371.39f, 319.17f, nullptr },
-    { 1090.71f, 1350.54f, 316.097f, nullptr },
-    { 1098.71f, 1332.2f, 317.792f, nullptr },
-    { 1109.45f, 1320.92f, 318.267f, nullptr },
-    { 1123.49f, 1311.38f, 317.472f, nullptr },
-    { 1145.46f, 1302.64f, 317.741f, nullptr },
-    { 1168.4f, 1288.85f, 318.053f, nullptr },
-    { 1186.49f, 1284.27f, 316.972f, nullptr },
-    { 1199.4f, 1286.83f, 317.377f, nullptr },
-    { 1215.89f, 1304.02f, 312.822f, nullptr },
-    { 1232.18f, 1324.73f, 312.345f, nullptr },
-    { 1247.16f, 1329.97f, 315.095f, nullptr },
-    { 1269.9f, 1335.18f, 311.879f, nullptr },
-    { 1289.97f, 1341.28f, 318.625f, nullptr },
-    { 1305.99f, 1347.63f, 321.123f, nullptr },
-    { 1325.81f, 1361.58f, 319.39f, nullptr },
-    { 1337.48f, 1371.68f, 318.706f, nullptr },
-    { 1342.62f, 1390.03f, 321.435f, nullptr },
-    { 1352.23f, 1397.97f, 325.547f, nullptr },
-    { 1366.38f, 1385.61f, 328.196f, nullptr },
-    { 1382.67f, 1380.56f, 332.371f, nullptr },
-    { 1395.17f, 1393.12f, 336.183f, nullptr },
-    { 1409.03f, 1411.5f, 344.626f, nullptr },
-    { 1405.12f, 1438.81f, 346.533f, nullptr },
-    { 1409.95f, 1460.93f, 347.687f, nullptr },
-    { 1430.87f, 1461.08f, 353.992f, nullptr },
-    { 1449.36f, 1459.44f, 358.499f, nullptr },
-    { 1471.4f, 1458.48f, 362.557f, nullptr },
-    { 1488.64f, 1464.01f, 362.454f, nullptr },
-    { 1488.75f, 1474.6f, 358.79f, nullptr },
-    { 1490.44f, 1485.99f, 352.112f, nullptr },
-    { 1502.97f, 1493.87f, 352.199f, nullptr },
-    { 1519.53f, 1481.87f, 352.024f, &WSG_AtAllianceFlag },
-};
-// Alliance GY Jump to Horde Flag Room through Side Entrance
-BattleBotPath vPath_WSG_AllianceGYJump_to_HordeFlagRoom =
-{
-    { 1387.85f, 1538.06f, 321.855f, nullptr },
-    { 1370.13f, 1549.33f, 321.122f, nullptr },
-    { 1346.7f, 1564.64f, 316.708f, nullptr },
-    { 1324.23f, 1574.24f, 317.11f, nullptr },
-    { 1304.03f, 1576.06f, 314.625f, nullptr },
-    { 1277.44f, 1569.2f, 312.201f, nullptr },
-    { 1249.2f, 1555.53f, 309.172f, nullptr },
-    { 1229.95f, 1558.21f, 306.936f, nullptr },
-    { 1209.65f, 1573.56f, 308.95f, nullptr },
-    { 1189.93f, 1587.73f, 309.608f, nullptr },
-    { 1173.76f, 1592.66f, 309.805f, nullptr },
-    { 1147.86f, 1590.75f, 310.37f, nullptr },
-    { 1124.1f, 1579.89f, 314.881f, nullptr },
-    //{ 1102.61f, 1573.98f, 315.804f, nullptr },
-    { 1091.28f, 1558.56f, 316.451f, nullptr },
-    { 1092.6f, 1547.71f, 316.709f, nullptr },
-    { 1086.22f, 1541.5f, 316.924f, nullptr },
-    { 1071.64f, 1548.25f, 319.88f, nullptr },
-    { 1054.86f, 1544.78f, 328.415f, nullptr },
-    { 1043.08f, 1528.67f, 336.984f, nullptr },
-    { 1043.21f, 1512.43f, 339.099f, nullptr },
-    { 1050.71f, 1485.48f, 342.852f, nullptr },
-    { 1042.67f, 1461.07f, 342.305f, nullptr },
-    { 1023.13f, 1457.49f, 345.535f, nullptr },
-    { 992.797f, 1458.42f, 354.84f, nullptr },
-    { 967.257f, 1458.84f, 356.131f, nullptr },
-    { 964.566f, 1450.29f, 354.865f, nullptr },
-    { 963.586f, 1432.46f, 345.206f, nullptr },
-    { 953.017f, 1423.3f, 345.835f, nullptr },
-    { 933.331f, 1433.72f, 345.536f, &WSG_AtHordeFlag },
-};
-// Horde Tunnel to Horde Base Roof
-BattleBotPath vPath_WSG_HordeTunnel_to_HordeBaseRoof =
-{
-    { 1124.37f, 1462.28f, 315.853f, nullptr },
-    { 1106.87f, 1462.13f, 316.558f, nullptr },
-    { 1089.44f, 1461.04f, 316.332f, nullptr },
-    { 1072.07f, 1459.46f, 317.449f, nullptr },
-    { 1051.09f, 1459.89f, 323.126f, nullptr },
-    { 1030.1f, 1459.58f, 330.204f, nullptr },
-    { 1010.76f, 1457.49f, 334.896f, nullptr },
-    { 981.948f, 1459.07f, 336.154f, nullptr },
-    { 981.768f, 1480.46f, 335.976f, nullptr },
-    { 974.664f, 1495.9f, 340.837f, nullptr },
-    { 964.661f, 1510.21f, 347.509f, nullptr },
-    { 951.188f, 1520.99f, 356.377f, nullptr },
-    { 937.37f, 1513.27f, 362.589f, nullptr },
-    { 935.947f, 1499.58f, 364.199f, nullptr },
-    { 935.9f, 1482.08f, 366.396f, nullptr },
-    { 937.564f, 1462.81f, 367.287f, nullptr },
-    { 945.871f, 1458.65f, 367.287f, nullptr },
-    { 956.972f, 1459.48f, 367.291f, nullptr },
-    { 968.317f, 1459.71f, 367.291f, nullptr },
-    { 979.934f, 1454.58f, 367.078f, nullptr },
-    { 979.99f, 1442.87f, 367.093f, nullptr },
-    { 978.632f, 1430.71f, 367.125f, nullptr },
-    { 970.395f, 1422.32f, 367.289f, nullptr },
-    { 956.338f, 1425.09f, 367.293f, nullptr },
-    { 952.778f, 1433.0f, 367.604f, nullptr },
-    { 952.708f, 1445.01f, 367.604f, nullptr },
-};
-// Alliance Tunnel to Alliance Base Roof
-BattleBotPath vPath_WSG_AllianceTunnel_to_AllianceBaseRoof =
-{
-    { 1348.02f, 1461.06f, 323.167f, nullptr },
-    { 1359.8f, 1461.49f, 324.527f, nullptr },
-    { 1372.47f, 1461.61f, 324.354f, nullptr },
-    { 1389.08f, 1461.12f, 325.913f, nullptr },
-    { 1406.57f, 1460.48f, 330.615f, nullptr },
-    { 1424.04f, 1459.57f, 336.029f, nullptr },
-    { 1442.5f, 1459.7f, 342.024f, nullptr },
-    { 1471.86f, 1456.65f, 342.794f, nullptr },
-    { 1470.93f, 1440.5f, 342.794f, nullptr },
-    { 1472.24f, 1427.49f, 342.06f, nullptr },
-    { 1476.86f, 1412.46f, 341.426f, nullptr },
-    { 1484.42f, 1396.69f, 346.117f, nullptr },
-    { 1490.7f, 1387.59f, 351.861f, nullptr },
-    { 1500.79f, 1382.98f, 357.784f, nullptr },
-    { 1511.08f, 1391.29f, 364.444f, nullptr },
-    { 1517.85f, 1403.18f, 370.336f, nullptr },
-    { 1517.99f, 1417.59f, 371.636f, nullptr },
-    { 1517.07f, 1431.56f, 372.106f, nullptr },
-    { 1516.66f, 1445.55f, 372.939f, nullptr },
-    { 1514.23f, 1457.37f, 373.689f, nullptr },
-    { 1503.73f, 1457.67f, 373.684f, nullptr },
-    { 1486.24f, 1457.8f, 373.718f, nullptr },
-    { 1476.78f, 1460.35f, 373.711f, nullptr },
-    { 1477.37f, 1470.83f, 373.709f, nullptr },
-    { 1477.5f, 1484.83f, 373.715f, nullptr },
-    { 1480.53f, 1495.26f, 373.721f, nullptr },
-    { 1492.61f, 1494.72f, 373.721f, nullptr },
-    { 1499.37f, 1489.02f, 373.718f, nullptr },
-    { 1500.63f, 1472.89f, 373.707f, nullptr },
-};
-// Alliance Base to Stables
-BattleBotPath vPath_AB_AllianceBase_to_Stables =
-{
-    { 1285.67f, 1282.14f, -15.8466f, nullptr },
-    { 1272.52f, 1267.83f, -21.7811f, nullptr },
-    { 1250.44f, 1248.09f, -33.3028f, nullptr },
-    { 1232.56f, 1233.05f, -41.5241f, nullptr },
-    { 1213.25f, 1224.93f, -47.5513f, nullptr },
-    { 1189.29f, 1219.49f, -53.119f, nullptr },
-    { 1177.17f, 1210.21f, -56.4593f, nullptr },
-    { 1167.98f, 1202.9f, -56.4743f, &AB_AtFlag },
-};
-// Alliance Base to Gold Mine
-BattleBotPath vPath_AB_AllianceBase_to_GoldMine =
-{
-    { 1285.67f, 1282.14f, -15.8466f, nullptr },
-    { 1276.41f, 1267.11f, -20.775f, nullptr },
-    { 1261.34f, 1241.52f, -31.2971f, nullptr },
-    { 1244.91f, 1219.03f, -41.9658f, nullptr },
-    { 1232.25f, 1184.41f, -50.3348f, nullptr },
-    { 1226.89f, 1150.82f, -55.7935f, nullptr },
-    { 1224.09f, 1120.38f, -57.0633f, nullptr },
-    { 1220.03f, 1092.72f, -59.1744f, nullptr },
-    { 1216.05f, 1060.86f, -67.2771f, nullptr },
-    { 1213.77f, 1027.96f, -74.429f, nullptr },
-    { 1208.56f, 998.394f, -81.9493f, nullptr },
-    { 1197.42f, 969.73f, -89.9385f, nullptr },
-    { 1185.23f, 944.531f, -97.2433f, nullptr },
-    { 1166.29f, 913.945f, -107.214f, nullptr },
-    { 1153.17f, 887.863f, -112.34f, nullptr },
-    { 1148.89f, 871.391f, -111.96f, nullptr },
-    { 1145.24f, 850.82f, -110.514f, &AB_AtFlag },
-};
-// Alliance Base to Lumber Mill
-BattleBotPath vPath_AB_AllianceBase_to_LumberMill =
-{
-    { 1285.67f, 1282.14f, -15.8466f, nullptr },
-    { 1269.13f, 1267.89f, -22.7764f, nullptr },
-    { 1247.79f, 1249.77f, -33.2518f, nullptr },
-    { 1226.29f, 1232.02f, -43.9193f, nullptr },
-    { 1196.68f, 1230.15f, -50.4644f, nullptr },
-    { 1168.72f, 1228.98f, -53.9329f, nullptr },
-    { 1140.82f, 1226.7f, -53.6318f, nullptr },
-    { 1126.85f, 1225.77f, -47.98f, nullptr },
-    { 1096.5f, 1226.57f, -53.1769f, nullptr },
-    { 1054.52f, 1226.14f, -49.2011f, nullptr },
-    { 1033.52f, 1226.08f, -45.5968f, nullptr },
-    { 1005.52f, 1226.08f, -43.2912f, nullptr },
-    { 977.53f, 1226.68f, -40.16f, nullptr },
-    { 957.242f, 1227.94f, -34.1487f, nullptr },
-    { 930.689f, 1221.57f, -18.9588f, nullptr },
-    { 918.202f, 1211.98f, -12.2494f, nullptr },
-    { 880.329f, 1192.63f, 7.61168f, nullptr },
-    { 869.965f, 1178.52f, 10.9678f, nullptr },
-    { 864.74f, 1163.78f, 12.385f, nullptr },
-    { 859.165f, 1148.84f, 11.5289f, &AB_AtFlag },
-};
-// Stables to Blacksmith
-BattleBotPath vPath_AB_Stables_to_Blacksmith =
-{
-    { 1169.52f, 1198.71f, -56.2742f, &AB_AtFlag },
-    { 1166.93f, 1185.2f, -56.3634f, nullptr },
-    { 1173.84f, 1170.6f, -56.4094f, nullptr },
-    { 1186.7f, 1163.92f, -56.3961f, nullptr },
-    { 1189.7f, 1150.68f, -55.8664f, nullptr },
-    { 1185.18f, 1129.31f, -58.1044f, nullptr },
-    { 1181.7f, 1108.6f, -62.1797f, nullptr },
-    { 1177.92f, 1087.95f, -63.5768f, nullptr },
-    { 1174.52f, 1067.23f, -64.402f, nullptr },
-    { 1171.27f, 1051.09f, -65.0833f, nullptr },
-    { 1163.22f, 1031.7f, -64.954f, nullptr },
-    { 1154.25f, 1010.25f, -63.5299f, nullptr },
-    { 1141.07f, 999.479f, -63.3713f, nullptr },
-    { 1127.12f, 1000.37f, -60.628f, nullptr },
-    { 1106.17f, 1001.66f, -61.7457f, nullptr },
-    { 1085.64f, 1005.62f, -58.5932f, nullptr },
-    { 1064.88f, 1008.65f, -52.3547f, nullptr },
-    { 1044.16f, 1011.96f, -47.2647f, nullptr },
-    { 1029.72f, 1014.88f, -45.3546f, nullptr },
-    { 1013.94f, 1028.7f, -43.9786f, nullptr },
-    { 990.89f, 1039.3f, -42.7659f, nullptr },
-    { 978.269f, 1043.84f, -44.4588f, &AB_AtFlag },
-};
-// Horde Base to Farm
-BattleBotPath vPath_AB_HordeBase_to_Farm =
-{
-    { 707.259f, 707.839f, -17.5318f, nullptr },
-    { 712.063f, 712.928f, -20.1802f, nullptr },
-    { 725.941f, 728.682f, -29.7536f, nullptr },
-    { 734.715f, 739.591f, -35.2144f, nullptr },
-    { 747.607f, 756.161f, -40.899f, nullptr },
-    { 753.994f, 766.668f, -43.3049f, nullptr },
-    { 758.715f, 787.106f, -46.7014f, nullptr },
-    { 762.077f, 807.831f, -48.4721f, nullptr },
-    { 764.132f, 821.68f, -49.656f, nullptr },
-    { 767.947f, 839.274f, -50.8574f, nullptr },
-    { 773.745f, 852.013f, -52.6226f, nullptr },
-    { 785.123f, 869.103f, -54.2089f, nullptr },
-    { 804.429f, 874.961f, -55.2691f, &AB_AtFlag },
-};
-// Horde Base to Gold Mine
-BattleBotPath vPath_AB_HordeBase_to_GoldMine =
-{
-    { 707.259f, 707.839f, -17.5318f, nullptr },
-    { 717.935f, 716.874f, -23.3941f, nullptr },
-    { 739.195f, 732.483f, -34.5791f, nullptr },
-    { 757.087f, 742.008f, -38.1123f, nullptr },
-    { 776.946f, 748.775f, -42.7346f, nullptr },
-    { 797.138f, 754.539f, -46.3237f, nullptr },
-    { 817.37f, 760.167f, -48.9235f, nullptr },
-    { 837.638f, 765.664f, -49.7374f, nullptr },
-    { 865.092f, 774.738f, -51.9831f, nullptr },
-    { 878.86f, 777.149f, -47.2361f, nullptr },
-    { 903.911f, 780.212f, -53.1424f, nullptr },
-    { 923.454f, 787.888f, -54.7937f, nullptr },
-    { 946.218f, 798.93f, -59.0904f, nullptr },
-    { 978.1f, 813.321f, -66.7268f, nullptr },
-    { 1002.94f, 817.895f, -77.3119f, nullptr },
-    { 1030.77f, 820.92f, -88.7717f, nullptr },
-    { 1058.61f, 823.889f, -94.1623f, nullptr },
-    { 1081.6f, 828.32f, -99.4137f, nullptr },
-    { 1104.64f, 844.773f, -106.387f, nullptr },
-    { 1117.56f, 853.686f, -110.716f, nullptr },
-    { 1144.9f, 850.049f, -110.522f, &AB_AtFlag },
-};
-// Horde Base to Lumber Mill
-BattleBotPath vPath_AB_HordeBase_to_LumberMill =
-{
-    { 707.259f, 707.839f, -17.5318f, nullptr },
-    { 721.611f, 726.507f, -27.9646f, nullptr },
-    { 733.846f, 743.573f, -35.8633f, nullptr },
-    { 746.201f, 760.547f, -40.838f, nullptr },
-    { 758.937f, 787.565f, -46.741f, nullptr },
-    { 761.289f, 801.357f, -48.0037f, nullptr },
-    { 764.341f, 822.128f, -49.6908f, nullptr },
-    { 769.766f, 842.244f, -51.1239f, nullptr },
-    { 775.322f, 855.093f, -53.1161f, nullptr },
-    { 783.995f, 874.216f, -55.0822f, nullptr },
-    { 789.917f, 886.902f, -56.2935f, nullptr },
-    { 798.03f, 906.259f, -57.1162f, nullptr },
-    { 803.183f, 919.266f, -57.6692f, nullptr },
-    { 813.248f, 937.688f, -57.7106f, nullptr },
-    { 820.412f, 958.712f, -56.1492f, nullptr },
-    { 814.247f, 973.692f, -50.4602f, nullptr },
-    { 807.697f, 985.502f, -47.2383f, nullptr },
-    { 795.672f, 1002.69f, -44.9382f, nullptr },
-    { 784.653f, 1020.77f, -38.6278f, nullptr },
-    { 784.826f, 1037.34f, -31.5719f, nullptr },
-    { 786.083f, 1051.28f, -24.0793f, nullptr },
-    { 787.314f, 1065.23f, -16.8918f, nullptr },
-    { 788.892f, 1086.17f, -6.42608f, nullptr },
-    { 792.077f, 1106.53f, 4.81124f, nullptr },
-    { 800.398f, 1119.48f, 8.5814f, nullptr },
-    { 812.476f, 1131.1f, 10.439f, nullptr },
-    { 829.704f, 1142.52f, 10.738f, nullptr },
-    { 842.646f, 1143.51f, 11.9984f, nullptr },
-    { 857.674f, 1146.16f, 11.529f, &AB_AtFlag },
-};
-// Farm to Blacksmith
-BattleBotPath vPath_AB_Farm_to_Blacksmith =
-{
-    { 803.826f, 874.909f, -55.2547f, &AB_AtFlag },
-    { 808.763f, 887.991f, -57.4437f, nullptr },
-    { 818.33f, 906.674f, -59.3554f, nullptr },
-    { 828.634f, 924.972f, -60.5664f, nullptr },
-    { 835.255f, 937.308f, -60.2915f, nullptr },
-    { 845.244f, 955.78f, -60.4208f, nullptr },
-    { 852.125f, 967.965f, -61.3135f, nullptr },
-    { 863.232f, 983.109f, -62.6402f, nullptr },
-    { 875.413f, 989.245f, -61.2916f, nullptr },
-    { 895.765f, 994.41f, -63.6287f, nullptr },
-    { 914.16f, 1001.09f, -58.37f, nullptr },
-    { 932.418f, 1011.44f, -51.9225f, nullptr },
-    { 944.244f, 1018.92f, -49.1438f, nullptr },
-    { 961.55f, 1030.81f, -45.814f, nullptr },
-    { 978.122f, 1043.87f, -44.4682f, &AB_AtFlag },
-};
-// Stables to Gold Mine
-BattleBotPath vPath_AB_Stables_to_GoldMine =
-{
-    { 1169.52f, 1198.71f, -56.2742f, &AB_AtFlag },
-    { 1166.72f, 1183.58f, -56.3633f, nullptr },
-    { 1172.14f, 1170.99f, -56.4735f, nullptr },
-    { 1185.18f, 1164.02f, -56.4269f, nullptr },
-    { 1193.98f, 1155.85f, -55.924f, nullptr },
-    { 1201.51f, 1145.65f, -56.4733f, nullptr },
-    { 1205.39f, 1134.81f, -56.2366f, nullptr },
-    { 1207.57f, 1106.9f, -58.4748f, nullptr },
-    { 1209.4f, 1085.98f, -63.4022f, nullptr },
-    { 1212.68f, 1065.25f, -66.514f, nullptr },
-    { 1216.42f, 1037.52f, -72.0457f, nullptr },
-    { 1215.4f, 1011.56f, -78.3338f, nullptr },
-    { 1209.8f, 992.293f, -83.2433f, nullptr },
-    { 1201.23f, 973.121f, -88.5661f, nullptr },
-    { 1192.16f, 954.183f, -94.2209f, nullptr },
-    { 1181.88f, 935.894f, -99.5239f, nullptr },
-    { 1169.86f, 918.68f, -105.588f, nullptr },
-    { 1159.36f, 900.497f, -110.461f, nullptr },
-    { 1149.32f, 874.429f, -112.142f, nullptr },
-    { 1145.34f, 849.824f, -110.523f, &AB_AtFlag },
-};
-// Stables to Lumber Mill
-BattleBotPath vPath_AB_Stables_to_LumberMill =
-{
-    { 1169.52f, 1198.71f, -56.2742f, &AB_AtFlag },
-    { 1169.33f, 1203.43f, -56.5457f, nullptr },
-    { 1164.77f, 1208.73f, -56.1907f, nullptr },
-    { 1141.52f, 1224.99f, -53.8204f, nullptr },
-    { 1127.54f, 1224.82f, -48.2081f, nullptr },
-    { 1106.56f, 1225.58f, -50.5154f, nullptr },
-    { 1085.6f, 1226.54f, -53.1863f, nullptr },
-    { 1064.6f, 1226.82f, -50.4381f, nullptr },
-    { 1043.6f, 1227.27f, -46.5439f, nullptr },
-    { 1022.61f, 1227.72f, -44.7157f, nullptr },
-    { 1001.61f, 1227.62f, -42.6876f, nullptr },
-    { 980.623f, 1226.93f, -40.4687f, nullptr },
-    { 959.628f, 1227.1f, -35.3838f, nullptr },
-    { 938.776f, 1226.34f, -23.5399f, nullptr },
-    { 926.138f, 1217.21f, -16.2176f, nullptr },
-    { 911.966f, 1205.99f, -9.69655f, nullptr },
-    { 895.135f, 1198.85f, -0.546275f, nullptr },
-    { 873.419f, 1189.27f, 9.3466f, nullptr },
-    { 863.821f, 1181.72f, 9.76912f, nullptr },
-    { 851.803f, 1166.3f, 10.4423f, nullptr },
-    { 853.921f, 1150.92f, 11.543f, &AB_AtFlag },
-};
-// Farm to Gold Mine
-BattleBotPath vPath_AB_Farm_to_GoldMine =
-{
-    { 803.826f, 874.909f, -55.2547f, &AB_AtFlag },
-    { 801.662f, 865.689f, -56.9445f, nullptr },
-    { 806.433f, 860.776f, -57.5899f, nullptr },
-    { 816.236f, 857.397f, -57.7029f, nullptr },
-    { 826.717f, 855.846f, -57.9914f, nullptr },
-    { 836.128f, 851.257f, -57.8321f, nullptr },
-    { 847.933f, 843.837f, -58.1296f, nullptr },
-    { 855.08f, 832.688f, -57.7373f, nullptr },
-    { 864.513f, 813.663f, -57.574f, nullptr },
-    { 864.229f, 797.762f, -54.2057f, nullptr },
-    { 862.967f, 787.372f, -53.0276f, nullptr },
-    { 864.163f, 776.33f, -52.0372f, nullptr },
-    { 872.583f, 777.391f, -48.5342f, nullptr },
-    { 893.575f, 777.922f, -49.1826f, nullptr },
-    { 915.941f, 783.534f, -53.6598f, nullptr },
-    { 928.105f, 789.929f, -55.4802f, nullptr },
-    { 946.263f, 800.46f, -59.166f, nullptr },
-    { 958.715f, 806.845f, -62.1494f, nullptr },
-    { 975.79f, 811.913f, -65.9648f, nullptr },
-    { 989.468f, 814.883f, -71.3089f, nullptr },
-    { 1010.13f, 818.643f, -80.0817f, nullptr },
-    { 1023.97f, 820.667f, -86.1114f, nullptr },
-    { 1044.84f, 823.011f, -92.0583f, nullptr },
-    { 1058.77f, 824.482f, -94.1937f, nullptr },
-    { 1079.13f, 829.402f, -99.1207f, nullptr },
-    { 1092.85f, 836.986f, -102.755f, nullptr },
-    { 1114.75f, 851.21f, -109.782f, nullptr },
-    { 1128.22f, 851.928f, -111.078f, nullptr },
-    { 1145.14f, 849.895f, -110.523f, &AB_AtFlag },
-};
-// Farm to Lumber Mill
-BattleBotPath vPath_AB_Farm_to_LumberMill =
-{
-    { 803.826f, 874.909f, -55.2547f, &AB_AtFlag },
-    { 802.874f, 894.28f, -56.4661f, nullptr },
-    { 806.844f, 920.39f, -57.3157f, nullptr },
-    { 814.003f, 934.161f, -57.6065f, nullptr },
-    { 824.594f, 958.47f, -58.4916f, nullptr },
-    { 820.434f, 971.184f, -53.201f, nullptr },
-    { 808.339f, 987.79f, -47.5705f, nullptr },
-    { 795.98f, 1004.76f, -44.9189f, nullptr },
-    { 785.497f, 1019.18f, -39.2806f, nullptr },
-    { 783.94f, 1032.46f, -33.5692f, nullptr },
-    { 784.956f, 1053.41f, -22.8368f, nullptr },
-    { 787.499f, 1074.25f, -12.4232f, nullptr },
-    { 789.406f, 1088.11f, -5.28606f, nullptr },
-    { 794.617f, 1109.17f, 6.1966f, nullptr },
-    { 801.514f, 1120.77f, 8.81455f, nullptr },
-    { 817.3f, 1134.59f, 10.6064f, nullptr },
-    { 828.961f, 1142.98f, 10.7354f, nullptr },
-    { 841.63f, 1147.75f, 11.6916f, nullptr },
-    { 854.326f, 1150.55f, 11.537f, &AB_AtFlag },
-};
 
 BattleBotPath vPath_AV_Horde_Cave_to_Tower_Point_Crossroad =
 {
@@ -2452,41 +952,15 @@ BattleBotPath vPath_AV_Alliance_Cave_to_Alliance_Cave_Slop_Crossroad =
     { 450.8f, -434.864f, 30.5126f, nullptr },
 };
 
-std::vector<BattleBotPath*> const vPaths_WS =
-{
-    &vPath_WSG_HordeFlagRoom_to_HordeGraveyard,
-    &vPath_WSG_HordeGraveyard_to_HordeTunnel,
-    &vPath_WSG_HordeTunnel_to_HordeFlagRoom,
-    &vPath_WSG_HordeTunnel_to_AllianceTunnel_1,
-    &vPath_WSG_HordeTunnel_to_AllianceTunnel_2,
-    &vPath_WSG_HordeGYJump_to_HordeTunnel,
-    &vPath_WSG_HordeGYJump_to_AllianceTunnel,
-    &vPath_WSG_AllianceFlagRoom_to_AllianceGraveyard,
-    &vPath_WSG_AllianceGraveyard_to_AllianceTunnel,
-    &vPath_WSG_AllianceTunnel_to_AllianceFlagRoom,
-    &vPath_WSG_AllianceGYJump_to_AllianceTunnel,
-    &vPath_WSG_AllianceGYJump_to_HordeTunnel,
-    &vPath_WSG_HordeGYJump_to_AllianceFlagRoom,
-    &vPath_WSG_AllianceGYJump_to_HordeFlagRoom,
-    &vPath_WSG_HordeTunnel_to_HordeBaseRoof,
-    &vPath_WSG_AllianceTunnel_to_AllianceBaseRoof,
-};
+// WSG and AB paths defined in BattleBotWaypoints2.cpp; extern declared in BattleBotWaypoints.h.
 
-std::vector<BattleBotPath*> const vPaths_AB =
-{
-    &vPath_AB_AllianceBase_to_Stables,
-    &vPath_AB_AllianceBase_to_GoldMine,
-    &vPath_AB_AllianceBase_to_LumberMill,
-    &vPath_AB_Stables_to_Blacksmith,
-    &vPath_AB_HordeBase_to_Farm,
-    &vPath_AB_HordeBase_to_GoldMine,
-    &vPath_AB_HordeBase_to_LumberMill,
-    &vPath_AB_Farm_to_Blacksmith,
-    &vPath_AB_Stables_to_GoldMine,
-    &vPath_AB_Stables_to_LumberMill,
-    &vPath_AB_Farm_to_GoldMine,
-    &vPath_AB_Farm_to_LumberMill,
-};
+// Forward declarations for AB paths used by vPaths_NoReverseAllowed.
+extern BattleBotPath vPath_AB_AllianceBase_to_Stables;
+extern BattleBotPath vPath_AB_AllianceBase_to_GoldMine;
+extern BattleBotPath vPath_AB_AllianceBase_to_LumberMill;
+extern BattleBotPath vPath_AB_HordeBase_to_Farm;
+extern BattleBotPath vPath_AB_HordeBase_to_GoldMine;
+extern BattleBotPath vPath_AB_HordeBase_to_LumberMill;
 
 std::vector<BattleBotPath*> const vPaths_AV =
 {
@@ -2559,15 +1033,10 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
     &vPath_AV_Stormpike_Graveyard_to_Stormpike_Flag,
 };
 
-// Paths that lead into tower/bunker interiors for flag capture.
-// Only used when a specific defend/capture objective requires it;
-// excluded from random path selection to prevent bots looping inside bunkers.
 std::vector<BattleBotPath*> const vPaths_ObjectiveOnly =
 {
     &vPath_AV_Stonehearth_Bunker_First_Crossroad_to_Stonehearth_Bunker_Flag,
     &vPath_AV_Icewing_Bunker_Crossroad_to_Icewing_Bunker_Flag,
-    // Alliance base bunker area: all approach and interior paths.
-    // Excluded from random path selection; only used when explicitly routing to defend/attack bunker objectives.
     &vPath_AV_Stormpike_Crossroad_to_Alliance_Base_Bunker_First_Crossroad,
     &vPath_AV_Alliance_Base_Bunker_First_Crossroad_to_Alliance_Base_North_Bunker,
     &vPath_AV_Alliance_Base_Bunker_First_Crossroad_to_Alliance_Base_Bunker_Second_Crossroad,
@@ -2616,12 +1085,7 @@ void BattleBotAI::MoveToNextPoint()
 
     BattleBotWaypoint& nextPoint = m_currentPath->at(m_currentPoint);
 
-    uint32 moveFlags = MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES;
-    if (BattleGround* bg = me->GetBattleGround())
-        if (bg->GetTypeID() != BATTLEGROUND_WS)
-            moveFlags |= MOVE_RUN_MODE;
-
-    me->GetMotionMaster()->MovePoint(m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, moveFlags);
+    me->GetMotionMaster()->MovePoint(m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
 }
 
 bool BattleBotAI::StartNewPathFromBeginning()
@@ -2658,9 +1122,6 @@ bool BattleBotAI::StartNewPathFromBeginning()
 
     for (const auto& pPath : *vPaths)
     {
-        if (std::find(vPaths_ObjectiveOnly.begin(), vPaths_ObjectiveOnly.end(), pPath) != vPaths_ObjectiveOnly.end())
-            continue;
-
         BattleBotWaypoint* pStart = &((*pPath)[0]);
         if (me->GetDistance(pStart->x, pStart->y, pStart->z) < INTERACTION_DISTANCE)
             availablePaths.emplace_back(AvailablePath(pPath, false));
@@ -2715,9 +1176,6 @@ void BattleBotAI::StartNewPathFromAnywhere()
 
     for (const auto& pPath : *vPaths)
     {
-        if (std::find(vPaths_ObjectiveOnly.begin(), vPaths_ObjectiveOnly.end(), pPath) != vPaths_ObjectiveOnly.end())
-            continue;
-
         for (uint32 i = 0; i < pPath->size(); i++)
         {
             BattleBotWaypoint& waypoint = ((*pPath)[i]);
@@ -2823,39 +1281,8 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
     return true;
 }
 
-static std::pair<uint32, uint32> AV_HordeAttackObjectives[] =
-{
-    // Attack
-    { BG_AV_STONEHEARTH_BUNKER, ALLIANCE_CONTROLLED },
-    { BG_AV_STONEHEARTH_GY, ALLIANCE_CONTROLLED },
-    { BG_AV_ICEWING_BUNKER, ALLIANCE_CONTROLLED },
-    { BG_AV_STORMPIKE_GY, ALLIANCE_CONTROLLED },
-    { BG_AV_DUN_BALDAR_SOUTH_BUNKER, ALLIANCE_CONTROLLED },
-    { BG_AV_DUN_BALDAR_NORTH_BUNKER, ALLIANCE_CONTROLLED },
-    { BG_AV_STORMPIKE_AID_STATION_GY, ALLIANCE_CONTROLLED }
-};
-
-static std::pair<uint32, uint32> AV_HordeDefendObjectives[] =
-{
-    { BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED },
-};
-
-static std::pair<uint32, uint32> AV_AllianceAttackObjectives[] =
-{
-    // Attack
-    { BG_AV_ICEBLOOD_TOWER, HORDE_CONTROLLED },
-    { BG_AV_ICEBLOOD_GY, HORDE_CONTROLLED },
-    { BG_AV_TOWER_POINT_TOWER, HORDE_CONTROLLED },
-    { BG_AV_FROSTWOLF_GY, HORDE_CONTROLLED },
-    { BG_AV_EAST_FROSTWOLF_TOWER, HORDE_CONTROLLED },
-    { BG_AV_WEST_FROSTWOLF_TOWER, HORDE_CONTROLLED },
-    { BG_AV_FROSTWOLF_RELIEF_HUT_GY, HORDE_CONTROLLED },
-};
-
-static std::pair<uint32, uint32> AV_AllianceDefendObjectives[] =
-{
-    { BG_AV_STORMPIKE_GY, HORDE_ASSAULTED },
-};
+#define AV_FLAG_DEFENSE_RADIUS    55.0f
+#define AV_RESCUE_RADIUS          80.0f
 
 static uint32 AV_KeyDefenseObjectives[] =
 {
@@ -2866,20 +1293,6 @@ static uint32 AV_KeyDefenseObjectives[] =
     BG_AV_ICEBLOOD_GY,
     BG_AV_FROSTWOLF_GY,
     BG_AV_FROSTWOLF_RELIEF_HUT_GY,
-};
-
-static uint32 AV_AllianceNativeGraveyards[] =
-{
-    BG_AV_STORMPIKE_AID_STATION_GY,
-    BG_AV_STORMPIKE_GY,
-    BG_AV_STONEHEARTH_GY,
-};
-
-static uint32 AV_HordeNativeGraveyards[] =
-{
-    BG_AV_FROSTWOLF_RELIEF_HUT_GY,
-    BG_AV_FROSTWOLF_GY,
-    BG_AV_ICEBLOOD_GY,
 };
 
 static uint32 GetAVControlledStateForTeam(Team team)
@@ -2895,6 +1308,33 @@ static uint32 GetAVAssaultedStateForTeam(Team team)
 static uint32 GetAVEnemyAssaultedStateForTeam(Team team)
 {
     return team == HORDE ? ALLIANCE_ASSAULTED : HORDE_ASSAULTED;
+}
+
+static bool GetAVNativeGraveyardFallbackPosition(uint32 node, Position& outPosition)
+{
+    switch (node)
+    {
+        case BG_AV_STORMPIKE_AID_STATION_GY:
+            outPosition.x = 640.404f; outPosition.y = -32.0183f; outPosition.z = 46.2328f; outPosition.o = 0.0f;
+            return true;
+        case BG_AV_STORMPIKE_GY:
+            outPosition.x = 667.173f; outPosition.y = -295.225f; outPosition.z = 30.29f; outPosition.o = 0.0f;
+            return true;
+        case BG_AV_STONEHEARTH_GY:
+            outPosition.x = 79.8805f; outPosition.y = -401.379f; outPosition.z = 46.516f; outPosition.o = 0.0f;
+            return true;
+        case BG_AV_ICEBLOOD_GY:
+            outPosition.x = -614.138f; outPosition.y = -396.501f; outPosition.z = 60.8585f; outPosition.o = 0.0f;
+            return true;
+        case BG_AV_FROSTWOLF_GY:
+            outPosition.x = -1079.61f; outPosition.y = -345.548f; outPosition.z = 55.1131f; outPosition.o = 0.0f;
+            return true;
+        case BG_AV_FROSTWOLF_RELIEF_HUT_GY:
+            outPosition.x = -1401.94f; outPosition.y = -310.103f; outPosition.z = 89.3816f; outPosition.o = 0.0f;
+            return true;
+        default:
+            return false;
+    }
 }
 
 bool BattleBotIsInAVGyCaptureHold(BattleBotAI const* pAI)
@@ -2921,93 +1361,44 @@ bool BattleBotIsInAVGyCaptureHold(BattleBotAI const* pAI)
     return false;
 }
 
-static uint32 GetAVEnemyControlledStateForTeam(Team team)
+bool BattleBotIsNearAVFlag(BattleBotAI const* pAI, float radius)
 {
-    return team == HORDE ? ALLIANCE_CONTROLLED : HORDE_CONTROLLED;
-}
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
+        return false;
 
-// Phase 1: battle just started — all bots push forward, no guard assignment.
-// Phase 2: first key enemy GY secured (Stonehearth for Horde, Iceblood for Alliance).
-// Phase 3: second key enemy GY secured — total assault, converge and rush boss.
-static uint8 GetHordeAVPhase(BattleGround const* bg)
-{
-    if (bg->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_ASSAULTED) ||
-        bg->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_CONTROLLED))
-        return 3;
-    if (bg->IsActiveEvent(BG_AV_STONEHEARTH_GY, HORDE_ASSAULTED) ||
-        bg->IsActiveEvent(BG_AV_STONEHEARTH_GY, HORDE_CONTROLLED))
-        return 2;
-    return 1;
-}
+    for (uint32 const bannerId : vFlagsAV)
+        if (pAI->me->FindNearestGameObject(bannerId, radius))
+            return true;
 
-static uint8 GetAllianceAVPhase(BattleGround const* bg)
-{
-    if (bg->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED) ||
-        bg->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_CONTROLLED))
-        return 3;
-    if (bg->IsActiveEvent(BG_AV_ICEBLOOD_GY, ALLIANCE_ASSAULTED) ||
-        bg->IsActiveEvent(BG_AV_ICEBLOOD_GY, ALLIANCE_CONTROLLED))
-        return 2;
-    return 1;
-}
-
-static uint8 GetAVPhase(BattleBotAI const* pAI, BattleGround const* bg)
-{
-    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV || bg->GetStatus() != STATUS_IN_PROGRESS)
-        return 1;
-    return pAI->me->GetTeam() == HORDE ? GetHordeAVPhase(bg) : GetAllianceAVPhase(bg);
-}
-
-static bool IsAVNativeGraveyard(Team team, uint32 objective)
-{
-    if (team == HORDE)
-    {
-        for (uint32 node : AV_HordeNativeGraveyards)
-            if (node == objective) return true;
-    }
-    else
-    {
-        for (uint32 node : AV_AllianceNativeGraveyards)
-            if (node == objective) return true;
-    }
     return false;
 }
 
-static uint8 GetAVRequiredGuardBots(BattleBotAI const* pAI, BattleGround* bg, uint32 objective)
+bool BattleBotIsNearOpenObjectiveFlag(BattleBotAI const* pAI, float radius)
 {
-    Team const team = pAI->me->GetTeam();
-    uint8 const phase = GetAVPhase(pAI, bg);
-    uint32 const enemyAssaultedState = GetAVEnemyAssaultedStateForTeam(team);
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg || bg->GetStatus() != STATUS_IN_PROGRESS)
+        return false;
 
-    // Own native GYs: 1 guard when controlled, 2 when under enemy assault.
-    if (IsAVNativeGraveyard(team, objective))
-        return bg->IsActiveEvent(objective, enemyAssaultedState) ? 2 : AV_NATIVE_GY_GUARD_BOTS;
-
-    // Phase-2 GY (Iceblood for Alliance, Stonehearth for Horde): in phase 3, reduced to 1/2.
-    uint32 const phase2GY = (team == HORDE) ? (uint32)BG_AV_STONEHEARTH_GY : (uint32)BG_AV_ICEBLOOD_GY;
-    if (objective == phase2GY && phase >= 3)
-        return bg->IsActiveEvent(objective, enemyAssaultedState) ? 2 : AV_NATIVE_GY_GUARD_BOTS;
-
-    // Snowfall: guard counts differ by team and phase.
-    if (objective == BG_AV_SNOWFALL_GY)
+    std::vector<uint32> const* flags = nullptr;
+    switch (bg->GetTypeID())
     {
-        bool const capturing = bg->IsActiveEvent(objective, GetAVAssaultedStateForTeam(team));
-        if (team == ALLIANCE)
-        {
-            if (phase >= 3) return capturing ? 2 : 1;
-            return capturing ? 5 : 2;  // Phase 1/2
-        }
-        else // HORDE
-        {
-            if (phase >= 3) return 0;  // No Snowfall guard in Phase 3
-            return capturing ? 3 : 1;  // Phase 1/2
-        }
+        case BATTLEGROUND_AB:
+            flags = &vFlagsAB;
+            break;
+        case BATTLEGROUND_AV:
+            flags = &vFlagsAV;
+            break;
+        default:
+            return false;
     }
 
-    // Default: capturing = 5 guards, fully captured = 3 guards.
-    if (bg->IsActiveEvent(objective, GetAVAssaultedStateForTeam(team)))
-        return AV_CAPTURING_GY_GUARD_BOTS;
-    return AV_CAPTURED_GY_GUARD_BOTS;
+    for (uint32 const bannerId : *flags)
+        if (GameObject* pGo = pAI->me->FindNearestGameObject(bannerId, radius))
+            if (IsABFlagOpenable(pAI, pGo))
+                return true;
+
+    return false;
 }
 
 template<std::size_t N>
@@ -3054,556 +1445,6 @@ static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, uint32 c
 static GameObject* FindNearbyAVKeyDefenseObject(BattleBotAI const* pAI, float radius)
 {
     return FindNearbyAVKeyDefenseObject(pAI, AV_KeyDefenseObjectives, radius);
-}
-
-template<std::size_t N>
-static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, uint32 const (&objectives)[N], float radius, Position& outPosition, uint32* outMatchedObjective = nullptr)
-{
-    BattleGround* bg = pAI->me->GetBattleGround();
-    Map* map = pAI->me->GetMap();
-    if (!bg || !map || bg->GetTypeID() != BATTLEGROUND_AV)
-        return false;
-
-    if (GetAVPhase(pAI, bg) == 1)
-        return false;
-
-    bool found = false;
-    float bestDistance = FLT_MAX;
-    uint32 bestObjective = 0;
-    uint32 const controlledState = GetAVControlledStateForTeam(pAI->me->GetTeam());
-    uint32 const assaultedState = GetAVAssaultedStateForTeam(pAI->me->GetTeam());
-    uint32 const enemyAssaultedState = GetAVEnemyAssaultedStateForTeam(pAI->me->GetTeam());
-
-    for (uint32 const objective : objectives)
-    {
-        uint32 activeState = 0;
-        if (bg->IsActiveEvent(objective, assaultedState))
-            activeState = assaultedState;
-        else if (bg->IsActiveEvent(objective, enemyAssaultedState))
-            activeState = enemyAssaultedState;
-        else if (bg->IsActiveEvent(objective, controlledState))
-            activeState = controlledState;
-        else
-            continue;
-
-        Position guardPosition;
-        if (GameObject* pGO = map->GetGameObject(bg->GetSingleGameObjectGuid(objective, activeState)))
-            guardPosition = pGO->GetPosition();
-        else if (!GetAVNativeGraveyardFallbackPosition(objective, guardPosition))
-        {
-            if (WorldSafeLocsEntry const* entry = sWorldSafeLocsStore.LookupEntry(BG_AV_GraveyardIds[objective]))
-            {
-                guardPosition.x = entry->x;
-                guardPosition.y = entry->y;
-                guardPosition.z = entry->z;
-                guardPosition.o = 0.0f;
-            }
-            else
-                continue;
-        }
-
-        float const distance = pAI->me->GetDistance(guardPosition);
-        if (distance <= radius && distance < bestDistance)
-        {
-            outPosition = guardPosition;
-            bestDistance = distance;
-            bestObjective = objective;
-            found = true;
-        }
-    }
-
-    if (found && outMatchedObjective)
-        *outMatchedObjective = bestObjective;
-
-    return found;
-}
-
-static bool FindNearbyAVKeyDefensePosition(BattleBotAI const* pAI, float radius, Position& outPosition, uint32* outMatchedObjective)
-{
-    return FindNearbyAVKeyDefensePosition(pAI, AV_KeyDefenseObjectives, radius, outPosition, outMatchedObjective);
-}
-
-static GameObject* GetAVControlledGraveyardObject(BattleBotAI const* pAI, uint32 node)
-{
-    BattleGround* bg = pAI->me->GetBattleGround();
-    Map* map = pAI->me->GetMap();
-    if (!bg || !map || bg->GetTypeID() != BATTLEGROUND_AV)
-        return nullptr;
-
-    uint32 activeState = GetAVControlledStateForTeam(pAI->me->GetTeam());
-    if (!bg->IsActiveEvent(node, activeState))
-    {
-        activeState = GetAVEnemyAssaultedStateForTeam(pAI->me->GetTeam());
-        if (!bg->IsActiveEvent(node, activeState))
-            return nullptr;
-    }
-
-    return map->GetGameObject(bg->GetSingleGameObjectGuid(node, activeState));
-}
-
-static bool IsAVNativeGraveyardDefensible(BattleBotAI const* pAI, uint32 node)
-{
-    BattleGround* bg = pAI->me->GetBattleGround();
-    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
-        return false;
-
-    if (bg->IsActiveEvent(node, GetAVEnemyControlledStateForTeam(pAI->me->GetTeam())))
-        return false;
-
-    if (bg->IsActiveEvent(node, GetAVControlledStateForTeam(pAI->me->GetTeam())) ||
-        bg->IsActiveEvent(node, GetAVEnemyAssaultedStateForTeam(pAI->me->GetTeam())))
-        return true;
-
-    Position unused;
-    return GetAVNativeGraveyardFallbackPosition(node, unused);
-}
-
-static bool GetAVNativeGraveyardFallbackPosition(uint32 node, Position& outPosition)
-{
-    switch (node)
-    {
-        case BG_AV_STORMPIKE_AID_STATION_GY:
-            outPosition.x = 640.404f;
-            outPosition.y = -32.0183f;
-            outPosition.z = 46.2328f;
-            outPosition.o = 0.0f;
-            return true;
-        case BG_AV_STORMPIKE_GY:
-            outPosition.x = 667.173f;
-            outPosition.y = -295.225f;
-            outPosition.z = 30.29f;
-            outPosition.o = 0.0f;
-            return true;
-        case BG_AV_STONEHEARTH_GY:
-            outPosition.x = 79.8805f;
-            outPosition.y = -401.379f;
-            outPosition.z = 46.516f;
-            outPosition.o = 0.0f;
-            return true;
-        case BG_AV_ICEBLOOD_GY:
-            outPosition.x = -614.138f;
-            outPosition.y = -396.501f;
-            outPosition.z = 60.8585f;
-            outPosition.o = 0.0f;
-            return true;
-        case BG_AV_FROSTWOLF_GY:
-            outPosition.x = -1079.61f;
-            outPosition.y = -345.548f;
-            outPosition.z = 55.1131f;
-            outPosition.o = 0.0f;
-            return true;
-        case BG_AV_FROSTWOLF_RELIEF_HUT_GY:
-            outPosition.x = -1401.94f;
-            outPosition.y = -310.103f;
-            outPosition.z = 89.3816f;
-            outPosition.o = 0.0f;
-            return true;
-        default:
-            return false;
-    }
-}
-
-static bool GetAVControlledGraveyardPosition(BattleBotAI const* pAI, uint32 node, Position& outPosition)
-{
-    if (!IsAVNativeGraveyardDefensible(pAI, node))
-        return false;
-
-    if (GameObject* pGO = GetAVControlledGraveyardObject(pAI, node))
-    {
-        outPosition = pGO->GetPosition();
-        return true;
-    }
-
-    if (GetAVNativeGraveyardFallbackPosition(node, outPosition))
-        return true;
-
-    if (WorldSafeLocsEntry const* entry = sWorldSafeLocsStore.LookupEntry(BG_AV_GraveyardIds[node]))
-    {
-        outPosition.x = entry->x;
-        outPosition.y = entry->y;
-        outPosition.z = entry->z;
-        outPosition.o = 0.0f;
-        return true;
-    }
-
-    return false;
-}
-
-static bool IsAVShortGuardingPosition(Player* player, Position const& pos)
-{
-    return player->GetDistance(pos) <= AV_SHORT_GUARD_RADIUS;
-}
-
-static uint8 CountAVShortGuardBots(BattleBotAI* pAI, Position const& pos, bool includeAssigned, bool includeCurrent)
-{
-    Map* map = pAI->me->GetMap();
-    if (!map)
-        return 0;
-
-    uint8 settledCount = 0;  // non-combat, within 45 yards, not actively moving away
-    uint8 combatCount  = 0;  // in-combat, within 45 yards
-    uint8 enRouteCount = 0;  // assigned to this position, not yet arrived, not in combat
-
-    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
-    {
-        if (Player* player = itr->getSource())
-        {
-            if (player == pAI->me && !includeCurrent)
-                continue;
-
-            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
-                continue;
-
-            if (IsAVShortGuardingPosition(player, pos))
-            {
-                if (player->IsInCombat() || player->GetVictim())
-                    ++combatCount;
-                else if (IsABSettledGuardBot(player, pAI->me))
-                    ++settledCount;
-                continue;
-            }
-
-            if (includeAssigned &&
-                !player->IsInCombat() &&
-                !player->GetVictim() &&
-                IsABAssignedToGuardPosition(player, pos))
-                ++enRouteCount;
-        }
-    }
-
-    // During total assault, no headcount caps — all bots at the captured GY count fully.
-    BattleGround* bg = pAI->me->GetBattleGround();
-    if (IsAVTotalAssaultActive(pAI, bg))
-        return settledCount + combatCount + enRouteCount;
-
-    return std::min<uint8>(settledCount, 1) +
-           std::min<uint8>(combatCount,  5) +
-           std::min<uint8>(enRouteCount, 3);
-}
-
-static uint8 CountAVRescueBots(BattleBotAI* pAI, Position const& pos)
-{
-    Map* map = pAI->me->GetMap();
-    if (!map)
-        return 0;
-
-    uint8 count = 0;
-    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
-    {
-        if (Player* player = itr->getSource())
-        {
-            if (player == pAI->me)
-                continue;
-            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
-                continue;
-            if (player->GetDistance(pos) <= AV_RESCUE_RADIUS)
-                ++count;
-            else if (!player->IsInCombat() && IsABAssignedToGuardPosition(player, pos))
-                ++count;
-        }
-    }
-    return count;
-}
-
-static bool IsAVKeyObjective(uint32 objectiveId)
-{
-    for (uint32 key : AV_KeyDefenseObjectives)
-        if (key == objectiveId)
-            return true;
-    return false;
-}
-
-static uint8 CountFriendlyPlayersAtObjective(BattleBotAI const* pAI, Position const& pos)
-{
-    Map* map = pAI->me->GetMap();
-    if (!map)
-        return 0;
-
-    uint8 count = 0;
-    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
-    {
-        if (Player* player = itr->getSource())
-        {
-            if (player == pAI->me)
-                continue;
-            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsAlive())
-                continue;
-            if (player->GetDistance(pos) <= AV_FLAG_DEFENSE_RADIUS)
-                ++count;
-        }
-    }
-    return count;
-}
-
-static bool IsAVTotalAssaultActive(BattleBotAI const* pAI, BattleGround const* bg)
-{
-    return GetAVPhase(pAI, bg) >= 3;
-}
-
-static bool IsAVExcessShortGuardBot(BattleBotAI* pAI, Position const& pos, uint8 requiredBots)
-{
-    Map* map = pAI->me->GetMap();
-    if (!map)
-        return false;
-
-    if (!IsAVShortGuardingPosition(pAI->me, pos))
-        return false;
-
-    uint8 combatCount = 0;
-    uint8 lowerGuidGuards = 0;
-    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
-    {
-        if (Player* player = itr->getSource())
-        {
-            if (player == pAI->me)
-                continue;
-
-            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
-                continue;
-
-            if (!IsAVShortGuardingPosition(player, pos))
-                continue;
-
-            if (player->IsInCombat() || player->GetVictim())
-            {
-                ++combatCount;
-                continue;
-            }
-
-            if (!IsABSettledGuardBot(player, pAI->me))
-                continue;
-
-            if (player->GetObjectGuid().GetCounter() < pAI->me->GetObjectGuid().GetCounter())
-                ++lowerGuidGuards;
-        }
-    }
-
-    // In-combat bots at this position count toward the cap — prevents unlimited bots
-    // from being pulled in when a captured GY is under attack.
-    uint8 const cappedCombat = std::min<uint8>(combatCount, requiredBots);
-    return cappedCombat + lowerGuidGuards >= requiredBots;
-}
-
-template<std::size_t N>
-static bool GetAVSettledNativeGraveyardIndex(BattleBotAI* pAI, Player* player, uint32 const (&objectives)[N], uint8& outIndex)
-{
-    uint8 index = 0;
-    for (uint32 const node : objectives)
-    {
-        Position guardPosition;
-        if (!GetAVControlledGraveyardPosition(pAI, node, guardPosition))
-        {
-            ++index;
-            continue;
-        }
-
-        if (IsAVShortGuardingPosition(player, guardPosition) && IsABSettledGuardBot(player, pAI->me))
-        {
-            outIndex = index;
-            return true;
-        }
-
-        ++index;
-    }
-
-    return false;
-}
-
-static float GetAVDistanceSq(Player* player, Position const& pos)
-{
-    float const dx = player->GetPositionX() - pos.x;
-    float const dy = player->GetPositionY() - pos.y;
-    float const dz = player->GetPositionZ() - pos.z;
-    return dx * dx + dy * dy + dz * dz;
-}
-
-template<std::size_t N>
-static bool IsAVAvailableForRearGuardTarget(BattleBotAI* pAI, Player* player, uint32 const (&objectives)[N], uint8 targetIndex)
-{
-    if (player->IsInCombat() || player->GetVictim())
-        return false;
-
-    uint8 settledIndex = 0;
-    if (GetAVSettledNativeGraveyardIndex(pAI, player, objectives, settledIndex) && settledIndex <= targetIndex)
-        return false;
-
-    return true;
-}
-
-template<std::size_t N>
-static bool IsAVRearGuardCandidate(BattleBotAI* pAI, uint32 const (&objectives)[N], Position const& rearPosition, uint8 neededGuards, uint8 targetIndex)
-{
-    if (!neededGuards)
-        return false;
-
-    if (!IsAVAvailableForRearGuardTarget(pAI, pAI->me, objectives, targetIndex))
-        return false;
-
-    Map* map = pAI->me->GetMap();
-    if (!map)
-        return false;
-
-    float const myRearDistanceSq = GetAVDistanceSq(pAI->me, rearPosition);
-    uint8 betterCandidates = 0;
-
-    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
-    {
-        Player* player = itr->getSource();
-        if (!player || player == pAI->me)
-            continue;
-
-        if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
-            continue;
-
-        if (!IsAVAvailableForRearGuardTarget(pAI, player, objectives, targetIndex))
-            continue;
-
-        float const playerRearDistanceSq = GetAVDistanceSq(player, rearPosition);
-        if (playerRearDistanceSq < myRearDistanceSq ||
-            (playerRearDistanceSq == myRearDistanceSq &&
-             player->GetObjectGuid().GetCounter() < pAI->me->GetObjectGuid().GetCounter()))
-            ++betterCandidates;
-    }
-
-    return betterCandidates < neededGuards;
-}
-
-template<std::size_t N>
-static bool FindAVRearGuardPosition(BattleBotAI* pAI, uint32 const (&objectives)[N], Position& outPosition)
-{
-    Position rearPosition;
-    if (!GetAVNativeGraveyardFallbackPosition(objectives[0], rearPosition) &&
-        !GetAVControlledGraveyardPosition(pAI, objectives[0], rearPosition))
-        return false;
-
-    uint8 index = 0;
-    for (uint32 const node : objectives)
-    {
-        Position guardPosition;
-        if (!GetAVControlledGraveyardPosition(pAI, node, guardPosition))
-        {
-            ++index;
-            continue;
-        }
-
-        uint8 const physicalCount = CountAVShortGuardBots(pAI, guardPosition, false, false);
-        if (physicalCount >= AV_NATIVE_GY_GUARD_BOTS)
-        {
-            ++index;
-            continue;
-        }
-
-        // Physical requirement not yet met — allow redundancy for en-route bots
-        uint8 const totalCount = CountAVShortGuardBots(pAI, guardPosition, true, false);
-        uint8 const guardThreshold = std::min<uint8>(AV_NATIVE_GY_GUARD_BOTS + 1u, 5u);
-        if (totalCount >= guardThreshold)
-        {
-            ++index;
-            continue;
-        }
-
-        uint8 const neededGuards = guardThreshold - totalCount;
-        if (!IsAVRearGuardCandidate(pAI, objectives, rearPosition, neededGuards, index))
-        {
-            ++index;
-            continue;
-        }
-
-        outPosition = guardPosition;
-        return true;
-    }
-
-    return false;
-}
-
-static bool FindAVRearGuardPosition(BattleBotAI* pAI, Position& outPosition)
-{
-    BattleGround* bg = pAI->me->GetBattleGround();
-    if (GetAVPhase(pAI, bg) == 1)
-        return false;
-
-    if (pAI->me->GetTeam() == HORDE)
-        return FindAVRearGuardPosition(pAI, AV_HordeNativeGraveyards, outPosition);
-
-    return FindAVRearGuardPosition(pAI, AV_AllianceNativeGraveyards, outPosition);
-}
-
-static bool BattleBotNeedsRecovery(BattleBotAI* pAI)
-{
-    bool const needToEat = pAI->me->GetHealthPercent() < 90.0f;
-    bool needToDrink = (pAI->me->GetPowerType() == POWER_MANA) && (pAI->me->GetPowerPercent(POWER_MANA) < 90.0f);
-    if (needToDrink &&
-        pAI->me->GetClass() == CLASS_DRUID &&
-        pAI->me->GetShapeshiftForm() != FORM_NONE &&
-       (pAI->GetRole() == ROLE_MELEE_DPS || pAI->GetRole() == ROLE_TANK))
-        needToDrink = false;
-
-    return needToEat || needToDrink || pAI->me->HasAura(BB_SPELL_FOOD) || pAI->me->HasAura(BB_SPELL_DRINK);
-}
-
-static bool MoveGuardBackBeforeRecovery(BattleBotAI* pAI, Position const& guardPosition, float readyRadius, std::vector<BattleBotPath*> const* paths, bool use2dDistance = false)
-{
-    float const distance = use2dDistance ? pAI->me->GetDistance2d(guardPosition) : pAI->me->GetDistance(guardPosition);
-    if (distance <= readyRadius)
-        return false;
-
-    pAI->me->RemoveAurasDueToSpellByCancel(BB_SPELL_FOOD);
-    pAI->me->RemoveAurasDueToSpellByCancel(BB_SPELL_DRINK);
-    if (pAI->me->GetStandState() != UNIT_STAND_STATE_STAND)
-        pAI->me->SetStandState(UNIT_STAND_STATE_STAND);
-
-    pAI->ClearPath();
-    if (paths && pAI->StartNewPathToPosition(guardPosition, *paths))
-        return true;
-
-    pAI->me->GetMotionMaster()->MovePoint(0, guardPosition.x, guardPosition.y, guardPosition.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
-    return true;
-}
-
-bool BattleBotReturnToGuardPositionBeforeRecovery(BattleBotAI* pAI)
-{
-    BattleGround* bg = pAI->me->GetBattleGround();
-    if (!bg || bg->GetStatus() != STATUS_IN_PROGRESS)
-        return false;
-
-    if (pAI->me->IsInCombat() || pAI->me->GetVictim() || pAI->me->IsMounted())
-        return false;
-
-    if (!BattleBotNeedsRecovery(pAI))
-        return false;
-
-    switch (bg->GetTypeID())
-    {
-        case BATTLEGROUND_AB:
-        {
-            Position guardPosition;
-            if (FindABOwnedGuardPosition(pAI, guardPosition) &&
-                pAI->me->GetDistance2d(guardPosition) <= 80.0f)
-                return MoveGuardBackBeforeRecovery(pAI, guardPosition, AB_GUARD_SEARCH_RADIUS, &vPaths_AB, true);
-
-            return false;
-        }
-        case BATTLEGROUND_AV:
-        {
-            Position guardPosition;
-            uint32 foundObjective = 0;
-            if (FindNearbyAVKeyDefensePosition(pAI, AV_FLAG_DEFENSE_RADIUS, guardPosition, &foundObjective))
-            {
-                uint8 const required = GetAVRequiredGuardBots(pAI, pAI->me->GetBattleGround(), foundObjective);
-                if (!IsAVExcessShortGuardBot(pAI, guardPosition, required))
-                    return MoveGuardBackBeforeRecovery(pAI, guardPosition, 20.0f, nullptr);
-            }
-
-            Position rearGuardPosition;
-            if (FindAVRearGuardPosition(pAI, rearGuardPosition) &&
-                pAI->me->GetDistance(rearGuardPosition) <= 90.0f)
-                return MoveGuardBackBeforeRecovery(pAI, rearGuardPosition, 20.0f, nullptr);
-
-            return false;
-        }
-        default:
-            return false;
-    }
 }
 
 Unit* BattleBotSelectAVFlagDefenseTarget(BattleBotAI const* pAI, Unit* pExcept)
@@ -3653,6 +1494,50 @@ Unit* BattleBotSelectAVFlagDefenseTarget(BattleBotAI const* pAI, Unit* pExcept)
     return bestTarget;
 }
 
+static std::pair<uint32, uint32> AV_HordeAttackObjectives[] =
+{
+    // Attack
+    { BG_AV_STONEHEARTH_BUNKER, ALLIANCE_CONTROLLED },
+    { BG_AV_STONEHEARTH_GY, ALLIANCE_CONTROLLED },
+    { BG_AV_ICEWING_BUNKER, ALLIANCE_CONTROLLED },
+    { BG_AV_STORMPIKE_GY, ALLIANCE_CONTROLLED },
+    { BG_AV_DUN_BALDAR_SOUTH_BUNKER, ALLIANCE_CONTROLLED },
+    { BG_AV_DUN_BALDAR_NORTH_BUNKER, ALLIANCE_CONTROLLED },
+    { BG_AV_STORMPIKE_AID_STATION_GY, ALLIANCE_CONTROLLED }
+};
+
+static std::pair<uint32, uint32> AV_HordeDefendObjectives[] =
+{
+    // Defend
+    { BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED },
+    { BG_AV_EAST_FROSTWOLF_TOWER, ALLIANCE_ASSAULTED },
+    { BG_AV_WEST_FROSTWOLF_TOWER, ALLIANCE_ASSAULTED },
+    { BG_AV_TOWER_POINT_TOWER, ALLIANCE_ASSAULTED },
+    { BG_AV_ICEBLOOD_TOWER, ALLIANCE_ASSAULTED },
+};
+
+static std::pair<uint32, uint32> AV_AllianceAttackObjectives[] =
+{
+    // Attack
+    { BG_AV_ICEBLOOD_TOWER, HORDE_CONTROLLED },
+    { BG_AV_ICEBLOOD_GY, HORDE_CONTROLLED },
+    { BG_AV_TOWER_POINT_TOWER, HORDE_CONTROLLED },
+    { BG_AV_FROSTWOLF_GY, HORDE_CONTROLLED },
+    { BG_AV_EAST_FROSTWOLF_TOWER, HORDE_CONTROLLED },
+    { BG_AV_WEST_FROSTWOLF_TOWER, HORDE_CONTROLLED },
+    { BG_AV_FROSTWOLF_RELIEF_HUT_GY, HORDE_CONTROLLED },
+};
+
+static std::pair<uint32, uint32> AV_AllianceDefendObjectives[] =
+{
+    // Defend
+    { BG_AV_STORMPIKE_GY, HORDE_ASSAULTED },
+    { BG_AV_DUN_BALDAR_SOUTH_BUNKER, HORDE_ASSAULTED },
+    { BG_AV_DUN_BALDAR_NORTH_BUNKER, HORDE_ASSAULTED },
+    { BG_AV_ICEWING_BUNKER, HORDE_ASSAULTED },
+    { BG_AV_STONEHEARTH_BUNKER, HORDE_ASSAULTED },
+};
+
 bool BattleBotAI::StartNewPathToObjective()
 {
     BattleGround* bg = me->GetBattleGround();
@@ -3662,118 +1547,15 @@ bool BattleBotAI::StartNewPathToObjective()
     if (bg->GetStatus() == STATUS_WAIT_JOIN)
         return false;
 
-    // Do not start new path if out of combat and currently regenerating (eating/drinking) to avoid interrupting regen.
-    bool const needToEat = me->GetHealthPercent() < 90.0f;
-    bool const needToDrink = (me->GetPowerType() == POWER_MANA) && (me->GetPowerPercent(POWER_MANA) < 90.0f);
-    if (!me->IsInCombat())
-    {
-        bool const isWSGHomeGuard = bg->GetTypeID() == BATTLEGROUND_WS && BattleBotIsWSGHomeGuardCandidate(this);
-        if (!isWSGHomeGuard && (needToEat || needToDrink))
-            return false;
-    }
-
     switch (bg->GetTypeID())
     {
         case BATTLEGROUND_AB:
-        {
-            Position targetPosition;
-            if (FindABOwnedGuardPosition(this, targetPosition))
-            {
-                if (StartNewPathToPosition(targetPosition, vPaths_AB))
-                    return true;
-
-                return me->GetDistance(targetPosition) <= AB_GUARD_EXCESS_RADIUS;
-            }
-
-            if (FindABAssaultPosition(this, targetPosition))
-            {
-                if (StartNewPathToPosition(targetPosition, vPaths_AB))
-                    return true;
-
-                return me->GetDistance(targetPosition) <= AB_GUARD_EXCESS_RADIUS;
-            }
-            break;
-        }
+            return BattleBotSelectABObjective(this);
         case BATTLEGROUND_AV:
         {
             // Alliance and Horde code is intentionally different.
             // Horde bots are more united and always go together.
             // Alliance bots can pick random objective.
-            Position rearGuardPosition;
-            if (FindAVRearGuardPosition(this, rearGuardPosition))
-            {
-                if (me->GetDistance(rearGuardPosition) <= AV_SHORT_GUARD_RADIUS)
-                {
-                    ClearPath();
-                    StopMoving();
-                    return true;
-                }
-
-                ClearPath();
-                me->GetMotionMaster()->MovePoint(0, rearGuardPosition.x, rearGuardPosition.y, rearGuardPosition.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
-                return true;
-            }
-
-            Position guardPosition;
-            uint32 foundObjective = 0;
-            if (FindNearbyAVKeyDefensePosition(this, AV_SHORT_GUARD_RADIUS, guardPosition, &foundObjective))
-            {
-                uint8 const required = GetAVRequiredGuardBots(this, bg, foundObjective);
-                if (!IsAVExcessShortGuardBot(this, guardPosition, required))
-                    return true;
-            }
-
-            // GY capture hold: all bots within rescue range of a GY being actively captured by
-            // our team stay put until fully controlled, preventing premature departure mid-capture.
-            {
-                uint32 const capturingState = GetAVAssaultedStateForTeam(me->GetTeam());
-                for (uint32 const objective : AV_KeyDefenseObjectives)
-                {
-                    if (objective == BG_AV_SNOWFALL_GY)
-                        continue;
-                    if (!bg->IsActiveEvent(objective, capturingState))
-                        continue;
-                    Position gyPos;
-                    if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective, capturingState)))
-                        gyPos = pGO->GetPosition();
-                    else if (!GetAVNativeGraveyardFallbackPosition(objective, gyPos))
-                        continue;
-                    if (me->IsWithinDist3d(gyPos.x, gyPos.y, gyPos.z, AV_RESCUE_RADIUS))
-                        return true;
-                }
-            }
-
-            // Phase 3 (total assault): converge at the phase-3 GY then rush boss.
-            if (IsAVTotalAssaultActive(this, bg))
-            {
-                if (me->GetTeam() == HORDE)
-                {
-                    // Phase-3 GY: Stormpike GY (雷矛). Try controlled state first, then assaulted.
-                    GameObject* pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_STORMPIKE_GY, HORDE_CONTROLLED));
-                    if (!pGY)
-                        pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_STORMPIKE_GY, HORDE_ASSAULTED));
-                    // Only hold at GY if already within rescue radius — routing distant bots
-                    // back to the GY causes a bounce-back loop once bots enter the Alliance base.
-                    if (pGY && me->IsWithinDist(pGY, AV_RESCUE_RADIUS) &&
-                        CountFriendlyPlayersAtObjective(this, pGY->GetPosition()) < 10)
-                        return true;
-                    if (Creature* pVanndar = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_BOSS_A, 0)))
-                        return StartNewPathToPosition(pVanndar->GetPosition(), vPaths_AV);
-                }
-                else // ALLIANCE
-                {
-                    // Phase-3 GY: Frostwolf GY (霜狼). Try controlled state first, then assaulted.
-                    GameObject* pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_FROSTWOLF_GY, ALLIANCE_CONTROLLED));
-                    if (!pGY)
-                        pGY = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED));
-                    if (pGY && me->IsWithinDist(pGY, AV_RESCUE_RADIUS) &&
-                        CountFriendlyPlayersAtObjective(this, pGY->GetPosition()) < 10)
-                        return true;
-                    if (Creature* pDrek = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_BOSS_H, 0)))
-                        return StartNewPathToPosition(pDrek->GetPosition(), vPaths_AV);
-                }
-                return false;
-            }
 
             if (me->GetTeam() == HORDE)
             {
@@ -3788,23 +1570,12 @@ bool BattleBotAI::StartNewPathToObjective()
                         return StartNewPathToPosition(pVanndar->GetPosition(), vPaths_AV);
                 }
 
-                // Snowfall (Horde): skip in Phase 3; Phase 1/2: controlled=1, capturing=3 via 10% gate.
-                if (GetAVPhase(this, bg) < 3 && (me->GetObjectGuid().GetCounter() % 10) == 0)
+                // Only go to Snowfall Graveyard if already close to it.
+                if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
                 {
-                    if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
-                    {
-                        if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED)))
-                            if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
-                            {
-                                uint8 const snowfallCap = bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_CONTROLLED) ? 1 : 3;
-                                if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < snowfallCap)
-                                {
-                                    if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
-                                        return true;
-                                    return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
-                                }
-                            }
-                    }
+                    if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED)))
+                        if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
+                            return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);  
                 }
 
                 if (!bg->IsActiveEvent(BG_AV_NodeEventCaptainDead_A, 0))
@@ -3817,229 +1588,93 @@ bool BattleBotAI::StartNewPathToObjective()
                 {
                     if (bg->IsActiveEvent(objective.first, ALLIANCE_ASSAULTED))
                     {
-                        if (!IsAVKeyObjective(objective.first) &&
-                            objective.first == m_avSkipObjective && time(nullptr) < m_avSkipObjectiveExpiry)
-                            continue;
-
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
-                        {
                             if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
-                            {
-                                uint8 const rescueCap = IsAVKeyObjective(objective.first) ? AV_RESCUE_MAX_BOTS : AV_RESCUE_MAX_BOTS_TOWER;
-                                if (CountAVRescueBots(this, pGO->GetPosition()) < rescueCap)
-                                {
-                                    if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
-                                    {
-                                        if (!IsAVKeyObjective(objective.first))
-                                        {
-                                            if (me->IsInCombat())
-                                                m_avObjectiveTime = time(nullptr);
-                                            else if (m_avCurrentObjective != objective.first)
-                                            {
-                                                m_avCurrentObjective = objective.first;
-                                                m_avObjectiveTime = time(nullptr);
-                                            }
-                                            else if (time(nullptr) - m_avObjectiveTime > 60)
-                                            {
-                                                m_avSkipObjective = objective.first;
-                                                m_avSkipObjectiveExpiry = time(nullptr) + 90;
-                                                m_avCurrentObjective = 0;
-                                                continue;
-                                            }
-                                        }
-                                        return true;
-                                    }
-                                    return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
-                                }
-                            }
-                        }
+                                return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                     }
                 }
 
                 for (const auto& objective : AV_HordeAttackObjectives)
                 {
-                    // Phase 3: skip rear objectives now behind the front line.
-                    if (GetAVPhase(this, bg) >= 3 &&
-                        (objective.first == BG_AV_STONEHEARTH_BUNKER ||
-                         objective.first == BG_AV_STONEHEARTH_GY ||
-                         objective.first == BG_AV_ICEWING_BUNKER))
-                        continue;
-
                     if (bg->IsActiveEvent(objective.first, ALLIANCE_ASSAULTED) || bg->IsActiveEvent(objective.first, ALLIANCE_CONTROLLED) || bg->IsActiveEvent(objective.first, NEUTRAL_CONTROLLED))
                     {
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
-                        {
-                            if (!IsAVKeyObjective(objective.first))
-                            {
-                                // Skip towers unless already in combat within range.
-                                if (!me->IsInCombat() || !me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
-                                    continue;
-                                if (CountAVRescueBots(this, pGO->GetPosition()) >= AV_ATTACK_MAX_BOTS_TOWER)
-                                    continue;
-                            }
                             return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
-                        }
                     }
                 }
             }
             else // ALLIANCE
             {
-                if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_CONTROLLED) ||
-                    bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_ASSAULTED) ||
-                    bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED))
+                // End boss
+                if (!bg->IsActiveEvent(BG_AV_ICEBLOOD_TOWER, HORDE_CONTROLLED) &&
+                    !bg->IsActiveEvent(BG_AV_TOWER_POINT_TOWER, HORDE_CONTROLLED) &&
+                    !bg->IsActiveEvent(BG_AV_EAST_FROSTWOLF_TOWER, HORDE_CONTROLLED) &&
+                    !bg->IsActiveEvent(BG_AV_WEST_FROSTWOLF_TOWER, HORDE_CONTROLLED) &&
+                    !bg->IsActiveEvent(BG_AV_FROSTWOLF_RELIEF_HUT_GY, HORDE_CONTROLLED))
                 {
-                    GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED));
-                    if (!pGO) pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED));
-                    if (!pGO) pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, ALLIANCE_ASSAULTED));
-                    if (!pGO) pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, HORDE_ASSAULTED));
-                    if (pGO && me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
-                    {
-                        uint8 const avPhase = GetAVPhase(this, bg);
-                        uint8 const snowfallCap = (avPhase >= 3) ? 2 :
-                            (avPhase >= 2) ? 5 :
-                            bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED) ? 3 : 5;
-                        if (CountFriendlyPlayersAtObjective(this, pGO->GetPosition()) < snowfallCap)
-                        {
-                            if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
-                                return true;
+                    if (Creature* pDrek = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_BOSS_H, 0)))
+                        return StartNewPathToPosition(pDrek->GetPosition(), vPaths_AV);
+                }
+
+                // Only go to Snowfall Graveyard if already close to it.
+                if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
+                {
+                    if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED)))
+                        if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
                             return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
-                        }
-                    }
                 }
                 
-                for (const auto& objective : AV_AllianceDefendObjectives)
+                // Chance to defend.
+                if (roll_chance_u(25))
                 {
-                    if (bg->IsActiveEvent(objective.first, HORDE_ASSAULTED))
+                    for (const auto& objective : AV_AllianceDefendObjectives)
                     {
-                        // Bots near rear-base GYs skip the adjacent towers to avoid infinite GY<->tower loops.
-                        if (objective.first == BG_AV_DUN_BALDAR_SOUTH_BUNKER || objective.first == BG_AV_DUN_BALDAR_NORTH_BUNKER)
+                        if (bg->IsActiveEvent(objective.first, HORDE_ASSAULTED))
                         {
-                            Position aidStationPos;
-                            GetAVNativeGraveyardFallbackPosition(BG_AV_STORMPIKE_AID_STATION_GY, aidStationPos);
-                            if (me->IsWithinDist3d(aidStationPos.x, aidStationPos.y, aidStationPos.z, 150.0f))
-                                continue;
-                        }
-                        else if (objective.first == BG_AV_ICEWING_BUNKER || objective.first == BG_AV_STONEHEARTH_BUNKER)
-                        {
-                            Position stonehearthPos;
-                            GetAVNativeGraveyardFallbackPosition(BG_AV_STONEHEARTH_GY, stonehearthPos);
-                            if (me->IsWithinDist3d(stonehearthPos.x, stonehearthPos.y, stonehearthPos.z, 210.0f))
-                                continue;
-                        }
-
-                        if (!IsAVKeyObjective(objective.first) &&
-                            objective.first == m_avSkipObjective && time(nullptr) < m_avSkipObjectiveExpiry)
-                            continue;
-
-                        if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
-                        {
-                            if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
-                            {
-                                uint8 const rescueCap = IsAVKeyObjective(objective.first) ? AV_RESCUE_MAX_BOTS : AV_RESCUE_MAX_BOTS_TOWER;
-                                if (CountAVRescueBots(this, pGO->GetPosition()) < rescueCap)
-                                {
-                                    if (me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
-                                    {
-                                        if (!IsAVKeyObjective(objective.first))
-                                        {
-                                            if (me->IsInCombat())
-                                                m_avObjectiveTime = time(nullptr);
-                                            else if (m_avCurrentObjective != objective.first)
-                                            {
-                                                m_avCurrentObjective = objective.first;
-                                                m_avObjectiveTime = time(nullptr);
-                                            }
-                                            else if (time(nullptr) - m_avObjectiveTime > 60)
-                                            {
-                                                m_avSkipObjective = objective.first;
-                                                m_avSkipObjectiveExpiry = time(nullptr) + 90;
-                                                m_avCurrentObjective = 0;
-                                                continue;
-                                            }
-                                        }
-                                        return true;
-                                    }
-                                    return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
-                                }
-                            }
+                            if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
+                                return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                         }
                     }
                 }
 
-                // Attack Galvangar first if alive, then first uncaptured objective in order.
+                // Attack closest objective.
+                WorldObject* pAttackObjectiveObject = nullptr;
+                float attackObjectiveDistance = FLT_MAX;
+
                 if (!bg->IsActiveEvent(BG_AV_NodeEventCaptainDead_H, 0))
                 {
                     if (Creature* pGalvangar = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_CAPTAIN_H, 0)))
-                        return StartNewPathToPosition(pGalvangar->GetPosition(), vPaths_AV);
+                    {
+                        pAttackObjectiveObject = pGalvangar;
+                        attackObjectiveDistance = me->GetDistance(pGalvangar);
+                    }
                 }
 
                 for (const auto& objective : AV_AllianceAttackObjectives)
                 {
-                    // Phase 2+: skip Tower Point Tower — bots must pass through
-                    // that area to reach Frostwolf GY, and routing them into the
-                    // tower causes a permanent loop with the elevated guards.
-                    if (GetAVPhase(this, bg) >= 2 &&
-                        objective.first == BG_AV_TOWER_POINT_TOWER)
-                        continue;
-                    // Phase 3: skip rear objectives now behind the front line.
-                    if (GetAVPhase(this, bg) >= 3 &&
-                        (objective.first == BG_AV_ICEBLOOD_TOWER ||
-                         objective.first == BG_AV_ICEBLOOD_GY))
-                        continue;
-
                     if (bg->IsActiveEvent(objective.first, HORDE_ASSAULTED) || bg->IsActiveEvent(objective.first, HORDE_CONTROLLED) || bg->IsActiveEvent(objective.first, NEUTRAL_CONTROLLED))
                     {
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
                         {
-                            if (!IsAVKeyObjective(objective.first))
+                            float const distance = me->GetDistance(pGO);
+                            if (attackObjectiveDistance > distance)
                             {
-                                // Skip towers unless already in combat within range.
-                                if (!me->IsInCombat() || !me->IsWithinDist(pGO, AV_RESCUE_RADIUS))
-                                    continue;
-                                if (CountAVRescueBots(this, pGO->GetPosition()) >= AV_ATTACK_MAX_BOTS_TOWER)
-                                    continue;
+                                pAttackObjectiveObject = pGO;
+                                attackObjectiveDistance = distance;
                             }
-                            return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
                         }
                     }
                 }
 
-                // All attack objectives cleared — march to boss.
-                if (Creature* pDrek = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_BOSS_H, 0)))
-                    return StartNewPathToPosition(pDrek->GetPosition(), vPaths_AV);
+                if (pAttackObjectiveObject)
+                    return StartNewPathToPosition(pAttackObjectiveObject->GetPosition(), vPaths_AV);
             }
             break;
         }
         case BATTLEGROUND_WS:
-        {
-            BattleGroundWS* bgWS = static_cast<BattleGroundWS*>(bg);
-            if (StartWSGHomeGuardObjective(this, bgWS))
-                return true;
-
-            if (me->GetTeam() == HORDE)
-            {
-                if (me->HasAura(AURA_SILVERWING_FLAG))
-                    return StartNewPathToPosition(WS_FLAG_POS_HORDE, vPaths_WS);
-                if (!bgWS->IsAllianceFlagPickedup())
-                {
-                    float const distance = me->GetDistance(WS_FLAG_POS_ALLIANCE);
-                    if (distance > 20.0f)
-                        return StartNewPathToPosition(WS_FLAG_POS_ALLIANCE, vPaths_WS);
-                }
-            }
-            else
-            {
-                if (me->HasAura(AURA_WARSONG_FLAG))
-                    return StartNewPathToPosition(WS_FLAG_POS_ALLIANCE, vPaths_WS);
-                if (!bgWS->IsHordeFlagPickedup())
-                {
-                    float const distance = me->GetDistance(WS_FLAG_POS_HORDE);
-                    if (distance > 20.0f)
-                        return StartNewPathToPosition(WS_FLAG_POS_HORDE, vPaths_WS);
-                }
-            }
+            return BattleBotSelectWSGObjective(this);
+        default:
             break;
-        }
     }
 
     return false;
