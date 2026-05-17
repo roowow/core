@@ -1682,7 +1682,7 @@ static bool BattleBotSelectAVGuardObjective(BattleBotAI* pAI)
     if (weControl)
     {
         // Release excess guards once GY is fully controlled
-        uint8 const keepCount = isNative ? 1 : 3;
+        uint8 const keepCount = isNative ? 2 : 3;
         if (IsAVExcessGuardForGY(pAI, node, keepCount))
         {
             pAI->m_avAssignedGY = 0;

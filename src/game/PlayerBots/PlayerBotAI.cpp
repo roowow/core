@@ -142,15 +142,26 @@ bool PlayerBotAI::SpawnNewPlayer(WorldSession* sess, uint8 class_, uint32 race_,
     MasterPlayer* mPlayer = new MasterPlayer(sess);
     mPlayer->LoadPlayer(newChar);
     mPlayer->SetSocial(sSocialMgr.LoadFromDB(nullptr, newChar->GetObjectGuid()));
+
+    // Bind session to the new player BEFORE map->Add. Anything triggered during
+    // Add (packet broadcast, visibility checks, group sync, etc.) can call
+    // sess->GetPlayer() / GetMasterPlayer() deep in the stack — set them first
+    // so those lookups don't hit nullptr.
+    sess->SetPlayer(newChar);
+    sess->SetMasterPlayer(mPlayer);
+
     if (!newChar->GetMap()->Add(newChar))
     {
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "PlayerBotAI::SpawnNewPlayer: Unable to add player to map!");
+        // Reset session pointers before tearing down — otherwise the session
+        // would briefly point at deleted memory.
+        sess->SetPlayer(nullptr);
+        sess->SetMasterPlayer(nullptr);
+        delete mPlayer;
         delete newChar;
         return false;
     }
     sObjectMgr.InsertPlayerInCache(newChar);
-    sess->SetPlayer(newChar);
-    sess->SetMasterPlayer(mPlayer);
     sObjectAccessor.AddObject(newChar);
     newChar->SetCanModifyStats(true);
     newChar->UpdateAllStats();

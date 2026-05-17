@@ -277,22 +277,18 @@ static bool BattleBotIsActiveForQueue(BattleBotAI const* battleBotAI, BattleGrou
 
 void PlayerBotMgr::Update(uint32 diff)
 {
-    // Temporary bots.
-    std::map<uint32, uint32>::iterator it;
-    for (it = m_tempBots.begin(); it != m_tempBots.end(); ++it)
+    // Temporary bots: decrement timer and clean up expired entries in a single
+    // pass. Previous implementation iterated twice and restarted iteration from
+    // begin() after every erase — O(T^2) plus an O(T*N) inner scan over m_bots.
+    // erase() returns the iterator to the next element, so we keep O(T) here
+    // (the O(N) inner search by accountId is unchanged but T is typically tiny).
+    for (auto it = m_tempBots.begin(); it != m_tempBots.end(); )
     {
-        if (it->second < diff)
-            it->second = 0;
-        else
-            it->second -= diff;
-    }
-    it = m_tempBots.begin();
-    while (it != m_tempBots.end())
-    {
-        if (!it->second)
+        if (it->second <= diff)
         {
             // Update of "chatBot" too.
             for (auto iter = m_bots.begin(); iter != m_bots.end(); ++iter)
+            {
                 if (iter->second->accountId == it->first)
                 {
                     iter->second->state = PB_STATE_OFFLINE; // Will get logged out at next WorldSession::Update call
@@ -300,11 +296,14 @@ void PlayerBotMgr::Update(uint32 diff)
                     m_bots.erase(iter);
                     break;
                 }
-            m_tempBots.erase(it);
-            it = m_tempBots.begin();
+            }
+            it = m_tempBots.erase(it);
         }
         else
+        {
+            it->second -= diff;
             ++it;
+        }
     }
 
     m_elapsedTime += diff;
@@ -952,10 +951,15 @@ bool PlayerBotMgr::DeleteRandomBot()
 {
     if (m_stats.onlineCount < 1)
         return false;
-    uint32 idDelete = urand(0, m_stats.onlineCount);
+
+    // urand is inclusive on both ends. Picking [1, onlineCount] aligns with the
+    // pre-increment match below (onlinePassed jumps to 1 on first eligible bot).
+    // Original urand(0, onlineCount) had a 1/(N+1) chance of returning 0, in
+    // which case the loop's `onlinePassed == 0` check could never match and the
+    // function would silently fail to delete anything.
+    uint32 const idDelete = urand(1, m_stats.onlineCount);
     uint32 onlinePassed = 0;
-    std::map<uint32, PlayerBotEntry*>::iterator iter;
-    for (auto iter = m_bots.begin(); iter != m_bots.end(); iter++)
+    for (auto iter = m_bots.begin(); iter != m_bots.end(); ++iter)
     {
         if (!iter->second->customBot && !iter->second->isChatBot && iter->second->state == PB_STATE_ONLINE)
         {
