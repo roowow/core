@@ -51,12 +51,36 @@ restartWorld5() {
 }
 
 stopWorld() {
-	screen -S $WSRV_SCR -X stuff "saveall
-												    "
-	echo saveall sent, waiting 5 seconds to kill $WSRV_BIN
-	sleep 5
-	screen -S $WSRV_SCR -X kill &>/dev/null
-	echo $WSRV_BIN is dead
+	# 1. Graceful shutdown: tell mangosd to save all players, broadcast a
+	#    countdown, and exit cleanly. This is the safest path (no data loss).
+	screen -S $WSRV_SCR -X stuff "server shutdown 30$(printf \\r)" 2>/dev/null
+	echo "Graceful shutdown initiated (30s grace period for players)..."
+
+	# 2. Wait for mangosd to exit on its own. Poll every second, bail out as
+	#    soon as the binary is gone. 60s ceiling covers heavy player loads.
+	local waited=0
+	while [ $waited -lt 60 ]; do
+		if ! pgrep -x "$WSRV_BIN" > /dev/null; then
+			echo "$WSRV_BIN exited cleanly after ${waited}s."
+			break
+		fi
+		sleep 1
+		waited=$((waited + 1))
+	done
+
+	# 3. Tear down the whole wrapper chain. The wstart loop's bash can be
+	#    orphaned and adopted by init when screen dies, leaving a runaway
+	#    `killall -9 $WSRV_BIN` loop that would kill any future mangosd
+	#    instance the user starts. Kill the wrapper bash first, then any
+	#    residual gdb/mangosd, then the screen window.
+	pkill -TERM -f "wowadmin.sh $WSRV_BIN" 2>/dev/null
+	sleep 1
+	pkill -KILL -f "wowadmin.sh $WSRV_BIN" 2>/dev/null
+	pkill -KILL -f "gdb .*$WSRV_BIN" 2>/dev/null
+	pkill -KILL -x "$WSRV_BIN" 2>/dev/null
+	screen -S $WSRV_SCR -X quit &>/dev/null
+
+	echo "$WSRV_BIN and all wrappers are dead."
 }
 
 monitorWorld() {
