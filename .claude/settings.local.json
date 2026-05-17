@@ -9,7 +9,11 @@
       "Bash(awk '/^@@/{hunk=$0; lines=\"\"} {lines=lines\"\\\\n\"$0} /BattleBotTryCaptureNearbyObjective|AtFlag|ReleaseABExcess|IsABFlagOpenable/{if\\(hunk\\) print hunk; hunk=\"\"}')",
       "Bash(git diff *)",
       "Read(//tmp/**)",
-      "Bash(grep -n \"^//\")"
+      "Bash(grep -n \"^//\")",
+      "Bash(curl -s \"https://github.com/vmangos/core/commit/3586ea8.patch\")",
+      "Bash(curl -s \"https://github.com/vmangos/core/commit/8d866e4.patch\")",
+      "Bash(curl -s \"https://github.com/vmangos/core/commit/d7e63d7.patch\")",
+      "Bash(curl -s \"https://github.com/vmangos/core/commit/a3fc22b.patch\")"
     ]
   }
 }
