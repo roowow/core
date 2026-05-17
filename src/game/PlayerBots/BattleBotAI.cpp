@@ -2907,7 +2907,8 @@ void BattleBotAI::UpdateAI(uint32 const diff)
     if (me->GetSheath() == SHEATH_STATE_UNARMED && !me->IsMounted())
         me->SetSheath(SHEATH_STATE_MELEE);
 
-    UpdateBattleGroundAI();
+    if (UpdateBattleGroundAI())
+        return;
 
     // BG melee stuck detection + WSG exploit prevention
     {
@@ -3331,11 +3332,11 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         UpdateInCombatAI();
 }
 
-void BattleBotAI::UpdateBattleGroundAI()
+bool BattleBotAI::UpdateBattleGroundAI()
 {
     BattleGround* bg = me->GetBattleGround();
     if (!bg)
-        return;
+        return false;
 
     switch (bg->GetTypeID())
     {
@@ -3345,25 +3346,50 @@ void BattleBotAI::UpdateBattleGroundAI()
         case BATTLEGROUND_WS:
         {
             // Pick up dropped flags.
-            if (GameObject* pGo = me->FindNearestGameObject(GO_WSG_DROPPED_SILVERWING_FLAG, INTERACTION_DISTANCE))
-                pGo->Use(me);
-            if (GameObject* pGo = me->FindNearestGameObject(GO_WSG_DROPPED_WARSONG_FLAG, INTERACTION_DISTANCE))
-                pGo->Use(me);
+            if (TryUseBattleGroundFlag(GO_WSG_DROPPED_SILVERWING_FLAG) ||
+                TryUseBattleGroundFlag(GO_WSG_DROPPED_WARSONG_FLAG))
+                return true;
 
             // Pick up stationary flags from bases.
             if (me->GetTeam() == HORDE)
             {
-                if (GameObject* pGo = me->FindNearestGameObject(GO_WSG_SILVERWING_FLAG, INTERACTION_DISTANCE))
-                    pGo->Use(me);
+                return TryUseBattleGroundFlag(GO_WSG_SILVERWING_FLAG);
             }
             else
             {
-                if (GameObject* pGo = me->FindNearestGameObject(GO_WSG_WARSONG_FLAG, INTERACTION_DISTANCE))
-                    pGo->Use(me);
+                return TryUseBattleGroundFlag(GO_WSG_WARSONG_FLAG);
             }
-            break;
         }
     }
+
+    return false;
+}
+
+bool BattleBotAI::TryUseBattleGroundFlag(uint32 entry)
+{
+    GameObject* pGo = me->FindNearestGameObject(entry, INTERACTION_DISTANCE);
+    if (!pGo)
+        return false;
+
+    // Two-tick approach: removing mount/shapeshift triggers state changes that
+    // wouldn't settle in time for an immediate pGo->Use() call this same tick.
+    // Return true so the caller skips the rest of UpdateAI (prevents druids
+    // from snapping back into combat form right after un-shifting). Next tick
+    // the state is clean and the third branch actually picks up the flag.
+    if (me->IsMounted())
+    {
+        me->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+        return true;
+    }
+
+    if (me->IsInDisallowedMountForm())
+    {
+        me->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
+        return true;
+    }
+
+    pGo->Use(me);
+    return true;
 }
 
 void BattleBotAI::UpdateFlagCarrierAI()

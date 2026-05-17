@@ -13,7 +13,8 @@
       "Bash(curl -s \"https://github.com/vmangos/core/commit/3586ea8.patch\")",
       "Bash(curl -s \"https://github.com/vmangos/core/commit/8d866e4.patch\")",
       "Bash(curl -s \"https://github.com/vmangos/core/commit/d7e63d7.patch\")",
-      "Bash(curl -s \"https://github.com/vmangos/core/commit/a3fc22b.patch\")"
+      "Bash(curl -s \"https://github.com/vmangos/core/commit/a3fc22b.patch\")",
+      "Bash(curl -s \"https://github.com/vmangos/core/commit/ce335f6cc791c5cb51990baeb98f6c8474ce81bb.patch\")"
     ]
   }
 }
