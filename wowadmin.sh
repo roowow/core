@@ -53,8 +53,9 @@ restartWorld5() {
 stopWorld() {
 	# 1. Graceful shutdown: tell mangosd to save all players, broadcast a
 	#    countdown, and exit cleanly. This is the safest path (no data loss).
-	screen -S $WSRV_SCR -X stuff "server shutdown 30$(printf \\r)" 2>/dev/null
-	echo "Graceful shutdown initiated (30s grace period for players)..."
+	screen -S $WSRV_SCR -X stuff "server shutdown 5$(printf \\r)" 2>/dev/null
+	echo "Graceful shutdown initiated (5s grace period for players)..."
+	sleep 6
 
 	# 2. Wait for mangosd to exit on its own. Poll every second, bail out as
 	#    soon as the binary is gone. 60s ceiling covers heavy player loads.
