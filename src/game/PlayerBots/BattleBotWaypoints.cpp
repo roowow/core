@@ -1222,15 +1222,6 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
     &vPath_AV_TowerPoint_to_Coldtooth_Snivvle,
 };
 
-// Paths that must use direct (non-navmesh) movement between waypoints.
-// Used for mine interiors where navmesh coverage is absent; straight-line
-// between recorded 5m waypoints is more reliable than failed pathfinding.
-std::vector<BattleBotPath*> const vPaths_UseDirectMovement =
-{
-    &vPath_AV_Stormpike_to_Irondeep_Morloch,
-    &vPath_AV_TowerPoint_to_Coldtooth_Snivvle,
-};
-
 std::vector<BattleBotPath*> const vPaths_ObjectiveOnly =
 {
     &vPath_AV_Stonehearth_Bunker_First_Crossroad_to_Stonehearth_Bunker_Flag,
@@ -1307,11 +1298,7 @@ void BattleBotAI::MoveToNextPoint()
 
     BattleBotWaypoint& nextPoint = (*m_currentPath)[m_currentPoint];
 
-    bool const directMove = std::find(vPaths_UseDirectMovement.begin(), vPaths_UseDirectMovement.end(), m_currentPath) != vPaths_UseDirectMovement.end();
-    uint32 const moveFlags = directMove ? MOVE_RUN_MODE : (MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
-    float const dx = directMove ? 0.0f : frand(-1, 1);
-    float const dy = directMove ? 0.0f : frand(-1, 1);
-    me->GetMotionMaster()->MovePoint(m_currentPoint, nextPoint.x + dx, nextPoint.y + dy, nextPoint.z, moveFlags);
+    me->GetMotionMaster()->MovePoint(m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
 }
 
 bool BattleBotAI::StartNewPathFromBeginning()
@@ -2067,15 +2054,19 @@ bool BattleBotAI::StartNewPathToObjective()
                 if (roll_chance_u(40))
                 {
                     static Position const snivvlePos = { -850.7347f, -92.2076f, 68.5046f, 0.0f };
-                    if (StartNewPathToPosition(snivvlePos, vPaths_AV))
+                    // Guard: skip if already inside the mine (just killed boss or in combat there).
+                    if (me->GetDistance(snivvlePos.x, snivvlePos.y, snivvlePos.z) > 100.0f)
+                    {
+                        if (StartNewPathToPosition(snivvlePos, vPaths_AV))
+                            return true;
+                        // Bypass 50-yard constraint: directly assign mine path so the bot
+                        // pathfinds to the path start and follows it even from the cave.
+                        m_currentPath = &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
+                        m_movingInReverse = false;
+                        m_currentPoint = static_cast<uint32>(-1);
+                        MoveToNextPoint();
                         return true;
-                    // Bypass 50-yard constraint: directly assign mine path so the bot
-                    // pathfinds to the path start and follows it even from the cave.
-                    m_currentPath = &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
-                    m_movingInReverse = false;
-                    m_currentPoint = static_cast<uint32>(-1);
-                    MoveToNextPoint();
-                    return true;
+                    }
                 }
 
                 // End Boss
@@ -2142,8 +2133,12 @@ bool BattleBotAI::StartNewPathToObjective()
                 if (me->GetGUIDLow() % 20 == 0)
                 {
                     static Position const morlochPos = { 864.3466f, -443.8597f, 50.8458f, 0.0f };
-                    if (StartNewPathToPosition(morlochPos, vPaths_AV))
-                        return true;
+                    // Guard: skip if already inside the mine (just killed boss or in combat there).
+                    if (me->GetDistance(morlochPos.x, morlochPos.y, morlochPos.z) > 100.0f)
+                    {
+                        if (StartNewPathToPosition(morlochPos, vPaths_AV))
+                            return true;
+                    }
                 }
 
                 // End boss
