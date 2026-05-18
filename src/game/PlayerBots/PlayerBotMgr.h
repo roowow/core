@@ -13,6 +13,7 @@
 class PlayerBotAI;
 class WorldSession;
 class Player;
+class BattleGround;
 
 enum PlayerBotAutoEquip
 {
@@ -91,6 +92,12 @@ class PlayerBotMgr
         void AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam, uint32 botLevel, bool temporary);
         void DeleteBattleBots();
         void SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId);
+
+        // Lock-in support: triggered by BattleGround::LockForNewPlayers and
+        // BattleGround::RemovePlayerAtLeave to maintain max-size headcount in
+        // a locked BG by spawning battlebots straight into the running instance.
+        void RequestFillLockedBattleGround(BattleGround* bg);
+        void RequestReplaceWithBot(BattleGround* bg, Team team);
 
         void DeleteAll();
         void AddAllBots();

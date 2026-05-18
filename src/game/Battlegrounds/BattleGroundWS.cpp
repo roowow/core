@@ -230,6 +230,12 @@ void BattleGroundWS::EventPlayerCapturedFlag(Player* source)
     //for flag capture is reward distributed according level range
     RewardHonorToTeam(BG_WSG_FlagCapturedHonor[GetBracketId()], source->GetTeam());
 
+    // Lock-in: the first successful flag capture (either side) is the
+    // decisive moment for WSG. Close doors and bot-fill to max.
+    if (!IsLocked() &&
+        (GetTeamScore(ALLIANCE) >= 1 || GetTeamScore(HORDE) >= 1))
+        LockForNewPlayers();
+
     // despawn flags
     SpawnEvent(WS_EVENT_FLAG_A, 0, false, true);
     SpawnEvent(WS_EVENT_FLAG_H, 0, false, true);

@@ -154,6 +154,12 @@ class BattleGround
         bool HasFreeSlots() const;
         uint32 GetFreeSlotsForTeam(Team team) const;
 
+        // Lock-in: once a side hits a "decisive moment" (WSG first cap / AB 500
+        // resources / AV phase 2), the BG closes its doors to new real players
+        // and is bot-filled to max so latecomers cannot scoop easy honor.
+        bool IsLocked() const { return m_locked; }
+        void LockForNewPlayers();
+
         typedef std::map<ObjectGuid, BattleGroundPlayer> BattleGroundPlayerMap;
         BattleGroundPlayerMap const& GetPlayers() const { return m_players; }
         uint32 GetPlayersSize() const { return m_players.size(); }
@@ -381,6 +387,7 @@ class BattleGround
         bool   m_prematureCountDown;
         uint32 m_prematureCountDownTimer;
         uint32 m_noRealPlayerTimer;         // grace period before ending a bot-only in-progress BG
+        bool   m_locked;                    // true after a decisive moment: new real players are blocked, bots fill to max
         char const* m_name;
 
         /* Player lists */

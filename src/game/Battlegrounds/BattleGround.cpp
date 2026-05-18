@@ -236,6 +236,7 @@ BattleGround::BattleGround()
     m_prematureCountDown = false;
     m_prematureCountDownTimer = 0;
     m_noRealPlayerTimer = 0;
+    m_locked = false;
 
     m_startDelayTime = 0;
     m_startDelayTimes[BG_STARTING_EVENT_FIRST]  = BG_START_DELAY_2M;
@@ -1008,6 +1009,13 @@ void BattleGround::RemovePlayerAtLeave(ObjectGuid guid, bool transport, bool sen
             sBattleGroundMgr.BuildPlayerLeftBattleGroundPacket(&data, guid);
             SendPacketToTeam(team, &data, pPlayer, false);
 #endif
+
+            // Locked BG: when a real player leaves, drop in a bot to keep
+            // the headcount at max. pPlayer may be null (already logged out),
+            // in which case we conservatively assume it was real — bots only
+            // disappear via BG cleanup, not normal logout flow.
+            if (m_locked && (!pPlayer || !pPlayer->IsBot()))
+                sPlayerBotMgr.RequestReplaceWithBot(this, team);
         }
     }
 
@@ -1281,6 +1289,18 @@ uint32 BattleGround::GetInvitedCount(Team team) const
 bool BattleGround::HasFreeSlots() const
 {
     return GetPlayersSize() < GetMaxPlayers();
+}
+
+void BattleGround::LockForNewPlayers()
+{
+    if (m_locked)
+        return;
+    m_locked = true;
+    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BG locked] type %u instance %u — bot-filling to max.",
+        GetTypeID(), GetInstanceID());
+
+    // Hand off to PlayerBotMgr to fill both teams to max in the next update tick.
+    sPlayerBotMgr.RequestFillLockedBattleGround(this);
 }
 
 void BattleGround::UpdatePlayerScore(Player* source, uint32 type, uint32 value)

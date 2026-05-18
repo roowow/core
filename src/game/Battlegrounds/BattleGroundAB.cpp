@@ -104,6 +104,10 @@ void BattleGroundAB::Update(uint32 diff)
                 m_teamScores[team] += BG_AB_TickPoints[points];
                 m_honorScoreTics[team] += BG_AB_TickPoints[points];
                 m_reputationScoreTics[team] += BG_AB_TickPoints[points];
+                // Lock-in: either team reaching 500 resources is the
+                // decisive moment for AB (a third of the 1500 to-win pool).
+                if (!IsLocked() && m_teamScores[team] >= 500)
+                    LockForNewPlayers();
                 if (m_reputationScoreTics[team] >= m_reputationTics)
                 {
                     (team == BG_TEAM_ALLIANCE) ? RewardReputationToTeam(509, 10, ALLIANCE) : RewardReputationToTeam(510, 10, HORDE);

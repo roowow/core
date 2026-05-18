@@ -1077,6 +1077,68 @@ void PlayerBotMgr::DeleteBattleBots()
     }
 }
 
+// Helper: pick a level for lock-in fill bots that matches this BG's bracket.
+static uint32 PickLockFillBotLevel(BattleGround const* bg)
+{
+    if (!bg)
+        return PLAYER_MAX_LEVEL;
+
+    uint32 const minLevel = bg->GetMinLevel() + 10 * bg->GetBracketId();
+    uint32 const maxLevel = std::min<uint32>(minLevel + 9, PLAYER_MAX_LEVEL);
+    if (maxLevel > 50)
+        return maxLevel;       // 60-bracket: always lock to max so gear matches
+    return urand(minLevel, maxLevel);
+}
+
+void PlayerBotMgr::RequestFillLockedBattleGround(BattleGround* bg)
+{
+    if (!bg)
+        return;
+
+    BattleGroundTypeId const bgTypeId = bg->GetTypeID();
+    BattleGroundQueueTypeId const queueType = BattleGroundMgr::BgQueueTypeId(bgTypeId);
+    uint32 const maxPerTeam = bg->GetMaxPlayersPerTeam();
+    if (maxPerTeam <= 1)
+        return;
+
+    uint32 const allianceCount = bg->GetPlayersCountByTeam(ALLIANCE);
+    uint32 const hordeCount    = bg->GetPlayersCountByTeam(HORDE);
+
+    uint32 const allianceMissing = (allianceCount < maxPerTeam) ? (maxPerTeam - allianceCount) : 0;
+    uint32 const hordeMissing    = (hordeCount    < maxPerTeam) ? (maxPerTeam - hordeCount)    : 0;
+
+    if (!allianceMissing && !hordeMissing)
+        return;
+
+    sLog.Out(LOG_BG, LOG_LVL_BASIC,
+        "[PlayerBotMgr] Lock-fill bg type %u instance %u: alliance +%u, horde +%u (to max %u/team).",
+        bgTypeId, bg->GetInstanceID(), allianceMissing, hordeMissing, maxPerTeam);
+
+    for (uint32 i = 0; i < allianceMissing; ++i)
+        AddBattleBot(queueType, ALLIANCE, PickLockFillBotLevel(bg), true);
+    for (uint32 i = 0; i < hordeMissing; ++i)
+        AddBattleBot(queueType, HORDE, PickLockFillBotLevel(bg), true);
+
+    if (allianceMissing || hordeMissing)
+        sBattleGroundMgr.ScheduleQueueUpdate(queueType, bgTypeId, bg->GetBracketId());
+}
+
+void PlayerBotMgr::RequestReplaceWithBot(BattleGround* bg, Team team)
+{
+    if (!bg || team == TEAM_NONE)
+        return;
+
+    BattleGroundTypeId const bgTypeId = bg->GetTypeID();
+    BattleGroundQueueTypeId const queueType = BattleGroundMgr::BgQueueTypeId(bgTypeId);
+
+    sLog.Out(LOG_BG, LOG_LVL_BASIC,
+        "[PlayerBotMgr] Lock-replace bg type %u instance %u team %u — spawning replacement bot.",
+        bgTypeId, bg->GetInstanceID(), team);
+
+    AddBattleBot(queueType, team, PickLockFillBotLevel(bg), true);
+    sBattleGroundMgr.ScheduleQueueUpdate(queueType, bgTypeId, bg->GetBracketId());
+}
+
 void PlayerBotMgr::SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId)
 {
     switch (bgTypeId)

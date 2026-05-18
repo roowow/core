@@ -776,6 +776,12 @@ void BattleGroundAV::UpdateScore(BattleGroundTeamIndex teamIdx, int32 points)
     MANGOS_ASSERT(teamIdx < BG_TEAMS_COUNT);
     m_teamScores[teamIdx] += points;                      // m_teamScores is int32 - so no problems here
 
+    // Lock-in: the first reinforcement loss (tower destroyed / captain killed)
+    // marks AV's "phase 2" — large-scale offense is underway. Close doors and
+    // bot-fill to max so latecomers can't ride a winning team.
+    if (points < 0 && !IsLocked() && GetStatus() == STATUS_IN_PROGRESS)
+        LockForNewPlayers();
+
     if (points < 0)
     {
         // Ivina < Nostalrius > : removed message and winning condition.
