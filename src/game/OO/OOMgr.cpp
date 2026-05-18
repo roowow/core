@@ -12,6 +12,7 @@
 #include "BattleGround.h"
 #include "WorldPacket.h"
 
+#include "Config/Config.h"
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -234,7 +235,10 @@ void OOMgr::StopPathRecording(ObjectGuid playerGuid, std::string& outMessage)
     time_t const now = time(nullptr);
     char timebuf[32];
     strftime(timebuf, sizeof(timebuf), "%Y%m%d_%H%M%S", localtime(&now));
-    std::string const filename = std::string("./logs/botpath_") + session.pathName + "_" + timebuf + ".cpp";
+    std::string logsDir = sConfig.GetStringDefault("LogsDir", "./logs");
+    if (!logsDir.empty() && logsDir.back() != '/' && logsDir.back() != '\\')
+        logsDir += "/";
+    std::string const filename = logsDir + "botpath_" + session.pathName + "_" + timebuf + ".cpp";
 
     std::ofstream out(filename);
     if (!out.is_open())
