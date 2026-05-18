@@ -2530,6 +2530,24 @@ void BattleBotAI::OnJustRevived()
         return;
     }
 
+    // Behavior 3: randomly become guard of nearest non-home owned GY on respawn
+    TryAssignAVRespawnGuard(this);
+    if (m_avAssignedGY != 0)
+    {
+        // Stay at the GY; UpdateOutOfCombatAI will route us to guard position
+        ClearPath();
+        if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
+            StopMoving();
+        return;
+    }
+
+    // Behavior 2: re-roll aggressive mode on each respawn
+    {
+        BattleGround* bg = me->GetBattleGround();
+        if (bg && bg->GetTypeID() == BATTLEGROUND_AV)
+            m_avAggressiveMode = roll_chance_u(30);
+    }
+
     if (!me->SelectRandomUnfriendlyTarget(nullptr, 30.0f))
         DoGraveyardJump();
 }
@@ -2576,6 +2594,8 @@ void BattleBotAI::OnEnterBattleGround()
             me->GetMotionMaster()->MovePoint(0, AV_WAITING_POS_HORDE.x + frand(-2.0f, 2.0f), AV_WAITING_POS_HORDE.y + frand(-2.0f, 2.0f), AV_WAITING_POS_HORDE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, AV_WAITING_POS_HORDE.o);
         else
             me->GetMotionMaster()->MovePoint(0, AV_WAITING_POS_ALLIANCE.x + frand(-2.0f, 2.0f), AV_WAITING_POS_ALLIANCE.y + frand(-2.0f, 2.0f), AV_WAITING_POS_ALLIANCE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, AV_WAITING_POS_ALLIANCE.o);
+        // Behavior 2: initial aggressive-mode roll on BG entry
+        m_avAggressiveMode = roll_chance_u(30);
     }
 }
 
@@ -2590,6 +2610,8 @@ void BattleBotAI::OnLeaveBattleGround()
     m_avSkipObjective = 0;
     m_avSkipObjectiveExpiry = 0;
     m_avAssignedGY = 0;
+    m_avAggressiveMode = false;
+    m_avStayGuardAfterCapture = false;
     m_bgProgressTicks = 0;
 
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
@@ -3168,7 +3190,13 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                 ((me->GetTeam() == HORDE    && (bgForAssault->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_ASSAULTED)    || bgForAssault->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_CONTROLLED)))    ||
                  (me->GetTeam() == ALLIANCE && (bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED) || bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_CONTROLLED))));
 
-            if (!avTotalAssault)
+            // Behavior 2: 70% of bots ignore enemies while traveling between objectives.
+            // Guards and bots inside a capture hold always fight.
+            bool const avPassiveTraveler = !m_avAggressiveMode &&
+                m_avAssignedGY == 0 && !BattleBotIsInAVGyCaptureHold(this) &&
+                bgForAssault && bgForAssault->GetTypeID() == BATTLEGROUND_AV;
+
+            if (!avTotalAssault && !avPassiveTraveler)
             {
                 if (m_role != ROLE_HEALER)
                 {

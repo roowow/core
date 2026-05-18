@@ -1681,6 +1681,12 @@ static bool BattleBotSelectAVGuardObjective(BattleBotAI* pAI)
 
     if (weControl)
     {
+        // Behavior 1: bots that decided to advance after capture leave once GY is fully ours
+        if (!isNative && !pAI->m_avStayGuardAfterCapture)
+        {
+            pAI->m_avAssignedGY = 0;
+            return false;
+        }
         // Release excess guards once GY is fully controlled
         uint8 const keepCount = isNative ? 2 : 3;
         if (IsAVExcessGuardForGY(pAI, node, keepCount))
@@ -1737,6 +1743,54 @@ void BattleBotUpdateAVGuardBehavior(BattleBotAI* pAI)
         pAI->ClearPath();
         pAI->me->GetMotionMaster()->MovePoint(0, gyPos.x, gyPos.y, gyPos.z,
             MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+    }
+}
+
+// Behavior 3: after respawning at a non-home GY, randomly become its guard (max 2).
+void TryAssignAVRespawnGuard(BattleBotAI* pAI)
+{
+    if (pAI->m_avAssignedGY != 0)
+        return;
+
+    BattleGround* bg = pAI->me->GetBattleGround();
+    Map* map = pAI->me->GetMap();
+    if (!bg || !map || bg->GetTypeID() != BATTLEGROUND_AV)
+        return;
+
+    Team const team = pAI->me->GetTeam();
+    uint32 const homeGY = (team == HORDE) ? BG_AV_FROSTWOLF_RELIEF_HUT_GY : BG_AV_STORMPIKE_AID_STATION_GY;
+    uint32 const ownControlled = GetAVControlledStateForTeam(team);
+
+    uint32 nearestNode = 0;
+    float nearestDist = FLT_MAX;
+
+    for (uint32 const node : AV_KeyDefenseObjectives)
+    {
+        if (node == homeGY)
+            continue;
+        if (!bg->IsActiveEvent(node, ownControlled))
+            continue;
+        Position gyPos;
+        if (!GetAVGYPosition(bg, map, team, node, gyPos))
+            continue;
+        float const dist = pAI->me->GetDistance(gyPos);
+        if (dist < nearestDist)
+        {
+            nearestDist = dist;
+            nearestNode = node;
+        }
+    }
+
+    if (nearestNode == 0 || nearestDist > AV_RESCUE_RADIUS)
+        return;
+
+    if (CountAVBotsAssignedToGY(map, team, nearestNode) >= 3)
+        return;
+
+    if (roll_chance_u(50))
+    {
+        pAI->m_avAssignedGY = nearestNode;
+        pAI->m_avStayGuardAfterCapture = true;
     }
 }
 
@@ -1807,6 +1861,8 @@ bool BattleBotAI::StartNewPathToObjective()
             if (FindAVGYToGuard(this, guardGY))
             {
                 m_avAssignedGY = guardGY;
+                // Behavior 1: randomly decide now whether to guard after capture or advance
+                m_avStayGuardAfterCapture = roll_chance_u(50);
                 return BattleBotSelectAVGuardObjective(this);
             }
 
@@ -1851,14 +1907,27 @@ bool BattleBotAI::StartNewPathToObjective()
                     }
                 }
 
+                // Behavior 4: 30% chance to skip the first eligible objective and go deeper
+                bool skipFirst = roll_chance_u(30);
+                GameObject* pHordeFallback = nullptr;
                 for (const auto& objective : AV_HordeAttackObjectives)
                 {
                     if (bg->IsActiveEvent(objective.first, ALLIANCE_ASSAULTED) || bg->IsActiveEvent(objective.first, ALLIANCE_CONTROLLED) || bg->IsActiveEvent(objective.first, NEUTRAL_CONTROLLED))
                     {
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
+                        {
+                            if (skipFirst)
+                            {
+                                if (!pHordeFallback) pHordeFallback = pGO;
+                                skipFirst = false;
+                                continue;
+                            }
                             return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                        }
                     }
                 }
+                if (pHordeFallback)
+                    return StartNewPathToPosition(pHordeFallback->GetPosition(), vPaths_AV);
             }
             else // ALLIANCE
             {
@@ -1894,9 +1963,11 @@ bool BattleBotAI::StartNewPathToObjective()
                     }
                 }
 
-                // Attack closest objective.
+                // Attack closest objective; behavior 4 tracks second-closest for skip.
                 WorldObject* pAttackObjectiveObject = nullptr;
                 float attackObjectiveDistance = FLT_MAX;
+                WorldObject* pSecondObjective = nullptr;
+                float secondObjectiveDistance = FLT_MAX;
 
                 if (!bg->IsActiveEvent(BG_AV_NodeEventCaptainDead_H, 0))
                 {
@@ -1916,12 +1987,23 @@ bool BattleBotAI::StartNewPathToObjective()
                             float const distance = me->GetDistance(pGO);
                             if (attackObjectiveDistance > distance)
                             {
+                                pSecondObjective = pAttackObjectiveObject;
+                                secondObjectiveDistance = attackObjectiveDistance;
                                 pAttackObjectiveObject = pGO;
                                 attackObjectiveDistance = distance;
+                            }
+                            else if (secondObjectiveDistance > distance)
+                            {
+                                pSecondObjective = pGO;
+                                secondObjectiveDistance = distance;
                             }
                         }
                     }
                 }
+
+                // Behavior 4: 30% chance to skip closest objective and attack the second closest
+                if (pAttackObjectiveObject && pSecondObjective && roll_chance_u(30))
+                    pAttackObjectiveObject = pSecondObjective;
 
                 if (pAttackObjectiveObject)
                     return StartNewPathToPosition(pAttackObjectiveObject->GetPosition(), vPaths_AV);
