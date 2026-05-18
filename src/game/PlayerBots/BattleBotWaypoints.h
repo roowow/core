@@ -70,6 +70,8 @@ extern std::vector<BattleBotPath*> const vPaths_WS;
 extern std::vector<BattleBotPath*> const vPaths_AB;
 extern std::vector<BattleBotPath*> const vPaths_AV;
 
+extern std::vector<BattleBotPath*> const vPaths_UseDirectMovement;
+
 extern std::vector<uint32> const vFlagsAB;
 bool AtFlag(BattleBotAI* pAI, std::vector<uint32> const& vFlagIds);
 

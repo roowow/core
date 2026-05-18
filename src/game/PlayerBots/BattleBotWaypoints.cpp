@@ -1222,6 +1222,15 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
     &vPath_AV_TowerPoint_to_Coldtooth_Snivvle,
 };
 
+// Paths that must use direct (non-navmesh) movement between waypoints.
+// Used for mine interiors where navmesh coverage is absent; straight-line
+// between recorded 5m waypoints is more reliable than failed pathfinding.
+std::vector<BattleBotPath*> const vPaths_UseDirectMovement =
+{
+    &vPath_AV_Stormpike_to_Irondeep_Morloch,
+    &vPath_AV_TowerPoint_to_Coldtooth_Snivvle,
+};
+
 std::vector<BattleBotPath*> const vPaths_ObjectiveOnly =
 {
     &vPath_AV_Stonehearth_Bunker_First_Crossroad_to_Stonehearth_Bunker_Flag,
@@ -1298,7 +1307,11 @@ void BattleBotAI::MoveToNextPoint()
 
     BattleBotWaypoint& nextPoint = (*m_currentPath)[m_currentPoint];
 
-    me->GetMotionMaster()->MovePoint(m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+    bool const directMove = std::find(vPaths_UseDirectMovement.begin(), vPaths_UseDirectMovement.end(), m_currentPath) != vPaths_UseDirectMovement.end();
+    uint32 const moveFlags = directMove ? MOVE_RUN_MODE : (MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+    float const dx = directMove ? 0.0f : frand(-1, 1);
+    float const dy = directMove ? 0.0f : frand(-1, 1);
+    me->GetMotionMaster()->MovePoint(m_currentPoint, nextPoint.x + dx, nextPoint.y + dy, nextPoint.z, moveFlags);
 }
 
 bool BattleBotAI::StartNewPathFromBeginning()
@@ -2049,9 +2062,9 @@ bool BattleBotAI::StartNewPathToObjective()
 
             if (me->GetTeam() == HORDE)
             {
-                // TEMP TEST: 5% of Horde bots attack Coldtooth Mine (Snivvle).
+                // TEMP TEST: 40% of Horde bots attack Coldtooth Mine (Snivvle).
                 // Remove this block once mine mission logic (Tasks 4-6) is implemented.
-                if (me->GetGUIDLow() % 20 == 0)
+                if (roll_chance_u(40))
                 {
                     static Position const snivvlePos = { -850.7347f, -92.2076f, 68.5046f, 0.0f };
                     if (StartNewPathToPosition(snivvlePos, vPaths_AV))
