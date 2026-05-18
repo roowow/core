@@ -311,6 +311,9 @@ class ChatHandler
         bool HandleBattleBotAutoJoin1Command(char* args);
         bool HandleBattleBotAutoJoin2Command(char* args);
         bool HandleBattleBotAutoJoin3Command(char* args);
+        bool HandleBattleBotPathStartCommand(char* args);
+        bool HandleBattleBotPathStopCommand(char* args);
+        bool HandleBattleBotPathStatusCommand(char* args);
         bool HandleOOPvpBroadcastCommand(char* args);
 
         // spell_disabled

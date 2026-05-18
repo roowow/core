@@ -5,6 +5,7 @@
 #include "Platform/Define.h"
 #include "GameObject.h"
 #include "Chat.h"
+#include "ObjectGuid.h"
 
 #include <map>
 #include <string>
@@ -15,6 +16,16 @@
 // Load character_name
 // Load character_pvp_text
 ///////////////////
+
+// ---------------------------------------------------------------------------
+// Path recording: GM walks a route, server outputs BattleBotPath C++ code
+// ---------------------------------------------------------------------------
+struct PathRecordingSession
+{
+    std::string     pathName;
+    std::vector<Position> points;
+    Position        lastPoint = {};
+};
 
 struct BotNameTheme
 {
@@ -81,6 +92,12 @@ class OOMgr
 
         void HandleBGKillAnnounce(Player* killer, Player* victim);
 
+        // Path recording
+        void StartPathRecording(ObjectGuid playerGuid, std::string const& name);
+        void StopPathRecording(ObjectGuid playerGuid, std::string& outMessage);
+        bool IsRecording(ObjectGuid playerGuid) const;
+        uint32 GetRecordedPointCount(ObjectGuid playerGuid) const;
+
         std::map< uint32, uint32 > PartyQuestTexts {
             {32022, 22015},
             {32023, 22016},
@@ -113,6 +130,9 @@ class OOMgr
         std::vector<OOBroadCastEntry> entries;
         time_t _constInterval;
         time_t _current;
+
+        std::map<ObjectGuid, PathRecordingSession> m_pathRecordings;
+        uint32 m_pathRecordPollTimer = 0;
 
     private:
         void LoadBotNameThemes();

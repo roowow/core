@@ -1,6 +1,7 @@
 #include "Common.h"
 #include "Policies/SingletonImp.h"
 #include "PlayerBotMgr.h"
+#include "OO/OOMgr.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "World.h"
@@ -2602,5 +2603,64 @@ bool ChatHandler::HandleBattleBotShowAllPathsCommand(char* args)
     }
 
     PSendSysMessage("Showing %u paths for battleground.", id);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// .battlebot path start|stop|status — GM waypoint path recorder
+// ---------------------------------------------------------------------------
+
+bool ChatHandler::HandleBattleBotPathStartCommand(char* args)
+{
+    if (!args || !*args)
+    {
+        SendSysMessage("Usage: .battlebot path start <PathName>  (no spaces in name)");
+        SetSentErrorMessage(true);
+        return false;
+    }
+
+    Player* player = m_session->GetPlayer();
+    if (sOOMgr.IsRecording(player->GetObjectGuid()))
+    {
+        PSendSysMessage("Already recording (%u points). Use .battlebot path stop first.",
+            sOOMgr.GetRecordedPointCount(player->GetObjectGuid()));
+        SetSentErrorMessage(true);
+        return false;
+    }
+
+    std::string name = args;
+    // Replace spaces with underscores to ensure a valid C++ identifier
+    for (char& c : name)
+        if (c == ' ') c = '_';
+
+    sOOMgr.StartPathRecording(player->GetObjectGuid(), name);
+    PSendSysMessage("Path recording started: '%s'. Walk the route, then type .battlebot path stop.", name.c_str());
+    return true;
+}
+
+bool ChatHandler::HandleBattleBotPathStopCommand(char* args)
+{
+    Player* player = m_session->GetPlayer();
+    if (!sOOMgr.IsRecording(player->GetObjectGuid()))
+    {
+        SendSysMessage("No active recording. Use .battlebot path start <Name> first.");
+        SetSentErrorMessage(true);
+        return false;
+    }
+
+    std::string message;
+    sOOMgr.StopPathRecording(player->GetObjectGuid(), message);
+    SendSysMessage(message.c_str());
+    return true;
+}
+
+bool ChatHandler::HandleBattleBotPathStatusCommand(char* args)
+{
+    Player* player = m_session->GetPlayer();
+    if (!sOOMgr.IsRecording(player->GetObjectGuid()))
+        SendSysMessage("No active recording.");
+    else
+        PSendSysMessage("Recording in progress: %u points captured so far.",
+            sOOMgr.GetRecordedPointCount(player->GetObjectGuid()));
     return true;
 }

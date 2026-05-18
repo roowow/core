@@ -5,6 +5,7 @@
 #include "Policies/SingletonImp.h"
 #include "Util.h"
 #include "IO/Filesystem/FileSystem.h"
+#include "ObjectAccessor.h"
 
 #include "OO/OOMgr.h"
 #include "Player.h"
@@ -12,6 +13,7 @@
 #include "WorldPacket.h"
 
 #include <fstream>
+#include <iomanip>
 #include <sstream>
 
 INSTANTIATE_SINGLETON_1(OOMgr);
@@ -167,17 +169,103 @@ void OOMgr::Load()
 
 void OOMgr::Update(uint32 diff)
 {
-    // if (entries.empty())
-    //     return;
+    // Path recording: poll the position of each recording GM every 200ms.
+    if (!m_pathRecordings.empty())
+    {
+        m_pathRecordPollTimer += diff;
+        if (m_pathRecordPollTimer >= 200)
+        {
+            m_pathRecordPollTimer = 0;
+            for (auto& kv : m_pathRecordings)
+            {
+                Player* player = ObjectAccessor::FindPlayer(kv.first);
+                if (!player || !player->IsInWorld())
+                    continue;
+                Position const cur = player->GetPosition();
+                float const dx = cur.x - kv.second.lastPoint.x;
+                float const dy = cur.y - kv.second.lastPoint.y;
+                if (dx * dx + dy * dy >= 25.0f) // 5 yards threshold (5² = 25)
+                {
+                    kv.second.points.push_back(cur);
+                    kv.second.lastPoint = cur;
+                }
+            }
+        }
+    }
+}
 
-    // _current += diff;
+// ---------------------------------------------------------------------------
+// Path recording implementation
+// ---------------------------------------------------------------------------
 
-    // if (_current >= _constInterval)
-    // {
-    //     OOBroadCastEntry entry = SelectRandomContainerElement(entries);
-    //     sWorld.SendWorldText(entry.stringId);
-    //     _current = 0;
-    // }
+void OOMgr::StartPathRecording(ObjectGuid playerGuid, std::string const& name)
+{
+    PathRecordingSession& session = m_pathRecordings[playerGuid];
+    session.pathName  = name;
+    session.points.clear();
+
+    // Record the starting position immediately
+    if (Player* player = ObjectAccessor::FindPlayer(playerGuid))
+    {
+        session.lastPoint = player->GetPosition();
+        session.points.push_back(session.lastPoint);
+    }
+}
+
+void OOMgr::StopPathRecording(ObjectGuid playerGuid, std::string& outMessage)
+{
+    auto it = m_pathRecordings.find(playerGuid);
+    if (it == m_pathRecordings.end())
+    {
+        outMessage = "No active recording.";
+        return;
+    }
+
+    PathRecordingSession const& session = it->second;
+
+    if (session.points.empty())
+    {
+        m_pathRecordings.erase(it);
+        outMessage = "Recording stopped but no points were captured.";
+        return;
+    }
+
+    // Build output file path
+    time_t const now = time(nullptr);
+    char timebuf[32];
+    strftime(timebuf, sizeof(timebuf), "%Y%m%d_%H%M%S", localtime(&now));
+    std::string const filename = std::string("./logs/botpath_") + session.pathName + "_" + timebuf + ".cpp";
+
+    std::ofstream out(filename);
+    if (!out.is_open())
+    {
+        m_pathRecordings.erase(it);
+        outMessage = "ERROR: Could not write file " + filename;
+        return;
+    }
+
+    out << "// Recorded: " << timebuf << "  Points: " << session.points.size() << "\n";
+    out << "BattleBotPath vPath_" << session.pathName << " =\n{\n";
+    out << std::fixed << std::setprecision(4);
+    for (Position const& p : session.points)
+        out << "    { " << p.x << "f, " << p.y << "f, " << p.z << "f, nullptr },\n";
+    out << "};\n";
+    out.close();
+
+    uint32 const count = (uint32)session.points.size();
+    m_pathRecordings.erase(it);
+    outMessage = "Saved " + std::to_string(count) + " points -> " + filename;
+}
+
+bool OOMgr::IsRecording(ObjectGuid playerGuid) const
+{
+    return m_pathRecordings.count(playerGuid) > 0;
+}
+
+uint32 OOMgr::GetRecordedPointCount(ObjectGuid playerGuid) const
+{
+    auto it = m_pathRecordings.find(playerGuid);
+    return (it != m_pathRecordings.end()) ? (uint32)it->second.points.size() : 0;
 }
 
 void OOMgr::LoadBotNameThemes()

@@ -123,6 +123,14 @@ ChatCommand * ChatHandler::getCommandTable()
         { nullptr,      0,                      false, nullptr,                                        "", nullptr },
     };
 
+    static ChatCommand battleBotPathCommandTable[] =
+    {
+        { "start",  SEC_ADMINISTRATOR, false, &ChatHandler::HandleBattleBotPathStartCommand,  "Start recording a bot waypoint path: .battlebot path start <Name>", nullptr },
+        { "stop",   SEC_ADMINISTRATOR, false, &ChatHandler::HandleBattleBotPathStopCommand,   "Stop recording and save to logs/", nullptr },
+        { "status", SEC_ADMINISTRATOR, false, &ChatHandler::HandleBattleBotPathStatusCommand, "Show current recording status", nullptr },
+        { nullptr,  0,                 false, nullptr,                                         "", nullptr },
+    };
+
     static ChatCommand battleBotCommandTable[] =
     {
         { "add",          SEC_ADMINISTRATOR,    true, nullptr,            "Add a new bot", battleBotAddCommandTable },
@@ -133,6 +141,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "autojoin1",    SEC_ADMINISTRATOR,    true, &ChatHandler::HandleBattleBotAutoJoin1Command,     "", nullptr },
         { "autojoin2",    SEC_ADMINISTRATOR,    true, &ChatHandler::HandleBattleBotAutoJoin2Command,     "", nullptr },
         { "autojoin3",    SEC_ADMINISTRATOR,    true, &ChatHandler::HandleBattleBotAutoJoin3Command,     "", nullptr },
+        { "path",         SEC_ADMINISTRATOR,    false, nullptr,           "Record bot waypoint paths", battleBotPathCommandTable },
         { nullptr,        0,                    false, nullptr,                                          "", nullptr },
     };
 
