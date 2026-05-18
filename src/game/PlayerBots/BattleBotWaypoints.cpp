@@ -2053,7 +2053,7 @@ bool BattleBotAI::StartNewPathToObjective()
                 // Remove this block once mine mission logic (Tasks 4-6) is implemented.
                 if (me->GetGUIDLow() % 20 == 0)
                 {
-                    static Position const snivvlePos = { -850.7347f, -92.2076f, 68.5046f };
+                    static Position const snivvlePos = { -850.7347f, -92.2076f, 68.5046f, 0.0f };
                     if (StartNewPathToPosition(snivvlePos, vPaths_AV))
                         return true;
                 }
@@ -2121,7 +2121,7 @@ bool BattleBotAI::StartNewPathToObjective()
                 // Remove this block once mine mission logic (Tasks 4-6) is implemented.
                 if (me->GetGUIDLow() % 20 == 0)
                 {
-                    static Position const morlochPos = { 864.3466f, -443.8597f, 50.8458f };
+                    static Position const morlochPos = { 864.3466f, -443.8597f, 50.8458f, 0.0f };
                     if (StartNewPathToPosition(morlochPos, vPaths_AV))
                         return true;
                 }
