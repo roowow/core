@@ -2054,9 +2054,9 @@ bool BattleBotAI::StartNewPathToObjective()
                 if (roll_chance_u(40))
                 {
                     static Position const snivvlePos = { -850.7347f, -92.2076f, 68.5046f, 0.0f };
-                    // Guard: skip if already inside the mine (just killed boss or in combat there).
                     if (me->GetDistance(snivvlePos.x, snivvlePos.y, snivvlePos.z) > 100.0f)
                     {
+                        // Outside mine: approach normally.
                         if (StartNewPathToPosition(snivvlePos, vPaths_AV))
                             return true;
                         // Bypass 50-yard constraint: directly assign mine path so the bot
@@ -2064,6 +2064,16 @@ bool BattleBotAI::StartNewPathToObjective()
                         m_currentPath = &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
                         m_movingInReverse = false;
                         m_currentPoint = static_cast<uint32>(-1);
+                        MoveToNextPoint();
+                        return true;
+                    }
+                    else
+                    {
+                        // Inside mine after boss kill: exit by reversing the mine path back
+                        // to WP 0 (mine entrance), where normal Horde paths resume.
+                        m_currentPath = &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
+                        m_movingInReverse = true;
+                        m_currentPoint = static_cast<uint32>(m_currentPath->size());
                         MoveToNextPoint();
                         return true;
                     }
@@ -2133,11 +2143,25 @@ bool BattleBotAI::StartNewPathToObjective()
                 if (me->GetGUIDLow() % 20 == 0)
                 {
                     static Position const morlochPos = { 864.3466f, -443.8597f, 50.8458f, 0.0f };
-                    // Guard: skip if already inside the mine (just killed boss or in combat there).
                     if (me->GetDistance(morlochPos.x, morlochPos.y, morlochPos.z) > 100.0f)
                     {
+                        // Outside mine: path selection succeeds once the bot has exited the
+                        // cave and reached the Stormpike Crossroad area (within 50 yds of
+                        // mine path WP 0). No direct-assignment fallback: the cave waiting
+                        // position is z=99 and WP 0 is z=30; MOVE_EXCLUDE_STEEP_SLOPES would
+                        // block that descent and leave the bot permanently stuck in the cave.
                         if (StartNewPathToPosition(morlochPos, vPaths_AV))
                             return true;
+                    }
+                    else
+                    {
+                        // Inside mine after boss kill: exit by reversing the mine path back
+                        // to WP 0 (Stormpike Crossroad), where normal Alliance paths resume.
+                        m_currentPath = &vPath_AV_Stormpike_to_Irondeep_Morloch;
+                        m_movingInReverse = true;
+                        m_currentPoint = static_cast<uint32>(m_currentPath->size());
+                        MoveToNextPoint();
+                        return true;
                     }
                 }
 
