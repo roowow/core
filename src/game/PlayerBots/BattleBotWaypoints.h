@@ -44,8 +44,10 @@ Position const WS_FLAG_POS_HORDE = { 915.958f, 1433.925f, 346.193f, 0.0f };
 Position const WS_FLAG_POS_ALLIANCE = { 1539.219f, 1481.747f, 352.458f, 0.0f };
 Position const AB_WAITING_POS_HORDE = { 706.607f, 707.211f, -17.271f, 0.77f };
 Position const AB_WAITING_POS_ALLIANCE = { 1286.054f, 1282.500f, -15.697f, 3.95f };
-Position const AV_WAITING_POS_HORDE = { -871.196f, -558.407f, 57.239f, 2.14f };
-Position const AV_WAITING_POS_ALLIANCE = { 793.627f, -493.814f, 99.689f, 3.09f };
+// These positions are ~10 yards deeper into each starting cave than the gate,
+// preventing all bots from stacking on the gate model during STATUS_WAIT_JOIN.
+Position const AV_WAITING_POS_HORDE    = { -865.8f, -566.9f, 57.239f, 2.14f };
+Position const AV_WAITING_POS_ALLIANCE = { 803.6f, -494.9f, 99.689f, 3.09f };
 
 class BattleBotAI;
 class Player;
