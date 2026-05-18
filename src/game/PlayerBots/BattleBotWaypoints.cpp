@@ -260,7 +260,7 @@ void MoveToNextPointSpecial(BattleBotAI* pAI)
 
     BattleBotWaypoint& nextPoint = (*pAI->m_currentPath)[pAI->m_currentPoint];
 
-    pAI->me->GetMotionMaster()->MovePoint(pAI->m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, MOVE_RUN_MODE);
+    pAI->me->GetMotionMaster()->MovePoint(pAI->m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, MOVE_PATHFINDING | MOVE_RUN_MODE);
 }
 
 BattleBotPath vPath_AV_Horde_Cave_to_Tower_Point_Crossroad =
@@ -2056,6 +2056,13 @@ bool BattleBotAI::StartNewPathToObjective()
                     static Position const snivvlePos = { -850.7347f, -92.2076f, 68.5046f, 0.0f };
                     if (StartNewPathToPosition(snivvlePos, vPaths_AV))
                         return true;
+                    // Bypass 50-yard constraint: directly assign mine path so the bot
+                    // pathfinds to the path start and follows it even from the cave.
+                    m_currentPath = &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
+                    m_movingInReverse = false;
+                    m_currentPoint = static_cast<uint32>(-1);
+                    MoveToNextPoint();
+                    return true;
                 }
 
                 // End Boss
