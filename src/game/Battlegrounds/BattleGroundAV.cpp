@@ -218,6 +218,55 @@ void BattleGroundAV::resetWorldBossChallengeInvocation(uint32 factionId)
     m_challengeStatus[factionId][BG_AV_BLOOD_WORLDBOSS_ASSAULT] = 0;
 }
 
+void BattleGroundAV::BotContributeScraps(Team team, uint32 amount)
+{
+    BattleGroundAVTeamIndex idx = GetAVTeamIndexByTeamId(team);
+    m_teamQuestStatus[idx][0] += amount;
+
+    uint32 resources = 0;
+    if (m_teamQuestStatus[idx][0] >= 1500 && getReinforcementLevelGroundUnit(idx) == AV_NPC_VETERAN)
+        resources = 1500;
+    else if (m_teamQuestStatus[idx][0] >= 1000 && getReinforcementLevelGroundUnit(idx) == AV_NPC_SEASONED)
+        resources = 1000;
+    else if (m_teamQuestStatus[idx][0] >= 500 && getReinforcementLevelGroundUnit(idx) == AV_NPC_BASIC)
+        resources = 500;
+
+    if (resources == 0)
+        return;
+
+    setReinforcementLevelGroundUnit(idx, resources);
+    CastSpellOnTeam((resources == 500) ? 28418 : (resources == 1000) ? 28419 : 28420, team);
+    for (BG_AV_Nodes i = BG_AV_NODES_FIRSTAID_STATION; i <= BG_AV_NODES_FROSTWOLF_WTOWER; ++i)
+        if (m_nodes[i].owner == idx && m_nodes[i].state == POINT_CONTROLLED)
+            PopulateNode(i);
+}
+
+void BattleGroundAV::BotContributeGroundAssault(Team team, uint8 mineIdx, uint32 amount)
+{
+    uint32 factionId = (team == ALLIANCE) ? BG_TEAM_ALLIANCE : BG_TEAM_HORDE;
+    uint32 challengeType = (mineIdx == 0) ? BG_AV_IRONDEEP_GROUND_ASSAULT
+                                          : BG_AV_COLDTOOTH_GROUND_ASSAULT;
+    setChallengeInvocationCounter(factionId, challengeType, amount);
+    if (isGroundChallengeInvocationReady(factionId))
+    {
+        resetGroundChallengeInvocation(factionId);
+        setPlayerGoStatus(factionId, BG_AV_GROUND_ASSAULT, true);
+    }
+}
+
+void BattleGroundAV::BotContributeWorldBossItems(Team team, uint32 amount)
+{
+    uint32 factionId = (team == ALLIANCE) ? BG_TEAM_ALLIANCE : BG_TEAM_HORDE;
+    setChallengeInvocationCounter(factionId, BG_AV_BLOOD_WORLDBOSS_ASSAULT, amount);
+    if (isWorldBossChallengeInvocationReady(factionId))
+    {
+        resetWorldBossChallengeInvocation(factionId);
+        setPlayerGoStatus(factionId, BG_AV_WORLDBOSS_ASSAULT, true);
+        // AV_NpcEventAI::checkWorldBossStatus() in battleground_alterac.cpp
+        // polls this flag and starts Thurloga/Renferal escort automatically.
+    }
+}
+
 /** Check if Aerial challenge is ready for a given faction */
 bool BattleGroundAV::isAerialChallengeInvocationReady(uint32 factionId, uint32 aerialId)
 {

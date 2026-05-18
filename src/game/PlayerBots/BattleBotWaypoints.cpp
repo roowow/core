@@ -964,6 +964,179 @@ BattleBotPath vPath_AV_Alliance_Cave_to_Alliance_Cave_Slop_Crossroad =
     { 450.8f, -434.864f, 30.5126f, nullptr },
 };
 
+// AV mine paths: start from existing vPaths_AV waypoints so bots can chain onto them naturally.
+
+BattleBotPath vPath_AV_Stormpike_to_Irondeep_Morloch =
+{
+    { 638.0870f, -287.8400f, 30.1471f, nullptr },
+    { 644.7953f, -285.8409f, 30.3311f, nullptr },
+    { 652.8074f, -285.3333f, 30.4394f, nullptr },
+    { 660.1908f, -285.0237f, 30.0100f, nullptr },
+    { 666.2333f, -282.7752f, 29.0930f, nullptr },
+    { 672.6602f, -280.0033f, 26.9573f, nullptr },
+    { 679.0343f, -277.1199f, 24.4300f, nullptr },
+    { 683.7335f, -275.3425f, 23.8273f, nullptr },
+    { 689.2477f, -272.4332f, 23.2755f, nullptr },
+    { 695.7837f, -271.5105f, 25.3758f, nullptr },
+    { 702.5557f, -271.7004f, 28.8104f, nullptr },
+    { 709.0307f, -273.7076f, 32.7204f, nullptr },
+    { 715.5093f, -276.3286f, 36.2839f, nullptr },
+    { 721.7195f, -280.7448f, 39.4063f, nullptr },
+    { 726.5405f, -285.8130f, 42.1494f, nullptr },
+    { 730.7940f, -291.3660f, 45.2236f, nullptr },
+    { 734.8254f, -297.0817f, 47.8769f, nullptr },
+    { 738.8505f, -302.8087f, 50.4943f, nullptr },
+    { 742.8948f, -308.5220f, 53.1261f, nullptr },
+    { 747.2754f, -313.9810f, 55.0999f, nullptr },
+    { 751.7374f, -319.3745f, 56.5670f, nullptr },
+    { 756.1774f, -324.7858f, 58.0850f, nullptr },
+    { 760.5327f, -330.2660f, 59.4319f, nullptr },
+    { 765.0652f, -335.5873f, 60.7855f, nullptr },
+    { 770.1476f, -340.3909f, 61.4104f, nullptr },
+    { 775.4432f, -343.7472f, 61.4104f, nullptr },
+    { 781.0787f, -343.5684f, 61.4104f, nullptr },
+    { 786.3533f, -339.4595f, 61.9130f, nullptr },
+    { 789.2404f, -332.4202f, 62.9791f, nullptr },
+    { 796.4823f, -335.3680f, 63.0614f, nullptr },
+    { 803.1797f, -338.5370f, 63.7152f, nullptr },
+    { 810.5118f, -336.4881f, 64.5936f, nullptr },
+    { 815.9957f, -330.8441f, 64.3564f, nullptr },
+    { 821.3481f, -328.4308f, 64.0906f, nullptr },
+    { 827.8917f, -330.4461f, 64.3465f, nullptr },
+    { 833.1855f, -333.5173f, 64.6426f, nullptr },
+    { 838.7567f, -337.7537f, 65.3710f, nullptr },
+    { 843.8019f, -340.3744f, 65.7461f, nullptr },
+    { 850.0931f, -343.4436f, 66.0264f, nullptr },
+    { 856.5757f, -346.0758f, 65.5041f, nullptr },
+    { 862.4332f, -347.8371f, 64.5341f, nullptr },
+    { 870.0270f, -348.7738f, 64.5399f, nullptr },
+    { 876.3622f, -347.7039f, 65.6523f, nullptr },
+    { 882.1097f, -344.6449f, 66.6220f, nullptr },
+    { 887.0400f, -339.6767f, 67.3502f, nullptr },
+    { 891.6273f, -335.4755f, 67.4392f, nullptr },
+    { 896.4573f, -333.1840f, 67.5219f, nullptr },
+    { 904.6970f, -331.6394f, 67.2410f, nullptr },
+    { 910.7316f, -332.3532f, 66.6613f, nullptr },
+    { 917.2830f, -334.8167f, 66.2733f, nullptr },
+    { 924.8119f, -337.8008f, 65.8492f, nullptr },
+    { 928.6079f, -342.4911f, 65.4707f, nullptr },
+    { 927.7592f, -350.2041f, 65.9241f, nullptr },
+    { 926.0995f, -357.0023f, 65.6402f, nullptr },
+    { 924.1185f, -363.7159f, 66.1701f, nullptr },
+    { 922.2449f, -370.4605f, 65.4642f, nullptr },
+    { 921.3293f, -376.6117f, 63.8428f, nullptr },
+    { 920.9985f, -383.6017f, 61.6317f, nullptr },
+    { 921.3293f, -390.5931f, 60.8913f, nullptr },
+    { 921.8428f, -397.5742f, 60.1568f, nullptr },
+    { 922.2695f, -404.5612f, 58.2709f, nullptr },
+    { 922.6887f, -411.5469f, 56.4949f, nullptr },
+    { 922.0705f, -417.4118f, 56.0405f, nullptr },
+    { 919.4290f, -425.1350f, 56.6067f, nullptr },
+    { 916.4502f, -431.3454f, 57.1667f, nullptr },
+    { 911.2559f, -434.7462f, 57.5335f, nullptr },
+    { 906.2648f, -435.2204f, 58.0658f, nullptr },
+    { 898.4221f, -433.2715f, 58.0214f, nullptr },
+    { 891.7562f, -431.1346f, 55.4655f, nullptr },
+    { 885.0898f, -428.9992f, 53.7119f, nullptr },
+    { 878.3228f, -427.2171f, 52.4257f, nullptr },
+    { 873.2521f, -426.1608f, 51.1973f, nullptr },
+    { 868.8007f, -431.5623f, 50.7682f, nullptr },
+    { 865.9803f, -437.0531f, 50.6978f, nullptr },
+    { 864.3466f, -443.8597f, 50.8458f, nullptr },
+};
+
+BattleBotPath vPath_AV_TowerPoint_to_Coldtooth_Snivvle =
+{
+    { -846.8260f, -355.1810f, 50.0754f, nullptr },
+    { -853.7689f, -356.0296f, 50.7901f, nullptr },
+    { -860.7067f, -356.9613f, 50.6432f, nullptr },
+    { -867.6421f, -357.8927f, 51.0649f, nullptr },
+    { -873.5925f, -357.9070f, 50.7679f, nullptr },
+    { -879.5068f, -354.8615f, 50.5226f, nullptr },
+    { -885.4896f, -351.2273f, 50.3338f, nullptr },
+    { -891.4723f, -347.5932f, 50.1704f, nullptr },
+    { -897.4550f, -343.9590f, 50.1674f, nullptr },
+    { -903.4377f, -340.3249f, 52.2986f, nullptr },
+    { -909.6059f, -337.0194f, 55.4422f, nullptr },
+    { -915.6081f, -333.4230f, 58.0387f, nullptr },
+    { -921.3315f, -329.3953f, 61.7148f, nullptr },
+    { -926.8960f, -325.1484f, 65.0706f, nullptr },
+    { -932.5949f, -319.1186f, 66.5863f, nullptr },
+    { -937.7026f, -314.3339f, 66.6110f, nullptr },
+    { -941.9382f, -307.9189f, 65.8326f, nullptr },
+    { -944.8809f, -301.5678f, 65.1650f, nullptr },
+    { -947.9769f, -295.2897f, 64.5595f, nullptr },
+    { -950.9139f, -288.9386f, 64.1245f, nullptr },
+    { -953.5179f, -282.4456f, 63.6195f, nullptr },
+    { -956.5792f, -276.1507f, 63.5245f, nullptr },
+    { -959.2665f, -269.6910f, 63.7585f, nullptr },
+    { -960.2833f, -262.7704f, 64.3421f, nullptr },
+    { -959.1378f, -256.7336f, 64.9495f, nullptr },
+    { -954.3208f, -251.2252f, 65.3379f, nullptr },
+    { -950.5594f, -246.2899f, 65.6322f, nullptr },
+    { -945.4386f, -244.1082f, 65.9180f, nullptr },
+    { -939.8275f, -241.9550f, 66.4189f, nullptr },
+    { -933.3918f, -237.4376f, 67.1937f, nullptr },
+    { -928.5602f, -232.3808f, 67.8597f, nullptr },
+    { -925.4470f, -225.2723f, 69.3805f, nullptr },
+    { -924.5667f, -220.0994f, 70.5566f, nullptr },
+    { -925.4279f, -214.7184f, 71.6138f, nullptr },
+    { -928.6381f, -207.9140f, 73.0227f, nullptr },
+    { -933.3755f, -204.6613f, 74.3951f, nullptr },
+    { -939.8578f, -202.0197f, 76.4508f, nullptr },
+    { -944.5110f, -199.4895f, 77.0072f, nullptr },
+    { -944.0008f, -193.2953f, 76.8878f, nullptr },
+    { -941.1964f, -187.4930f, 77.5361f, nullptr },
+    { -942.8546f, -182.5168f, 78.4077f, nullptr },
+    { -947.9466f, -177.2496f, 78.4463f, nullptr },
+    { -953.4483f, -173.4925f, 78.1010f, nullptr },
+    { -954.7617f, -167.4946f, 78.1104f, nullptr },
+    { -953.0056f, -162.7873f, 78.3515f, nullptr },
+    { -950.2720f, -156.3431f, 78.7969f, nullptr },
+    { -947.6274f, -149.8627f, 79.4500f, nullptr },
+    { -945.1370f, -143.3210f, 79.9146f, nullptr },
+    { -943.8690f, -138.2334f, 79.8593f, nullptr },
+    { -943.3285f, -131.4956f, 79.1605f, nullptr },
+    { -944.6203f, -124.6160f, 78.4408f, nullptr },
+    { -945.6746f, -117.6968f, 78.8467f, nullptr },
+    { -946.9941f, -112.5348f, 79.7423f, nullptr },
+    { -950.8286f, -107.5055f, 80.7873f, nullptr },
+    { -954.6636f, -104.1033f, 81.2618f, nullptr },
+    { -960.0722f, -99.6634f, 81.4109f, nullptr },
+    { -964.3049f, -95.1076f, 81.4145f, nullptr },
+    { -967.2874f, -88.5635f, 81.1775f, nullptr },
+    { -967.0710f, -81.5658f, 80.5754f, nullptr },
+    { -965.7562f, -74.6904f, 80.1361f, nullptr },
+    { -964.3475f, -67.8336f, 79.8033f, nullptr },
+    { -963.5542f, -61.6764f, 78.7310f, nullptr },
+    { -966.6141f, -55.0845f, 77.4820f, nullptr },
+    { -960.8079f, -55.9332f, 78.9160f, nullptr },
+    { -954.6627f, -57.7340f, 79.7014f, nullptr },
+    { -948.1019f, -60.1717f, 79.7711f, nullptr },
+    { -941.5959f, -62.7547f, 80.0057f, nullptr },
+    { -936.2493f, -64.6331f, 79.8637f, nullptr },
+    { -929.0509f, -64.8926f, 78.8937f, nullptr },
+    { -922.1203f, -64.0126f, 76.7897f, nullptr },
+    { -915.3257f, -62.3382f, 75.0193f, nullptr },
+    { -908.5811f, -60.4647f, 74.7523f, nullptr },
+    { -901.8364f, -58.5913f, 73.3433f, nullptr },
+    { -895.4684f, -57.0057f, 71.4998f, nullptr },
+    { -888.8160f, -56.6577f, 70.1055f, nullptr },
+    { -881.5418f, -57.5201f, 70.3146f, nullptr },
+    { -874.8353f, -59.5260f, 71.0993f, nullptr },
+    { -869.5035f, -60.8172f, 71.3211f, nullptr },
+    { -866.8955f, -65.3491f, 71.7876f, nullptr },
+    { -867.7218f, -72.2987f, 72.4164f, nullptr },
+    { -867.9849f, -82.7911f, 69.3123f, nullptr },
+    { -867.6506f, -89.7821f, 67.6387f, nullptr },
+    { -867.3318f, -96.7746f, 66.3379f, nullptr },
+    { -867.4017f, -103.2480f, 64.9578f, nullptr },
+    { -862.2948f, -105.1149f, 64.7026f, nullptr },
+    { -856.1605f, -102.3480f, 65.2198f, nullptr },
+    { -852.5985f, -97.6946f, 68.0407f, nullptr },
+    { -850.7347f, -92.2076f, 68.5046f, nullptr },
+};
+
 // WSG and AB paths defined in BattleBotWaypoints2.cpp; extern declared in BattleBotWaypoints.h.
 
 // Forward declarations for AB paths used by vPaths_NoReverseAllowed.
@@ -1025,6 +1198,8 @@ std::vector<BattleBotPath*> const vPaths_AV =
     &vPath_AV_Alliance_Base_Bunker_Third_Crossroad_to_Alliance_Base_Vanndar_Stormpike,
     &vPath_AV_Iceblood_Tower_Crossroad_to_Iceblood_Tower,
     &vPath_AV_Iceblood_Tower_to_Iceblood_Tower_Flag,
+    &vPath_AV_Stormpike_to_Irondeep_Morloch,
+    &vPath_AV_TowerPoint_to_Coldtooth_Snivvle,
 };
 
 std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
@@ -1043,6 +1218,8 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
     &vPath_AV_Horde_Cave_to_Frostwolf_Graveyard_Flag,
     &vPath_AV_Alliance_Cave_Slop_Crossroad_to_Alliance_Slope_Crossroad,
     &vPath_AV_Stormpike_Graveyard_to_Stormpike_Flag,
+    &vPath_AV_Stormpike_to_Irondeep_Morloch,
+    &vPath_AV_TowerPoint_to_Coldtooth_Snivvle,
 };
 
 std::vector<BattleBotPath*> const vPaths_ObjectiveOnly =
@@ -1872,6 +2049,15 @@ bool BattleBotAI::StartNewPathToObjective()
 
             if (me->GetTeam() == HORDE)
             {
+                // TEMP TEST: 5% of Horde bots attack Coldtooth Mine (Snivvle).
+                // Remove this block once mine mission logic (Tasks 4-6) is implemented.
+                if (me->GetGUIDLow() % 20 == 0)
+                {
+                    static Position const snivvlePos = { -850.7347f, -92.2076f, 68.5046f };
+                    if (StartNewPathToPosition(snivvlePos, vPaths_AV))
+                        return true;
+                }
+
                 // End Boss
                 if (!bg->IsActiveEvent(BG_AV_DUN_BALDAR_SOUTH_BUNKER, ALLIANCE_CONTROLLED) &&
                     !bg->IsActiveEvent(BG_AV_DUN_BALDAR_NORTH_BUNKER, ALLIANCE_CONTROLLED) &&
@@ -1931,6 +2117,15 @@ bool BattleBotAI::StartNewPathToObjective()
             }
             else // ALLIANCE
             {
+                // TEMP TEST: 5% of Alliance bots attack Irondeep Mine (Morloch).
+                // Remove this block once mine mission logic (Tasks 4-6) is implemented.
+                if (me->GetGUIDLow() % 20 == 0)
+                {
+                    static Position const morlochPos = { 864.3466f, -443.8597f, 50.8458f };
+                    if (StartNewPathToPosition(morlochPos, vPaths_AV))
+                        return true;
+                }
+
                 // End boss
                 if (!bg->IsActiveEvent(BG_AV_ICEBLOOD_TOWER, HORDE_CONTROLLED) &&
                     !bg->IsActiveEvent(BG_AV_TOWER_POINT_TOWER, HORDE_CONTROLLED) &&

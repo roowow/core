@@ -533,6 +533,10 @@ class BattleGroundAV : public BattleGround
         void HandleQuestComplete(Unit* questGiver, uint32 questid, Player* player);
         bool PlayerCanDoMineQuest(int32 GOId, Team team);
 
+        void BotContributeScraps(Team team, uint32 amount);
+        void BotContributeGroundAssault(Team team, uint8 mineIdx, uint32 amount);
+        void BotContributeWorldBossItems(Team team, uint32 amount);
+
         void EndBattleGround(Team winner) override;
 
         WorldSafeLocsEntry const* GetClosestGraveYard(Player* plr) override;

@@ -2591,9 +2591,9 @@ void BattleBotAI::OnEnterBattleGround()
     else if (bg->GetTypeID() == BATTLEGROUND_AV)
     {
         if (me->GetTeam() == HORDE)
-            me->GetMotionMaster()->MovePoint(0, AV_WAITING_POS_HORDE.x + frand(-2.0f, 2.0f), AV_WAITING_POS_HORDE.y + frand(-2.0f, 2.0f), AV_WAITING_POS_HORDE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, AV_WAITING_POS_HORDE.o);
+            me->GetMotionMaster()->MovePoint(0, AV_WAITING_POS_HORDE.x + frand(-6.0f, 6.0f), AV_WAITING_POS_HORDE.y + frand(-6.0f, 6.0f), AV_WAITING_POS_HORDE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, AV_WAITING_POS_HORDE.o);
         else
-            me->GetMotionMaster()->MovePoint(0, AV_WAITING_POS_ALLIANCE.x + frand(-2.0f, 2.0f), AV_WAITING_POS_ALLIANCE.y + frand(-2.0f, 2.0f), AV_WAITING_POS_ALLIANCE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, AV_WAITING_POS_ALLIANCE.o);
+            me->GetMotionMaster()->MovePoint(0, AV_WAITING_POS_ALLIANCE.x + frand(-6.0f, 6.0f), AV_WAITING_POS_ALLIANCE.y + frand(-6.0f, 6.0f), AV_WAITING_POS_ALLIANCE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, AV_WAITING_POS_ALLIANCE.o);
         // Behavior 2: initial aggressive-mode roll on BG entry
         m_avAggressiveMode = roll_chance_u(30);
     }

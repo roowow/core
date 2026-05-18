@@ -1541,6 +1541,27 @@ struct AV_NpcEventAI : public npc_escortAI
         Reset();
     }
 
+    void checkWorldBossStatus(uint32 creature_entry)
+    {
+        if (HasEscortState(STATE_ESCORT_ESCORTING))
+            return;
+        if (BattleGroundMap* bgMap = dynamic_cast<BattleGroundMap*>(m_creature->GetMap()))
+        {
+            if (BattleGroundAV* bg = dynamic_cast<BattleGroundAV*>(bgMap->GetBG()))
+            {
+                uint32 factionId = (creature_entry == AV_NPC_PRIMALIST_THURLOGA) ? BG_TEAM_HORDE : BG_TEAM_ALLIANCE;
+                if (bg->getPlayerGoStatus(factionId, BG_AV_WORLDBOSS_ASSAULT))
+                {
+                    bg->setPlayerGoStatus(factionId, BG_AV_WORLDBOSS_ASSAULT, false);
+                    Start(true, 0, nullptr, false);
+                    m_creature->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SPAWNING);
+                    m_creature->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER);
+                    m_creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PVP);
+                }
+            }
+        }
+    }
+
     void checkTroopsStatus(uint32 const uiDiff, uint32 creature_entry)
     {
         if (BattleGroundMap* bgMap = dynamic_cast<BattleGroundMap*>(m_creature->GetMap()))
@@ -2328,6 +2349,14 @@ struct AV_NpcEventAI : public npc_escortAI
             case AV_NPC_QUARTERMASTER_A:
                 if (!m_troopsSpawned)
                     checkTroopsStatus(uiDiff, AV_NPC_QUARTERMASTER_A);
+                break;
+
+            /** World Boss escort (bot-triggered via BotContributeWorldBossItems) */
+            case AV_NPC_PRIMALIST_THURLOGA:
+                checkWorldBossStatus(AV_NPC_PRIMALIST_THURLOGA);
+                break;
+            case AV_NPC_ARCHDRUID_RENFERAL:
+                checkWorldBossStatus(AV_NPC_ARCHDRUID_RENFERAL);
                 break;
 
             default:

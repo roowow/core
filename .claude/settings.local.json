@@ -14,7 +14,13 @@
       "Bash(curl -s \"https://github.com/vmangos/core/commit/8d866e4.patch\")",
       "Bash(curl -s \"https://github.com/vmangos/core/commit/d7e63d7.patch\")",
       "Bash(curl -s \"https://github.com/vmangos/core/commit/a3fc22b.patch\")",
-      "Bash(curl -s \"https://github.com/vmangos/core/commit/ce335f6cc791c5cb51990baeb98f6c8474ce81bb.patch\")"
+      "Bash(curl -s \"https://github.com/vmangos/core/commit/ce335f6cc791c5cb51990baeb98f6c8474ce81bb.patch\")",
+      "Bash(grep -i \"creature_template\\\\|INSERT INTO \\\\`creature_template\\\\`\")",
+      "Bash(grep -n \"INSERT INTO \\\\`creature_template\\\\`\" \"d:/其他/wow/Development/remote/r05_core_dev/sql/world_full_14_june_2021.sql\")",
+      "Bash(awk -v start=445556 -v end=455000 'NR>=start && NR<=end && /\\\\\\(13256,|\\\\\\(13419,/' \"d:/其他/wow/Development/remote/r05_core_dev/sql/world_full_14_june_2021.sql\")",
+      "Bash(cmake --build build --target game --config RelWithDebInfo)",
+      "Bash(awk '/INSERT INTO `creature_battleground`/,/ENABLE KEYS/' \"d:\\\\其他\\\\wow\\\\Development\\\\remote\\\\r05_core_dev\\\\sql\\\\world_full_14_june_2021.sql\")",
+      "Bash(awk '/^-- Dumping data for table mangos.creature_template/,/^-- Dumping/ {if \\(/\\\\\\(11657,/\\) print NR\": \"$0}' \"d:\\\\其他\\\\wow\\\\Development\\\\remote\\\\r05_core_dev\\\\sql\\\\world_full_14_june_2021.sql\")"
     ]
   }
 }
