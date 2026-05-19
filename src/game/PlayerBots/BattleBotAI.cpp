@@ -2610,6 +2610,9 @@ void BattleBotAI::OnLeaveBattleGround()
     m_avSkipObjective = 0;
     m_avSkipObjectiveExpiry = 0;
     m_avAssignedGY = 0;
+    m_avIsMineBot = false;
+    m_avMineBotDecided = false;
+    m_avMineBotBgInstance = 0;
     m_avAggressiveMode = false;
     m_avStayGuardAfterCapture = false;
     m_bgProgressTicks = 0;

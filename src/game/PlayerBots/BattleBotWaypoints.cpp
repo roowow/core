@@ -1860,6 +1860,50 @@ static bool FindAVGYToGuard(BattleBotAI* pAI, uint32& outNode)
     return false;
 }
 
+// Stable GUID-based selection: returns true if this bot should be a mine bot for its team.
+// Called once per bot after the 5-minute delay. The lowest MINE_MISSION_COUNT GUIDs among
+// eligible DPS bots (non-healer, no fixed GY guard, not in temp GY hold) become mine bots.
+static bool ShouldBeAVMineBot(BattleBotAI const* pAI)
+{
+    constexpr uint32 MINE_MISSION_COUNT = 5;
+    Team const team = pAI->me->GetTeam();
+    Map* map = pAI->me->GetMap();
+    if (!map)
+        return false;
+
+    std::vector<uint32> eligibleGuids;
+    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
+    {
+        Player* player = itr->getSource();
+        if (!player || player->GetTeam() != team || !player->IsBot())
+            continue;
+        BattleBotAI const* pBotAI = dynamic_cast<BattleBotAI const*>(player->AI());
+        if (!pBotAI)
+            continue;
+        if (CombatBotBaseAI::IsHealerClass(player->GetClass()))
+            continue;
+        if (pBotAI->m_avAssignedGY != 0)
+            continue;
+        if (BattleBotIsInAVGyCaptureHold(pBotAI))
+            continue;
+        eligibleGuids.push_back(player->GetGUIDLow());
+    }
+
+    std::sort(eligibleGuids.begin(), eligibleGuids.end());
+
+    uint32 const myGuid = pAI->me->GetGUIDLow();
+    uint32 count = 0;
+    for (uint32 guid : eligibleGuids)
+    {
+        if (count >= MINE_MISSION_COUNT)
+            break;
+        if (guid == myGuid)
+            return true;
+        ++count;
+    }
+    return false;
+}
+
 static bool BattleBotSelectAVGuardObjective(BattleBotAI* pAI)
 {
     BattleGround* bg = pAI->me->GetBattleGround();
@@ -2063,42 +2107,73 @@ bool BattleBotAI::StartNewPathToObjective()
                 return BattleBotSelectAVGuardObjective(this);
             }
 
-            // Alliance and Horde code is intentionally different.
-            // Horde bots are more united and always go together.
-            // Alliance bots can pick random objective.
-
-            if (me->GetTeam() == HORDE)
+            // Mine bot decision: determined once per bot after a 5-minute delay.
+            // The lowest MINE_MISSION_COUNT GUIDs among eligible DPS bots become mine bots.
+            // This avoids routing mine bots before they have exited their starting cave.
             {
-                // TEMP TEST: 40% of Horde bots attack Coldtooth Mine (Snivvle).
-                // Remove this block once mine mission logic (Tasks 4-6) is implemented.
-                if (roll_chance_u(40))
+                constexpr uint32 MINE_BOT_DELAY_MS = 5 * 60 * 1000;
+                if ((!m_avMineBotDecided || m_avMineBotBgInstance != bg->GetInstanceID()) &&
+                    bg->GetStartTime() >= MINE_BOT_DELAY_MS)
+                {
+                    m_avMineBotDecided = true;
+                    m_avMineBotBgInstance = bg->GetInstanceID();
+                    m_avIsMineBot = ShouldBeAVMineBot(this);
+                }
+            }
+
+            // Mine bot release: once the mine boss is dead the bot returns to normal routing.
+            if (m_avIsMineBot)
+            {
+                bool const mineBossAlive = (me->GetTeam() == ALLIANCE)
+                    ? bg->IsActiveEvent(BG_AV_MINE_BOSSES_NORTH, BG_AV_TEAM_NEUTRAL)
+                    : bg->IsActiveEvent(BG_AV_MINE_BOSSES_SOUTH, BG_AV_TEAM_NEUTRAL);
+                if (!mineBossAlive)
+                    m_avIsMineBot = false;
+            }
+
+            // Mine bot routing (both teams handled here, before team-specific push logic).
+            if (m_avIsMineBot)
+            {
+                if (me->GetTeam() == ALLIANCE)
+                {
+                    static Position const morlochPos = { 864.3466f, -443.8597f, 50.8458f, 0.0f };
+                    if (me->GetDistance(morlochPos.x, morlochPos.y, morlochPos.z) > 30.0f)
+                    {
+                        if (StartNewPathToPosition(morlochPos, vPaths_AV))
+                            return true;
+                        // Fallback: directly assign mine path so pathfinder navigates to WP 0.
+                        m_currentPath = &vPath_AV_Stormpike_to_Irondeep_Morloch;
+                        m_movingInReverse = false;
+                        m_currentPoint = static_cast<uint32>(-1);
+                        MoveToNextPoint();
+                        return true;
+                    }
+                    return true; // Already at mine — stay and let combat AI engage Morloch.
+                }
+                else // HORDE
                 {
                     static Position const snivvlePos = { -850.7347f, -92.2076f, 68.5046f, 0.0f };
-                    if (me->GetDistance(snivvlePos.x, snivvlePos.y, snivvlePos.z) > 100.0f)
+                    if (me->GetDistance(snivvlePos.x, snivvlePos.y, snivvlePos.z) > 30.0f)
                     {
-                        // Outside mine: approach normally.
                         if (StartNewPathToPosition(snivvlePos, vPaths_AV))
                             return true;
-                        // Bypass 50-yard constraint: directly assign mine path so the bot
-                        // pathfinds to the path start and follows it even from the cave.
+                        // Fallback: directly assign mine path.
                         m_currentPath = &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
                         m_movingInReverse = false;
                         m_currentPoint = static_cast<uint32>(-1);
                         MoveToNextPoint();
                         return true;
                     }
-                    else
-                    {
-                        // Inside mine after boss kill: exit by reversing the mine path back
-                        // to WP 0 (mine entrance), where normal Horde paths resume.
-                        m_currentPath = &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
-                        m_movingInReverse = true;
-                        m_currentPoint = static_cast<uint32>(m_currentPath->size());
-                        MoveToNextPoint();
-                        return true;
-                    }
+                    return true; // Already at mine — stay and let combat AI engage Snivvle.
                 }
+            }
 
+            // Alliance and Horde code is intentionally different.
+            // Horde bots are more united and always go together.
+            // Alliance bots can pick random objective.
+
+            if (me->GetTeam() == HORDE)
+            {
                 // End Boss
                 if (!bg->IsActiveEvent(BG_AV_DUN_BALDAR_SOUTH_BUNKER, ALLIANCE_CONTROLLED) &&
                     !bg->IsActiveEvent(BG_AV_DUN_BALDAR_NORTH_BUNKER, ALLIANCE_CONTROLLED) &&
@@ -2158,35 +2233,6 @@ bool BattleBotAI::StartNewPathToObjective()
             }
             else // ALLIANCE
             {
-                // TEMP TEST: 5% of Alliance bots attack Irondeep Mine (Morloch).
-                // Remove this block once mine mission logic (Tasks 4-6) is implemented.
-                // z < 90: Alliance cave floor is at z=97-99; the slope drops below z=90
-                // only after the bot has cleared the cave exit area. Routing to the mine
-                // while still inside the cave (z >= 90) would cause StartNewPathToPosition
-                // to find no valid proxy (all nearby paths are excluded or out of range),
-                // but we gate it here explicitly to keep the intent clear.
-                if (me->GetGUIDLow() % 20 == 0 && me->GetPositionZ() < 90.0f)
-                {
-                    static Position const morlochPos = { 864.3466f, -443.8597f, 50.8458f, 0.0f };
-                    if (me->GetDistance(morlochPos.x, morlochPos.y, morlochPos.z) > 30.0f)
-                    {
-                        // Once the bot reaches Stormpike, mine WP 0 (638, -287, 30) enters
-                        // the 50-yd radius and StartNewPathToPosition selects the mine path.
-                        if (StartNewPathToPosition(morlochPos, vPaths_AV))
-                            return true;
-                    }
-                    else
-                    {
-                        // Inside mine: reverse the mine path back to WP 0 (Stormpike
-                        // Crossroad), then normal Alliance routing resumes from there.
-                        m_currentPath = &vPath_AV_Stormpike_to_Irondeep_Morloch;
-                        m_movingInReverse = true;
-                        m_currentPoint = static_cast<uint32>(m_currentPath->size());
-                        MoveToNextPoint();
-                        return true;
-                    }
-                }
-
                 // End boss
                 if (!bg->IsActiveEvent(BG_AV_ICEBLOOD_TOWER, HORDE_CONTROLLED) &&
                     !bg->IsActiveEvent(BG_AV_TOWER_POINT_TOWER, HORDE_CONTROLLED) &&

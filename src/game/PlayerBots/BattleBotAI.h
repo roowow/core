@@ -147,6 +147,11 @@ public:
     time_t m_avSkipObjectiveExpiry = 0;
     uint32 m_avAssignedGY = 0;
 
+    // AV mine bot identity (set once after 5-minute delay, stable for the BG session)
+    bool m_avIsMineBot = false;
+    bool m_avMineBotDecided = false;
+    uint32 m_avMineBotBgInstance = 0;
+
     // AV randomness state (per-bot decisions rolled on login/respawn)
     bool m_avAggressiveMode = false;       // true = attack enemies while traveling (30% chance)
     bool m_avStayGuardAfterCapture = false; // true = remain as guard after capture completes
