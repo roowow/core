@@ -1822,7 +1822,7 @@ static bool FindAVGYToGuard(BattleBotAI* pAI, uint32& outNode)
         }
     }
 
-    // Priority 3: Own native GYs after 5 minutes — 1 guard each, GUID-spread
+    // Priority 3: Own native GYs after 5 minutes — 2 guards each, GUID-spread
     if (bg->GetStartTime() < 5 * 60 * 1000u)
         return false;
 
@@ -1831,7 +1831,7 @@ static bool FindAVGYToGuard(BattleBotAI* pAI, uint32& outNode)
     {
         uint32 const node = ownNative[(guidBase + attempt) % 3];
         if (bg->IsActiveEvent(node, ownControlled) &&
-            CountAVBotsAssignedToGY(map, team, node) < 1)
+            CountAVBotsAssignedToGY(map, team, node) < 2)
         {
             outNode = node;
             return true;
@@ -2143,13 +2143,15 @@ bool BattleBotAI::StartNewPathToObjective()
                 if (me->GetGUIDLow() % 20 == 0)
                 {
                     static Position const morlochPos = { 864.3466f, -443.8597f, 50.8458f, 0.0f };
-                    if (me->GetDistance(morlochPos.x, morlochPos.y, morlochPos.z) > 100.0f)
+                    // Threshold 30 yds: bot physically at Morloch is <5 yds away;
+                    // Alliance cave is ~95 yds from Morloch in 3D (different hill),
+                    // so 30 yds correctly separates "in-mine" from "everywhere else".
+                    if (me->GetDistance(morlochPos.x, morlochPos.y, morlochPos.z) > 30.0f)
                     {
                         // Outside mine: path selection succeeds once the bot has exited the
                         // cave and reached the Stormpike Crossroad area (within 50 yds of
-                        // mine path WP 0). No direct-assignment fallback: the cave waiting
-                        // position is z=99 and WP 0 is z=30; MOVE_EXCLUDE_STEEP_SLOPES would
-                        // block that descent and leave the bot permanently stuck in the cave.
+                        // mine path WP 0). No direct-assignment fallback here: cave z=99,
+                        // WP 0 z=30 — MOVE_EXCLUDE_STEEP_SLOPES blocks that descent.
                         if (StartNewPathToPosition(morlochPos, vPaths_AV))
                             return true;
                     }
