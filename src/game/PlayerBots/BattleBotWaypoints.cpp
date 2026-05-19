@@ -1222,6 +1222,19 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
     &vPath_AV_TowerPoint_to_Coldtooth_Snivvle,
 };
 
+// Paths excluded from StartNewPathToPosition objective routing.
+// These are cave-exit paths whose WP 0 carries an AtCaveExit callback.
+// From inside the cave they are the only paths with waypoints in the
+// 50-yard search radius, so without this exclusion they get selected as
+// "proxy" routes for unrelated objectives, trapping bots in a WP-0 loop.
+// StartNewPathFromBeginning / StartNewPathFromAnywhere still use them.
+std::vector<BattleBotPath*> const vPaths_ObjectiveExcluded =
+{
+    &vPath_AV_Alliance_Cave_to_Alliance_Cave_Slop_Crossroad,
+    &vPath_AV_Horde_Cave_to_Tower_Point_Crossroad,
+    &vPath_AV_Horde_Cave_to_Frostwolf_Graveyard_Flag,
+};
+
 std::vector<BattleBotPath*> const vPaths_ObjectiveOnly =
 {
     &vPath_AV_Stonehearth_Bunker_First_Crossroad_to_Stonehearth_Bunker_Flag,
@@ -1420,6 +1433,10 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
 
     for (const auto& pPath : vPaths)
     {
+        // Cave-exit paths must not be selected as proxy routes for objectives.
+        if (std::find(vPaths_ObjectiveExcluded.begin(), vPaths_ObjectiveExcluded.end(), pPath) != vPaths_ObjectiveExcluded.end())
+            continue;
+
         {
             BattleBotWaypoint& lastPoint = ((*pPath)[pPath->size() - 1]);
             float const distanceFromPathEndToTarget = GetDistance3D(lastPoint, targetPosition);
@@ -2148,15 +2165,12 @@ bool BattleBotAI::StartNewPathToObjective()
                     // so 30 yds correctly separates "in-mine" from "everywhere else".
                     if (me->GetDistance(morlochPos.x, morlochPos.y, morlochPos.z) > 30.0f)
                     {
-                        // Search only the mine path (not all of vPaths_AV). This returns
-                        // false when no mine WP is within 50 yds, which is the case while
-                        // the bot is still in the cave. Falling through to normal Alliance
-                        // objectives lets StartNewPathFromBeginning handle the cave exit
-                        // cleanly (WP0 → MoveToNextPoint → WP1), matching non-mine bot
-                        // behavior. Once the bot reaches the Stormpike area, mine WP 0
-                        // (638, -287, 30) comes within 50 yds and routing kicks in.
-                        static std::vector<BattleBotPath*> const minePathsAlliance = { &vPath_AV_Stormpike_to_Irondeep_Morloch };
-                        if (StartNewPathToPosition(morlochPos, minePathsAlliance))
+                        // vPaths_ObjectiveExcluded prevents the cave exit path from being
+                        // selected as a proxy route, so this correctly returns false while
+                        // the bot is still in the cave (no mine-path WP within 50 yds).
+                        // Once the bot reaches Stormpike, mine WP 0 (638, -287, 30) enters
+                        // the 50-yd radius and the mine path is selected normally.
+                        if (StartNewPathToPosition(morlochPos, vPaths_AV))
                             return true;
                     }
                     else
