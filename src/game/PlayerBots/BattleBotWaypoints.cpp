@@ -2148,11 +2148,15 @@ bool BattleBotAI::StartNewPathToObjective()
                     // so 30 yds correctly separates "in-mine" from "everywhere else".
                     if (me->GetDistance(morlochPos.x, morlochPos.y, morlochPos.z) > 30.0f)
                     {
-                        // Outside mine: path selection succeeds once the bot has exited the
-                        // cave and reached the Stormpike Crossroad area (within 50 yds of
-                        // mine path WP 0). No direct-assignment fallback here: cave z=99,
-                        // WP 0 z=30 — MOVE_EXCLUDE_STEEP_SLOPES blocks that descent.
-                        if (StartNewPathToPosition(morlochPos, vPaths_AV))
+                        // Search only the mine path (not all of vPaths_AV). This returns
+                        // false when no mine WP is within 50 yds, which is the case while
+                        // the bot is still in the cave. Falling through to normal Alliance
+                        // objectives lets StartNewPathFromBeginning handle the cave exit
+                        // cleanly (WP0 → MoveToNextPoint → WP1), matching non-mine bot
+                        // behavior. Once the bot reaches the Stormpike area, mine WP 0
+                        // (638, -287, 30) comes within 50 yds and routing kicks in.
+                        static std::vector<BattleBotPath*> const minePathsAlliance = { &vPath_AV_Stormpike_to_Irondeep_Morloch };
+                        if (StartNewPathToPosition(morlochPos, minePathsAlliance))
                             return true;
                     }
                     else
