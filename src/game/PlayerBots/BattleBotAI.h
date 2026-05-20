@@ -44,9 +44,8 @@ enum AVBattleMode : uint8
 
 enum AVMineState : uint8
 {
-    AV_MINE_NONE      = 0,  // not a mine bot (or mine mission complete)
-    AV_MINE_GOING     = 1,  // travelling to mine / fighting boss
-    AV_MINE_RETURNING = 2,  // carrying loot back to supply NPC
+    AV_MINE_NONE  = 0,  // not a mine bot (or mine mission complete)
+    AV_MINE_GOING = 1,  // travelling to mine / fighting boss
 };
 
 class BattleBotAI : public CombatBotBaseAI
@@ -171,7 +170,6 @@ public:
     // AV mine bot state machine
     AVMineState m_avMineState = AV_MINE_NONE;
     uint8 m_avMineIndex = 0;        // BG_AV_NORTH_MINE or BG_AV_SOUTH_MINE
-    bool m_avMineRunComplete = false; // true after each run; cleared when boss respawns
 
     // AV strategy state (set once per BG session via InitAVStrategy(), derived from instance ID)
     uint8  m_avMode = 0;                         // AVBattleMode: 1=Native, 2=Push, 3=Random

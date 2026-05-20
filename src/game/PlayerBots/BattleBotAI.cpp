@@ -2624,9 +2624,8 @@ void BattleBotAI::OnLeaveBattleGround()
     m_avIsMineBot = false;
     m_avMineBotDecided = false;
     m_avMineBotBgInstance = 0;
-    m_avMineState = AV_MINE_NONE;  // clear carrier state for next BG
+    m_avMineState = AV_MINE_NONE;
     m_avMineIndex = 0;
-    m_avMineRunComplete = false;
     // AV strategy state: reset so InitAVStrategy() re-derives on next BG entry
     m_avStrategyDecided = false;           // allow re-init for next BG session
     m_avStrategyBgInstance = 0;           // clear stale instance ID

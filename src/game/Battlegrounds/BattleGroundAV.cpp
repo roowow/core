@@ -331,11 +331,6 @@ void BattleGroundAV::HandleKillUnit(Creature* creature, Player* killer)
         return;
 
     // Per-kill mine contributions for mine bots.
-    // Award +8 scraps / +2 ground / +2 world-boss when a bot kills any creature
-    // inside either mine cave. Mine bosses are excluded — their deaths trigger
-    // mine-ownership changes in the switch below (and carrier delivery awards
-    // separate larger contributions). Both vanilla (46/47) and modern (11657/11677)
-    // mine boss entries are excluded defensively.
     if (killer->IsBot())
     {
         uint32 const entry = creature->GetEntry();
@@ -345,21 +340,31 @@ void BattleGroundAV::HandleKillUnit(Creature* creature, Player* killer)
         constexpr uint32 SNIVVLE_MODERN  = 11677;
         bool isBoss = (entry == MORLOCH_VANILLA || entry == SNIVVLE_VANILLA ||
                        entry == MORLOCH_MODERN  || entry == SNIVVLE_MODERN);
-        if (!isBoss)
+
+        constexpr float irondeepX = 864.347f,   irondeepY = -443.860f, irondeepZ =  50.846f;
+        constexpr float coldtoothX = -850.735f, coldtoothY = -92.208f, coldtoothZ = 68.505f;
+        constexpr float MINE_RADIUS = 200.0f;
+        float dIron = creature->GetDistance(irondeepX,  irondeepY,  irondeepZ);
+        float dCold = creature->GetDistance(coldtoothX, coldtoothY, coldtoothZ);
+
+        if (isBoss)
         {
-            constexpr float irondeepX = 864.347f,   irondeepY = -443.860f, irondeepZ =  50.846f;
-            constexpr float coldtoothX = -850.735f, coldtoothY = -92.208f, coldtoothZ = 68.505f;
-            constexpr float MINE_RADIUS = 200.0f;
-            float dIron = creature->GetDistance(irondeepX,  irondeepY,  irondeepZ);
-            float dCold = creature->GetDistance(coldtoothX, coldtoothY, coldtoothZ);
-            if (dIron < MINE_RADIUS || dCold < MINE_RADIUS)
-            {
-                Team const team    = killer->GetTeam();
-                uint8 const mineIdx = (dIron <= dCold) ? BG_AV_NORTH_MINE : BG_AV_SOUTH_MINE;
-                BotContributeScraps(team, 8);
-                BotContributeGroundAssault(team, mineIdx, 2);
-                BotContributeWorldBossItems(team, 2);
-            }
+            // Boss kill counts as submission: award large contribution immediately.
+            // This replaces the old carrier-return mechanic.
+            Team const team     = killer->GetTeam();
+            uint8 const mineIdx = (dIron <= dCold) ? BG_AV_NORTH_MINE : BG_AV_SOUTH_MINE;
+            BotContributeScraps(team, 120);
+            BotContributeGroundAssault(team, mineIdx, 30);
+            BotContributeWorldBossItems(team, 20);
+        }
+        else if (dIron < MINE_RADIUS || dCold < MINE_RADIUS)
+        {
+            // Small per-kill contribution for normal mine creatures.
+            Team const team     = killer->GetTeam();
+            uint8 const mineIdx = (dIron <= dCold) ? BG_AV_NORTH_MINE : BG_AV_SOUTH_MINE;
+            BotContributeScraps(team, 8);
+            BotContributeGroundAssault(team, mineIdx, 2);
+            BotContributeWorldBossItems(team, 2);
         }
     }
 

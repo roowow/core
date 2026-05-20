@@ -1003,7 +1003,7 @@ bool ChatHandler::HandleDebugAVInfoCommand(char* /*args*/)
     // ── 第一节：战场资源状态 ──────────────────────────────────────────────
     PSendSysMessage("=== AV状态 [实例#%u  时间: %u分%02u秒] ===",
         bg->GetInstanceID(), mins, secs);
-    PSendSysMessage("阵营       | 士气 | 部队等级 | 碎布 | 铁深矿     | 寒牙矿     | 地面攻击");
+    PSendSysMessage("阵营       | 士气 | 部队等级 | 护甲碎片 | 铁深矿     | 寒牙矿     | 地面攻击");
     PSendSysMessage("------------------------------------------------------------------------");
 
     for (uint32 t = BG_TEAM_ALLIANCE; t <= BG_TEAM_HORDE; ++t)
@@ -1029,7 +1029,56 @@ bool ChatHandler::HandleDebugAVInfoCommand(char* /*args*/)
     PSendSysMessage("北矿(铁深): %-4s  南矿(寒牙): %s",
         mineOwnerName[northOwner], mineOwnerName[southOwner]);
 
-    // ── 第二节：机器人概要 ────────────────────────────────────────────────
+    // ── 第二节：事件触发进度 ──────────────────────────────────────────────
+    PSendSysMessage("--- 事件进度 ---");
+    for (uint32 t = BG_TEAM_ALLIANCE; t <= BG_TEAM_HORDE; ++t)
+    {
+        uint32 airSolCur  = av->m_challengeStatus[t][BG_AV_SOLDIER_AIR_ASSAULT];
+        uint32 airSolGoal = av->m_challengeGoals [t][BG_AV_SOLDIER_AIR_ASSAULT];
+        uint32 airLtCur   = av->m_challengeStatus[t][BG_AV_LIEUTENANT_AIR_ASSAULT];
+        uint32 airLtGoal  = av->m_challengeGoals [t][BG_AV_LIEUTENANT_AIR_ASSAULT];
+        uint32 airCmdCur  = av->m_challengeStatus[t][BG_AV_COMMANDER_AIR_ASSAULT];
+        uint32 airCmdGoal = av->m_challengeGoals [t][BG_AV_COMMANDER_AIR_ASSAULT];
+
+        uint32 cavHideCur  = av->m_challengeStatus[t][BG_AV_HIDE_CAVALRY_ASSAULT];
+        uint32 cavHideGoal = av->m_challengeGoals [t][BG_AV_HIDE_CAVALRY_ASSAULT];
+        uint32 cavTameCur  = av->m_challengeStatus[t][BG_AV_TAMED_CAVALRY_ASSAULT];
+        uint32 cavTameGoal = av->m_challengeGoals [t][BG_AV_TAMED_CAVALRY_ASSAULT];
+
+        uint32 gndIronCur  = av->m_challengeStatus[t][BG_AV_IRONDEEP_GROUND_ASSAULT];
+        uint32 gndIronGoal = av->m_challengeGoals [t][BG_AV_IRONDEEP_GROUND_ASSAULT];
+        uint32 gndColdCur  = av->m_challengeStatus[t][BG_AV_COLDTOOTH_GROUND_ASSAULT];
+        uint32 gndColdGoal = av->m_challengeGoals [t][BG_AV_COLDTOOTH_GROUND_ASSAULT];
+
+        uint32 bossCur  = av->m_challengeStatus[t][BG_AV_BLOOD_WORLDBOSS_ASSAULT];
+        uint32 bossGoal = av->m_challengeGoals [t][BG_AV_BLOOD_WORLDBOSS_ASSAULT];
+
+        bool airSolGo = av->m_challengePlayerGoStatus[t][BG_AV_AIR_ASSAULT_GLOBAL_SOLDIER];
+        bool airLtGo  = av->m_challengePlayerGoStatus[t][BG_AV_AIR_ASSAULT_GLOBAL_LIEUTENANT];
+        bool airCmdGo = av->m_challengePlayerGoStatus[t][BG_AV_AIR_ASSAULT_GLOBAL_COMMANDER];
+        bool cavGo    = av->m_challengePlayerGoStatus[t][BG_AV_CAVALRY_ASSAULT];
+        bool gndGo    = av->m_challengePlayerGoStatus[t][BG_AV_GROUND_ASSAULT];
+        bool bossGo   = av->m_challengePlayerGoStatus[t][BG_AV_WORLDBOSS_ASSAULT];
+
+        bool isAlliance = (t == BG_TEAM_ALLIANCE);
+        PSendSysMessage("[%s]", isAlliance ? "联盟" : "部落");
+        PSendSysMessage("  空中突击: 士兵%u/%u%s 中尉%u/%u%s 指挥%u/%u%s",
+            airSolCur,  airSolGoal,  airSolGo  ? "[触]" : "",
+            airLtCur,   airLtGoal,   airLtGo   ? "[触]" : "",
+            airCmdCur,  airCmdGoal,  airCmdGo  ? "[触]" : "");
+        PSendSysMessage("  骑兵突击: 隐藏%u/%u 驯服%u/%u%s",
+            cavHideCur, cavHideGoal, cavTameCur, cavTameGoal,
+            cavGo ? " [已触发]" : "");
+        PSendSysMessage("  地面突击(铁深物资/寒牙物资): 铁深%u/%u 寒牙%u/%u%s",
+            gndIronCur, gndIronGoal, gndColdCur, gndColdGoal,
+            gndGo ? " [已触发]" : "");
+        PSendSysMessage("  世界Boss(%s): %u/%u%s",
+            isAlliance ? "风暴水晶" : "矿区血液",
+            bossCur, bossGoal,
+            bossGo ? " [已触发]" : "");
+    }
+
+    // ── 第三节：机器人概要 ────────────────────────────────────────────────
     struct TeamBotStats
     {
         uint32 total        = 0;
@@ -1037,8 +1086,6 @@ bool ChatHandler::HandleDebugAVInfoCommand(char* /*args*/)
         uint8  mode         = 0;
         uint32 mineSlots    = 0;
         uint32 mineGoing    = 0;
-        uint32 mineReturning= 0;
-        uint32 mineDone     = 0;
         uint32 guardAssigned= 0;
         uint32 guardConfig  = 0;
         uint32 holdCapture  = 0;
@@ -1067,12 +1114,7 @@ bool ChatHandler::HandleDebugAVInfoCommand(char* /*args*/)
         }
 
         if (ai->m_avIsMineBot)
-        {
-            if (ai->m_avMineState == AV_MINE_GOING)           ++stats[t].mineGoing;
-            else if (ai->m_avMineState == AV_MINE_RETURNING)  ++stats[t].mineReturning;
-        }
-        else if (ai->m_avMineBotDecided && ai->m_avMineRunComplete)
-            ++stats[t].mineDone;
+            ++stats[t].mineGoing;
 
         if (ai->m_avAssignedGY != 0)           ++stats[t].guardAssigned;
         if (ai->m_avGuardGraveyards)            ++stats[t].guardConfig;
@@ -1080,18 +1122,18 @@ bool ChatHandler::HandleDebugAVInfoCommand(char* /*args*/)
     }
 
     PSendSysMessage("--- 机器人概要 ---");
-    PSendSysMessage("阵营       | 总数 | 模式 | 矿名额 | 矿(前/返/完) | 守卫配置 | 守卫激活 | 坚守");
-    PSendSysMessage("--------------------------------------------------------------------------");
+    PSendSysMessage("阵营       | 总数 | 模式 | 矿名额 | 矿中 | 守卫配置 | 守卫激活 | 坚守");
+    PSendSysMessage("---------------------------------------------------------------------");
 
     for (uint32 t = BG_TEAM_ALLIANCE; t <= BG_TEAM_HORDE; ++t)
     {
         TeamBotStats const& s = stats[t];
-        PSendSysMessage("%-9s | %4u | %-4s | %6u | %2u/%2u/%2u    | %8u | %8u | %4u",
+        PSendSysMessage("%-9s | %4u | %-4s | %6u | %4u | %8u | %8u | %4u",
             (t == BG_TEAM_ALLIANCE) ? "联盟" : "部落",
             s.total,
             (s.mode >= 1 && s.mode <= 3) ? modeName[s.mode] : "?",
             s.mineSlots,
-            s.mineGoing, s.mineReturning, s.mineDone,
+            s.mineGoing,
             s.guardConfig, s.guardAssigned,
             s.holdCapture);
     }

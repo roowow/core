@@ -969,6 +969,8 @@ BattleBotPath vPath_AV_Alliance_Cave_to_Alliance_Cave_Slop_Crossroad =
 // Mine path uses MoveToNextPointSpecial callbacks (MOVE_PATHFINDING | MOVE_RUN_MODE,
 // no MOVE_EXCLUDE_STEEP_SLOPES) so the pathfinder can handle the steep ascent
 // through the mine interior without rerouting through terrain walls.
+// WPs 0-18: outdoor section (Stormpike Crossroad → mine entrance).
+// WPs 19-192: full mine interior patrol recorded 20260520_233444.
 BattleBotPath vPath_AV_Stormpike_to_Irondeep_Morloch =
 {
     { 638.0870f, -287.8400f, 30.1471f, &MoveToNextPointSpecial },
@@ -990,64 +992,184 @@ BattleBotPath vPath_AV_Stormpike_to_Irondeep_Morloch =
     { 734.8254f, -297.0817f, 47.8769f, &MoveToNextPointSpecial },
     { 738.8505f, -302.8087f, 50.4943f, &MoveToNextPointSpecial },
     { 742.8948f, -308.5220f, 53.1261f, &MoveToNextPointSpecial },
-    { 747.2754f, -313.9810f, 55.0999f, &MoveToNextPointSpecial },
-    { 751.7374f, -319.3745f, 56.5670f, &MoveToNextPointSpecial },
-    { 756.1774f, -324.7858f, 58.0850f, &MoveToNextPointSpecial },
-    { 760.5327f, -330.2660f, 59.4319f, &MoveToNextPointSpecial },
-    { 765.0652f, -335.5873f, 60.7855f, &MoveToNextPointSpecial },
-    { 770.1476f, -340.3909f, 61.4104f, &MoveToNextPointSpecial },
-    { 775.4432f, -343.7472f, 61.4104f, &MoveToNextPointSpecial },
-    { 781.0787f, -343.5684f, 61.4104f, &MoveToNextPointSpecial },
-    { 786.3533f, -339.4595f, 61.9130f, &MoveToNextPointSpecial },
-    { 789.2404f, -332.4202f, 62.9791f, &MoveToNextPointSpecial },
-    { 796.4823f, -335.3680f, 63.0614f, &MoveToNextPointSpecial },
-    { 803.1797f, -338.5370f, 63.7152f, &MoveToNextPointSpecial },
-    { 810.5118f, -336.4881f, 64.5936f, &MoveToNextPointSpecial },
-    { 815.9957f, -330.8441f, 64.3564f, &MoveToNextPointSpecial },
-    { 821.3481f, -328.4308f, 64.0906f, &MoveToNextPointSpecial },
-    { 827.8917f, -330.4461f, 64.3465f, &MoveToNextPointSpecial },
-    { 833.1855f, -333.5173f, 64.6426f, &MoveToNextPointSpecial },
-    { 838.7567f, -337.7537f, 65.3710f, &MoveToNextPointSpecial },
-    { 843.8019f, -340.3744f, 65.7461f, &MoveToNextPointSpecial },
-    { 850.0931f, -343.4436f, 66.0264f, &MoveToNextPointSpecial },
-    { 856.5757f, -346.0758f, 65.5041f, &MoveToNextPointSpecial },
-    { 862.4332f, -347.8371f, 64.5341f, &MoveToNextPointSpecial },
-    { 870.0270f, -348.7738f, 64.5399f, &MoveToNextPointSpecial },
-    { 876.3622f, -347.7039f, 65.6523f, &MoveToNextPointSpecial },
-    { 882.1097f, -344.6449f, 66.6220f, &MoveToNextPointSpecial },
-    { 887.0400f, -339.6767f, 67.3502f, &MoveToNextPointSpecial },
-    { 891.6273f, -335.4755f, 67.4392f, &MoveToNextPointSpecial },
-    { 896.4573f, -333.1840f, 67.5219f, &MoveToNextPointSpecial },
-    { 904.6970f, -331.6394f, 67.2410f, &MoveToNextPointSpecial },
-    { 910.7316f, -332.3532f, 66.6613f, &MoveToNextPointSpecial },
-    { 917.2830f, -334.8167f, 66.2733f, &MoveToNextPointSpecial },
-    { 924.8119f, -337.8008f, 65.8492f, &MoveToNextPointSpecial },
-    { 928.6079f, -342.4911f, 65.4707f, &MoveToNextPointSpecial },
-    { 927.7592f, -350.2041f, 65.9241f, &MoveToNextPointSpecial },
-    { 926.0995f, -357.0023f, 65.6402f, &MoveToNextPointSpecial },
-    { 924.1185f, -363.7159f, 66.1701f, &MoveToNextPointSpecial },
-    { 922.2449f, -370.4605f, 65.4642f, &MoveToNextPointSpecial },
-    { 921.3293f, -376.6117f, 63.8428f, &MoveToNextPointSpecial },
-    { 920.9985f, -383.6017f, 61.6317f, &MoveToNextPointSpecial },
-    { 921.3293f, -390.5931f, 60.8913f, &MoveToNextPointSpecial },
-    { 921.8428f, -397.5742f, 60.1568f, &MoveToNextPointSpecial },
-    { 922.2695f, -404.5612f, 58.2709f, &MoveToNextPointSpecial },
-    { 922.6887f, -411.5469f, 56.4949f, &MoveToNextPointSpecial },
-    { 922.0705f, -417.4118f, 56.0405f, &MoveToNextPointSpecial },
-    { 919.4290f, -425.1350f, 56.6067f, &MoveToNextPointSpecial },
-    { 916.4502f, -431.3454f, 57.1667f, &MoveToNextPointSpecial },
-    { 911.2559f, -434.7462f, 57.5335f, &MoveToNextPointSpecial },
-    { 906.2648f, -435.2204f, 58.0658f, &MoveToNextPointSpecial },
-    { 898.4221f, -433.2715f, 58.0214f, &MoveToNextPointSpecial },
-    { 891.7562f, -431.1346f, 55.4655f, &MoveToNextPointSpecial },
-    { 885.0898f, -428.9992f, 53.7119f, &MoveToNextPointSpecial },
-    { 878.3228f, -427.2171f, 52.4257f, &MoveToNextPointSpecial },
-    { 873.2521f, -426.1608f, 51.1973f, &MoveToNextPointSpecial },
-    { 868.8007f, -431.5623f, 50.7682f, &MoveToNextPointSpecial },
-    { 865.9803f, -437.0531f, 50.6978f, &MoveToNextPointSpecial },
-    { 864.3466f, -443.8597f, 50.8458f, &MoveToNextPointSpecial },
+    { 749.9741f, -313.0966f, 55.2926f, nullptr },
+    { 757.1210f, -320.5660f, 57.5585f, nullptr },
+    { 757.6140f, -327.3914f, 58.6334f, nullptr },
+    { 762.2471f, -332.6387f, 59.8886f, nullptr },
+    { 766.9348f, -337.8362f, 61.4114f, nullptr },
+    { 771.8456f, -342.0069f, 61.4114f, nullptr },
+    { 776.7856f, -343.9720f, 61.4114f, nullptr },
+    { 782.6708f, -343.0394f, 61.4114f, nullptr },
+    { 788.0584f, -336.5657f, 62.6441f, nullptr },
+    { 790.6700f, -332.0114f, 63.0328f, nullptr },
+    { 797.3383f, -334.8674f, 62.9938f, nullptr },
+    { 801.7383f, -338.1904f, 63.4820f, nullptr },
+    { 808.1951f, -338.0619f, 64.4889f, nullptr },
+    { 812.2214f, -334.4272f, 64.5452f, nullptr },
+    { 815.8193f, -329.9876f, 64.3131f, nullptr },
+    { 821.9169f, -328.8660f, 64.1093f, nullptr },
+    { 827.7714f, -330.2855f, 64.3336f, nullptr },
+    { 833.4594f, -334.3627f, 64.7016f, nullptr },
+    { 839.1688f, -338.4121f, 65.4207f, nullptr },
+    { 845.1281f, -342.0790f, 65.9065f, nullptr },
+    { 851.2982f, -344.5918f, 65.9788f, nullptr },
+    { 857.9470f, -346.7812f, 65.2467f, nullptr },
+    { 863.2656f, -348.4494f, 64.3609f, nullptr },
+    { 869.2357f, -348.0496f, 64.5193f, nullptr },
+    { 874.9837f, -346.2871f, 65.4428f, nullptr },
+    { 881.2501f, -343.1736f, 66.7161f, nullptr },
+    { 887.3643f, -339.7654f, 67.3662f, nullptr },
+    { 893.4669f, -336.3365f, 67.5765f, nullptr },
+    { 899.4143f, -331.9313f, 67.5117f, nullptr },
+    { 905.8758f, -329.8451f, 67.3239f, nullptr },
+    { 910.8824f, -331.6965f, 66.6906f, nullptr },
+    { 917.2162f, -334.6771f, 66.2647f, nullptr },
+    { 923.5309f, -337.6971f, 66.0783f, nullptr },
+    { 928.4184f, -339.8672f, 65.2748f, nullptr },
+    { 933.7018f, -339.7291f, 64.3335f, nullptr },
+    { 939.2121f, -336.6114f, 63.2957f, nullptr },
+    { 945.1691f, -332.9358f, 62.4234f, nullptr },
+    { 951.9389f, -329.9099f, 62.0142f, nullptr },
+    { 958.3546f, -327.4232f, 61.8992f, nullptr },
+    { 952.9962f, -332.6707f, 62.6635f, nullptr },
+    { 946.2765f, -334.6309f, 63.0563f, nullptr },
+    { 939.6093f, -336.7635f, 63.2882f, nullptr },
+    { 932.6397f, -340.4206f, 64.5885f, nullptr },
+    { 930.6841f, -345.8302f, 65.6047f, nullptr },
+    { 932.0636f, -352.6909f, 66.0368f, nullptr },
+    { 927.6450f, -359.0630f, 65.7745f, nullptr },
+    { 922.5593f, -362.6730f, 66.4072f, nullptr },
+    { 923.9247f, -367.8446f, 65.8885f, nullptr },
+    { 930.0101f, -370.9507f, 66.3248f, nullptr },
+    { 934.0178f, -374.6649f, 65.9521f, nullptr },
+    { 934.5198f, -379.9965f, 64.2827f, nullptr },
+    { 938.4604f, -384.9354f, 63.6908f, nullptr },
+    { 938.5239f, -390.3865f, 62.6524f, nullptr },
+    { 935.8464f, -395.7358f, 61.4821f, nullptr },
+    { 929.3687f, -397.9735f, 60.5762f, nullptr },
+    { 923.7055f, -396.7885f, 60.3456f, nullptr },
+    { 920.4825f, -402.5423f, 58.8938f, nullptr },
+    { 920.6826f, -409.4213f, 57.1628f, nullptr },
+    { 924.3575f, -415.5543f, 55.9128f, nullptr },
+    { 928.8966f, -417.6603f, 56.3921f, nullptr },
+    { 927.8540f, -425.4566f, 56.6616f, nullptr },
+    { 930.9374f, -430.1976f, 55.5799f, nullptr },
+    { 935.9874f, -432.6905f, 55.4507f, nullptr },
+    { 940.8868f, -437.3302f, 55.2866f, nullptr },
+    { 945.0168f, -441.5298f, 55.1237f, nullptr },
+    { 951.1625f, -443.5104f, 55.6050f, nullptr },
+    { 959.0090f, -441.7212f, 55.7698f, nullptr },
+    { 964.3408f, -441.2900f, 56.0055f, nullptr },
+    { 969.7030f, -442.5423f, 56.9035f, nullptr },
+    { 969.9769f, -448.7678f, 57.3856f, nullptr },
+    { 967.9329f, -453.5570f, 57.5247f, nullptr },
+    { 961.5345f, -455.3502f, 56.7296f, nullptr },
+    { 955.2478f, -452.4745f, 56.9069f, nullptr },
+    { 951.2103f, -446.7579f, 56.3420f, nullptr },
+    { 946.8184f, -442.0459f, 55.1497f, nullptr },
+    { 941.0389f, -438.3454f, 55.3832f, nullptr },
+    { 934.5074f, -435.8312f, 55.7185f, nullptr },
+    { 927.7856f, -433.8958f, 55.7789f, nullptr },
+    { 922.3573f, -433.5148f, 56.4266f, nullptr },
+    { 915.8545f, -436.4665f, 57.1670f, nullptr },
+    { 911.9377f, -441.2616f, 57.3735f, nullptr },
+    { 909.4339f, -447.2007f, 57.5979f, nullptr },
+    { 907.5444f, -453.9388f, 58.0954f, nullptr },
+    { 906.0735f, -462.2965f, 58.9123f, nullptr },
+    { 906.5991f, -468.4090f, 58.7244f, nullptr },
+    { 903.4094f, -472.6341f, 58.4722f, nullptr },
+    { 903.0264f, -466.1058f, 58.7565f, nullptr },
+    { 905.4053f, -459.5250f, 58.7587f, nullptr },
+    { 907.1579f, -452.7517f, 58.0913f, nullptr },
+    { 908.1906f, -445.8306f, 57.8903f, nullptr },
+    { 907.0223f, -438.1575f, 57.9183f, nullptr },
+    { 902.0360f, -434.8175f, 58.3467f, nullptr },
+    { 895.3373f, -432.7959f, 57.1080f, nullptr },
+    { 889.1259f, -429.2722f, 54.5588f, nullptr },
+    { 883.8253f, -425.8016f, 53.4364f, nullptr },
+    { 878.2059f, -422.4061f, 52.5859f, nullptr },
+    { 872.4256f, -420.4440f, 51.4132f, nullptr },
+    { 866.6716f, -423.0157f, 50.8839f, nullptr },
+    { 864.5043f, -429.0670f, 50.5117f, nullptr },
+    { 862.7550f, -434.3589f, 50.2492f, nullptr },
+    { 863.1865f, -439.6559f, 50.5190f, nullptr },
+    { 867.9703f, -435.7375f, 50.8621f, nullptr },
+    { 872.9225f, -438.6662f, 52.4538f, nullptr },
+    { 877.4988f, -444.3521f, 54.6103f, nullptr },
+    { 882.3982f, -442.0868f, 54.6513f, nullptr },
+    { 875.0012f, -442.5977f, 54.3540f, nullptr },
+    { 870.5634f, -437.4556f, 51.2488f, nullptr },
+    { 867.6713f, -431.0822f, 50.6324f, nullptr },
+    { 866.0455f, -425.4446f, 50.6998f, nullptr },
+    { 861.5696f, -421.9699f, 51.0493f, nullptr },
+    { 855.8695f, -420.4463f, 50.6229f, nullptr },
+    { 848.9927f, -419.2355f, 49.8845f, nullptr },
+    { 843.2914f, -417.6939f, 48.2993f, nullptr },
+    { 836.8456f, -418.4646f, 47.3612f, nullptr },
+    { 831.8464f, -413.8861f, 47.7531f, nullptr },
+    { 827.6541f, -408.2002f, 48.3558f, nullptr },
+    { 826.8242f, -400.0729f, 47.6965f, nullptr },
+    { 827.5244f, -393.9712f, 47.6674f, nullptr },
+    { 827.5768f, -388.5997f, 47.7292f, nullptr },
+    { 829.6581f, -380.7886f, 47.6118f, nullptr },
+    { 832.6170f, -375.1532f, 48.0625f, nullptr },
+    { 835.6160f, -369.9710f, 48.2821f, nullptr },
+    { 841.8552f, -369.1906f, 48.2812f, nullptr },
+    { 849.4988f, -368.9225f, 47.6919f, nullptr },
+    { 845.3161f, -365.4579f, 47.5076f, nullptr },
+    { 840.3666f, -367.0207f, 47.9496f, nullptr },
+    { 834.9725f, -363.5636f, 47.9857f, nullptr },
+    { 831.9970f, -357.2296f, 47.5389f, nullptr },
+    { 829.9485f, -349.8815f, 46.9633f, nullptr },
+    { 826.4904f, -345.6635f, 48.0302f, nullptr },
+    { 821.4036f, -341.5811f, 49.3061f, nullptr },
+    { 815.6425f, -337.6053f, 49.5992f, nullptr },
+    { 811.4964f, -334.0757f, 50.6470f, nullptr },
+    { 806.9940f, -329.1862f, 51.9886f, nullptr },
+    { 802.8763f, -325.4006f, 52.3027f, nullptr },
+    { 799.8839f, -320.5759f, 52.6741f, nullptr },
+    { 795.9949f, -316.3070f, 54.0191f, nullptr },
+    { 800.8972f, -321.7757f, 52.3870f, nullptr },
+    { 805.3230f, -327.1974f, 52.1261f, nullptr },
+    { 809.9796f, -332.4237f, 51.0680f, nullptr },
+    { 814.9395f, -337.3608f, 49.7216f, nullptr },
+    { 820.0442f, -342.1493f, 49.0618f, nullptr },
+    { 825.3945f, -346.6621f, 47.8123f, nullptr },
+    { 830.2791f, -351.7588f, 46.9812f, nullptr },
+    { 832.2368f, -356.5119f, 47.5205f, nullptr },
+    { 832.9245f, -362.1476f, 47.8918f, nullptr },
+    { 832.2316f, -367.8243f, 48.0283f, nullptr },
+    { 829.7338f, -373.3723f, 47.8687f, nullptr },
+    { 827.9733f, -379.3525f, 47.5795f, nullptr },
+    { 826.8942f, -386.2657f, 47.7607f, nullptr },
+    { 826.5557f, -393.2550f, 47.7490f, nullptr },
+    { 826.4606f, -400.2542f, 47.7532f, nullptr },
+    { 826.5320f, -408.1244f, 48.5734f, nullptr },
+    { 829.2873f, -413.4566f, 48.2818f, nullptr },
+    { 831.7641f, -418.7356f, 47.6215f, nullptr },
+    { 828.7030f, -424.1270f, 48.0091f, nullptr },
+    { 827.1041f, -430.6973f, 48.1797f, nullptr },
+    { 826.2712f, -438.9842f, 49.0085f, nullptr },
+    { 824.8983f, -445.0700f, 49.4648f, nullptr },
+    { 822.2959f, -452.4495f, 48.7827f, nullptr },
+    { 826.5121f, -456.5996f, 48.7336f, nullptr },
+    { 830.4738f, -452.9874f, 48.4066f, nullptr },
+    { 828.0916f, -446.1214f, 48.9109f, nullptr },
+    { 828.7092f, -439.8293f, 48.4782f, nullptr },
+    { 829.1599f, -433.9692f, 47.9110f, nullptr },
+    { 831.1500f, -429.2800f, 47.6688f, nullptr },
+    { 834.0696f, -422.2478f, 47.6638f, nullptr },
+    { 838.5847f, -418.4668f, 47.4341f, nullptr },
+    { 843.6133f, -416.7885f, 48.3666f, nullptr },
+    { 849.0623f, -418.3384f, 49.8665f, nullptr },
+    { 854.1639f, -420.6887f, 50.4827f, nullptr },
+    { 859.1237f, -427.0638f, 50.5451f, nullptr },
+    { 861.6859f, -433.5741f, 50.1260f, nullptr },
+    { 863.7015f, -440.2736f, 50.6062f, nullptr },
 };
 
+// WPs 0-22: outdoor section (TowerPoint crossroad → mine entrance).
+// WPs 23-241: full mine interior patrol recorded 20260520_234012.
 BattleBotPath vPath_AV_TowerPoint_to_Coldtooth_Snivvle =
 {
     { -846.8260f, -355.1810f, 50.0754f, nullptr },
@@ -1073,71 +1195,225 @@ BattleBotPath vPath_AV_TowerPoint_to_Coldtooth_Snivvle =
     { -953.5179f, -282.4456f, 63.6195f, nullptr },
     { -956.5792f, -276.1507f, 63.5245f, nullptr },
     { -959.2665f, -269.6910f, 63.7585f, nullptr },
-    { -960.2833f, -262.7704f, 64.3421f, nullptr },
-    { -959.1378f, -256.7336f, 64.9495f, nullptr },
-    { -954.3208f, -251.2252f, 65.3379f, nullptr },
-    { -950.5594f, -246.2899f, 65.6322f, nullptr },
-    { -945.4386f, -244.1082f, 65.9180f, nullptr },
-    { -939.8275f, -241.9550f, 66.4189f, nullptr },
-    { -933.3918f, -237.4376f, 67.1937f, nullptr },
-    { -928.5602f, -232.3808f, 67.8597f, nullptr },
-    { -925.4470f, -225.2723f, 69.3805f, nullptr },
-    { -924.5667f, -220.0994f, 70.5566f, nullptr },
-    { -925.4279f, -214.7184f, 71.6138f, nullptr },
-    { -928.6381f, -207.9140f, 73.0227f, nullptr },
-    { -933.3755f, -204.6613f, 74.3951f, nullptr },
-    { -939.8578f, -202.0197f, 76.4508f, nullptr },
-    { -944.5110f, -199.4895f, 77.0072f, nullptr },
-    { -944.0008f, -193.2953f, 76.8878f, nullptr },
-    { -941.1964f, -187.4930f, 77.5361f, nullptr },
-    { -942.8546f, -182.5168f, 78.4077f, nullptr },
-    { -947.9466f, -177.2496f, 78.4463f, nullptr },
-    { -953.4483f, -173.4925f, 78.1010f, nullptr },
-    { -954.7617f, -167.4946f, 78.1104f, nullptr },
-    { -953.0056f, -162.7873f, 78.3515f, nullptr },
-    { -950.2720f, -156.3431f, 78.7969f, nullptr },
-    { -947.6274f, -149.8627f, 79.4500f, nullptr },
-    { -945.1370f, -143.3210f, 79.9146f, nullptr },
-    { -943.8690f, -138.2334f, 79.8593f, nullptr },
-    { -943.3285f, -131.4956f, 79.1605f, nullptr },
-    { -944.6203f, -124.6160f, 78.4408f, nullptr },
-    { -945.6746f, -117.6968f, 78.8467f, nullptr },
-    { -946.9941f, -112.5348f, 79.7423f, nullptr },
-    { -950.8286f, -107.5055f, 80.7873f, nullptr },
-    { -954.6636f, -104.1033f, 81.2618f, nullptr },
-    { -960.0722f, -99.6634f, 81.4109f, nullptr },
-    { -964.3049f, -95.1076f, 81.4145f, nullptr },
-    { -967.2874f, -88.5635f, 81.1775f, nullptr },
-    { -967.0710f, -81.5658f, 80.5754f, nullptr },
-    { -965.7562f, -74.6904f, 80.1361f, nullptr },
-    { -964.3475f, -67.8336f, 79.8033f, nullptr },
-    { -963.5542f, -61.6764f, 78.7310f, nullptr },
-    { -966.6141f, -55.0845f, 77.4820f, nullptr },
-    { -960.8079f, -55.9332f, 78.9160f, nullptr },
-    { -954.6627f, -57.7340f, 79.7014f, nullptr },
-    { -948.1019f, -60.1717f, 79.7711f, nullptr },
-    { -941.5959f, -62.7547f, 80.0057f, nullptr },
-    { -936.2493f, -64.6331f, 79.8637f, nullptr },
-    { -929.0509f, -64.8926f, 78.8937f, nullptr },
-    { -922.1203f, -64.0126f, 76.7897f, nullptr },
-    { -915.3257f, -62.3382f, 75.0193f, nullptr },
-    { -908.5811f, -60.4647f, 74.7523f, nullptr },
-    { -901.8364f, -58.5913f, 73.3433f, nullptr },
-    { -895.4684f, -57.0057f, 71.4998f, nullptr },
-    { -888.8160f, -56.6577f, 70.1055f, nullptr },
-    { -881.5418f, -57.5201f, 70.3146f, nullptr },
-    { -874.8353f, -59.5260f, 71.0993f, nullptr },
-    { -869.5035f, -60.8172f, 71.3211f, nullptr },
-    { -866.8955f, -65.3491f, 71.7876f, nullptr },
-    { -867.7218f, -72.2987f, 72.4164f, nullptr },
-    { -867.9849f, -82.7911f, 69.3123f, nullptr },
-    { -867.6506f, -89.7821f, 67.6387f, nullptr },
-    { -867.3318f, -96.7746f, 66.3379f, nullptr },
-    { -867.4017f, -103.2480f, 64.9578f, nullptr },
-    { -862.2948f, -105.1149f, 64.7026f, nullptr },
-    { -856.1605f, -102.3480f, 65.2198f, nullptr },
-    { -852.5985f, -97.6946f, 68.0407f, nullptr },
-    { -850.7347f, -92.2076f, 68.5046f, nullptr },
+    { -958.0262f, -267.3844f, 63.9660f, nullptr },
+    { -958.4664f, -262.3926f, 64.4046f, nullptr },
+    { -957.0034f, -256.2473f, 65.0218f, nullptr },
+    { -954.2914f, -251.9035f, 65.3252f, nullptr },
+    { -948.9855f, -247.8890f, 65.7690f, nullptr },
+    { -943.1499f, -244.0231f, 66.0588f, nullptr },
+    { -937.3189f, -240.1602f, 66.7761f, nullptr },
+    { -931.7636f, -236.4554f, 67.3808f, nullptr },
+    { -926.6116f, -231.7229f, 68.1387f, nullptr },
+    { -921.2256f, -225.7400f, 70.3748f, nullptr },
+    { -921.2448f, -219.1600f, 71.2780f, nullptr },
+    { -924.2188f, -212.8233f, 72.1173f, nullptr },
+    { -928.0421f, -206.6777f, 73.1019f, nullptr },
+    { -935.9578f, -203.6708f, 75.5265f, nullptr },
+    { -941.0697f, -202.0344f, 76.7069f, nullptr },
+    { -947.9166f, -200.6016f, 76.9914f, nullptr },
+    { -944.6596f, -194.5357f, 76.9694f, nullptr },
+    { -942.4153f, -189.9558f, 77.2564f, nullptr },
+    { -944.3124f, -183.0910f, 78.4790f, nullptr },
+    { -949.2844f, -178.7640f, 78.3343f, nullptr },
+    { -951.5369f, -173.1046f, 78.2042f, nullptr },
+    { -951.3700f, -165.9680f, 78.6602f, nullptr },
+    { -950.1734f, -158.1762f, 78.6425f, nullptr },
+    { -947.6752f, -151.6373f, 79.3271f, nullptr },
+    { -946.3480f, -146.6797f, 79.6631f, nullptr },
+    { -945.3856f, -138.8983f, 79.9083f, nullptr },
+    { -943.4861f, -133.0375f, 79.3952f, nullptr },
+    { -943.8383f, -126.4054f, 78.4719f, nullptr },
+    { -942.2822f, -121.6436f, 78.1914f, nullptr },
+    { -943.1924f, -116.4762f, 79.0995f, nullptr },
+    { -946.3169f, -112.0375f, 79.7562f, nullptr },
+    { -951.3091f, -109.1263f, 80.6905f, nullptr },
+    { -954.9819f, -105.0732f, 81.2087f, nullptr },
+    { -960.0182f, -98.9004f, 81.4630f, nullptr },
+    { -964.3766f, -92.4264f, 81.4304f, nullptr },
+    { -969.5428f, -88.8461f, 81.3587f, nullptr },
+    { -971.3616f, -83.1058f, 80.6514f, nullptr },
+    { -968.1661f, -75.8115f, 79.9334f, nullptr },
+    { -964.1345f, -69.6919f, 80.0251f, nullptr },
+    { -963.3066f, -63.9375f, 79.1705f, nullptr },
+    { -966.1097f, -58.7191f, 77.8783f, nullptr },
+    { -968.2316f, -54.0880f, 77.1291f, nullptr },
+    { -972.1962f, -50.2777f, 76.2404f, nullptr },
+    { -976.3509f, -43.0637f, 75.9518f, nullptr },
+    { -978.3452f, -37.8310f, 75.8187f, nullptr },
+    { -973.0225f, -39.3237f, 77.2176f, nullptr },
+    { -970.2410f, -45.2428f, 77.6381f, nullptr },
+    { -967.9938f, -50.2206f, 77.6783f, nullptr },
+    { -963.6252f, -54.5048f, 78.7189f, nullptr },
+    { -958.8996f, -56.7868f, 79.0756f, nullptr },
+    { -953.3061f, -57.5785f, 79.8634f, nullptr },
+    { -948.4694f, -56.2615f, 79.9092f, nullptr },
+    { -943.3876f, -62.9281f, 79.7095f, nullptr },
+    { -938.1875f, -65.3834f, 80.2135f, nullptr },
+    { -933.1954f, -61.0548f, 79.8231f, nullptr },
+    { -931.1484f, -56.4638f, 80.0582f, nullptr },
+    { -928.4746f, -50.7514f, 79.5639f, nullptr },
+    { -924.5546f, -47.0789f, 78.5143f, nullptr },
+    { -919.5144f, -45.0371f, 77.5098f, nullptr },
+    { -912.5443f, -43.2746f, 76.1364f, nullptr },
+    { -908.5737f, -47.4050f, 75.3328f, nullptr },
+    { -904.6812f, -54.0991f, 74.0286f, nullptr },
+    { -903.4513f, -60.0849f, 73.7683f, nullptr },
+    { -906.9292f, -65.6850f, 74.0121f, nullptr },
+    { -907.1702f, -71.5634f, 74.2805f, nullptr },
+    { -904.6023f, -77.4272f, 74.5471f, nullptr },
+    { -899.8743f, -81.6577f, 74.1212f, nullptr },
+    { -898.9984f, -88.1269f, 74.3444f, nullptr },
+    { -897.8920f, -93.6501f, 74.5764f, nullptr },
+    { -897.6190f, -98.8714f, 74.9345f, nullptr },
+    { -898.5678f, -104.5814f, 75.1668f, nullptr },
+    { -898.7932f, -109.9793f, 75.2446f, nullptr },
+    { -896.1526f, -115.0747f, 75.7175f, nullptr },
+    { -895.7001f, -120.3225f, 75.5120f, nullptr },
+    { -897.3519f, -125.1866f, 74.9976f, nullptr },
+    { -899.6663f, -131.0912f, 74.7799f, nullptr },
+    { -902.4193f, -135.6834f, 74.9487f, nullptr },
+    { -903.3541f, -141.7113f, 75.6109f, nullptr },
+    { -908.5148f, -146.4506f, 76.6521f, nullptr },
+    { -914.8497f, -148.5027f, 76.9636f, nullptr },
+    { -908.6008f, -144.8061f, 76.6648f, nullptr },
+    { -905.1782f, -138.7060f, 75.4483f, nullptr },
+    { -901.9520f, -133.1742f, 74.8083f, nullptr },
+    { -900.2200f, -127.4110f, 75.0022f, nullptr },
+    { -897.4749f, -122.1850f, 75.2973f, nullptr },
+    { -893.7896f, -116.2339f, 75.8101f, nullptr },
+    { -890.1310f, -109.9049f, 75.9451f, nullptr },
+    { -889.5350f, -103.4125f, 75.9082f, nullptr },
+    { -893.0192f, -96.6152f, 74.9999f, nullptr },
+    { -896.6045f, -90.6039f, 74.3748f, nullptr },
+    { -900.3971f, -84.7206f, 74.3495f, nullptr },
+    { -903.6666f, -78.7883f, 74.5309f, nullptr },
+    { -906.2255f, -73.6893f, 74.3782f, nullptr },
+    { -908.8524f, -69.2275f, 74.2432f, nullptr },
+    { -906.9767f, -62.0069f, 74.3351f, nullptr },
+    { -901.9204f, -58.2554f, 73.3702f, nullptr },
+    { -895.9319f, -57.0817f, 71.6221f, nullptr },
+    { -888.6734f, -56.2531f, 70.0344f, nullptr },
+    { -883.7520f, -55.0271f, 69.9786f, nullptr },
+    { -876.8777f, -53.0992f, 70.2030f, nullptr },
+    { -875.2785f, -47.4192f, 69.8982f, nullptr },
+    { -873.2711f, -41.9683f, 69.3706f, nullptr },
+    { -870.6176f, -34.6212f, 69.1455f, nullptr },
+    { -868.2780f, -28.6154f, 68.7580f, nullptr },
+    { -866.7368f, -22.9221f, 69.0853f, nullptr },
+    { -868.8026f, -16.2417f, 69.4659f, nullptr },
+    { -868.7053f, -10.6551f, 69.8751f, nullptr },
+    { -863.8822f, -6.2685f, 70.7067f, nullptr },
+    { -859.8013f, -2.4118f, 71.6447f, nullptr },
+    { -856.1391f, -6.7193f, 71.0237f, nullptr },
+    { -853.6738f, -13.9860f, 70.4332f, nullptr },
+    { -859.3860f, -20.1693f, 70.6999f, nullptr },
+    { -863.8373f, -24.8841f, 69.4740f, nullptr },
+    { -864.6612f, -30.4740f, 69.3611f, nullptr },
+    { -865.8622f, -35.5748f, 70.3591f, nullptr },
+    { -868.1232f, -40.4532f, 69.9533f, nullptr },
+    { -869.6132f, -45.6944f, 69.6896f, nullptr },
+    { -868.4382f, -53.5580f, 70.4874f, nullptr },
+    { -870.3230f, -58.3560f, 71.0317f, nullptr },
+    { -865.8256f, -61.1102f, 71.2723f, nullptr },
+    { -859.5298f, -61.3595f, 71.2873f, nullptr },
+    { -851.1862f, -61.9063f, 71.5038f, nullptr },
+    { -845.3550f, -62.3956f, 72.0334f, nullptr },
+    { -839.2603f, -60.7806f, 72.7859f, nullptr },
+    { -834.1891f, -60.1509f, 72.9528f, nullptr },
+    { -829.0896f, -62.0853f, 72.3183f, nullptr },
+    { -826.5691f, -66.6731f, 72.6021f, nullptr },
+    { -833.9263f, -66.8847f, 72.6789f, nullptr },
+    { -840.8912f, -66.1959f, 72.5903f, nullptr },
+    { -847.2831f, -66.6002f, 72.4345f, nullptr },
+    { -854.0241f, -67.7552f, 72.7765f, nullptr },
+    { -859.3011f, -68.7990f, 72.4025f, nullptr },
+    { -864.7905f, -71.1847f, 72.1895f, nullptr },
+    { -869.0612f, -74.3124f, 72.3893f, nullptr },
+    { -865.5281f, -80.5923f, 70.4016f, nullptr },
+    { -868.8170f, -86.7670f, 68.1529f, nullptr },
+    { -871.7861f, -93.1056f, 67.3047f, nullptr },
+    { -873.4398f, -99.2777f, 66.3087f, nullptr },
+    { -872.7027f, -106.2755f, 65.0578f, nullptr },
+    { -869.8052f, -111.0749f, 64.8469f, nullptr },
+    { -864.2855f, -111.5721f, 64.4058f, nullptr },
+    { -856.9188f, -110.2722f, 64.2302f, nullptr },
+    { -855.4336f, -105.2469f, 64.8580f, nullptr },
+    { -854.3452f, -99.2238f, 67.2187f, nullptr },
+    { -850.1052f, -95.9145f, 68.5014f, nullptr },
+    { -852.6627f, -90.5634f, 68.5526f, nullptr },
+    { -852.6336f, -96.1762f, 68.5832f, nullptr },
+    { -854.3484f, -100.8989f, 66.4341f, nullptr },
+    { -857.0208f, -105.1530f, 64.8217f, nullptr },
+    { -861.5042f, -110.5248f, 64.2614f, nullptr },
+    { -866.1697f, -116.1414f, 64.6379f, nullptr },
+    { -870.2924f, -119.7013f, 64.5695f, nullptr },
+    { -874.2936f, -125.2442f, 64.1393f, nullptr },
+    { -871.5055f, -131.4679f, 62.7613f, nullptr },
+    { -868.3973f, -135.4443f, 61.6424f, nullptr },
+    { -868.5043f, -142.4357f, 61.3941f, nullptr },
+    { -871.6622f, -147.8361f, 62.2462f, nullptr },
+    { -875.9318f, -151.0173f, 62.5615f, nullptr },
+    { -881.2260f, -152.7749f, 62.0661f, nullptr },
+    { -888.4754f, -152.3926f, 61.5388f, nullptr },
+    { -895.3615f, -151.1348f, 61.4920f, nullptr },
+    { -902.2600f, -149.9507f, 61.7487f, nullptr },
+    { -909.6881f, -149.3220f, 61.9902f, nullptr },
+    { -916.4929f, -146.4249f, 62.2129f, nullptr },
+    { -917.5007f, -140.4414f, 62.1153f, nullptr },
+    { -918.4023f, -133.5360f, 61.8556f, nullptr },
+    { -922.8866f, -137.5430f, 61.2437f, nullptr },
+    { -923.1592f, -143.7832f, 61.5751f, nullptr },
+    { -924.0225f, -149.2767f, 61.8780f, nullptr },
+    { -927.8495f, -153.0869f, 61.6019f, nullptr },
+    { -932.9203f, -155.6496f, 61.0010f, nullptr },
+    { -937.5087f, -159.9830f, 61.2187f, nullptr },
+    { -941.0455f, -166.0211f, 63.0277f, nullptr },
+    { -944.4594f, -172.1290f, 63.4874f, nullptr },
+    { -948.0247f, -178.1518f, 64.7075f, nullptr },
+    { -952.0921f, -183.4381f, 65.7220f, nullptr },
+    { -956.7747f, -188.6405f, 66.3722f, nullptr },
+    { -961.2820f, -194.6123f, 67.1811f, nullptr },
+    { -955.5977f, -194.4117f, 67.0453f, nullptr },
+    { -952.0972f, -188.3499f, 66.2930f, nullptr },
+    { -948.6029f, -182.2846f, 65.1494f, nullptr },
+    { -944.8737f, -176.3638f, 63.8845f, nullptr },
+    { -941.0584f, -170.4951f, 63.0485f, nullptr },
+    { -937.0164f, -164.7811f, 61.7956f, nullptr },
+    { -932.5897f, -159.2725f, 60.9509f, nullptr },
+    { -927.3860f, -154.2337f, 61.5418f, nullptr },
+    { -922.6979f, -151.9650f, 61.8396f, nullptr },
+    { -916.4889f, -151.8197f, 62.0379f, nullptr },
+    { -909.1931f, -154.6437f, 61.6565f, nullptr },
+    { -903.5311f, -157.5129f, 61.4907f, nullptr },
+    { -895.6739f, -158.1805f, 62.2065f, nullptr },
+    { -888.7617f, -157.0911f, 61.9305f, nullptr },
+    { -882.0114f, -155.2503f, 62.3239f, nullptr },
+    { -875.8168f, -153.9659f, 63.1851f, nullptr },
+    { -870.3460f, -152.9317f, 63.9738f, nullptr },
+    { -865.1218f, -150.6951f, 62.6446f, nullptr },
+    { -860.4359f, -148.9337f, 62.3263f, nullptr },
+    { -854.1095f, -148.8653f, 62.5218f, nullptr },
+    { -847.1732f, -149.7830f, 63.4186f, nullptr },
+    { -841.7355f, -149.3583f, 63.6466f, nullptr },
+    { -836.1990f, -151.4686f, 63.1030f, nullptr },
+    { -829.7960f, -150.7334f, 62.2363f, nullptr },
+    { -826.5248f, -146.2442f, 62.7029f, nullptr },
+    { -829.7138f, -140.0741f, 62.6917f, nullptr },
+    { -833.9691f, -136.5332f, 61.9869f, nullptr },
+    { -840.1450f, -140.6282f, 62.7205f, nullptr },
+    { -847.5126f, -141.8634f, 61.9770f, nullptr },
+    { -853.3090f, -141.8069f, 61.4654f, nullptr },
+    { -858.7864f, -142.5569f, 61.6271f, nullptr },
+    { -863.9399f, -143.0960f, 61.6453f, nullptr },
+    { -866.6136f, -138.1031f, 61.4067f, nullptr },
+    { -867.9744f, -133.2425f, 62.1494f, nullptr },
+    { -870.1982f, -128.0217f, 63.6288f, nullptr },
+    { -870.0323f, -122.6509f, 64.3347f, nullptr },
+    { -867.6614f, -118.0945f, 64.5997f, nullptr },
+    { -863.3998f, -111.6357f, 64.3327f, nullptr },
+    { -858.9880f, -106.1409f, 64.6680f, nullptr },
+    { -854.8686f, -100.4918f, 66.4264f, nullptr },
+    { -851.2466f, -95.6850f, 68.5368f, nullptr },
 };
 
 // WSG and AB paths defined in BattleBotWaypoints2.cpp; extern declared in BattleBotWaypoints.h.
@@ -2131,21 +2407,10 @@ bool BattleBotAI::StartNewPathToObjective()
                 }
             }
 
-            // Mine bot decision: determined once per bot after a 5-minute delay.
+            // Mine bot decision: assigned once per BG after a 3-minute delay, then permanent.
             // Skipped entirely when mineMissionCount == 0 (e.g. Mode 2 / Push).
             if (m_avMineMissionCount > 0)
             {
-                // When a completed run's boss has respawned, re-enable selection for next run.
-                if (m_avMineRunComplete)
-                {
-                    uint8 const mineIdx2 = (me->GetTeam() == ALLIANCE) ? BG_AV_NORTH_MINE : BG_AV_SOUTH_MINE;
-                    uint8 const bossEvt  = (mineIdx2 == BG_AV_NORTH_MINE) ? BG_AV_MINE_BOSSES_NORTH : BG_AV_MINE_BOSSES_SOUTH;
-                    if (bg->IsActiveEvent(bossEvt, BG_AV_TEAM_NEUTRAL))
-                    {
-                        m_avMineRunComplete = false;
-                        m_avMineBotDecided  = false;
-                    }
-                }
                 constexpr uint32 MINE_BOT_DELAY_MS = 3 * 60 * 1000;
                 if ((!m_avMineBotDecided || m_avMineBotBgInstance != bg->GetInstanceID()) &&
                     bg->GetStartTime() >= MINE_BOT_DELAY_MS)
@@ -2156,13 +2421,13 @@ bool BattleBotAI::StartNewPathToObjective()
                 }
             }
 
-            // Mine bot state machine: GOING → fight boss → RETURNING → contribute → release.
+            // Mine bots patrol their mine indefinitely; boss kill contribution in HandleKillUnit.
+            // Alliance: WPs 0-18 outdoor → mine entrance, WPs 19-192 interior patrol loop.
+            // Horde:    WPs 0-22 outdoor → mine entrance, WPs 23-241 interior patrol loop.
             if (m_avIsMineBot)
             {
                 Team const myTeam = me->GetTeam();
                 uint8 const mineIdx = (myTeam == ALLIANCE) ? BG_AV_NORTH_MINE : BG_AV_SOUTH_MINE;
-                uint8 const bossMineEvent = (mineIdx == BG_AV_NORTH_MINE) ? BG_AV_MINE_BOSSES_NORTH : BG_AV_MINE_BOSSES_SOUTH;
-                bool const mineBossAlive = bg->IsActiveEvent(bossMineEvent, BG_AV_TEAM_NEUTRAL);
 
                 if (m_avMineState == AV_MINE_NONE)
                 {
@@ -2170,121 +2435,35 @@ bool BattleBotAI::StartNewPathToObjective()
                     m_avMineState = AV_MINE_GOING;
                 }
 
-                if (m_avMineState == AV_MINE_GOING)
-                {
-                    if (!mineBossAlive)
-                    {
-                        // Boss killed — select carrier: lowest GUID among all mine bots on team.
-                        uint32 lowestGuid = UINT32_MAX;
-                        Map* bgMap = me->GetMap();
-                        for (auto itr = bgMap->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
-                        {
-                            Player* pl = itr->getSource();
-                            if (!pl || pl->GetTeam() != myTeam || !pl->IsBot())
-                                continue;
-                            BattleBotAI const* pOtherAI = dynamic_cast<BattleBotAI const*>(pl->AI());
-                            if (pOtherAI && pOtherAI->m_avIsMineBot)
-                                lowestGuid = std::min(lowestGuid, pl->GetGUIDLow());
-                        }
-                        if (me->GetGUIDLow() == lowestGuid)
-                        {
-                            m_avMineState = AV_MINE_RETURNING; // This bot carries loot back.
-                        }
-                        else
-                        {
-                            // Non-carriers: walk back out of the mine before rejoining normal routing.
-                            // Without this they get stuck deep in the mine (no vPaths_AV waypoints
-                            // inside) and oscillate at the boss position forever.
-                            m_avIsMineBot = false;
-                            m_avMineRunComplete = true;
-                            m_currentPath = (myTeam == ALLIANCE)
-                                ? &vPath_AV_Stormpike_to_Irondeep_Morloch
-                                : &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
-                            m_movingInReverse = true;
-                            m_currentPoint = m_currentPath->size() - 1;
-                            MoveToNextPoint();
-                            return true;
-                        }
-                    }
-                    else
-                    {
-                        // Route to mine boss.
-                        if (myTeam == ALLIANCE)
-                        {
-                            static Position const morlochPos = { 864.3466f, -443.8597f, 50.8458f, 0.0f };
-                            if (me->GetDistance(morlochPos.x, morlochPos.y, morlochPos.z) > 30.0f)
-                            {
-                                if (StartNewPathToPosition(morlochPos, vPaths_AV))
-                                    return true;
-                                // Fallback: directly assign mine path so pathfinder navigates to WP 0.
-                                m_currentPath = &vPath_AV_Stormpike_to_Irondeep_Morloch;
-                                m_movingInReverse = false;
-                                m_currentPoint = static_cast<uint32>(-1);
-                                MoveToNextPoint();
-                                return true;
-                            }
-                            return true; // At mine — combat AI engages Morloch.
-                        }
-                        else
-                        {
-                            static Position const snivvlePos = { -850.7347f, -92.2076f, 68.5046f, 0.0f };
-                            if (me->GetDistance(snivvlePos.x, snivvlePos.y, snivvlePos.z) > 30.0f)
-                            {
-                                if (StartNewPathToPosition(snivvlePos, vPaths_AV))
-                                    return true;
-                                // Fallback: directly assign mine path.
-                                m_currentPath = &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
-                                m_movingInReverse = false;
-                                m_currentPoint = static_cast<uint32>(-1);
-                                MoveToNextPoint();
-                                return true;
-                            }
-                            return true; // At mine — combat AI engages Snivvle.
-                        }
-                    }
-                }
+                BattleBotPath* const pMinePath = (myTeam == ALLIANCE)
+                    ? &vPath_AV_Stormpike_to_Irondeep_Morloch
+                    : &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
 
-                if (m_avMineState == AV_MINE_RETURNING)
-                {
-                    // Quartermaster NPC positions from DB: Alliance 12096, Horde 12097 (map 30).
-                    static Position const allianceSupplyPos = { 587.633f, -45.9816f, 37.5438f, 0.0f };
-                    static Position const hordeSupplyPos    = { -1293.79f, -194.407f, 72.4398f, 0.0f };
-                    Position const& supplyPos = (myTeam == ALLIANCE) ? allianceSupplyPos : hordeSupplyPos;
-
-                    // 80-yard trigger: the AV path network reaches ~68 yards from supply NPC
-                    // (First Crossroad endpoint), so we fire contributions when the carrier
-                    // arrives at the first crossroad after exiting the mine.
-                    if (me->GetDistance(supplyPos.x, supplyPos.y, supplyPos.z) < 80.0f)
-                    {
-                        if (BattleGroundAV* bgAV = dynamic_cast<BattleGroundAV*>(bg))
-                        {
-                            bgAV->BotContributeScraps(myTeam, 120);
-                            bgAV->BotContributeGroundAssault(myTeam, m_avMineIndex, 30);
-                            bgAV->BotContributeWorldBossItems(myTeam, 20);
-                        }
-                        m_avIsMineBot = false;
-                        m_avMineState = AV_MINE_NONE;
-                        m_avMineRunComplete = true;  // Allow re-selection on next boss respawn.
-                        return false; // Fall through to normal GY routing.
-                    }
-
-                    // Try AV path network first (works once carrier has exited the mine).
-                    if (StartNewPathToPosition(supplyPos, vPaths_AV))
-                        return true;
-
-                    // StartNewPathToPosition fails when carrier is still deep in the mine:
-                    // the mine path's last waypoint (boss position) matches closestPoint == size-1
-                    // and is rejected. Walk the recorded path in reverse to exit the mine.
-                    // While m_currentPath is set, StartNewPathToObjective is not called again,
-                    // so the bot follows the path all the way to the entrance without interference.
-                    m_currentPath = (myTeam == ALLIANCE)
-                        ? &vPath_AV_Stormpike_to_Irondeep_Morloch
-                        : &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
-                    m_movingInReverse = true;
-                    m_currentPoint = m_currentPath->size() - 1;
-                    MoveToNextPoint();
+                // Already traveling — movement driven by MovementInform callbacks.
+                if (m_currentPath == pMinePath)
                     return true;
+
+                uint32 const interiorStart = (myTeam == ALLIANCE) ? 19 : 23;
+                uint32 const pathLast = static_cast<uint32>(pMinePath->size() - 1);
+                BattleBotWaypoint const& lastWP = (*pMinePath)[pathLast];
+
+                if (me->GetDistance(lastWP.x, lastWP.y, lastWP.z) < 50.0f)
+                {
+                    // Finished a forward pass — loop back to interior start.
+                    m_currentPath = pMinePath;
+                    m_movingInReverse = false;
+                    m_currentPoint = interiorStart - 1;
+                    MoveToNextPoint();
                 }
+                else
+                {
+                    // First entry or resumed after revival/combat far from boss.
+                    m_currentPath = pMinePath;
+                    m_movingInReverse = false;
+                    m_currentPoint = static_cast<uint32>(-1);
+                    MoveToNextPoint();
+                }
+                return true;
             }
 
             // holdCaptureUntilControlled: non-mine bots stay at a GY being assaulted until
