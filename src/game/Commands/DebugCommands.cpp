@@ -30,6 +30,8 @@
 #include "Log.h"
 #include "Language.h"
 #include "BattleGroundMgr.h"
+#include "BattleGroundAV.h"
+#include "PlayerBots/BattleBotAI.h"
 #include <fstream>
 #include "ObjectMgr.h"
 #include "ObjectGuid.h"
@@ -975,6 +977,126 @@ bool ChatHandler::HandleDebugGetItemStateCommand(char* args)
 bool ChatHandler::HandleDebugBattlegroundCommand(char* /*args*/)
 {
     sBattleGroundMgr.ToggleTesting();
+    return true;
+}
+
+bool ChatHandler::HandleDebugAVInfoCommand(char* /*args*/)
+{
+    Player* player = m_session->GetPlayer();
+    BattleGround* bg = player->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
+    {
+        SendSysMessage("You must be inside an Alterac Valley battleground.");
+        return true;
+    }
+
+    BattleGroundAV* av = static_cast<BattleGroundAV*>(bg);
+
+    uint32 elapsed = bg->GetStartTime();
+    uint32 mins = elapsed / 60000;
+    uint32 secs = (elapsed % 60000) / 1000;
+
+    static char const* const troopName[]     = { "Basic", "Seasoned", "Veteran", "Champion" };
+    static char const* const mineOwnerName[] = { "Alliance", "Horde", "Neutral" };
+    static char const* const modeName[]      = { "?", "Native", "Push", "Random" };
+
+    // ── Section 1: BG resource status ────────────────────────────────────
+    PSendSysMessage("=== AV Status [Instance #%u  Time: %um%02us] ===",
+        bg->GetInstanceID(), mins, secs);
+    PSendSysMessage("%-10s | Score | Troops   | Scraps | Irondeep  | Coldtooth | GndReady", "Team");
+    PSendSysMessage("----------------------------------------------------------------------");
+
+    for (uint32 t = BG_TEAM_ALLIANCE; t <= BG_TEAM_HORDE; ++t)
+    {
+        uint32 troopLvl = av->m_reinforcementLevel[t];
+        uint32 scraps   = av->m_teamQuestStatus[t][0];
+        uint32 ironCur  = av->m_challengeStatus[t][BG_AV_IRONDEEP_GROUND_ASSAULT];
+        uint32 ironGoal = av->m_challengeGoals[t][BG_AV_IRONDEEP_GROUND_ASSAULT];
+        uint32 coldCur  = av->m_challengeStatus[t][BG_AV_COLDTOOTH_GROUND_ASSAULT];
+        uint32 coldGoal = av->m_challengeGoals[t][BG_AV_COLDTOOTH_GROUND_ASSAULT];
+        bool   gndReady = av->isGroundChallengeInvocationReady(t);
+
+        PSendSysMessage("%-10s | %5d | %-8s | %6u | %4u/%-4u | %4u/%-4u | %s",
+            (t == BG_TEAM_ALLIANCE) ? "Alliance" : "Horde",
+            av->m_teamScores[t],
+            (troopLvl < 4) ? troopName[troopLvl] : "?",
+            scraps, ironCur, ironGoal, coldCur, coldGoal,
+            gndReady ? "YES" : "no");
+    }
+
+    uint32 northOwner = av->m_mineOwner[0] < 3 ? av->m_mineOwner[0] : 2;
+    uint32 southOwner = av->m_mineOwner[1] < 3 ? av->m_mineOwner[1] : 2;
+    PSendSysMessage("Mine[North/Irondeep]: %-8s  Mine[South/Coldtooth]: %s",
+        mineOwnerName[northOwner], mineOwnerName[southOwner]);
+
+    // ── Section 2: Bot summary ────────────────────────────────────────────
+    struct TeamBotStats
+    {
+        uint32 total        = 0;
+        uint32 stratDecided = 0;
+        uint8  mode         = 0;   // from first decided bot
+        uint32 mineSlots    = 0;   // from first decided bot
+        uint32 mineGoing    = 0;
+        uint32 mineReturning= 0;
+        uint32 mineDone     = 0;   // completed run (no longer mine bot)
+        uint32 guardAssigned= 0;   // m_avAssignedGY != 0
+        uint32 guardConfig  = 0;   // m_avGuardGraveyards == true
+        uint32 holdCapture  = 0;   // m_avHoldCaptureUntilControlled
+    } stats[BG_TEAMS_COUNT];
+
+    for (auto const& itr : bg->GetPlayers())
+    {
+        Player* p = ObjectAccessor::FindPlayer(itr.first);
+        if (!p || !p->IsBot())
+            continue;
+        BattleBotAI* ai = dynamic_cast<BattleBotAI*>(p->AI());
+        if (!ai)
+            continue;
+
+        uint32 t = (p->GetTeam() == ALLIANCE) ? BG_TEAM_ALLIANCE : BG_TEAM_HORDE;
+        ++stats[t].total;
+
+        if (!ai->m_avStrategyDecided)
+            continue;
+        ++stats[t].stratDecided;
+
+        if (stats[t].mode == 0)
+        {
+            stats[t].mode      = ai->m_avMode;
+            stats[t].mineSlots = ai->m_avMineMissionCount;
+        }
+
+        if (ai->m_avIsMineBot)
+        {
+            if (ai->m_avMineState == AV_MINE_GOING)      ++stats[t].mineGoing;
+            else if (ai->m_avMineState == AV_MINE_RETURNING) ++stats[t].mineReturning;
+        }
+        else if (ai->m_avMineBotDecided && ai->m_avMineRunComplete)
+            ++stats[t].mineDone;
+
+        if (ai->m_avAssignedGY != 0)           ++stats[t].guardAssigned;
+        if (ai->m_avGuardGraveyards)            ++stats[t].guardConfig;
+        if (ai->m_avHoldCaptureUntilControlled) ++stats[t].holdCapture;
+    }
+
+    PSendSysMessage("--- Bot Summary ---");
+    PSendSysMessage("%-10s | Bots | Mode   | MineSlots | Mine(G/R/D) | GuardCfg | GuardAct | HoldCap",
+        "Team");
+    PSendSysMessage("--------------------------------------------------------------------------");
+
+    for (uint32 t = BG_TEAM_ALLIANCE; t <= BG_TEAM_HORDE; ++t)
+    {
+        TeamBotStats const& s = stats[t];
+        PSendSysMessage("%-10s | %4u | %-6s | %9u | %2u/%2u/%2u   | %8u | %8u | %7u",
+            (t == BG_TEAM_ALLIANCE) ? "Alliance" : "Horde",
+            s.total,
+            (s.mode >= 1 && s.mode <= 3) ? modeName[s.mode] : "?",
+            s.mineSlots,
+            s.mineGoing, s.mineReturning, s.mineDone,
+            s.guardConfig, s.guardAssigned,
+            s.holdCapture);
+    }
+
     return true;
 }
 
