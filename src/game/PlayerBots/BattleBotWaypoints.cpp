@@ -1423,7 +1423,7 @@ void BattleBotAI::StartNewPathFromAnywhere()
 
     m_currentPath = pClosestPath;
     m_movingInReverse = false;
-    m_currentPoint = closestPoint-1;
+    m_currentPoint = (closestPoint > 0) ? closestPoint - 1 : 0;
     MoveToNextPoint();
 }
 
@@ -1509,7 +1509,10 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
 
     m_currentPath = pClosestPath;
     m_movingInReverse = reverse;
-    m_currentPoint = m_movingInReverse ? closestPoint + 1 : closestPoint - 1;
+    if (m_movingInReverse)
+        m_currentPoint = closestPoint + 1;
+    else
+        m_currentPoint = (closestPoint > 0) ? closestPoint - 1 : 0;
     MoveToNextPoint();
     return true;
 }
@@ -2172,9 +2175,18 @@ bool BattleBotAI::StartNewPathToObjective()
                         }
                         else
                         {
-                            m_avIsMineBot = false;       // Non-carriers rejoin main GY flow.
-                            m_avMineRunComplete = true;  // Allow re-selection on next boss respawn.
-                            return false;
+                            // Non-carriers: walk back out of the mine before rejoining normal routing.
+                            // Without this they get stuck deep in the mine (no vPaths_AV waypoints
+                            // inside) and oscillate at the boss position forever.
+                            m_avIsMineBot = false;
+                            m_avMineRunComplete = true;
+                            m_currentPath = (myTeam == ALLIANCE)
+                                ? &vPath_AV_Stormpike_to_Irondeep_Morloch
+                                : &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
+                            m_movingInReverse = true;
+                            m_currentPoint = m_currentPath->size() - 1;
+                            MoveToNextPoint();
+                            return true;
                         }
                     }
                     else

@@ -27,7 +27,10 @@
       "Read(//d/其他/wow/Development/remote//**)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(grep -n \"^INSERT INTO \\\\`creature_template\\\\`\" \"d:\\\\其他\\\\wow\\\\Development\\\\remote\\\\r05_core_dev\\\\sql\\\\world_full_14_june_2021.sql\")"
+      "Bash(grep -n \"^INSERT INTO \\\\`creature_template\\\\`\" \"d:\\\\其他\\\\wow\\\\Development\\\\remote\\\\r05_core_dev\\\\sql\\\\world_full_14_june_2021.sql\")",
+      "Bash(git -C \"d:/其他/wow/Development/remote/r05_core_dev\" diff HEAD -- src/game/PlayerBots/BattleBotWaypoints.h src/game/PlayerBots/BattleBotWaypoints.cpp src/game/PlayerBots/BattleBotAI.cpp src/game/PlayerBots/BattleBotAI.h src/game/Battlegrounds/BattleGroundAV.cpp src/game/0-Design/AVLogic.md)",
+      "Bash(git -C \"d:/其他/wow/Development/remote/r05_core_dev\" diff HEAD -- src/game/Battlegrounds/BattleGroundAV.cpp)",
+      "Bash(git -C \"d:/其他/wow/Development/remote/r05_core_dev\" diff HEAD~5 HEAD -- src/game/Battlegrounds/BattleGroundAV.cpp src/game/PlayerBots/BattleBotAI.cpp src/game/PlayerBots/BattleBotAI.h src/game/PlayerBots/BattleBotWaypoints.cpp src/game/PlayerBots/BattleBotWaypoints.h)"
     ]
   }
 }
