@@ -2677,7 +2677,7 @@ void BattleBotAI::InitAVStrategy()
             m_avGuardGraveyards            = false;
             m_avHoldCaptureUntilControlled = false;
             m_avAggressiveTravelCombat     = true;
-            m_avMineMissionCount           = 5;
+            m_avMineMissionCount           = 0; // disabled for testing
             m_avEnableThreePhase           = false;
             break;
 
@@ -2700,7 +2700,7 @@ void BattleBotAI::InitAVStrategy()
             // holdCapture and aggressiveTravel: per-bot GUID-stable ~30%, different seeds
             m_avHoldCaptureUntilControlled = (guidLow ^ instanceId) % 10 < 3;
             m_avAggressiveTravelCombat     = (guidLow ^ (instanceId * 31337u)) % 10 < 3;
-            m_avMineMissionCount           = 5;
+            m_avMineMissionCount           = 0; // disabled for testing
             m_avEnableThreePhase           = false;
             break;
     }
