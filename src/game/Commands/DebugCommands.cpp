@@ -986,7 +986,7 @@ bool ChatHandler::HandleDebugAVInfoCommand(char* /*args*/)
     BattleGround* bg = player->GetBattleGround();
     if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
     {
-        SendSysMessage("You must be inside an Alterac Valley battleground.");
+        SendSysMessage("请在奥特兰克山谷战场内使用此命令。");
         return true;
     }
 
@@ -996,15 +996,15 @@ bool ChatHandler::HandleDebugAVInfoCommand(char* /*args*/)
     uint32 mins = elapsed / 60000;
     uint32 secs = (elapsed % 60000) / 1000;
 
-    static char const* const troopName[]     = { "Basic", "Seasoned", "Veteran", "Champion" };
-    static char const* const mineOwnerName[] = { "Alliance", "Horde", "Neutral" };
-    static char const* const modeName[]      = { "?", "Native", "Push", "Random" };
+    static char const* const troopName[]     = { "新兵", "老兵", "精锐", "冠军" };
+    static char const* const mineOwnerName[] = { "联盟", "部落", "中立" };
+    static char const* const modeName[]      = { "?", "原生", "推进", "随机" };
 
-    // ── Section 1: BG resource status ────────────────────────────────────
-    PSendSysMessage("=== AV Status [Instance #%u  Time: %um%02us] ===",
+    // ── 第一节：战场资源状态 ──────────────────────────────────────────────
+    PSendSysMessage("=== AV状态 [实例#%u  时间: %u分%02u秒] ===",
         bg->GetInstanceID(), mins, secs);
-    PSendSysMessage("%-10s | Score | Troops   | Scraps | Irondeep  | Coldtooth | GndReady", "Team");
-    PSendSysMessage("----------------------------------------------------------------------");
+    PSendSysMessage("阵营       | 士气 | 部队等级 | 碎布 | 铁深矿     | 寒牙矿     | 地面攻击");
+    PSendSysMessage("------------------------------------------------------------------------");
 
     for (uint32 t = BG_TEAM_ALLIANCE; t <= BG_TEAM_HORDE; ++t)
     {
@@ -1016,32 +1016,32 @@ bool ChatHandler::HandleDebugAVInfoCommand(char* /*args*/)
         uint32 coldGoal = av->m_challengeGoals[t][BG_AV_COLDTOOTH_GROUND_ASSAULT];
         bool   gndReady = av->isGroundChallengeInvocationReady(t);
 
-        PSendSysMessage("%-10s | %5d | %-8s | %6u | %4u/%-4u | %4u/%-4u | %s",
-            (t == BG_TEAM_ALLIANCE) ? "Alliance" : "Horde",
+        PSendSysMessage("%-9s | %4d | %-8s | %4u | %4u/%-4u | %4u/%-4u | %s",
+            (t == BG_TEAM_ALLIANCE) ? "联盟" : "部落",
             av->m_teamScores[t],
             (troopLvl < 4) ? troopName[troopLvl] : "?",
             scraps, ironCur, ironGoal, coldCur, coldGoal,
-            gndReady ? "YES" : "no");
+            gndReady ? "已就绪" : "未就绪");
     }
 
     uint32 northOwner = av->GetMineOwner(0) < 3 ? av->GetMineOwner(0) : 2;
     uint32 southOwner = av->GetMineOwner(1) < 3 ? av->GetMineOwner(1) : 2;
-    PSendSysMessage("Mine[North/Irondeep]: %-8s  Mine[South/Coldtooth]: %s",
+    PSendSysMessage("北矿(铁深): %-4s  南矿(寒牙): %s",
         mineOwnerName[northOwner], mineOwnerName[southOwner]);
 
-    // ── Section 2: Bot summary ────────────────────────────────────────────
+    // ── 第二节：机器人概要 ────────────────────────────────────────────────
     struct TeamBotStats
     {
         uint32 total        = 0;
         uint32 stratDecided = 0;
-        uint8  mode         = 0;   // from first decided bot
-        uint32 mineSlots    = 0;   // from first decided bot
+        uint8  mode         = 0;
+        uint32 mineSlots    = 0;
         uint32 mineGoing    = 0;
         uint32 mineReturning= 0;
-        uint32 mineDone     = 0;   // completed run (no longer mine bot)
-        uint32 guardAssigned= 0;   // m_avAssignedGY != 0
-        uint32 guardConfig  = 0;   // m_avGuardGraveyards == true
-        uint32 holdCapture  = 0;   // m_avHoldCaptureUntilControlled
+        uint32 mineDone     = 0;
+        uint32 guardAssigned= 0;
+        uint32 guardConfig  = 0;
+        uint32 holdCapture  = 0;
     } stats[BG_TEAMS_COUNT];
 
     for (auto const& itr : bg->GetPlayers())
@@ -1068,8 +1068,8 @@ bool ChatHandler::HandleDebugAVInfoCommand(char* /*args*/)
 
         if (ai->m_avIsMineBot)
         {
-            if (ai->m_avMineState == AV_MINE_GOING)      ++stats[t].mineGoing;
-            else if (ai->m_avMineState == AV_MINE_RETURNING) ++stats[t].mineReturning;
+            if (ai->m_avMineState == AV_MINE_GOING)           ++stats[t].mineGoing;
+            else if (ai->m_avMineState == AV_MINE_RETURNING)  ++stats[t].mineReturning;
         }
         else if (ai->m_avMineBotDecided && ai->m_avMineRunComplete)
             ++stats[t].mineDone;
@@ -1079,16 +1079,15 @@ bool ChatHandler::HandleDebugAVInfoCommand(char* /*args*/)
         if (ai->m_avHoldCaptureUntilControlled) ++stats[t].holdCapture;
     }
 
-    PSendSysMessage("--- Bot Summary ---");
-    PSendSysMessage("%-10s | Bots | Mode   | MineSlots | Mine(G/R/D) | GuardCfg | GuardAct | HoldCap",
-        "Team");
+    PSendSysMessage("--- 机器人概要 ---");
+    PSendSysMessage("阵营       | 总数 | 模式 | 矿名额 | 矿(前/返/完) | 守卫配置 | 守卫激活 | 坚守");
     PSendSysMessage("--------------------------------------------------------------------------");
 
     for (uint32 t = BG_TEAM_ALLIANCE; t <= BG_TEAM_HORDE; ++t)
     {
         TeamBotStats const& s = stats[t];
-        PSendSysMessage("%-10s | %4u | %-6s | %9u | %2u/%2u/%2u   | %8u | %8u | %7u",
-            (t == BG_TEAM_ALLIANCE) ? "Alliance" : "Horde",
+        PSendSysMessage("%-9s | %4u | %-4s | %6u | %2u/%2u/%2u    | %8u | %8u | %4u",
+            (t == BG_TEAM_ALLIANCE) ? "联盟" : "部落",
             s.total,
             (s.mode >= 1 && s.mode <= 3) ? modeName[s.mode] : "?",
             s.mineSlots,

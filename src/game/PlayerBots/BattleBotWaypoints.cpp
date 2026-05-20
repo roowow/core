@@ -2146,7 +2146,7 @@ bool BattleBotAI::StartNewPathToObjective()
                         m_avMineBotDecided  = false;
                     }
                 }
-                constexpr uint32 MINE_BOT_DELAY_MS = 5 * 60 * 1000;
+                constexpr uint32 MINE_BOT_DELAY_MS = 3 * 60 * 1000;
                 if ((!m_avMineBotDecided || m_avMineBotBgInstance != bg->GetInstanceID()) &&
                     bg->GetStartTime() >= MINE_BOT_DELAY_MS)
                 {

@@ -22,6 +22,8 @@
 #include "Player.h"
 #include "BattleGround.h"
 #include "BattleGroundAV.h"
+#include "ObjectAccessor.h"
+#include "PlayerBots/BattleBotAI.h"
 #include "BattleGroundMgr.h"
 #include "Creature.h"
 #include "GameObject.h"
@@ -853,6 +855,81 @@ void BattleGroundAV::HandleQuestComplete(Unit* questGiver, uint32 questid, Playe
         RewardReputationToTeam((player->GetTeam() == ALLIANCE) ? BG_AV_FACTION_A : BG_AV_FACTION_H, reputation, player->GetTeam());
 }
 
+void BattleGroundAV::LogPeriodicStats()
+{
+    static char const* const mineTag[] = { "A", "H", "N" };
+    static char const* const modeTag[] = { "?", "Native", "Push", "Random" };
+
+    uint32 elapsed = GetStartTime();
+    uint32 t_s     = elapsed / 1000;
+
+    // BG resource status — one line per team
+    for (uint32 t = BG_TEAM_ALLIANCE; t <= BG_TEAM_HORDE; ++t)
+    {
+        uint32 ironCur  = m_challengeStatus[t][BG_AV_IRONDEEP_GROUND_ASSAULT];
+        uint32 ironGoal = m_challengeGoals[t][BG_AV_IRONDEEP_GROUND_ASSAULT];
+        uint32 coldCur  = m_challengeStatus[t][BG_AV_COLDTOOTH_GROUND_ASSAULT];
+        uint32 coldGoal = m_challengeGoals[t][BG_AV_COLDTOOTH_GROUND_ASSAULT];
+        sLog.outString("[AV_STAT] inst=%u t=%u team=%s score=%d troops=%u scraps=%u iron=%u/%u cold=%u/%u gnd=%u",
+            GetInstanceID(), t_s,
+            (t == BG_TEAM_ALLIANCE) ? "A" : "H",
+            m_teamScores[t],
+            m_reinforcementLevel[t],
+            m_teamQuestStatus[t][0],
+            ironCur, ironGoal,
+            coldCur, coldGoal,
+            (uint32)isGroundChallengeInvocationReady(t));
+    }
+
+    // Mine ownership
+    uint32 northOwner = m_mineOwner[0] < 3 ? m_mineOwner[0] : 2;
+    uint32 southOwner = m_mineOwner[1] < 3 ? m_mineOwner[1] : 2;
+    sLog.outString("[AV_MINE] inst=%u t=%u north=%s south=%s",
+        GetInstanceID(), t_s, mineTag[northOwner], mineTag[southOwner]);
+
+    // Bot summary — iterate BG players
+    struct BotStats
+    {
+        uint32 total = 0, mode = 0, slots = 0;
+        uint32 going = 0, ret = 0, done = 0;
+        uint32 gcfg = 0, gact = 0, hold = 0;
+    } bs[BG_TEAMS_COUNT];
+
+    for (auto const& itr : GetPlayers())
+    {
+        Player* p = ObjectAccessor::FindPlayer(itr.first);
+        if (!p || !p->IsBot()) continue;
+        BattleBotAI* ai = dynamic_cast<BattleBotAI*>(p->AI());
+        if (!ai) continue;
+
+        uint32 ti = (p->GetTeam() == ALLIANCE) ? BG_TEAM_ALLIANCE : BG_TEAM_HORDE;
+        ++bs[ti].total;
+        if (!ai->m_avStrategyDecided) continue;
+        if (bs[ti].mode == 0) { bs[ti].mode = ai->m_avMode; bs[ti].slots = ai->m_avMineMissionCount; }
+        if (ai->m_avIsMineBot)
+        {
+            if (ai->m_avMineState == AV_MINE_GOING)          ++bs[ti].going;
+            else if (ai->m_avMineState == AV_MINE_RETURNING)  ++bs[ti].ret;
+        }
+        else if (ai->m_avMineBotDecided && ai->m_avMineRunComplete) ++bs[ti].done;
+        if (ai->m_avAssignedGY != 0)            ++bs[ti].gact;
+        if (ai->m_avGuardGraveyards)            ++bs[ti].gcfg;
+        if (ai->m_avHoldCaptureUntilControlled) ++bs[ti].hold;
+    }
+
+    for (uint32 t = BG_TEAM_ALLIANCE; t <= BG_TEAM_HORDE; ++t)
+    {
+        BotStats const& s = bs[t];
+        sLog.outString("[AV_BOT]  inst=%u t=%u team=%s bots=%u mode=%s slots=%u going=%u ret=%u done=%u gcfg=%u gact=%u hold=%u",
+            GetInstanceID(), t_s,
+            (t == BG_TEAM_ALLIANCE) ? "A" : "H",
+            s.total,
+            (s.mode >= 1 && s.mode <= 3) ? modeTag[s.mode] : "?",
+            s.slots, s.going, s.ret, s.done,
+            s.gcfg, s.gact, s.hold);
+    }
+}
+
 void BattleGroundAV::UpdateScore(BattleGroundTeamIndex teamIdx, int32 points)
 {
     // note: to remove reinforcements points must be negative, for adding reinforcements points must be positive
@@ -905,6 +982,15 @@ void BattleGroundAV::Update(uint32 diff)
 
     if (GetStatus() == STATUS_IN_PROGRESS)
     {
+        /** Periodic stat logging (every 60 s) */
+        if (m_statLogTimer <= diff)
+        {
+            LogPeriodicStats();
+            m_statLogTimer = 60000;
+        }
+        else
+            m_statLogTimer -= diff;
+
         /** Horde Captain buff during battle */
         if (m_buffTimerHorde < diff)
         {
@@ -1721,6 +1807,8 @@ void BattleGroundAV::Reset()
         m_activeEvents[BG_AV_MINE_EVENT + i] = BG_AV_TEAM_NEUTRAL;
         m_mineTimer[i] = BG_AV_MINE_TICK_TIMER;
     }
+
+    m_statLogTimer = 60000;
 
     m_activeEvents[BG_AV_CAPTAIN_A]           = 0;
     m_activeEvents[BG_AV_CAPTAIN_H]           = 0;
