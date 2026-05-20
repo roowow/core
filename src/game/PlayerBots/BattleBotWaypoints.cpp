@@ -2156,7 +2156,8 @@ bool BattleBotAI::StartNewPathToObjective()
                     {
                         // Boss killed — select carrier: lowest GUID among all mine bots on team.
                         uint32 lowestGuid = UINT32_MAX;
-                        for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
+                        Map* bgMap = me->GetMap();
+                        for (auto itr = bgMap->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
                         {
                             Player* pl = itr->getSource();
                             if (!pl || pl->GetTeam() != myTeam || !pl->IsBot())
