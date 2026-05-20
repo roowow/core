@@ -896,7 +896,7 @@ void BattleGroundAV::LogPeriodicStats()
     struct BotStats
     {
         uint32 total = 0, mode = 0, slots = 0;
-        uint32 going = 0, ret = 0, done = 0;
+        uint32 going = 0;
         uint32 gcfg = 0, gact = 0, hold = 0;
     } bs[BG_TEAMS_COUNT];
 
@@ -913,10 +913,8 @@ void BattleGroundAV::LogPeriodicStats()
         if (bs[ti].mode == 0) { bs[ti].mode = ai->m_avMode; bs[ti].slots = ai->m_avMineMissionCount; }
         if (ai->m_avIsMineBot)
         {
-            if (ai->m_avMineState == AV_MINE_GOING)          ++bs[ti].going;
-            else if (ai->m_avMineState == AV_MINE_RETURNING)  ++bs[ti].ret;
+            if (ai->m_avMineState == AV_MINE_GOING) ++bs[ti].going;
         }
-        else if (ai->m_avMineBotDecided && ai->m_avMineRunComplete) ++bs[ti].done;
         if (ai->m_avAssignedGY != 0)            ++bs[ti].gact;
         if (ai->m_avGuardGraveyards)            ++bs[ti].gcfg;
         if (ai->m_avHoldCaptureUntilControlled) ++bs[ti].hold;
@@ -925,12 +923,12 @@ void BattleGroundAV::LogPeriodicStats()
     for (uint32 t = BG_TEAM_ALLIANCE; t <= BG_TEAM_HORDE; ++t)
     {
         BotStats const& s = bs[t];
-        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[AV_BOT]  inst=%u t=%u team=%s bots=%u mode=%s slots=%u going=%u ret=%u done=%u gcfg=%u gact=%u hold=%u",
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[AV_BOT]  inst=%u t=%u team=%s bots=%u mode=%s slots=%u going=%u gcfg=%u gact=%u hold=%u",
             GetInstanceID(), t_s,
             (t == BG_TEAM_ALLIANCE) ? "A" : "H",
             s.total,
             (s.mode >= 1 && s.mode <= 3) ? modeTag[s.mode] : "?",
-            s.slots, s.going, s.ret, s.done,
+            s.slots, s.going,
             s.gcfg, s.gact, s.hold);
     }
 }
