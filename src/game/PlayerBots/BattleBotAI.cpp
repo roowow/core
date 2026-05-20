@@ -24,6 +24,7 @@
 #include "Group.h"
 #include "Creature.h"
 #include "CreatureAI.h"
+#include "Chat.h"
 #include "Log.h"
 #include "MotionMaster.h"
 #include "ObjectMgr.h"
@@ -1839,6 +1840,10 @@ float BattleBotAI::GetMaxAggroDistanceForMap() const
     if (m_avAssignedGY != 0 || BattleBotIsInAVGyCaptureHold(this))
         return 50.0f;
 
+    // Non-aggressive travel: no new combat initiation outside objective radius.
+    if (!m_avAggressiveTravelCombat && !BattleBotIsNearAVFlag(this, AV_FLAG_DEFENSE_RADIUS))
+        return 0.0f;
+
     return 20.0f;
 }
 
@@ -1853,13 +1858,18 @@ bool BattleBotAI::ShouldUseAVOpeningPassiveCombat() const
         BattleBotIsInAVGyCaptureHold(this))
         return false;
 
-    uint32 const t = bg->GetStartTime();
+    // Mode with no passive opening (e.g. Native) never restricts target selection here.
+    if (m_avOpeningPassiveMinutes == 0)
+        return false;
 
-    // Rush phase (0-30 min): passive everywhere not at a flag.
-    if (t <= 30 * MINUTE * IN_MILLISECONDS)
+    uint32 const t = bg->GetStartTime();
+    uint32 const passiveMs = m_avOpeningPassiveMinutes * MINUTE * IN_MILLISECONDS;
+
+    // Passive opening phase: only target objective NPCs or retaliators.
+    if (t <= passiveMs)
         return true;
 
-    // Post-30 min: passive unless within objective radius.
+    // Post-opening: still passive unless within objective radius.
     return !BattleBotIsNearAVFlag(this, AV_FLAG_DEFENSE_RADIUS);
 }
 
@@ -2306,7 +2316,16 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
         }
     }
 
-    return pRootedFallback;
+    if (pRootedFallback)
+        return pRootedFallback;
+
+    // Korrak the Bloodrager (12159): neutral hostile to both factions, spawns ~2h into AV.
+    if (me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_AV)
+        if (Creature* pKorrak = me->FindNearestCreature(12159, 200.0f, true))
+            if (me->IsValidAttackTarget(pKorrak))
+                return pKorrak;
+
+    return nullptr;
 }
 
 Unit* BattleBotAI::SelectFollowTarget() const
@@ -2530,8 +2549,9 @@ void BattleBotAI::OnJustRevived()
         return;
     }
 
-    // Behavior 3: randomly become guard of nearest non-home owned GY on respawn
-    TryAssignAVRespawnGuard(this);
+    // Behavior 3: randomly become guard of nearest non-home owned GY on respawn (only if mode enables guards)
+    if (m_avGuardGraveyards)
+        TryAssignAVRespawnGuard(this);
     if (m_avAssignedGY != 0)
     {
         // Stay at the GY; UpdateOutOfCombatAI will route us to guard position
@@ -2539,13 +2559,6 @@ void BattleBotAI::OnJustRevived()
         if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
             StopMoving();
         return;
-    }
-
-    // Behavior 2: re-roll aggressive mode on each respawn
-    {
-        BattleGround* bg = me->GetBattleGround();
-        if (bg && bg->GetTypeID() == BATTLEGROUND_AV)
-            m_avAggressiveMode = roll_chance_u(30);
     }
 
     if (!me->SelectRandomUnfriendlyTarget(nullptr, 30.0f))
@@ -2594,8 +2607,6 @@ void BattleBotAI::OnEnterBattleGround()
             me->GetMotionMaster()->MovePoint(0, AV_WAITING_POS_HORDE.x + frand(-6.0f, 6.0f), AV_WAITING_POS_HORDE.y + frand(-6.0f, 6.0f), AV_WAITING_POS_HORDE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, AV_WAITING_POS_HORDE.o);
         else
             me->GetMotionMaster()->MovePoint(0, AV_WAITING_POS_ALLIANCE.x + frand(-6.0f, 6.0f), AV_WAITING_POS_ALLIANCE.y + frand(-6.0f, 6.0f), AV_WAITING_POS_ALLIANCE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, AV_WAITING_POS_ALLIANCE.o);
-        // Behavior 2: initial aggressive-mode roll on BG entry
-        m_avAggressiveMode = roll_chance_u(30);
     }
 }
 
@@ -2613,7 +2624,19 @@ void BattleBotAI::OnLeaveBattleGround()
     m_avIsMineBot = false;
     m_avMineBotDecided = false;
     m_avMineBotBgInstance = 0;
-    m_avAggressiveMode = false;
+    m_avMineState = AV_MINE_NONE;  // clear carrier state for next BG
+    m_avMineIndex = 0;
+    m_avMineRunComplete = false;
+    // AV strategy state: reset so InitAVStrategy() re-derives on next BG entry
+    m_avStrategyDecided = false;           // allow re-init for next BG session
+    m_avStrategyBgInstance = 0;           // clear stale instance ID
+    m_avMode = 0;                         // 0 = undecided (AV_MODE_NATIVE/PUSH/RANDOM set on entry)
+    m_avOpeningPassiveMinutes = 0;        // no passive opening until re-derived
+    m_avGuardGraveyards = false;          // no GY guards until re-derived
+    m_avHoldCaptureUntilControlled = false; // don't hold captures until re-derived
+    m_avAggressiveTravelCombat = false;   // passive travel until re-derived
+    m_avMineMissionCount = 0;             // no mine bots until re-derived
+    m_avEnableThreePhase = false;         // three-phase off until re-derived
     m_avStayGuardAfterCapture = false;
     m_bgProgressTicks = 0;
 
@@ -2626,6 +2649,104 @@ void BattleBotAI::OnLeaveBattleGround()
     // Temporary battlebots are removed after bg ends.
     if (m_temporary)
         botEntry->requestRemoval = true;
+}
+
+void BattleBotAI::InitAVStrategy()
+{
+    BattleGround* bg = me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV || bg->GetStatus() != STATUS_IN_PROGRESS)
+        return;
+
+    if (m_avStrategyDecided && m_avStrategyBgInstance == bg->GetInstanceID())
+        return;
+
+    m_avStrategyDecided    = true;
+    m_avStrategyBgInstance = bg->GetInstanceID();
+
+    uint32 const instanceId = bg->GetInstanceID();
+    uint32 const guidLow    = me->GetGUIDLow();
+
+    // Mode is deterministic from instance ID — symmetric for modes 1/2 (both teams same),
+    // and per-team sub-decisions in mode 3 use different bit positions for independence.
+    m_avMode = static_cast<AVBattleMode>((instanceId % 3) + 1);
+
+    switch (m_avMode)
+    {
+        case AV_MODE_NATIVE:
+            m_avOpeningPassiveMinutes      = 0;
+            m_avGuardGraveyards            = false;
+            m_avHoldCaptureUntilControlled = false;
+            m_avAggressiveTravelCombat     = true;
+            m_avMineMissionCount           = 5;
+            m_avEnableThreePhase           = false;
+            break;
+
+        case AV_MODE_PUSH:
+            m_avOpeningPassiveMinutes      = 30;
+            m_avGuardGraveyards            = true;
+            m_avHoldCaptureUntilControlled = true;
+            m_avAggressiveTravelCombat     = false;
+            m_avMineMissionCount           = 0;
+            m_avEnableThreePhase           = true;
+            break;
+
+        case AV_MODE_RANDOM:
+        default:
+            m_avOpeningPassiveMinutes  = 30;
+            // guardGraveyards: per-team stable random — Alliance uses bit 0, Horde uses bit 1
+            m_avGuardGraveyards = (me->GetTeam() == ALLIANCE)
+                ? ((instanceId & 1u) != 0)
+                : ((instanceId & 2u) != 0);
+            // holdCapture and aggressiveTravel: per-bot GUID-stable ~30%, different seeds
+            m_avHoldCaptureUntilControlled = (guidLow ^ instanceId) % 10 < 3;
+            m_avAggressiveTravelCombat     = (guidLow ^ (instanceId * 31337u)) % 10 < 3;
+            m_avMineMissionCount           = 5;
+            m_avEnableThreePhase           = false;
+            break;
+    }
+
+    char const* const modeName = (m_avMode == AV_MODE_NATIVE) ? "Native" :
+                                 (m_avMode == AV_MODE_PUSH)   ? "Push"   : "Random";
+    char const* const teamName = (me->GetTeam() == ALLIANCE)  ? "Alliance" : "Horde";
+    sLog.Out(LOG_BASIC, LOG_LVL_DETAIL,
+        "[BattleBotAV] strategy instance=%u team=%s mode=%s openingPassive=%um guardGY=%s holdCapture=%s aggressiveTravel=%s mineBots=%u threePhase=%s",
+        bg->GetInstanceID(), teamName, modeName,
+        m_avOpeningPassiveMinutes,
+        m_avGuardGraveyards            ? "true" : "false",
+        m_avHoldCaptureUntilControlled ? "true" : "false",
+        m_avAggressiveTravelCombat     ? "true" : "false",
+        m_avMineMissionCount,
+        m_avEnableThreePhase           ? "true" : "false");
+
+    // Send one GM notification per team per BG: only the bot with the lowest GUID on its team sends it.
+    // This avoids 20 identical messages while still guaranteeing exactly one message per team.
+    uint32 const myGuid = me->GetGUIDLow();
+    bool isLowestGuidBot = true;
+    Map* map = me->GetMap();
+    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr && isLowestGuidBot; itr = itr->next())
+    {
+        Player* p = itr->getSource();
+        if (!p || p == me || !p->IsBot() || p->GetTeam() != me->GetTeam()) continue;
+        if (p->GetGUIDLow() < myGuid)
+            isLowestGuidBot = false;
+    }
+    if (isLowestGuidBot)
+    {
+        for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
+        {
+            Player* p = itr->getSource();
+            if (p && p->IsGameMaster())
+                ChatHandler(p).PSendSysMessage(
+                    "[BotAV] instance=%u team=%s mode=%s openingPassive=%um guardGY=%s holdCapture=%s aggressiveTravel=%s mineBots=%u threePhase=%s",
+                    bg->GetInstanceID(), teamName, modeName,
+                    m_avOpeningPassiveMinutes,
+                    m_avGuardGraveyards            ? "true" : "false",
+                    m_avHoldCaptureUntilControlled ? "true" : "false",
+                    m_avAggressiveTravelCombat     ? "true" : "false",
+                    m_avMineMissionCount,
+                    m_avEnableThreePhase           ? "true" : "false");
+        }
+    }
 }
 
 bool BattleBotAI::CheckForUnreachableTarget()
@@ -3187,15 +3308,17 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         {
             // In AV phase 3 (total assault), don't initiate combat — only fight back if attacked.
             // Exception: bots holding a GY during active capture must still fight incoming defenders.
+            // Only active when enableThreePhase is set (Mode 2 / Push); other modes skip this.
             BattleGround* bgForAssault = me->GetBattleGround();
-            bool const avTotalAssault = m_avAssignedGY == 0 && !BattleBotIsInAVGyCaptureHold(this) &&
+            bool const avTotalAssault = m_avEnableThreePhase &&
+                m_avAssignedGY == 0 && !BattleBotIsInAVGyCaptureHold(this) &&
                 bgForAssault && bgForAssault->GetTypeID() == BATTLEGROUND_AV &&
                 ((me->GetTeam() == HORDE    && (bgForAssault->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_ASSAULTED)    || bgForAssault->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_CONTROLLED)))    ||
                  (me->GetTeam() == ALLIANCE && (bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED) || bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_CONTROLLED))));
 
-            // Behavior 2: 70% of bots ignore enemies while traveling between objectives.
-            // Guards and bots inside a capture hold always fight.
-            bool const avPassiveTraveler = !m_avAggressiveMode &&
+            // Passive travelers don't initiate combat outside objectives.
+            // Guards and bots inside a capture hold always fight regardless of mode.
+            bool const avPassiveTraveler = !m_avAggressiveTravelCombat &&
                 m_avAssignedGY == 0 && !BattleBotIsInAVGyCaptureHold(this) &&
                 bgForAssault && bgForAssault->GetTypeID() == BATTLEGROUND_AV;
 
@@ -3372,6 +3495,7 @@ bool BattleBotAI::UpdateBattleGroundAI()
     switch (bg->GetTypeID())
     {
         case BATTLEGROUND_AV:
+            InitAVStrategy();
             BattleBotUpdateAVGuardBehavior(this);
             break;
         case BATTLEGROUND_WS:

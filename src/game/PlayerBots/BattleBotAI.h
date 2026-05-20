@@ -35,6 +35,20 @@ enum FlagSpellsWS
     AURA_SILVERWING_FLAG = 23335
 };
 
+enum AVBattleMode : uint8
+{
+    AV_MODE_NATIVE = 1,  // 原生：无守卫、主动战斗、收集资源、无三阶段
+    AV_MODE_PUSH   = 2,  // 推进：守卫、被动战斗、不收集资源、三阶段
+    AV_MODE_RANDOM = 3,  // 随机：各阵营独立随机决定各开关
+};
+
+enum AVMineState : uint8
+{
+    AV_MINE_NONE      = 0,  // not a mine bot (or mine mission complete)
+    AV_MINE_GOING     = 1,  // travelling to mine / fighting boss
+    AV_MINE_RETURNING = 2,  // carrying loot back to supply NPC
+};
+
 class BattleBotAI : public CombatBotBaseAI
 {
 public:
@@ -53,6 +67,8 @@ public:
     void UpdateAI(uint32 const diff) final;
     void OnPacketReceived(WorldPacket const* packet) final;
     void MovementInform(uint32 MovementType, uint32 Data = 0) final;
+
+    void InitAVStrategy();
 
     bool ShouldIgnoreCombat() const;
     bool DrinkAndEat();
@@ -152,8 +168,23 @@ public:
     bool m_avMineBotDecided = false;
     uint32 m_avMineBotBgInstance = 0;
 
-    // AV randomness state (per-bot decisions rolled on login/respawn)
-    bool m_avAggressiveMode = false;       // true = attack enemies while traveling (30% chance)
+    // AV mine bot state machine
+    AVMineState m_avMineState = AV_MINE_NONE;
+    uint8 m_avMineIndex = 0;        // BG_AV_NORTH_MINE or BG_AV_SOUTH_MINE
+    bool m_avMineRunComplete = false; // true after each run; cleared when boss respawns
+
+    // AV strategy state (set once per BG session via InitAVStrategy(), derived from instance ID)
+    uint8  m_avMode = 0;                         // AVBattleMode: 1=Native, 2=Push, 3=Random
+    bool   m_avStrategyDecided = false;
+    uint32 m_avStrategyBgInstance = 0;
+    uint32 m_avOpeningPassiveMinutes = 0;        // 0=off, 30=30-minute passive opening
+    bool   m_avGuardGraveyards = false;          // whether fixed GY guards are assigned
+    bool   m_avHoldCaptureUntilControlled = false; // wait at captured GY until fully controlled
+    bool   m_avAggressiveTravelCombat = false;   // initiate combat while traveling between objectives
+    uint32 m_avMineMissionCount = 0;             // how many mine bots per team (0=disabled)
+    bool   m_avEnableThreePhase = false;         // enable three-phase push logic
+
+    // AV per-bot behavioral state
     bool m_avStayGuardAfterCapture = false; // true = remain as guard after capture completes
 
     // Movement progress checkpoint: detects outdoor pathfinding loops

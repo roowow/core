@@ -20,7 +20,14 @@
       "Bash(awk -v start=445556 -v end=455000 'NR>=start && NR<=end && /\\\\\\(13256,|\\\\\\(13419,/' \"d:/其他/wow/Development/remote/r05_core_dev/sql/world_full_14_june_2021.sql\")",
       "Bash(cmake --build build --target game --config RelWithDebInfo)",
       "Bash(awk '/INSERT INTO `creature_battleground`/,/ENABLE KEYS/' \"d:\\\\其他\\\\wow\\\\Development\\\\remote\\\\r05_core_dev\\\\sql\\\\world_full_14_june_2021.sql\")",
-      "Bash(awk '/^-- Dumping data for table mangos.creature_template/,/^-- Dumping/ {if \\(/\\\\\\(11657,/\\) print NR\": \"$0}' \"d:\\\\其他\\\\wow\\\\Development\\\\remote\\\\r05_core_dev\\\\sql\\\\world_full_14_june_2021.sql\")"
+      "Bash(awk '/^-- Dumping data for table mangos.creature_template/,/^-- Dumping/ {if \\(/\\\\\\(11657,/\\) print NR\": \"$0}' \"d:\\\\其他\\\\wow\\\\Development\\\\remote\\\\r05_core_dev\\\\sql\\\\world_full_14_june_2021.sql\")",
+      "Bash(Get-Content \"C:\\\\Users\\\\Shawn\\\\.claude\\\\projects\\\\d-----wow-Development-remote-r05-core-dev\\\\b65baba2-6619-476f-9047-d466c0dbfd82.jsonl\")",
+      "Bash(Select-Object -Last 100)",
+      "Bash(find /d/其他/wow/Development/remote/ -name \"Makefile\" -o -name \"*.sln\" -o -name \"CMakeCache.txt\" 2>/dev/null | head -10)",
+      "Read(//d/其他/wow/Development/remote//**)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(grep -n \"^INSERT INTO \\\\`creature_template\\\\`\" \"d:\\\\其他\\\\wow\\\\Development\\\\remote\\\\r05_core_dev\\\\sql\\\\world_full_14_june_2021.sql\")"
     ]
   }
 }

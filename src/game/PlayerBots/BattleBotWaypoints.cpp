@@ -1861,11 +1861,13 @@ static bool FindAVGYToGuard(BattleBotAI* pAI, uint32& outNode)
 }
 
 // Stable GUID-based selection: returns true if this bot should be a mine bot for its team.
-// Called once per bot after the 5-minute delay. The lowest MINE_MISSION_COUNT GUIDs among
+// Called once per bot after the 5-minute delay. The lowest m_avMineMissionCount GUIDs among
 // eligible DPS bots (non-healer, no fixed GY guard, not in temp GY hold) become mine bots.
 static bool ShouldBeAVMineBot(BattleBotAI const* pAI)
 {
-    constexpr uint32 MINE_MISSION_COUNT = 5;
+    uint32 const MINE_MISSION_COUNT = pAI->m_avMineMissionCount;
+    if (MINE_MISSION_COUNT == 0)
+        return false;
     Team const team = pAI->me->GetTeam();
     Map* map = pAI->me->GetMap();
     if (!map)
@@ -2098,19 +2100,32 @@ bool BattleBotAI::StartNewPathToObjective()
             if (m_avAssignedGY != 0)
                 return BattleBotSelectAVGuardObjective(this);
 
-            uint32 guardGY = 0;
-            if (FindAVGYToGuard(this, guardGY))
+            if (m_avGuardGraveyards)
             {
-                m_avAssignedGY = guardGY;
-                // Behavior 1: randomly decide now whether to guard after capture or advance
-                m_avStayGuardAfterCapture = roll_chance_u(50);
-                return BattleBotSelectAVGuardObjective(this);
+                uint32 guardGY = 0;
+                if (FindAVGYToGuard(this, guardGY))
+                {
+                    m_avAssignedGY = guardGY;
+                    m_avStayGuardAfterCapture = roll_chance_u(50);
+                    return BattleBotSelectAVGuardObjective(this);
+                }
             }
 
             // Mine bot decision: determined once per bot after a 5-minute delay.
-            // The lowest MINE_MISSION_COUNT GUIDs among eligible DPS bots become mine bots.
-            // This avoids routing mine bots before they have exited their starting cave.
+            // Skipped entirely when mineMissionCount == 0 (e.g. Mode 2 / Push).
+            if (m_avMineMissionCount > 0)
             {
+                // When a completed run's boss has respawned, re-enable selection for next run.
+                if (m_avMineRunComplete)
+                {
+                    uint8 const mineIdx2 = (me->GetTeam() == ALLIANCE) ? BG_AV_NORTH_MINE : BG_AV_SOUTH_MINE;
+                    uint8 const bossEvt  = (mineIdx2 == BG_AV_NORTH_MINE) ? BG_AV_MINE_BOSSES_NORTH : BG_AV_MINE_BOSSES_SOUTH;
+                    if (bg->IsActiveEvent(bossEvt, BG_AV_TEAM_NEUTRAL))
+                    {
+                        m_avMineRunComplete = false;
+                        m_avMineBotDecided  = false;
+                    }
+                }
                 constexpr uint32 MINE_BOT_DELAY_MS = 5 * 60 * 1000;
                 if ((!m_avMineBotDecided || m_avMineBotBgInstance != bg->GetInstanceID()) &&
                     bg->GetStartTime() >= MINE_BOT_DELAY_MS)
@@ -2121,52 +2136,132 @@ bool BattleBotAI::StartNewPathToObjective()
                 }
             }
 
-            // Mine bot release: once the mine boss is dead the bot returns to normal routing.
+            // Mine bot state machine: GOING → fight boss → RETURNING → contribute → release.
             if (m_avIsMineBot)
             {
-                bool const mineBossAlive = (me->GetTeam() == ALLIANCE)
-                    ? bg->IsActiveEvent(BG_AV_MINE_BOSSES_NORTH, BG_AV_TEAM_NEUTRAL)
-                    : bg->IsActiveEvent(BG_AV_MINE_BOSSES_SOUTH, BG_AV_TEAM_NEUTRAL);
-                if (!mineBossAlive)
-                    m_avIsMineBot = false;
+                Team const myTeam = me->GetTeam();
+                uint8 const mineIdx = (myTeam == ALLIANCE) ? BG_AV_NORTH_MINE : BG_AV_SOUTH_MINE;
+                uint8 const bossMineEvent = (mineIdx == BG_AV_NORTH_MINE) ? BG_AV_MINE_BOSSES_NORTH : BG_AV_MINE_BOSSES_SOUTH;
+                bool const mineBossAlive = bg->IsActiveEvent(bossMineEvent, BG_AV_TEAM_NEUTRAL);
+
+                if (m_avMineState == AV_MINE_NONE)
+                {
+                    m_avMineIndex = mineIdx;
+                    m_avMineState = AV_MINE_GOING;
+                }
+
+                if (m_avMineState == AV_MINE_GOING)
+                {
+                    if (!mineBossAlive)
+                    {
+                        // Boss killed — select carrier: lowest GUID among all mine bots on team.
+                        uint32 lowestGuid = UINT32_MAX;
+                        for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
+                        {
+                            Player* pl = itr->getSource();
+                            if (!pl || pl->GetTeam() != myTeam || !pl->IsBot())
+                                continue;
+                            BattleBotAI const* pOtherAI = dynamic_cast<BattleBotAI const*>(pl->AI());
+                            if (pOtherAI && pOtherAI->m_avIsMineBot)
+                                lowestGuid = std::min(lowestGuid, pl->GetGUIDLow());
+                        }
+                        if (me->GetGUIDLow() == lowestGuid)
+                        {
+                            m_avMineState = AV_MINE_RETURNING; // This bot carries loot back.
+                        }
+                        else
+                        {
+                            m_avIsMineBot = false;       // Non-carriers rejoin main GY flow.
+                            m_avMineRunComplete = true;  // Allow re-selection on next boss respawn.
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        // Route to mine boss.
+                        if (myTeam == ALLIANCE)
+                        {
+                            static Position const morlochPos = { 864.3466f, -443.8597f, 50.8458f, 0.0f };
+                            if (me->GetDistance(morlochPos.x, morlochPos.y, morlochPos.z) > 30.0f)
+                            {
+                                if (StartNewPathToPosition(morlochPos, vPaths_AV))
+                                    return true;
+                                // Fallback: directly assign mine path so pathfinder navigates to WP 0.
+                                m_currentPath = &vPath_AV_Stormpike_to_Irondeep_Morloch;
+                                m_movingInReverse = false;
+                                m_currentPoint = static_cast<uint32>(-1);
+                                MoveToNextPoint();
+                                return true;
+                            }
+                            return true; // At mine — combat AI engages Morloch.
+                        }
+                        else
+                        {
+                            static Position const snivvlePos = { -850.7347f, -92.2076f, 68.5046f, 0.0f };
+                            if (me->GetDistance(snivvlePos.x, snivvlePos.y, snivvlePos.z) > 30.0f)
+                            {
+                                if (StartNewPathToPosition(snivvlePos, vPaths_AV))
+                                    return true;
+                                // Fallback: directly assign mine path.
+                                m_currentPath = &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
+                                m_movingInReverse = false;
+                                m_currentPoint = static_cast<uint32>(-1);
+                                MoveToNextPoint();
+                                return true;
+                            }
+                            return true; // At mine — combat AI engages Snivvle.
+                        }
+                    }
+                }
+
+                if (m_avMineState == AV_MINE_RETURNING)
+                {
+                    // Quartermaster NPC positions from DB: Alliance 12096, Horde 12097 (map 30).
+                    static Position const allianceSupplyPos = { 587.633f, -45.9816f, 37.5438f, 0.0f };
+                    static Position const hordeSupplyPos    = { -1293.79f, -194.407f, 72.4398f, 0.0f };
+                    Position const& supplyPos = (myTeam == ALLIANCE) ? allianceSupplyPos : hordeSupplyPos;
+
+                    // 80-yard trigger: the AV path network reaches ~68 yards from supply NPC
+                    // (First Crossroad endpoint), so we fire contributions when the carrier
+                    // arrives at the first crossroad after exiting the mine.
+                    if (me->GetDistance(supplyPos.x, supplyPos.y, supplyPos.z) < 80.0f)
+                    {
+                        if (BattleGroundAV* bgAV = dynamic_cast<BattleGroundAV*>(bg))
+                        {
+                            bgAV->BotContributeScraps(myTeam, 120);
+                            bgAV->BotContributeGroundAssault(myTeam, m_avMineIndex, 30);
+                            bgAV->BotContributeWorldBossItems(myTeam, 20);
+                        }
+                        m_avIsMineBot = false;
+                        m_avMineState = AV_MINE_NONE;
+                        m_avMineRunComplete = true;  // Allow re-selection on next boss respawn.
+                        return false; // Fall through to normal GY routing.
+                    }
+
+                    // Try AV path network first (works once carrier has exited the mine).
+                    if (StartNewPathToPosition(supplyPos, vPaths_AV))
+                        return true;
+
+                    // StartNewPathToPosition fails when carrier is still deep in the mine:
+                    // the mine path's last waypoint (boss position) matches closestPoint == size-1
+                    // and is rejected. Walk the recorded path in reverse to exit the mine.
+                    // While m_currentPath is set, StartNewPathToObjective is not called again,
+                    // so the bot follows the path all the way to the entrance without interference.
+                    m_currentPath = (myTeam == ALLIANCE)
+                        ? &vPath_AV_Stormpike_to_Irondeep_Morloch
+                        : &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
+                    m_movingInReverse = true;
+                    m_currentPoint = m_currentPath->size() - 1;
+                    MoveToNextPoint();
+                    return true;
+                }
             }
 
-            // Mine bot routing (both teams handled here, before team-specific push logic).
-            if (m_avIsMineBot)
-            {
-                if (me->GetTeam() == ALLIANCE)
-                {
-                    static Position const morlochPos = { 864.3466f, -443.8597f, 50.8458f, 0.0f };
-                    if (me->GetDistance(morlochPos.x, morlochPos.y, morlochPos.z) > 30.0f)
-                    {
-                        if (StartNewPathToPosition(morlochPos, vPaths_AV))
-                            return true;
-                        // Fallback: directly assign mine path so pathfinder navigates to WP 0.
-                        m_currentPath = &vPath_AV_Stormpike_to_Irondeep_Morloch;
-                        m_movingInReverse = false;
-                        m_currentPoint = static_cast<uint32>(-1);
-                        MoveToNextPoint();
-                        return true;
-                    }
-                    return true; // Already at mine — stay and let combat AI engage Morloch.
-                }
-                else // HORDE
-                {
-                    static Position const snivvlePos = { -850.7347f, -92.2076f, 68.5046f, 0.0f };
-                    if (me->GetDistance(snivvlePos.x, snivvlePos.y, snivvlePos.z) > 30.0f)
-                    {
-                        if (StartNewPathToPosition(snivvlePos, vPaths_AV))
-                            return true;
-                        // Fallback: directly assign mine path.
-                        m_currentPath = &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
-                        m_movingInReverse = false;
-                        m_currentPoint = static_cast<uint32>(-1);
-                        MoveToNextPoint();
-                        return true;
-                    }
-                    return true; // Already at mine — stay and let combat AI engage Snivvle.
-                }
-            }
+            // holdCaptureUntilControlled: non-mine bots stay at a GY being assaulted until
+            // it's fully controlled. Mine bots bypass this — their mission has higher priority.
+            // Returning true without setting a path keeps the bot at its current position.
+            if (m_avHoldCaptureUntilControlled && BattleBotIsInAVGyCaptureHold(this))
+                return true;
 
             // Alliance and Horde code is intentionally different.
             // Horde bots are more united and always go together.

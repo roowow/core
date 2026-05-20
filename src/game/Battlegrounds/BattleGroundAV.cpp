@@ -327,6 +327,40 @@ void BattleGroundAV::HandleKillUnit(Creature* creature, Player* killer)
    sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "BattleGroundAV: HandleKillUnit %i", creature->GetEntry());
    if (GetStatus() != STATUS_IN_PROGRESS)
         return;
+
+    // Per-kill mine contributions for mine bots.
+    // Award +8 scraps / +2 ground / +2 world-boss when a bot kills any creature
+    // inside either mine cave. Mine bosses are excluded — their deaths trigger
+    // mine-ownership changes in the switch below (and carrier delivery awards
+    // separate larger contributions). Both vanilla (46/47) and modern (11657/11677)
+    // mine boss entries are excluded defensively.
+    if (killer->IsBot())
+    {
+        uint32 const entry = creature->GetEntry();
+        constexpr uint32 MORLOCH_VANILLA = BG_AV_MINE_BOSSES_NORTH; // 46
+        constexpr uint32 SNIVVLE_VANILLA = BG_AV_MINE_BOSSES_SOUTH; // 47
+        constexpr uint32 MORLOCH_MODERN  = 11657;
+        constexpr uint32 SNIVVLE_MODERN  = 11677;
+        bool isBoss = (entry == MORLOCH_VANILLA || entry == SNIVVLE_VANILLA ||
+                       entry == MORLOCH_MODERN  || entry == SNIVVLE_MODERN);
+        if (!isBoss)
+        {
+            static Position const irondeepCenter  = { 864.347f, -443.860f,  50.846f };
+            static Position const coldtoothCenter = { -850.735f, -92.208f,  68.505f };
+            constexpr float MINE_RADIUS = 200.0f;
+            float dIron = creature->GetDistance(irondeepCenter.x,  irondeepCenter.y,  irondeepCenter.z);
+            float dCold = creature->GetDistance(coldtoothCenter.x, coldtoothCenter.y, coldtoothCenter.z);
+            if (dIron < MINE_RADIUS || dCold < MINE_RADIUS)
+            {
+                Team const team    = killer->GetTeam();
+                uint8 const mineIdx = (dIron <= dCold) ? BG_AV_NORTH_MINE : BG_AV_SOUTH_MINE;
+                BotContributeScraps(team, 8);
+                BotContributeGroundAssault(team, mineIdx, 2);
+                BotContributeWorldBossItems(team, 2);
+            }
+        }
+    }
+
     switch (creature->GetEntry())
     {
         case NPC_LANDMINES_LAYER_A2:
@@ -825,10 +859,10 @@ void BattleGroundAV::UpdateScore(BattleGroundTeamIndex teamIdx, int32 points)
     MANGOS_ASSERT(teamIdx < BG_TEAMS_COUNT);
     m_teamScores[teamIdx] += points;                      // m_teamScores is int32 - so no problems here
 
-    // Lock-in: the first reinforcement loss (tower destroyed / captain killed)
-    // marks AV's "phase 2" — large-scale offense is underway. Close doors and
-    // bot-fill to max so latecomers can't ride a winning team.
-    if (points < 0 && !IsLocked() && GetStatus() == STATUS_IN_PROGRESS)
+    // Soft lock: only in Push mode (instanceId % 3 == 1 → AVBattleMode 2).
+    // Native and Random modes leave the BG open for the full duration.
+    if (points < 0 && !IsLocked() && GetStatus() == STATUS_IN_PROGRESS &&
+        GetInstanceID() % 3 == 1)
         LockForNewPlayers();
 
     if (points < 0)
