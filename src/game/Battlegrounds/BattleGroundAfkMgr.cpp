@@ -771,6 +771,9 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
         {
             if (Player* player = sObjectMgr.GetPlayer(guid))
             {
+                if (player->IsGameMaster())
+                    return;
+
                 std::string const reasons = FormatAfkReasons(state.lastReasonMask);
                 int32 const delta = int32(state.score) - int32(state.lastPreviousScore);
                 uint32 const bgType = bg ? uint32(bg->GetTypeID()) : state.trackBgType;
