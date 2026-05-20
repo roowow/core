@@ -1009,7 +1009,7 @@ bool ChatHandler::HandleDebugAVInfoCommand(char* /*args*/)
     for (uint32 t = BG_TEAM_ALLIANCE; t <= BG_TEAM_HORDE; ++t)
     {
         uint32 troopLvl = av->m_reinforcementLevel[t];
-        uint32 scraps   = av->m_teamQuestStatus[t][0];
+        uint32 scraps   = av->GetTeamScraps(t);
         uint32 ironCur  = av->m_challengeStatus[t][BG_AV_IRONDEEP_GROUND_ASSAULT];
         uint32 ironGoal = av->m_challengeGoals[t][BG_AV_IRONDEEP_GROUND_ASSAULT];
         uint32 coldCur  = av->m_challengeStatus[t][BG_AV_COLDTOOTH_GROUND_ASSAULT];
@@ -1024,8 +1024,8 @@ bool ChatHandler::HandleDebugAVInfoCommand(char* /*args*/)
             gndReady ? "YES" : "no");
     }
 
-    uint32 northOwner = av->m_mineOwner[0] < 3 ? av->m_mineOwner[0] : 2;
-    uint32 southOwner = av->m_mineOwner[1] < 3 ? av->m_mineOwner[1] : 2;
+    uint32 northOwner = av->GetMineOwner(0) < 3 ? av->GetMineOwner(0) : 2;
+    uint32 southOwner = av->GetMineOwner(1) < 3 ? av->GetMineOwner(1) : 2;
     PSendSysMessage("Mine[North/Irondeep]: %-8s  Mine[South/Coldtooth]: %s",
         mineOwnerName[northOwner], mineOwnerName[southOwner]);
 

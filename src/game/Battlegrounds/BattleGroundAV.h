@@ -493,6 +493,8 @@ class BattleGroundAV : public BattleGround
         void UpdatePlayerScore(Player* source, uint32 type, uint32 value) override;
         void UpgradeArmor(Object* questGiver, Player* player);
         uint32 GetActualArmorRessources(uint32 factionId);
+        uint32 GetTeamScraps(uint32 teamIdx) const { return m_teamQuestStatus[teamIdx][0]; }
+        BattleGroundAVTeamIndex GetMineOwner(uint8 mineIdx) const { return m_mineOwner[mineIdx]; }
         /*handle stuff*/ // these are functions which get called from extern scripts
         void EventPlayerClickedOnFlag(Player* source, GameObject* targetGo) override;
         void HandleKillPlayer(Player* pVictim, Player* pKiller) override;
