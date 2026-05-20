@@ -69,6 +69,7 @@ typedef std::vector<BattleBotWaypoint> BattleBotPath;
 extern std::vector<BattleBotPath*> const vPaths_WS;
 extern std::vector<BattleBotPath*> const vPaths_AB;
 extern std::vector<BattleBotPath*> const vPaths_AV;
+extern std::vector<BattleBotPath*> const vPaths_MineExclusive;
 
 extern std::vector<uint32> const vFlagsAB;
 bool AtFlag(BattleBotAI* pAI, std::vector<uint32> const& vFlagIds);

@@ -1238,6 +1238,15 @@ std::vector<BattleBotPath*> const vPaths_ObjectiveExcluded =
     &vPath_AV_Horde_Cave_to_Frostwolf_Graveyard_Flag,
 };
 
+// Mine paths: only selected by StartNewPathFromBeginning/Anywhere when bot is a mine bot.
+// Their start is near the Alliance base (638, -287), so without this guard non-mine bots
+// exiting the Alliance cave would be routed into the mine.
+std::vector<BattleBotPath*> const vPaths_MineExclusive =
+{
+    &vPath_AV_Stormpike_to_Irondeep_Morloch,
+    &vPath_AV_TowerPoint_to_Coldtooth_Snivvle,
+};
+
 std::vector<BattleBotPath*> const vPaths_ObjectiveOnly =
 {
     &vPath_AV_Stonehearth_Bunker_First_Crossroad_to_Stonehearth_Bunker_Flag,
@@ -1351,6 +1360,10 @@ bool BattleBotAI::StartNewPathFromBeginning()
 
     for (const auto& pPath : *vPaths)
     {
+        // Mine paths are reserved for designated mine bots.
+        if (!m_avIsMineBot && std::find(vPaths_MineExclusive.begin(), vPaths_MineExclusive.end(), pPath) != vPaths_MineExclusive.end())
+            continue;
+
         BattleBotWaypoint* pStart = &((*pPath)[0]);
         if (me->GetDistance(pStart->x, pStart->y, pStart->z) < INTERACTION_DISTANCE)
             availablePaths.emplace_back(AvailablePath(pPath, false));
@@ -1405,6 +1418,10 @@ void BattleBotAI::StartNewPathFromAnywhere()
 
     for (const auto& pPath : *vPaths)
     {
+        // Mine paths are reserved for designated mine bots.
+        if (!m_avIsMineBot && std::find(vPaths_MineExclusive.begin(), vPaths_MineExclusive.end(), pPath) != vPaths_MineExclusive.end())
+            continue;
+
         for (uint32 i = 0; i < pPath->size(); i++)
         {
             BattleBotWaypoint& waypoint = ((*pPath)[i]);
