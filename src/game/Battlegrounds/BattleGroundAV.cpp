@@ -870,7 +870,7 @@ void BattleGroundAV::LogPeriodicStats()
         uint32 ironGoal = m_challengeGoals[t][BG_AV_IRONDEEP_GROUND_ASSAULT];
         uint32 coldCur  = m_challengeStatus[t][BG_AV_COLDTOOTH_GROUND_ASSAULT];
         uint32 coldGoal = m_challengeGoals[t][BG_AV_COLDTOOTH_GROUND_ASSAULT];
-        sLog.outString("[AV_STAT] inst=%u t=%u team=%s score=%d troops=%u scraps=%u iron=%u/%u cold=%u/%u gnd=%u",
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[AV_STAT] inst=%u t=%u team=%s score=%d troops=%u scraps=%u iron=%u/%u cold=%u/%u gnd=%u",
             GetInstanceID(), t_s,
             (t == BG_TEAM_ALLIANCE) ? "A" : "H",
             m_teamScores[t],
@@ -884,7 +884,7 @@ void BattleGroundAV::LogPeriodicStats()
     // Mine ownership
     uint32 northOwner = m_mineOwner[0] < 3 ? m_mineOwner[0] : 2;
     uint32 southOwner = m_mineOwner[1] < 3 ? m_mineOwner[1] : 2;
-    sLog.outString("[AV_MINE] inst=%u t=%u north=%s south=%s",
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[AV_MINE] inst=%u t=%u north=%s south=%s",
         GetInstanceID(), t_s, mineTag[northOwner], mineTag[southOwner]);
 
     // Bot summary — iterate BG players
@@ -920,7 +920,7 @@ void BattleGroundAV::LogPeriodicStats()
     for (uint32 t = BG_TEAM_ALLIANCE; t <= BG_TEAM_HORDE; ++t)
     {
         BotStats const& s = bs[t];
-        sLog.outString("[AV_BOT]  inst=%u t=%u team=%s bots=%u mode=%s slots=%u going=%u ret=%u done=%u gcfg=%u gact=%u hold=%u",
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[AV_BOT]  inst=%u t=%u team=%s bots=%u mode=%s slots=%u going=%u ret=%u done=%u gcfg=%u gact=%u hold=%u",
             GetInstanceID(), t_s,
             (t == BG_TEAM_ALLIANCE) ? "A" : "H",
             s.total,
