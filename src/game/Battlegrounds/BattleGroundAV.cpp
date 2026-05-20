@@ -345,11 +345,11 @@ void BattleGroundAV::HandleKillUnit(Creature* creature, Player* killer)
                        entry == MORLOCH_MODERN  || entry == SNIVVLE_MODERN);
         if (!isBoss)
         {
-            static Position const irondeepCenter  = { 864.347f, -443.860f,  50.846f };
-            static Position const coldtoothCenter = { -850.735f, -92.208f,  68.505f };
+            constexpr float irondeepX = 864.347f,   irondeepY = -443.860f, irondeepZ =  50.846f;
+            constexpr float coldtoothX = -850.735f, coldtoothY = -92.208f, coldtoothZ = 68.505f;
             constexpr float MINE_RADIUS = 200.0f;
-            float dIron = creature->GetDistance(irondeepCenter.x,  irondeepCenter.y,  irondeepCenter.z);
-            float dCold = creature->GetDistance(coldtoothCenter.x, coldtoothCenter.y, coldtoothCenter.z);
+            float dIron = creature->GetDistance(irondeepX,  irondeepY,  irondeepZ);
+            float dCold = creature->GetDistance(coldtoothX, coldtoothY, coldtoothZ);
             if (dIron < MINE_RADIUS || dCold < MINE_RADIUS)
             {
                 Team const team    = killer->GetTeam();
