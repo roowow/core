@@ -1003,7 +1003,7 @@ bool ChatHandler::HandleDebugAVInfoCommand(char* /*args*/)
     // ── 第一节：战场资源状态 ──────────────────────────────────────────────
     PSendSysMessage("=== AV状态 [实例#%u  时间: %u分%02u秒] ===",
         bg->GetInstanceID(), mins, secs);
-    PSendSysMessage("阵营       | 士气 | 部队等级 | 护甲碎片 | 铁深矿     | 寒牙矿     | 地面攻击");
+    PSendSysMessage("阵营 | 士气 | 部队等级 | 护甲碎片 | 铁深矿     | 寒牙矿     | 地面攻击");
     PSendSysMessage("------------------------------------------------------------------------");
 
     for (uint32 t = BG_TEAM_ALLIANCE; t <= BG_TEAM_HORDE; ++t)
