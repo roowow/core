@@ -1087,7 +1087,7 @@ bool ChatHandler::HandleDebugAVInfoCommand(char* /*args*/)
         uint32 mineSlots    = 0;
         uint32 mineGoing    = 0;
         uint32 guardAssigned= 0;
-        uint32 guardConfig  = 0;
+        bool   guardPolicy  = false;
         uint32 holdCapture  = 0;
     } stats[BG_TEAMS_COUNT];
 
@@ -1117,24 +1117,24 @@ bool ChatHandler::HandleDebugAVInfoCommand(char* /*args*/)
             ++stats[t].mineGoing;
 
         if (ai->m_avAssignedGY != 0)           ++stats[t].guardAssigned;
-        if (ai->m_avGuardGraveyards)            ++stats[t].guardConfig;
+        if (ai->m_avGuardGraveyards)            stats[t].guardPolicy = true;
         if (ai->m_avHoldCaptureUntilControlled) ++stats[t].holdCapture;
     }
 
     PSendSysMessage("--- 机器人概要 ---");
-    PSendSysMessage("阵营       | 总数 | 模式 | 矿名额 | 矿中 | 守卫配置 | 守卫激活 | 坚守");
+    PSendSysMessage("阵营       | 总数 | 模式 | 矿名额 | 矿中 | 守卫策略 | 守卫激活 | 坚守");
     PSendSysMessage("---------------------------------------------------------------------");
 
     for (uint32 t = BG_TEAM_ALLIANCE; t <= BG_TEAM_HORDE; ++t)
     {
         TeamBotStats const& s = stats[t];
-        PSendSysMessage("%-9s | %4u | %-4s | %6u | %4u | %8u | %8u | %4u",
+        PSendSysMessage("%-9s | %4u | %-4s | %6u | %4u | %8s | %8u | %4u",
             (t == BG_TEAM_ALLIANCE) ? "联盟" : "部落",
             s.total,
             (s.mode >= 1 && s.mode <= 3) ? modeName[s.mode] : "?",
             s.mineSlots,
             s.mineGoing,
-            s.guardConfig, s.guardAssigned,
+            s.guardPolicy ? "开" : "关", s.guardAssigned,
             s.holdCapture);
     }
 

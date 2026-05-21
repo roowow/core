@@ -539,6 +539,7 @@ class BattleGroundAV : public BattleGround
         void BotContributeScraps(Team team, uint32 amount);
         void BotContributeGroundAssault(Team team, uint8 mineIdx, uint32 amount);
         void BotContributeWorldBossItems(Team team, uint32 amount);
+        void BotContributeAirAssault(Team team, uint32 amount);
 
         void EndBattleGround(Team winner) override;
 

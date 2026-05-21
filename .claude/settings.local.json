@@ -30,7 +30,18 @@
       "Bash(grep -n \"^INSERT INTO \\\\`creature_template\\\\`\" \"d:\\\\其他\\\\wow\\\\Development\\\\remote\\\\r05_core_dev\\\\sql\\\\world_full_14_june_2021.sql\")",
       "Bash(git -C \"d:/其他/wow/Development/remote/r05_core_dev\" diff HEAD -- src/game/PlayerBots/BattleBotWaypoints.h src/game/PlayerBots/BattleBotWaypoints.cpp src/game/PlayerBots/BattleBotAI.cpp src/game/PlayerBots/BattleBotAI.h src/game/Battlegrounds/BattleGroundAV.cpp src/game/0-Design/AVLogic.md)",
       "Bash(git -C \"d:/其他/wow/Development/remote/r05_core_dev\" diff HEAD -- src/game/Battlegrounds/BattleGroundAV.cpp)",
-      "Bash(git -C \"d:/其他/wow/Development/remote/r05_core_dev\" diff HEAD~5 HEAD -- src/game/Battlegrounds/BattleGroundAV.cpp src/game/PlayerBots/BattleBotAI.cpp src/game/PlayerBots/BattleBotAI.h src/game/PlayerBots/BattleBotWaypoints.cpp src/game/PlayerBots/BattleBotWaypoints.h)"
+      "Bash(git -C \"d:/其他/wow/Development/remote/r05_core_dev\" diff HEAD~5 HEAD -- src/game/Battlegrounds/BattleGroundAV.cpp src/game/PlayerBots/BattleBotAI.cpp src/game/PlayerBots/BattleBotAI.h src/game/PlayerBots/BattleBotWaypoints.cpp src/game/PlayerBots/BattleBotWaypoints.h)",
+      "Bash(grep -n \"INTO \\\\`creature_loot_template\\\\`\" \"d:/其他/wow/Development/remote/r05_core_dev/sql/world_full_14_june_2021.sql\")",
+      "Bash(awk 'NR>=125549 && NR<=350000 && /17326|17327|17328|17502|17503|17504/' \"d:/其他/wow/Development/remote/r05_core_dev/sql/world_full_14_june_2021.sql\")",
+      "Bash(awk 'NR>=125549 {print NR\": \"$0} NR>350000{exit}' \"d:/其他/wow/Development/remote/r05_core_dev/sql/world_full_14_june_2021.sql\")",
+      "Bash(awk 'NR>=440000 && /Stormpike|Frostwolf|stormpike|frostwolf/ && /Soldier|Lieutenant|Commander|Guard|Warrior|Bowman|Rider|Grunt/' \"d:/其他/wow/Development/remote/r05_core_dev/sql/world_full_14_june_2021.sql\")",
+      "Bash(awk 'NR>=125549 && NR<=500000 { *)",
+      "Bash(awk 'NR==462810,NR==462835' \"d:/其他/wow/Development/remote/r05_core_dev/sql/world_full_14_june_2021.sql\")",
+      "Bash(awk 'NR>=462790 && NR<=462815 && /INSERT/' \"d:/其他/wow/Development/remote/r05_core_dev/sql/world_full_14_june_2021.sql\")",
+      "Bash(awk 'NR>=462750 && NR<=462815' \"d:/其他/wow/Development/remote/r05_core_dev/sql/world_full_14_june_2021.sql\")",
+      "Bash(awk -F: '$2<=462810')",
+      "Bash(awk 'NR>=450000 && /13216.*Frostwolf|13216.*Stormpike|Frostwolf.*13216|Stormpike.*13216/' \"/d/其他/wow/Development/remote/r05_core_dev/sql/world_full_14_june_2021.sql\")",
+      "Bash(awk 'NR>=452000 && /13218.*Frostwolf|13218.*Horde|Frostwolf.*Supply|Horde Supply/' \"/d/其他/wow/Development/remote/r05_core_dev/sql/world_full_14_june_2021.sql\")"
     ]
   }
 }
