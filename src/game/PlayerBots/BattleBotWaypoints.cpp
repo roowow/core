@@ -2427,43 +2427,57 @@ bool BattleBotAI::StartNewPathToObjective()
             if (m_avIsMineBot)
             {
                 Team const myTeam = me->GetTeam();
-                uint8 const mineIdx = (myTeam == ALLIANCE) ? BG_AV_NORTH_MINE : BG_AV_SOUTH_MINE;
 
-                if (m_avMineState == AV_MINE_NONE)
+                // Release if own key GY is taken by the enemy — bot is needed on the frontline.
+                // Alliance key GY: Stonehearth; Horde key GY: Frostwolf.
+                bool const ownKeyGyLost = (myTeam == ALLIANCE)
+                    ? (bg->IsActiveEvent(BG_AV_STONEHEARTH_GY, HORDE_ASSAULTED) || bg->IsActiveEvent(BG_AV_STONEHEARTH_GY, HORDE_CONTROLLED))
+                    : (bg->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED) || bg->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_CONTROLLED));
+
+                if (!ownKeyGyLost)
                 {
-                    m_avMineIndex = mineIdx;
-                    m_avMineState = AV_MINE_GOING;
-                }
+                    uint8 const mineIdx = (myTeam == ALLIANCE) ? BG_AV_NORTH_MINE : BG_AV_SOUTH_MINE;
 
-                BattleBotPath* const pMinePath = (myTeam == ALLIANCE)
-                    ? &vPath_AV_Stormpike_to_Irondeep_Morloch
-                    : &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
+                    if (m_avMineState == AV_MINE_NONE)
+                    {
+                        m_avMineIndex = mineIdx;
+                        m_avMineState = AV_MINE_GOING;
+                    }
 
-                // Already traveling — movement driven by MovementInform callbacks.
-                if (m_currentPath == pMinePath)
+                    BattleBotPath* const pMinePath = (myTeam == ALLIANCE)
+                        ? &vPath_AV_Stormpike_to_Irondeep_Morloch
+                        : &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
+
+                    // Already traveling — movement driven by MovementInform callbacks.
+                    if (m_currentPath == pMinePath)
+                        return true;
+
+                    uint32 const interiorStart = (myTeam == ALLIANCE) ? 19 : 23;
+                    uint32 const pathLast = static_cast<uint32>(pMinePath->size() - 1);
+                    BattleBotWaypoint const& lastWP = (*pMinePath)[pathLast];
+
+                    if (me->GetDistance(lastWP.x, lastWP.y, lastWP.z) < 50.0f)
+                    {
+                        // Finished a forward pass — loop back to interior start.
+                        m_currentPath = pMinePath;
+                        m_movingInReverse = false;
+                        m_currentPoint = interiorStart - 1;
+                        MoveToNextPoint();
+                    }
+                    else
+                    {
+                        // First entry or resumed after revival/combat far from boss.
+                        m_currentPath = pMinePath;
+                        m_movingInReverse = false;
+                        m_currentPoint = static_cast<uint32>(-1);
+                        MoveToNextPoint();
+                    }
                     return true;
-
-                uint32 const interiorStart = (myTeam == ALLIANCE) ? 19 : 23;
-                uint32 const pathLast = static_cast<uint32>(pMinePath->size() - 1);
-                BattleBotWaypoint const& lastWP = (*pMinePath)[pathLast];
-
-                if (me->GetDistance(lastWP.x, lastWP.y, lastWP.z) < 50.0f)
-                {
-                    // Finished a forward pass — loop back to interior start.
-                    m_currentPath = pMinePath;
-                    m_movingInReverse = false;
-                    m_currentPoint = interiorStart - 1;
-                    MoveToNextPoint();
                 }
-                else
-                {
-                    // First entry or resumed after revival/combat far from boss.
-                    m_currentPath = pMinePath;
-                    m_movingInReverse = false;
-                    m_currentPoint = static_cast<uint32>(-1);
-                    MoveToNextPoint();
-                }
-                return true;
+
+                // Own key GY lost: release back to normal routing.
+                m_avIsMineBot = false;
+                m_avMineState = AV_MINE_NONE;
             }
 
             // holdCaptureUntilControlled: non-mine bots stay at a GY being assaulted until

@@ -2665,9 +2665,9 @@ void BattleBotAI::InitAVStrategy()
     uint32 const instanceId = bg->GetInstanceID();
     uint32 const guidLow    = me->GetGUIDLow();
 
-    // Mode is deterministic from instance ID — symmetric for modes 1/2 (both teams same),
-    // and per-team sub-decisions in mode 3 use different bit positions for independence.
-    m_avMode = static_cast<AVBattleMode>((instanceId % 3) + 1);
+    // Mode is deterministic from instance ID — multiplicative hash breaks sequential patterns
+    // from the shared global instance-ID pool (world maps, dungeons, BGs all share one counter).
+    m_avMode = static_cast<AVBattleMode>((instanceId * 2654435761u) % 3 + 1);
 
     switch (m_avMode)
     {
@@ -2676,7 +2676,7 @@ void BattleBotAI::InitAVStrategy()
             m_avGuardGraveyards            = false;
             m_avHoldCaptureUntilControlled = false;
             m_avAggressiveTravelCombat     = true;
-            m_avMineMissionCount           = 5;
+            m_avMineMissionCount           = (instanceId * 7u + (me->GetTeam() == HORDE ? 3u : 0u)) % 11;
             m_avEnableThreePhase           = false;
             break;
 
@@ -2699,7 +2699,7 @@ void BattleBotAI::InitAVStrategy()
             // holdCapture and aggressiveTravel: per-bot GUID-stable ~30%, different seeds
             m_avHoldCaptureUntilControlled = (guidLow ^ instanceId) % 10 < 3;
             m_avAggressiveTravelCombat     = (guidLow ^ (instanceId * 31337u)) % 10 < 3;
-            m_avMineMissionCount           = 5;
+            m_avMineMissionCount           = (instanceId * 13u + (me->GetTeam() == HORDE ? 5u : 0u)) % 11;
             m_avEnableThreePhase           = false;
             break;
     }

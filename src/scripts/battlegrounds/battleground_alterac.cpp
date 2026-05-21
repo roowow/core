@@ -1453,6 +1453,10 @@ class npc_korrak_the_bloodragerAI: public ScriptedAI
                 {
                     DoScriptText(SAY_KORRAK_SPAWN, m_creature);
                     m_yell = true;
+                    if (BattleGroundMap* bgMap = dynamic_cast<BattleGroundMap*>(m_creature->GetMap()))
+                        if (BattleGroundAV* bg = dynamic_cast<BattleGroundAV*>(bgMap->GetBG()))
+                            sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_KORRAK] inst=%u t=%u Korrak spawned",
+                                bg->GetInstanceID(), bg->GetStartTime() / 1000);
                 }
             }
             if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
@@ -1557,6 +1561,9 @@ struct AV_NpcEventAI : public npc_escortAI
                     m_creature->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SPAWNING);
                     m_creature->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER);
                     m_creature->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PVP);
+                    sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_WBOSS] inst=%u t=%u team=%s escort=start npc=%u",
+                        bg->GetInstanceID(), bg->GetStartTime() / 1000,
+                        (factionId == BG_TEAM_HORDE) ? "H" : "A", creature_entry);
                 }
             }
         }
@@ -1574,6 +1581,8 @@ struct AV_NpcEventAI : public npc_escortAI
                     {
                         m_troopsSpawned = true;
                         bg->setPlayerGoStatus(BG_TEAM_HORDE, BG_AV_GROUND_ASSAULT, false);
+                        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_GND] inst=%u t=%u team=H troops=spawned troopLvl=%u",
+                            bg->GetInstanceID(), bg->GetStartTime() / 1000, bg->getReinforcementLevelGroundUnit(BG_TEAM_HORDE));
                         m_creature->SummonCreature(AV_NPC_WARMASTER_CMD,
                                                    -470.38f, -51.84f, 41, 5.93f, TEMPSUMMON_CORPSE_DESPAWN, 10000);
 
@@ -1627,6 +1636,8 @@ struct AV_NpcEventAI : public npc_escortAI
                     {
                         m_troopsSpawned = true;
                         bg->setPlayerGoStatus(BG_TEAM_ALLIANCE, BG_AV_GROUND_ASSAULT, false);
+                        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_GND] inst=%u t=%u team=A troops=spawned troopLvl=%u",
+                            bg->GetInstanceID(), bg->GetStartTime() / 1000, bg->getReinforcementLevelGroundUnit(BG_TEAM_ALLIANCE));
                         m_creature->SummonCreature(AV_NPC_MARSHAL_TERAVAINE,
                                                    -243.75f, -431.32f, 20, 2.59f, TEMPSUMMON_CORPSE_DESPAWN, 10000);
 
@@ -1682,6 +1693,8 @@ struct AV_NpcEventAI : public npc_escortAI
                     {
                         m_isCavalrySpawned = true;
                         bg->setPlayerGoStatus(BG_TEAM_HORDE, BG_AV_CAVALRY_ASSAULT, false);
+                        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_CAV] inst=%u t=%u team=H cavalry=Wolfriders spawned",
+                            bg->GetInstanceID(), bg->GetStartTime() / 1000);
 
                         /** Formula to spawn corresponding NPC */
                         float x = -1230;
@@ -1710,6 +1723,8 @@ struct AV_NpcEventAI : public npc_escortAI
                     {
                         m_isCavalrySpawned = true;
                         bg->setPlayerGoStatus(BG_TEAM_ALLIANCE, BG_AV_CAVALRY_ASSAULT, false);
+                        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_CAV] inst=%u t=%u team=A cavalry=Ramriders spawned",
+                            bg->GetInstanceID(), bg->GetStartTime() / 1000);
 
                         /** Formula to spawn corresponding NPC */
                         float x = 610;
@@ -1786,29 +1801,21 @@ struct AV_NpcEventAI : public npc_escortAI
                             m_creature->AddAura(SPELL_AV_INVISIBLE, ADD_AURA_PERMANENT);
                             m_bWarRiderSummoned = true;
                             uint32 summonEntry = 0;
+                            char const* teamStr = "?";
+                            char const* riderName = "?";
                             switch (creature_entry)
                             {
-                                case AV_NPC_ENTRY_MULVERICK:
-                                    summonEntry = AV_NPC_WARRIDER_MULVERICK;
-                                    break;
-                                case AV_NPC_ENTRY_GUSE:
-                                    summonEntry = AV_NPC_WARRIDER_GUSE;
-                                    break;
-                                case AV_NPC_ENTRY_JEZTOR:
-                                    summonEntry = AV_NPC_WARRIDER_JEZTOR;
-                                    break;
-                                case AV_NPC_ENTRY_SLIDORE:
-                                    summonEntry = AV_NPC_WARRIDER_SLIDORE;
-                                    break;
-                                case AV_NPC_ENTRY_VIPORE:
-                                    summonEntry = AV_NPC_WARRIDER_VIPORE;
-                                    break;
-                                case AV_NPC_ENTRY_ICHMAN:
-                                    summonEntry = AV_NPC_WARRIDER_ICHMAN;
-                                    break;
+                                case AV_NPC_ENTRY_MULVERICK: summonEntry = AV_NPC_WARRIDER_MULVERICK; teamStr = "H"; riderName = "Mulverick";  break;
+                                case AV_NPC_ENTRY_GUSE:      summonEntry = AV_NPC_WARRIDER_GUSE;      teamStr = "H"; riderName = "Guse";       break;
+                                case AV_NPC_ENTRY_JEZTOR:    summonEntry = AV_NPC_WARRIDER_JEZTOR;    teamStr = "H"; riderName = "Jeztor";     break;
+                                case AV_NPC_ENTRY_SLIDORE:   summonEntry = AV_NPC_WARRIDER_SLIDORE;   teamStr = "A"; riderName = "Slidore";    break;
+                                case AV_NPC_ENTRY_VIPORE:    summonEntry = AV_NPC_WARRIDER_VIPORE;    teamStr = "A"; riderName = "Vipore";     break;
+                                case AV_NPC_ENTRY_ICHMAN:    summonEntry = AV_NPC_WARRIDER_ICHMAN;    teamStr = "A"; riderName = "Ichman";     break;
                                 default:
                                     return;
                             }
+                            sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_AIR] inst=%u t=%u team=%s rider=%s summoned npc=%u",
+                                bg->GetInstanceID(), bg->GetStartTime() / 1000, teamStr, riderName, summonEntry);
                             m_creature->SummonCreature(summonEntry,
                                                        m_creature->GetPositionX(), m_creature->GetPositionY(), m_creature->GetPositionZ(), m_creature->GetOrientation(), TEMPSUMMON_CORPSE_DESPAWN, 10000);
                         }
@@ -2432,6 +2439,10 @@ struct AV_NpcEventAI : public npc_escortAI
                     m_bThurlogaBoss = true;
                     DoScriptText(SAY_LOKHOLAR_SPAWNED, m_creature);
                     m_uiDespawn_Timer = 600000;
+                    if (BattleGroundMap* bgMap = dynamic_cast<BattleGroundMap*>(m_creature->GetMap()))
+                        if (BattleGroundAV* bg = dynamic_cast<BattleGroundAV*>(bgMap->GetBG()))
+                            sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_WBOSS] inst=%u t=%u team=H boss=Lokholar spawned",
+                                bg->GetInstanceID(), bg->GetStartTime() / 1000);
                 }
             }
 
@@ -2463,6 +2474,10 @@ struct AV_NpcEventAI : public npc_escortAI
                 {
                     m_bRenferalBoss = true;
                     m_uiDespawn_Timer = 6000;
+                    if (BattleGroundMap* bgMap = dynamic_cast<BattleGroundMap*>(m_creature->GetMap()))
+                        if (BattleGroundAV* bg = dynamic_cast<BattleGroundAV*>(bgMap->GetBG()))
+                            sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_WBOSS] inst=%u t=%u team=A boss=Ivus spawned",
+                                bg->GetInstanceID(), bg->GetStartTime() / 1000);
                 }
             }
 
