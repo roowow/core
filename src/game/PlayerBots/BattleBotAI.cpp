@@ -3316,9 +3316,10 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                  (me->GetTeam() == ALLIANCE && (bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED) || bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_CONTROLLED))));
 
             // Passive travelers don't initiate combat outside objectives.
-            // Guards and bots inside a capture hold always fight regardless of mode.
+            // Guards, bots inside a capture hold, and bots near any AV flag always fight.
             bool const avPassiveTraveler = !m_avAggressiveTravelCombat &&
                 m_avAssignedGY == 0 && !BattleBotIsInAVGyCaptureHold(this) &&
+                !BattleBotIsNearAVFlag(this, AV_FLAG_DEFENSE_RADIUS) &&
                 bgForAssault && bgForAssault->GetTypeID() == BATTLEGROUND_AV;
 
             if (!avTotalAssault && !avPassiveTraveler)

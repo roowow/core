@@ -2335,19 +2335,21 @@ void TryAssignAVRespawnGuard(BattleBotAI* pAI)
 
 static std::pair<uint32, uint32> AV_HordeAttackObjectives[] =
 {
-    // Attack
+    // Attack (array order = priority; retake objectives go last)
     { BG_AV_STONEHEARTH_BUNKER, ALLIANCE_CONTROLLED },
     { BG_AV_STONEHEARTH_GY, ALLIANCE_CONTROLLED },
     { BG_AV_ICEWING_BUNKER, ALLIANCE_CONTROLLED },
     { BG_AV_STORMPIKE_GY, ALLIANCE_CONTROLLED },
     { BG_AV_DUN_BALDAR_SOUTH_BUNKER, ALLIANCE_CONTROLLED },
     { BG_AV_DUN_BALDAR_NORTH_BUNKER, ALLIANCE_CONTROLLED },
-    { BG_AV_STORMPIKE_AID_STATION_GY, ALLIANCE_CONTROLLED }
+    { BG_AV_STORMPIKE_AID_STATION_GY, ALLIANCE_CONTROLLED },
+    { BG_AV_ICEBLOOD_GY, ALLIANCE_CONTROLLED },      // retake if Alliance captured it (lowest priority)
 };
 
 static std::pair<uint32, uint32> AV_HordeDefendObjectives[] =
 {
     // Defend
+    { BG_AV_ICEBLOOD_GY, ALLIANCE_ASSAULTED },    // closest Horde GY to frontline
     { BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED },
     { BG_AV_EAST_FROSTWOLF_TOWER, ALLIANCE_ASSAULTED },
     { BG_AV_WEST_FROSTWOLF_TOWER, ALLIANCE_ASSAULTED },
@@ -2358,6 +2360,7 @@ static std::pair<uint32, uint32> AV_HordeDefendObjectives[] =
 static std::pair<uint32, uint32> AV_AllianceAttackObjectives[] =
 {
     // Attack
+    { BG_AV_STONEHEARTH_GY, HORDE_CONTROLLED },  // retake if Horde captured it
     { BG_AV_ICEBLOOD_TOWER, HORDE_CONTROLLED },
     { BG_AV_ICEBLOOD_GY, HORDE_CONTROLLED },
     { BG_AV_TOWER_POINT_TOWER, HORDE_CONTROLLED },
@@ -2370,6 +2373,7 @@ static std::pair<uint32, uint32> AV_AllianceAttackObjectives[] =
 static std::pair<uint32, uint32> AV_AllianceDefendObjectives[] =
 {
     // Defend
+    { BG_AV_STONEHEARTH_GY, HORDE_ASSAULTED },
     { BG_AV_STORMPIKE_GY, HORDE_ASSAULTED },
     { BG_AV_DUN_BALDAR_SOUTH_BUNKER, HORDE_ASSAULTED },
     { BG_AV_DUN_BALDAR_NORTH_BUNKER, HORDE_ASSAULTED },
@@ -2418,6 +2422,10 @@ bool BattleBotAI::StartNewPathToObjective()
                     m_avMineBotDecided = true;
                     m_avMineBotBgInstance = bg->GetInstanceID();
                     m_avIsMineBot = ShouldBeAVMineBot(this);
+                    if (m_avIsMineBot)
+                        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_MINE] inst=%u t=%u team=%s guid=%u minebot=assigned",
+                            bg->GetInstanceID(), bg->GetStartTime() / 1000,
+                            me->GetTeam() == ALLIANCE ? "A" : "H", me->GetGUIDLow());
                 }
             }
 
@@ -2476,6 +2484,9 @@ bool BattleBotAI::StartNewPathToObjective()
                 }
 
                 // Own key GY lost: release back to normal routing.
+                sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_MINE] inst=%u t=%u team=%s guid=%u minebot=released reason=ownGyLost",
+                    bg->GetInstanceID(), bg->GetStartTime() / 1000,
+                    myTeam == ALLIANCE ? "A" : "H", me->GetGUIDLow());
                 m_avIsMineBot = false;
                 m_avMineState = AV_MINE_NONE;
             }
