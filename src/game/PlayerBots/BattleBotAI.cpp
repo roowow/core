@@ -1714,9 +1714,6 @@ bool BattleBotAI::UseMount()
     {
         if (bg->GetStatus() == STATUS_WAIT_JOIN)
             return false;
-        // Don't strip shapeshift form and then fail to mount because we're moving in AV/WSG.
-        if (me->IsMoving() && (bg->GetTypeID() == BATTLEGROUND_AV || bg->GetTypeID() == BATTLEGROUND_WS))
-            return false;
     }
 
     if (me->HasAura(AURA_WARSONG_FLAG) ||
