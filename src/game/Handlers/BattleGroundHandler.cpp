@@ -552,9 +552,6 @@ void WorldSession::HandleLeaveBattlefieldOpcode(WorldPackets::Battleground::Leav
             if (bg->GetStatus() != STATUS_WAIT_LEAVE)
                 return;
 
-    if (_player->IsGameMaster())
-        return;
-
     _player->LeaveBattleground();
 }
 #endif

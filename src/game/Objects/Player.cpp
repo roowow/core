@@ -1805,7 +1805,7 @@ bool Player::ToggleAFK()
     bool state = IsAFK();
 
     // afk player not allowed in battleground
-    if (state && InBattleGround())
+    if (state && InBattleGround() && !IsGameMaster())
         LeaveBattleground();
 
     return state;
