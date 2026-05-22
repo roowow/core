@@ -1714,6 +1714,10 @@ bool BattleBotAI::UseMount()
     {
         if (bg->GetStatus() == STATUS_WAIT_JOIN)
             return false;
+        // Don't interrupt active AV/WSG path traversal to mount; bots can mount
+        // naturally between path segments when they are already stopped.
+        if (me->IsMoving() && (bg->GetTypeID() == BATTLEGROUND_AV || bg->GetTypeID() == BATTLEGROUND_WS))
+            return false;
     }
 
     if (me->HasAura(AURA_WARSONG_FLAG) ||
@@ -1737,14 +1741,6 @@ bool BattleBotAI::UseMount()
 
     if (me->IsMoving())
     {
-        // Don't interrupt mine bot patrol path — clearing it restarts the bot from the
-        // outdoor entrance (WP 0) rather than resuming in the interior near the boss.
-        if (m_avIsMineBot && m_currentPath)
-            return false;
-        // Don't interrupt active WSG path traversal; bots will mount between segments.
-        if (BattleGround* bgCheck = me->GetBattleGround())
-            if (bgCheck->GetTypeID() == BATTLEGROUND_WS)
-                return false;
         ClearPath();
         StopMoving();
     }
