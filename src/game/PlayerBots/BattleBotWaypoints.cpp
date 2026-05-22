@@ -226,6 +226,9 @@ void AtCaveExit(BattleBotAI* pAI)
     pAI->MoveToNextPoint();
 }
 
+extern BattleBotPath vPath_AV_Stormpike_to_Irondeep_Morloch;
+extern BattleBotPath vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
+
 void MoveToNextPointSpecial(BattleBotAI* pAI)
 {
     if (!pAI->m_currentPath || pAI->m_currentPath->empty())
@@ -260,7 +263,12 @@ void MoveToNextPointSpecial(BattleBotAI* pAI)
 
     BattleBotWaypoint& nextPoint = (*pAI->m_currentPath)[pAI->m_currentPoint];
 
-    pAI->me->GetMotionMaster()->MovePoint(pAI->m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, MOVE_PATHFINDING | MOVE_RUN_MODE);
+    uint32 moveFlags = MOVE_RUN_MODE;
+    if (pAI->m_currentPath == &vPath_AV_Stormpike_to_Irondeep_Morloch ||
+        pAI->m_currentPath == &vPath_AV_TowerPoint_to_Coldtooth_Snivvle)
+        moveFlags = MOVE_PATHFINDING | MOVE_RUN_MODE;
+
+    pAI->me->GetMotionMaster()->MovePoint(pAI->m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, moveFlags);
 }
 
 BattleBotPath vPath_AV_Horde_Cave_to_Tower_Point_Crossroad =
@@ -337,15 +345,15 @@ BattleBotPath vPath_AV_Horde_Base_First_Crossroads_to_East_Frostwolf_Tower_Flag 
     { -1309.39f, -305.389f, 91.7743f, nullptr },
     { -1306.77f, -310.068f, 91.7371f, nullptr },
     { -1300.2f, -322.303f, 91.3631f, nullptr },
-    { -1295.93f, -320.154f, 91.3596f, &MoveToNextPointSpecial },
-    { -1301.5f, -309.995f, 95.7382f, &MoveToNextPointSpecial },
-    { -1309.02f, -315.629f, 99.4271f, &MoveToNextPointSpecial },
+    { -1295.93f, -320.154f, 91.3596f, nullptr },
+    { -1301.5f, -309.995f, 95.7382f, nullptr },
+    { -1309.02f, -315.629f, 99.4271f, nullptr },
     { -1304.13f, -321.638f, 102.323f, nullptr },
     { -1298.43f, -317.239f, 104.769f, nullptr },
     { -1304.62f, -310.076f, 107.328f, nullptr },
     { -1306.73f, -316.046f, 107.328f, nullptr },
-    { -1314.61f, -321.14f, 107.316f, &MoveToNextPointSpecial },
-    { -1311.92f, -324.548f, 109.202f, &MoveToNextPointSpecial },
+    { -1314.61f, -321.14f, 107.316f, nullptr },
+    { -1311.92f, -324.548f, 109.202f, nullptr },
     { -1304.72f, -328.225f, 113.563f, nullptr },
     { -1301.77f, -326.848f, 113.84f, nullptr },
     { -1294.77f, -321.092f, 113.792f, nullptr },
@@ -364,15 +372,15 @@ BattleBotPath vPath_AV_Horde_Base_First_Crossroads_to_West_Frostwolf_Tower_Flag 
     { -1306.39f, -269.65f, 92.0506f, nullptr },
     { -1292.18f, -264.937f, 91.6452f, nullptr },
     { -1292.76f, -261.18f, 91.6437f, nullptr },
-    { -1296.92f, -261.369f, 92.6981f, &MoveToNextPointSpecial },
-    { -1303.73f, -263.629f, 95.987f, &MoveToNextPointSpecial },
-    { -1300.5f, -272.465f, 99.691f, &MoveToNextPointSpecial },
+    { -1296.92f, -261.369f, 92.6981f, nullptr },
+    { -1303.73f, -263.629f, 95.987f, nullptr },
+    { -1300.5f, -272.465f, 99.691f, nullptr },
     { -1293.33f, -269.5f, 102.51f, nullptr },
     { -1295.96f, -263.022f, 105.042f, nullptr },
     { -1304.46f, -266.371f, 107.612f, nullptr },
     { -1299.74f, -270.916f, 107.612f, nullptr },
-    { -1296.95f, -279.413f, 107.585f, &MoveToNextPointSpecial },
-    { -1291.49f, -276.799f, 110.059f, &MoveToNextPointSpecial },
+    { -1296.95f, -279.413f, 107.585f, nullptr },
+    { -1291.49f, -276.799f, 110.059f, nullptr },
     { -1286.89f, -269.783f, 114.142f, nullptr },
     { -1290.87f, -260.594f, 114.151f, nullptr },
     { -1299.88f, -257.96f, 114.111f, nullptr },
@@ -442,14 +450,14 @@ BattleBotPath vPath_AV_TowerPoint_Bottom_to_Tower_Point_Flag =
     { -764.151f, -350.571f, 68.7991f, nullptr },
     { -766.112f, -357.945f, 68.6996f, nullptr },
     { -770.997f, -370.089f, 68.3956f, nullptr },
-    { -763.765f, -368.338f, 69.1196f, &MoveToNextPointSpecial },
-    { -761.735f, -359.76f, 72.7363f, &MoveToNextPointSpecial },
+    { -763.765f, -368.338f, 69.1196f, nullptr },
+    { -761.735f, -359.76f, 72.7363f, nullptr },
     { -771.43f, -357.941f, 76.4841f, nullptr },
     { -773.925f, -365.214f, 79.2135f, nullptr },
     { -766.473f, -365.891f, 81.9322f, nullptr },
     { -765.147f, -355.981f, 84.3558f, nullptr },
     { -771.041f, -360.772f, 84.3558f, nullptr },
-    { -779.831f, -356.316f, 84.3425f, &MoveToNextPointSpecial },
+    { -779.831f, -356.316f, 84.3425f, nullptr },
     { -780.107f, -362.818f, 87.4599f, nullptr },
     { -775.392f, -371.248f, 90.8508f, nullptr },
     { -767.966f, -372.722f, 90.8949f, nullptr },
@@ -524,14 +532,14 @@ BattleBotPath vPath_AV_Iceblood_Tower_to_Iceblood_Tower_Flag =
     { -557.697f, -276.264f, 52.1503f, nullptr },
     { -562.505f, -271.251f, 52.9165f, nullptr },
     { -575.986f, -258.447f, 52.5129f, nullptr },
-    { -580.103f, -261.305f, 52.5013f, &MoveToNextPointSpecial },
-    { -571.844f, -269.038f, 56.8539f, &MoveToNextPointSpecial },
+    { -580.103f, -261.305f, 52.5013f, nullptr },
+    { -571.844f, -269.038f, 56.8539f, nullptr },
     { -565.86f, -261.478f, 60.5514f, nullptr },
     { -572.102f, -256.66f, 63.3275f, nullptr },
     { -576.45f, -262.642f, 65.8959f, nullptr },
     { -568.831f, -268.036f, 68.4696f, nullptr },
     { -568.091f, -260.214f, 68.4696f, nullptr },
-    { -561.978f, -254.631f, 68.4482f, &MoveToNextPointSpecial },
+    { -561.978f, -254.631f, 68.4482f, nullptr },
     { -570.682f, -250.791f, 73.0299f, nullptr },
     { -576.069f, -252.266f, 74.9855f, nullptr },
     { -581.294f, -260.533f, 74.9366f, nullptr },
@@ -779,7 +787,7 @@ BattleBotPath vPath_AV_Stonehearth_Bunker_First_Crossroad_to_Stonehearth_Bunker_
     { -156.579f, -449.815f, 29.0267f, nullptr },
     { -168.009f, -444.6f, 33.2796f, nullptr },
     { -160.378f, -440.192f, 33.2796f, nullptr },
-    { -154.387f, -445.423f, 33.2796f, &MoveToNextPointSpecial },
+    { -154.387f, -445.423f, 33.2796f, nullptr },
     { -159.655f, -458.512f, 40.395f, nullptr },
     { -165.724f, -454.853f, 40.403f, nullptr },
     { -165.652f, -447.139f, 40.403f, nullptr },
@@ -804,10 +812,10 @@ BattleBotPath vPath_AV_Icewing_Bunker_Crossroad_to_Icewing_Bunker_Flag =
     { 241.705f, -378.726f, 43.2973f, nullptr },
     { 243.685f, -361.498f, 43.2563f, &MoveToNextPointSpecial },
     { 233.604f, -348.561f, 42.4664f, &MoveToNextPointSpecial },
-    { 208.557f, -367.638f, 44.8858f, &MoveToNextPointSpecial },
+    { 208.557f, -367.638f, 44.8858f, nullptr },
     { 199.002f, -374.949f, 49.2678f, nullptr },
     { 197.929f, -366.972f, 49.2678f, nullptr },
-    { 204.639f, -363.321f, 49.2678f, &MoveToNextPointSpecial },
+    { 204.639f, -363.321f, 49.2678f, nullptr },
     { 214.635f, -374.753f, 56.3819f, nullptr },
     { 206.689f, -377.633f, 56.3917f, nullptr },
     { 199.606f, -370.834f, 56.3917f, nullptr },
@@ -966,9 +974,9 @@ BattleBotPath vPath_AV_Alliance_Cave_to_Alliance_Cave_Slop_Crossroad =
 
 // AV mine paths: start from existing vPaths_AV waypoints so bots can chain onto them naturally.
 
-// Mine path uses MoveToNextPointSpecial callbacks (MOVE_PATHFINDING | MOVE_RUN_MODE,
-// no MOVE_EXCLUDE_STEEP_SLOPES) so the pathfinder can handle the steep ascent
-// through the mine interior without rerouting through terrain walls.
+// Mine paths keep pathfinding in MoveToNextPointSpecial so the pathfinder can
+// handle the steep ascent through the mine interior without rerouting through
+// terrain walls. Non-mine special tower/bunker steps keep the old direct run.
 // WPs 0-18: outdoor section (Stormpike Crossroad → mine entrance).
 // WPs 19-192: full mine interior patrol recorded 20260520_233444.
 BattleBotPath vPath_AV_Stormpike_to_Irondeep_Morloch =
@@ -1728,7 +1736,7 @@ void BattleBotAI::StartNewPathFromAnywhere()
 
     m_currentPath = pClosestPath;
     m_movingInReverse = false;
-    m_currentPoint = (closestPoint > 0) ? closestPoint - 1 : 0;
+    m_currentPoint = (closestPoint > 0) ? closestPoint - 1 : static_cast<uint32>(-1);
     MoveToNextPoint();
 }
 
@@ -1817,7 +1825,7 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
     if (m_movingInReverse)
         m_currentPoint = closestPoint + 1;
     else
-        m_currentPoint = (closestPoint > 0) ? closestPoint - 1 : 0;
+        m_currentPoint = (closestPoint > 0) ? closestPoint - 1 : static_cast<uint32>(-1);
     MoveToNextPoint();
     return true;
 }
@@ -2547,14 +2555,13 @@ bool BattleBotAI::StartNewPathToObjective()
 
             if (me->GetTeam() == HORDE)
             {
-                // End Boss: push to Vanndar once captain is dead (push mode), or once all
-                // bunkers + Aid Station are cleared (standard mode clear sequence).
-                if (bg->IsActiveEvent(BG_AV_NodeEventCaptainDead_A, 0) ||
-                    (!bg->IsActiveEvent(BG_AV_DUN_BALDAR_SOUTH_BUNKER, ALLIANCE_CONTROLLED) &&
-                     !bg->IsActiveEvent(BG_AV_DUN_BALDAR_NORTH_BUNKER, ALLIANCE_CONTROLLED) &&
-                     !bg->IsActiveEvent(BG_AV_ICEWING_BUNKER, ALLIANCE_CONTROLLED) &&
-                     !bg->IsActiveEvent(BG_AV_STONEHEARTH_BUNKER, ALLIANCE_CONTROLLED) &&
-                     !bg->IsActiveEvent(BG_AV_STORMPIKE_AID_STATION_GY, ALLIANCE_CONTROLLED)))
+                // End Boss: keep the old clear sequence; captain death alone must not
+                // make Horde skip Stonehearth/Icewing/Dun Baldar objectives.
+                if (!bg->IsActiveEvent(BG_AV_DUN_BALDAR_SOUTH_BUNKER, ALLIANCE_CONTROLLED) &&
+                    !bg->IsActiveEvent(BG_AV_DUN_BALDAR_NORTH_BUNKER, ALLIANCE_CONTROLLED) &&
+                    !bg->IsActiveEvent(BG_AV_ICEWING_BUNKER, ALLIANCE_CONTROLLED) &&
+                    !bg->IsActiveEvent(BG_AV_STONEHEARTH_BUNKER, ALLIANCE_CONTROLLED) &&
+                    !bg->IsActiveEvent(BG_AV_STORMPIKE_AID_STATION_GY, ALLIANCE_CONTROLLED))
                 {
                     if (Creature* pVanndar = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_BOSS_A, 0)))
                         return StartNewPathToPosition(pVanndar->GetPosition(), vPaths_AV);
@@ -2584,8 +2591,8 @@ bool BattleBotAI::StartNewPathToObjective()
                     }
                 }
 
-                // Behavior 4: 30% chance to skip the first eligible objective and go deeper
-                bool skipFirst = roll_chance_u(30);
+                // Random mode may split a few bots deeper; Native/Push keep the old ordered push.
+                bool skipFirst = (m_avMode == AV_MODE_RANDOM) && roll_chance_u(30);
                 GameObject* pHordeFallback = nullptr;
                 for (const auto& objective : AV_HordeAttackObjectives)
                 {
@@ -2678,8 +2685,8 @@ bool BattleBotAI::StartNewPathToObjective()
                     }
                 }
 
-                // Behavior 4: 30% chance to skip closest objective and attack the second closest
-                if (pAttackObjectiveObject && pSecondObjective && roll_chance_u(30))
+                // Random mode may split a few bots deeper; Native/Push keep the old closest-objective push.
+                if (m_avMode == AV_MODE_RANDOM && pAttackObjectiveObject && pSecondObjective && roll_chance_u(30))
                     pAttackObjectiveObject = pSecondObjective;
 
                 if (pAttackObjectiveObject)

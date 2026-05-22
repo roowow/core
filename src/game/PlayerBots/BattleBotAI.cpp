@@ -3062,7 +3062,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
     if (UpdateBattleGroundAI())
         return;
 
-    // BG melee stuck detection + WSG exploit prevention
+    // WSG exploit prevention
     {
         BattleGround* currentBg = me->GetBattleGround();
         if (currentBg && currentBg->GetTypeID() == BATTLEGROUND_WS)
@@ -3156,118 +3156,6 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                             me->AttackStop(false);
                             StopMoving();
                             m_bgStuckCounter = 0;
-                        }
-                        ClearPath();
-                        StartNewPathToObjective();
-                    }
-                    m_bgProgressX = curX;
-                    m_bgProgressY = curY;
-                    m_bgProgressTicks = 0;
-                }
-            }
-            else
-            {
-                m_bgProgressTicks = 0;
-                m_bgProgressX = curX;
-                m_bgProgressY = curY;
-            }
-
-            m_bgStuckLastX = curX;
-            m_bgStuckLastY = curY;
-        }
-        else if (currentBg && (currentBg->GetTypeID() == BATTLEGROUND_AV || currentBg->GetTypeID() == BATTLEGROUND_AB))
-        {
-            float const curX = me->GetPositionX();
-            float const curY = me->GetPositionY();
-
-            if (me->IsInCombat() &&
-                me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
-            {
-                bool const cantReach = me->GetVictim() && !me->CanReachWithMeleeAutoAttack(me->GetVictim());
-                bool const notMoved = me->GetDistance2d(m_bgStuckLastX, m_bgStuckLastY) < 2.0f;
-                if (cantReach)
-                    ++m_bgStuckCounter;
-                else
-                    m_bgStuckCounter = 0;
-                // Stationary + can't reach: 10s. Oscillating + can't reach: 30s.
-                // The longer threshold avoids false positives when legitimately
-                // chasing a running target that stays just out of melee range.
-                uint8 const stuckThreshold = notMoved ? 5 : 15;
-                if (m_bgStuckCounter >= stuckThreshold)
-                {
-                    me->AttackStop(false);
-                    StopMoving();
-                    ClearPath();
-                    StartNewPathToObjective();
-                    m_bgStuckCounter = 0;
-                    m_bgProgressTicks = 0;
-                    m_bgProgressX = curX;
-                    m_bgProgressY = curY;
-                }
-            }
-            else
-            {
-                // After CC (e.g. fear): attack state remains active but chase was
-                // interrupted. Detect: standing still, victim out of melee range,
-                // not rooted (rooted bots legitimately can't move).
-                if (me->IsInCombat() && !me->IsMoving() && !me->IsRooted() &&
-                    me->GetVictim() && !me->CanReachWithMeleeAutoAttack(me->GetVictim()))
-                {
-                    ++m_bgStuckCounter;
-                    if (m_bgStuckCounter >= 3) // 3 * 2s = 6 seconds
-                    {
-                        me->AttackStop(false);
-                        StopMoving();
-                        ClearPath();
-                        StartNewPathToObjective();
-                        m_bgStuckCounter = 0;
-                    }
-                }
-                else
-                {
-                    m_bgStuckCounter = 0;
-                }
-                // Out of combat but physically stuck inside a building (bunker in AV, tower in AB)
-                if (!me->IsInCombat() && !me->IsMoving())
-                {
-                    bool const outdoors = me->GetMap()->GetTerrain()->IsOutdoors(curX, curY, me->GetPositionZ());
-                    if (!outdoors)
-                    {
-                        bool shouldReroute = true;
-                        if (currentBg->GetTypeID() == BATTLEGROUND_AV)
-                        {
-                            // Allow bots to remain indoors when fighting the AV boss
-                            if (Creature* pBossA = me->GetMap()->GetCreature(currentBg->GetSingleCreatureGuid(BG_AV_BOSS_A, 0)))
-                                if (me->GetDistance(pBossA) < 60.0f)
-                                    shouldReroute = false;
-                            if (shouldReroute)
-                                if (Creature* pBossH = me->GetMap()->GetCreature(currentBg->GetSingleCreatureGuid(BG_AV_BOSS_H, 0)))
-                                    if (me->GetDistance(pBossH) < 60.0f)
-                                        shouldReroute = false;
-                        }
-                        if (shouldReroute)
-                        {
-                            ClearPath();
-                            StartNewPathToObjective();
-                        }
-                    }
-                }
-            }
-
-            // Checkpoint-based movement progress detection: catches both outdoor pathfinding
-            // loops (out-of-combat) and in-combat terrain-pit loops where the bot oscillates
-            // without making net progress (e.g. chasing an enemy above a pit).
-            if (me->IsMoving())
-            {
-                ++m_bgProgressTicks;
-                if (m_bgProgressTicks >= 10) // 10 * 2s = 20 seconds
-                {
-                    if (me->GetDistance2d(m_bgProgressX, m_bgProgressY) < 15.0f)
-                    {
-                        if (me->IsInCombat())
-                        {
-                            me->AttackStop(false);
-                            StopMoving();
                         }
                         ClearPath();
                         StartNewPathToObjective();
