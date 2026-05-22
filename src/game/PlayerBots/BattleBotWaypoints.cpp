@@ -337,15 +337,15 @@ BattleBotPath vPath_AV_Horde_Base_First_Crossroads_to_East_Frostwolf_Tower_Flag 
     { -1309.39f, -305.389f, 91.7743f, nullptr },
     { -1306.77f, -310.068f, 91.7371f, nullptr },
     { -1300.2f, -322.303f, 91.3631f, nullptr },
-    { -1295.93f, -320.154f, 91.3596f, nullptr },
-    { -1301.5f, -309.995f, 95.7382f, nullptr },
-    { -1309.02f, -315.629f, 99.4271f, nullptr },
+    { -1295.93f, -320.154f, 91.3596f, &MoveToNextPointSpecial },
+    { -1301.5f, -309.995f, 95.7382f, &MoveToNextPointSpecial },
+    { -1309.02f, -315.629f, 99.4271f, &MoveToNextPointSpecial },
     { -1304.13f, -321.638f, 102.323f, nullptr },
     { -1298.43f, -317.239f, 104.769f, nullptr },
     { -1304.62f, -310.076f, 107.328f, nullptr },
     { -1306.73f, -316.046f, 107.328f, nullptr },
-    { -1314.61f, -321.14f, 107.316f, nullptr },
-    { -1311.92f, -324.548f, 109.202f, nullptr },
+    { -1314.61f, -321.14f, 107.316f, &MoveToNextPointSpecial },
+    { -1311.92f, -324.548f, 109.202f, &MoveToNextPointSpecial },
     { -1304.72f, -328.225f, 113.563f, nullptr },
     { -1301.77f, -326.848f, 113.84f, nullptr },
     { -1294.77f, -321.092f, 113.792f, nullptr },
@@ -364,15 +364,15 @@ BattleBotPath vPath_AV_Horde_Base_First_Crossroads_to_West_Frostwolf_Tower_Flag 
     { -1306.39f, -269.65f, 92.0506f, nullptr },
     { -1292.18f, -264.937f, 91.6452f, nullptr },
     { -1292.76f, -261.18f, 91.6437f, nullptr },
-    { -1296.92f, -261.369f, 92.6981f, nullptr },
-    { -1303.73f, -263.629f, 95.987f, nullptr },
-    { -1300.5f, -272.465f, 99.691f, nullptr },
+    { -1296.92f, -261.369f, 92.6981f, &MoveToNextPointSpecial },
+    { -1303.73f, -263.629f, 95.987f, &MoveToNextPointSpecial },
+    { -1300.5f, -272.465f, 99.691f, &MoveToNextPointSpecial },
     { -1293.33f, -269.5f, 102.51f, nullptr },
     { -1295.96f, -263.022f, 105.042f, nullptr },
     { -1304.46f, -266.371f, 107.612f, nullptr },
     { -1299.74f, -270.916f, 107.612f, nullptr },
-    { -1296.95f, -279.413f, 107.585f, nullptr },
-    { -1291.49f, -276.799f, 110.059f, nullptr },
+    { -1296.95f, -279.413f, 107.585f, &MoveToNextPointSpecial },
+    { -1291.49f, -276.799f, 110.059f, &MoveToNextPointSpecial },
     { -1286.89f, -269.783f, 114.142f, nullptr },
     { -1290.87f, -260.594f, 114.151f, nullptr },
     { -1299.88f, -257.96f, 114.111f, nullptr },
@@ -442,14 +442,14 @@ BattleBotPath vPath_AV_TowerPoint_Bottom_to_Tower_Point_Flag =
     { -764.151f, -350.571f, 68.7991f, nullptr },
     { -766.112f, -357.945f, 68.6996f, nullptr },
     { -770.997f, -370.089f, 68.3956f, nullptr },
-    { -763.765f, -368.338f, 69.1196f, nullptr },
-    { -761.735f, -359.76f, 72.7363f, nullptr },
+    { -763.765f, -368.338f, 69.1196f, &MoveToNextPointSpecial },
+    { -761.735f, -359.76f, 72.7363f, &MoveToNextPointSpecial },
     { -771.43f, -357.941f, 76.4841f, nullptr },
     { -773.925f, -365.214f, 79.2135f, nullptr },
     { -766.473f, -365.891f, 81.9322f, nullptr },
     { -765.147f, -355.981f, 84.3558f, nullptr },
     { -771.041f, -360.772f, 84.3558f, nullptr },
-    { -779.831f, -356.316f, 84.3425f, nullptr },
+    { -779.831f, -356.316f, 84.3425f, &MoveToNextPointSpecial },
     { -780.107f, -362.818f, 87.4599f, nullptr },
     { -775.392f, -371.248f, 90.8508f, nullptr },
     { -767.966f, -372.722f, 90.8949f, nullptr },
@@ -524,14 +524,14 @@ BattleBotPath vPath_AV_Iceblood_Tower_to_Iceblood_Tower_Flag =
     { -557.697f, -276.264f, 52.1503f, nullptr },
     { -562.505f, -271.251f, 52.9165f, nullptr },
     { -575.986f, -258.447f, 52.5129f, nullptr },
-    { -580.103f, -261.305f, 52.5013f, nullptr },
-    { -571.844f, -269.038f, 56.8539f, nullptr },
+    { -580.103f, -261.305f, 52.5013f, &MoveToNextPointSpecial },
+    { -571.844f, -269.038f, 56.8539f, &MoveToNextPointSpecial },
     { -565.86f, -261.478f, 60.5514f, nullptr },
     { -572.102f, -256.66f, 63.3275f, nullptr },
     { -576.45f, -262.642f, 65.8959f, nullptr },
     { -568.831f, -268.036f, 68.4696f, nullptr },
     { -568.091f, -260.214f, 68.4696f, nullptr },
-    { -561.978f, -254.631f, 68.4482f, nullptr },
+    { -561.978f, -254.631f, 68.4482f, &MoveToNextPointSpecial },
     { -570.682f, -250.791f, 73.0299f, nullptr },
     { -576.069f, -252.266f, 74.9855f, nullptr },
     { -581.294f, -260.533f, 74.9366f, nullptr },
@@ -779,7 +779,7 @@ BattleBotPath vPath_AV_Stonehearth_Bunker_First_Crossroad_to_Stonehearth_Bunker_
     { -156.579f, -449.815f, 29.0267f, nullptr },
     { -168.009f, -444.6f, 33.2796f, nullptr },
     { -160.378f, -440.192f, 33.2796f, nullptr },
-    { -154.387f, -445.423f, 33.2796f, nullptr },
+    { -154.387f, -445.423f, 33.2796f, &MoveToNextPointSpecial },
     { -159.655f, -458.512f, 40.395f, nullptr },
     { -165.724f, -454.853f, 40.403f, nullptr },
     { -165.652f, -447.139f, 40.403f, nullptr },
@@ -804,10 +804,10 @@ BattleBotPath vPath_AV_Icewing_Bunker_Crossroad_to_Icewing_Bunker_Flag =
     { 241.705f, -378.726f, 43.2973f, nullptr },
     { 243.685f, -361.498f, 43.2563f, &MoveToNextPointSpecial },
     { 233.604f, -348.561f, 42.4664f, &MoveToNextPointSpecial },
-    { 208.557f, -367.638f, 44.8858f, nullptr },
+    { 208.557f, -367.638f, 44.8858f, &MoveToNextPointSpecial },
     { 199.002f, -374.949f, 49.2678f, nullptr },
     { 197.929f, -366.972f, 49.2678f, nullptr },
-    { 204.639f, -363.321f, 49.2678f, nullptr },
+    { 204.639f, -363.321f, 49.2678f, &MoveToNextPointSpecial },
     { 214.635f, -374.753f, 56.3819f, nullptr },
     { 206.689f, -377.633f, 56.3917f, nullptr },
     { 199.606f, -370.834f, 56.3917f, nullptr },
@@ -1502,16 +1502,28 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
 };
 
 // Paths excluded from StartNewPathToPosition objective routing.
-// These are cave-exit paths whose WP 0 carries an AtCaveExit callback.
-// From inside the cave they are the only paths with waypoints in the
-// 50-yard search radius, so without this exclusion they get selected as
-// "proxy" routes for unrelated objectives, trapping bots in a WP-0 loop.
 // StartNewPathFromBeginning / StartNewPathFromAnywhere still use them.
+//
+// Cave-exit paths: their WP 0 carries an AtCaveExit callback. From inside
+// the cave they are the only paths within the 50-yard search radius, so
+// without this exclusion they get selected as proxy routes for unrelated
+// objectives, trapping bots in a WP-0 loop.
+//
+// GY_Flag_to_GY_Second_Crossroad: this southward path (GY Flag → Second
+// Crossroad) causes a navigation loop when bots try to reach Balinda or
+// other northern objectives from the Stonehearth GY/Bunker area. The
+// algorithm picks it because Second Crossroad is geometrically closer to
+// Balinda (~129 yd) than GY Crossroad (~188 yd), but the correct route
+// to Balinda goes north through GY Crossroad → Outpost. Excluding it
+// forces bots to take the northward leg instead. StartNewPathFromBeginning
+// can still use it as a fallback for bots that need to exit toward the
+// bunker crossroad.
 std::vector<BattleBotPath*> const vPaths_ObjectiveExcluded =
 {
     &vPath_AV_Alliance_Cave_to_Alliance_Cave_Slop_Crossroad,
     &vPath_AV_Horde_Cave_to_Tower_Point_Crossroad,
     &vPath_AV_Horde_Cave_to_Frostwolf_Graveyard_Flag,
+    &vPath_AV_Stonehearth_Graveyard_Flag_to_Stonehearth_Graveyard_Second_Crossroad,
 };
 
 // Mine paths: only selected by StartNewPathFromBeginning/Anywhere when bot is a mine bot.
@@ -2503,12 +2515,14 @@ bool BattleBotAI::StartNewPathToObjective()
 
             if (me->GetTeam() == HORDE)
             {
-                // End Boss
-                if (!bg->IsActiveEvent(BG_AV_DUN_BALDAR_SOUTH_BUNKER, ALLIANCE_CONTROLLED) &&
-                    !bg->IsActiveEvent(BG_AV_DUN_BALDAR_NORTH_BUNKER, ALLIANCE_CONTROLLED) &&
-                    !bg->IsActiveEvent(BG_AV_ICEWING_BUNKER, ALLIANCE_CONTROLLED) &&
-                    !bg->IsActiveEvent(BG_AV_STONEHEARTH_BUNKER, ALLIANCE_CONTROLLED) &&
-                    !bg->IsActiveEvent(BG_AV_STORMPIKE_AID_STATION_GY, ALLIANCE_CONTROLLED))
+                // End Boss: push to Vanndar once captain is dead (push mode), or once all
+                // bunkers + Aid Station are cleared (standard mode clear sequence).
+                if (bg->IsActiveEvent(BG_AV_NodeEventCaptainDead_A, 0) ||
+                    (!bg->IsActiveEvent(BG_AV_DUN_BALDAR_SOUTH_BUNKER, ALLIANCE_CONTROLLED) &&
+                     !bg->IsActiveEvent(BG_AV_DUN_BALDAR_NORTH_BUNKER, ALLIANCE_CONTROLLED) &&
+                     !bg->IsActiveEvent(BG_AV_ICEWING_BUNKER, ALLIANCE_CONTROLLED) &&
+                     !bg->IsActiveEvent(BG_AV_STONEHEARTH_BUNKER, ALLIANCE_CONTROLLED) &&
+                     !bg->IsActiveEvent(BG_AV_STORMPIKE_AID_STATION_GY, ALLIANCE_CONTROLLED)))
                 {
                     if (Creature* pVanndar = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_BOSS_A, 0)))
                         return StartNewPathToPosition(pVanndar->GetPosition(), vPaths_AV);

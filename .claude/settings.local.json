@@ -41,7 +41,11 @@
       "Bash(awk 'NR>=462750 && NR<=462815' \"d:/其他/wow/Development/remote/r05_core_dev/sql/world_full_14_june_2021.sql\")",
       "Bash(awk -F: '$2<=462810')",
       "Bash(awk 'NR>=450000 && /13216.*Frostwolf|13216.*Stormpike|Frostwolf.*13216|Stormpike.*13216/' \"/d/其他/wow/Development/remote/r05_core_dev/sql/world_full_14_june_2021.sql\")",
-      "Bash(awk 'NR>=452000 && /13218.*Frostwolf|13218.*Horde|Frostwolf.*Supply|Horde Supply/' \"/d/其他/wow/Development/remote/r05_core_dev/sql/world_full_14_june_2021.sql\")"
+      "Bash(awk 'NR>=452000 && /13218.*Frostwolf|13218.*Horde|Frostwolf.*Supply|Horde Supply/' \"/d/其他/wow/Development/remote/r05_core_dev/sql/world_full_14_june_2021.sql\")",
+      "Bash(findstr /r /i \"11657\\\\|BG_AV_MINE_BOSSES_NORTH\\\\|Morloch\" \"d:\\\\其他\\\\wow\\\\Development\\\\remote\\\\r05_core_dev\\\\src\\\\game\\\\Battlegrounds\\\\BattleGroundAV.cpp\")",
+      "Bash(findstr /i \"spawn\\\\|position\\\\|AddCreature\\\\|AddObject\\\\|x=\\\\|y=\\\\|z=\")",
+      "Bash(xargs -I{} git show {} --name-only --format=\"\")",
+      "Bash(grep -v \"^$\")"
     ]
   }
 }

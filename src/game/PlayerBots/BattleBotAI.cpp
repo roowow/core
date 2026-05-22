@@ -1737,6 +1737,14 @@ bool BattleBotAI::UseMount()
 
     if (me->IsMoving())
     {
+        // Don't interrupt mine bot patrol path — clearing it restarts the bot from the
+        // outdoor entrance (WP 0) rather than resuming in the interior near the boss.
+        if (m_avIsMineBot && m_currentPath)
+            return false;
+        // Don't interrupt active WSG path traversal; bots will mount between segments.
+        if (BattleGround* bgCheck = me->GetBattleGround())
+            if (bgCheck->GetTypeID() == BATTLEGROUND_WS)
+                return false;
         ClearPath();
         StopMoving();
     }
