@@ -2181,6 +2181,11 @@ static bool ShouldBeAVMineBot(BattleBotAI const* pAI)
     if (!map)
         return false;
 
+    // Count already-assigned mine bots and exclude them from the eligible pool.
+    // Without this, a late-deciding bot (e.g. one that was in GY capture hold or
+    // in sustained combat when the 3-minute window opened) sees the full pool and
+    // can land in the lowest-N set even after N slots are already filled.
+    uint32 alreadyAssigned = 0;
     std::vector<uint32> eligibleGuids;
     for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
     {
@@ -2190,6 +2195,11 @@ static bool ShouldBeAVMineBot(BattleBotAI const* pAI)
         BattleBotAI const* pBotAI = dynamic_cast<BattleBotAI const*>(player->AI());
         if (!pBotAI)
             continue;
+        if (pBotAI->m_avIsMineBot)
+        {
+            ++alreadyAssigned;
+            continue;
+        }
         if (CombatBotBaseAI::IsHealerClass(player->GetClass()))
             continue;
         if (pBotAI->m_avAssignedGY != 0)
@@ -2199,13 +2209,17 @@ static bool ShouldBeAVMineBot(BattleBotAI const* pAI)
         eligibleGuids.push_back(player->GetGUIDLow());
     }
 
+    if (alreadyAssigned >= MINE_MISSION_COUNT)
+        return false;
+
+    uint32 const remainingSlots = MINE_MISSION_COUNT - alreadyAssigned;
     std::sort(eligibleGuids.begin(), eligibleGuids.end());
 
     uint32 const myGuid = pAI->me->GetGUIDLow();
     uint32 count = 0;
     for (uint32 guid : eligibleGuids)
     {
-        if (count >= MINE_MISSION_COUNT)
+        if (count >= remainingSlots)
             break;
         if (guid == myGuid)
             return true;
