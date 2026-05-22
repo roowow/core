@@ -1912,6 +1912,21 @@ bool BattleBotIsNearAVFlag(BattleBotAI const* pAI, float radius)
     return false;
 }
 
+bool BattleBotIsNearAVCaptain(BattleBotAI const* pAI, float radius)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
+        return false;
+
+    // Enemy captain: Balinda for Horde attackers, Galvangar for Alliance attackers.
+    uint32 const captainType = (pAI->me->GetTeam() == HORDE) ? BG_AV_CAPTAIN_A : BG_AV_CAPTAIN_H;
+    if (Creature* pCaptain = pAI->me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(captainType, 0)))
+        if (pCaptain->IsAlive() && pAI->me->IsWithinDist(pCaptain, radius))
+            return true;
+
+    return false;
+}
+
 bool BattleBotIsNearOpenObjectiveFlag(BattleBotAI const* pAI, float radius)
 {
     BattleGround* bg = pAI->me->GetBattleGround();
@@ -2129,10 +2144,13 @@ static bool FindAVGYToGuard(BattleBotAI* pAI, uint32& outNode)
     uint32 const* enemyNative  = (team == HORDE) ? AV_AllianceNativeGYs : AV_HordeNativeGYs;
     uint32 const* ownNative    = (team == HORDE) ? AV_HordeNativeGYs    : AV_AllianceNativeGYs;
 
-    // Priority 1: We are actively capturing an enemy GY — all bots converge
+    // Priority 1: We are actively capturing an enemy GY — up to 5 bots converge as guards.
+    // Capped to prevent all bots being permanently assigned here while the GY is assaulting;
+    // holdCaptureUntilControlled handles the "everyone waits" behaviour for the rest.
     for (uint32 i = 0; i < 3; ++i)
     {
-        if (bg->IsActiveEvent(enemyNative[i], ownAssaulted))
+        if (bg->IsActiveEvent(enemyNative[i], ownAssaulted) &&
+            CountAVBotsAssignedToGY(map, team, enemyNative[i]) < 5)
         {
             outNode = enemyNative[i];
             return true;

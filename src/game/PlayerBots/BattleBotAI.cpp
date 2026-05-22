@@ -1846,7 +1846,9 @@ float BattleBotAI::GetMaxAggroDistanceForMap() const
         return 50.0f;
 
     // Non-aggressive travel: no new combat initiation outside objective radius.
-    if (!m_avAggressiveTravelCombat && !BattleBotIsNearAVFlag(this, AV_FLAG_DEFENSE_RADIUS))
+    // Exception: always fight the enemy captain when nearby — passive mode shouldn't apply there.
+    if (!m_avAggressiveTravelCombat && !BattleBotIsNearAVFlag(this, AV_FLAG_DEFENSE_RADIUS) &&
+        !BattleBotIsNearAVCaptain(this, 40.0f))
         return 0.0f;
 
     return 20.0f;
@@ -3321,10 +3323,12 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                  (me->GetTeam() == ALLIANCE && (bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED) || bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_CONTROLLED))));
 
             // Passive travelers don't initiate combat outside objectives.
-            // Guards, bots inside a capture hold, and bots near any AV flag always fight.
+            // Guards, bots inside a capture hold, bots near any AV flag, and bots near the
+            // enemy captain always fight.
             bool const avPassiveTraveler = !m_avAggressiveTravelCombat &&
                 m_avAssignedGY == 0 && !BattleBotIsInAVGyCaptureHold(this) &&
                 !BattleBotIsNearAVFlag(this, AV_FLAG_DEFENSE_RADIUS) &&
+                !BattleBotIsNearAVCaptain(this, 40.0f) &&
                 bgForAssault && bgForAssault->GetTypeID() == BATTLEGROUND_AV;
 
             if (!avTotalAssault && !avPassiveTraveler)
