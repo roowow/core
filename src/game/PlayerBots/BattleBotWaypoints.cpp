@@ -1499,6 +1499,14 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
     &vPath_AV_Stormpike_Graveyard_to_Stormpike_Flag,
     &vPath_AV_Stormpike_to_Irondeep_Morloch,
     &vPath_AV_TowerPoint_to_Coldtooth_Snivvle,
+    // Tower/bunker approach paths: their endpoints share the same position as
+    // the WP[0] of the corresponding climbing path. Without this exclusion,
+    // StartNewPathFromBeginning randomly selects them in reverse (bot walks
+    // back from the junction), causing oscillation at the tower base.
+    &vPath_AV_Iceblood_Tower_Crossroad_to_Iceblood_Tower,
+    &vPath_AV_Tower_Point_Crossroads_to_Tower_Point_Bottom,
+    &vPath_AV_Stonehearth_Graveyard_Second_Crossroad_to_Stonehearth_Bunker_First_Crossroad,
+    &vPath_AV_Stonehearth_Graveyard_Crossroad_to_Icewing_Bunker_Crossroad,
 };
 
 // Paths excluded from StartNewPathToPosition objective routing.
