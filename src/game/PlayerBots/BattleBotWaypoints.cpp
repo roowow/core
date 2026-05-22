@@ -2557,7 +2557,18 @@ bool BattleBotAI::StartNewPathToObjective()
                      !bg->IsActiveEvent(BG_AV_STORMPIKE_AID_STATION_GY, ALLIANCE_CONTROLLED)))
                 {
                     if (Creature* pVanndar = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_BOSS_A, 0)))
+                    {
+                        if (pVanndar->IsAlive() && me->IsWithinDist(pVanndar, 60.0f))
+                        {
+                            ClearPath();
+                            if (me->IsMounted())
+                                me->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+                            me->Attack(pVanndar, true);
+                            me->GetMotionMaster()->MoveChase(pVanndar);
+                            return true;
+                        }
                         return StartNewPathToPosition(pVanndar->GetPosition(), vPaths_AV);
+                    }
                 }
 
                 // Only go to Snowfall Graveyard if already close to it.
@@ -2571,7 +2582,18 @@ bool BattleBotAI::StartNewPathToObjective()
                 if (!bg->IsActiveEvent(BG_AV_NodeEventCaptainDead_A, 0))
                 {
                     if (Creature* pBalinda = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_CAPTAIN_A, 0)))
+                    {
+                        if (pBalinda->IsAlive() && me->IsWithinDist(pBalinda, 60.0f))
+                        {
+                            ClearPath();
+                            if (me->IsMounted())
+                                me->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+                            me->Attack(pBalinda, true);
+                            me->GetMotionMaster()->MoveChase(pBalinda);
+                            return true;
+                        }
                         return StartNewPathToPosition(pBalinda->GetPosition(), vPaths_AV);
+                    }
                 }
 
                 for (const auto& objective : AV_HordeDefendObjectives)
@@ -2616,7 +2638,18 @@ bool BattleBotAI::StartNewPathToObjective()
                     !bg->IsActiveEvent(BG_AV_FROSTWOLF_RELIEF_HUT_GY, HORDE_CONTROLLED))
                 {
                     if (Creature* pDrek = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_BOSS_H, 0)))
+                    {
+                        if (pDrek->IsAlive() && me->IsWithinDist(pDrek, 60.0f))
+                        {
+                            ClearPath();
+                            if (me->IsMounted())
+                                me->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+                            me->Attack(pDrek, true);
+                            me->GetMotionMaster()->MoveChase(pDrek);
+                            return true;
+                        }
                         return StartNewPathToPosition(pDrek->GetPosition(), vPaths_AV);
+                    }
                 }
 
                 // Only go to Snowfall Graveyard if already close to it.
@@ -2683,7 +2716,21 @@ bool BattleBotAI::StartNewPathToObjective()
                     pAttackObjectiveObject = pSecondObjective;
 
                 if (pAttackObjectiveObject)
+                {
+                    if (Creature* pCaptain = pAttackObjectiveObject->ToCreature())
+                    {
+                        if (pCaptain->IsAlive() && me->IsWithinDist(pCaptain, 60.0f))
+                        {
+                            ClearPath();
+                            if (me->IsMounted())
+                                me->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+                            me->Attack(pCaptain, true);
+                            me->GetMotionMaster()->MoveChase(pCaptain);
+                            return true;
+                        }
+                    }
                     return StartNewPathToPosition(pAttackObjectiveObject->GetPosition(), vPaths_AV);
+                }
             }
             break;
         }
