@@ -541,6 +541,8 @@ class BattleGroundAV : public BattleGround
         void BotContributeWorldBossItems(Team team, uint32 amount);
         void BotContributeAirAssault(Team team, uint32 amount);
 
+        uint8 GetBotMineBotCount(Team team) const { return m_botMineBotCount[GetTeamIndexByTeamId(team)]; }
+
         void EndBattleGround(Team winner) override;
 
         WorldSafeLocsEntry const* GetClosestGraveYard(Player* plr) override;
@@ -589,6 +591,8 @@ class BattleGroundAV : public BattleGround
         bool m_isInformedNearLose[BG_TEAMS_COUNT];
 
         uint32 m_statLogTimer;
+
+        uint8 m_botMineBotCount[BG_TEAMS_COUNT];
 
         uint32 m_repTowerDestruction;
         uint32 m_repCommander;

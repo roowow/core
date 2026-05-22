@@ -2683,7 +2683,7 @@ void BattleBotAI::InitAVStrategy()
             m_avGuardGraveyards            = false;
             m_avHoldCaptureUntilControlled = false;
             m_avAggressiveTravelCombat     = true;
-            m_avMineMissionCount           = (instanceId * 7u + (me->GetTeam() == HORDE ? 3u : 0u)) % 11;
+            m_avMineMissionCount           = static_cast<BattleGroundAV*>(bg)->GetBotMineBotCount(me->GetTeam());
             m_avEnableThreePhase           = false;
             break;
 
@@ -2706,7 +2706,7 @@ void BattleBotAI::InitAVStrategy()
             // holdCapture and aggressiveTravel: per-bot GUID-stable ~30%, different seeds
             m_avHoldCaptureUntilControlled = (guidLow ^ instanceId) % 10 < 3;
             m_avAggressiveTravelCombat     = (guidLow ^ (instanceId * 31337u)) % 10 < 3;
-            m_avMineMissionCount           = (instanceId * 13u + (me->GetTeam() == HORDE ? 5u : 0u)) % 11;
+            m_avMineMissionCount           = static_cast<BattleGroundAV*>(bg)->GetBotMineBotCount(me->GetTeam());
             m_avEnableThreePhase           = false;
             break;
     }

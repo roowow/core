@@ -45,7 +45,8 @@
       "Bash(findstr /r /i \"11657\\\\|BG_AV_MINE_BOSSES_NORTH\\\\|Morloch\" \"d:\\\\其他\\\\wow\\\\Development\\\\remote\\\\r05_core_dev\\\\src\\\\game\\\\Battlegrounds\\\\BattleGroundAV.cpp\")",
       "Bash(findstr /i \"spawn\\\\|position\\\\|AddCreature\\\\|AddObject\\\\|x=\\\\|y=\\\\|z=\")",
       "Bash(xargs -I{} git show {} --name-only --format=\"\")",
-      "Bash(grep -v \"^$\")"
+      "Bash(grep -v \"^$\")",
+      "Bash(node -e ' *)"
     ]
   }
 }

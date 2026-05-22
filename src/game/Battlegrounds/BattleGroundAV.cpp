@@ -1884,6 +1884,9 @@ void BattleGroundAV::Reset()
 
     m_statLogTimer = 60000;
 
+    m_botMineBotCount[BG_TEAM_ALLIANCE] = urand(0, 10);
+    m_botMineBotCount[BG_TEAM_HORDE]    = urand(0, 10);
+
     m_activeEvents[BG_AV_CAPTAIN_A]           = 0;
     m_activeEvents[BG_AV_CAPTAIN_H]           = 0;
     m_activeEvents[BG_AV_HERALD]              = 0;
