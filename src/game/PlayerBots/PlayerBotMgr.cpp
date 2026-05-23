@@ -736,12 +736,13 @@ void PlayerBotMgr::Update(uint32 diff)
                             totalFreeAlliance     += runningBg->GetFreeSlotsForTeam(ALLIANCE);
                             totalFreeHorde        += runningBg->GetFreeSlotsForTeam(HORDE);
 
-                            // Not locked if any BG still has a free slot or removable bots.
+                            // Not locked if any BG still has a free slot, or has removable bots
+                            // (but locked BGs never evict bots, so they don't count).
                             if (runningBg->GetFreeSlotsForTeam(ALLIANCE) > 0 ||
-                                runningBg->GetBotPlayersCountByTeam(ALLIANCE) > minBotsPerTeam)
+                                (!runningBg->IsLocked() && runningBg->GetBotPlayersCountByTeam(ALLIANCE) > minBotsPerTeam))
                                 allianceLocked = false;
                             if (runningBg->GetFreeSlotsForTeam(HORDE) > 0 ||
-                                runningBg->GetBotPlayersCountByTeam(HORDE) > minBotsPerTeam)
+                                (!runningBg->IsLocked() && runningBg->GetBotPlayersCountByTeam(HORDE) > minBotsPerTeam))
                                 hordeLocked = false;
                         }
 
