@@ -480,7 +480,10 @@ void PlayerBotMgr::Update(uint32 diff)
                     continue;
 
                 inProgressBg[bgBracketId] = runningBg;
-                inProgressTarget[bgBracketId] = runningBg->GetMaxPlayersPerTeam() > 1 ? runningBg->GetMaxPlayersPerTeam() - 1 : 0;
+                // Locked BGs are filled to max; unlocked BGs keep 1 slot open for a real player.
+                inProgressTarget[bgBracketId] = runningBg->IsLocked()
+                    ? runningBg->GetMaxPlayersPerTeam()
+                    : (runningBg->GetMaxPlayersPerTeam() > 1 ? runningBg->GetMaxPlayersPerTeam() - 1 : 0);
 
                 for (auto const& playerItr : runningBg->GetPlayers())
                 {
@@ -587,6 +590,10 @@ void PlayerBotMgr::Update(uint32 diff)
                         continue;
 
                     if (runningBg->GetStatus() < STATUS_WAIT_JOIN || runningBg->GetStatus() >= STATUS_WAIT_LEAVE)
+                        continue;
+
+                    // Never evict bots from locked BGs to make room for real players.
+                    if (runningBg->IsLocked())
                         continue;
 
                     if (runningBg->GetFreeSlotsForTeam(team) > 0)
