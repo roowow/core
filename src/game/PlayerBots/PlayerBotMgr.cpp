@@ -666,6 +666,8 @@ void PlayerBotMgr::Update(uint32 diff)
                                 runningBg->GetBracketId() != BattleGroundBracketId(bracketId) ||
                                 runningBg->GetStatus() != STATUS_IN_PROGRESS)
                                 continue;
+                            if (runningBg->IsLocked())
+                                continue;
                             trimBattleBotForStartedBg(runningBg, ALLIANCE, BattleGroundBracketId(bracketId));
                             trimBattleBotForStartedBg(runningBg, HORDE, BattleGroundBracketId(bracketId));
                         }
