@@ -237,6 +237,7 @@ BattleGround::BattleGround()
     m_prematureCountDownTimer = 0;
     m_noRealPlayerTimer = 0;
     m_locked = false;
+    m_lockTimer = 0;
 
     m_startDelayTime = 0;
     m_startDelayTimes[BG_STARTING_EVENT_FIRST]  = BG_START_DELAY_2M;
@@ -446,6 +447,7 @@ void BattleGround::Update(uint32 diff)
 #endif
             SetStatus(STATUS_IN_PROGRESS);
             SetStartDelayTime(m_startDelayTimes[BG_STARTING_EVENT_FOURTH]);
+            m_lockTimer = 5 * MINUTE * IN_MILLISECONDS;
 
             PlaySoundToAll(SOUND_BG_START);
 
@@ -459,6 +461,18 @@ void BattleGround::Update(uint32 diff)
     {
         StartingEventDespawnDoors();
         m_events |= BG_DOORS_DESPAWNED;
+    }
+
+    // Universal 5-minute lock: all BG types lock 5 minutes after STATUS_IN_PROGRESS starts.
+    if (m_lockTimer > 0 && GetStatus() == STATUS_IN_PROGRESS)
+    {
+        if (m_lockTimer <= diff)
+        {
+            m_lockTimer = 0;
+            LockForNewPlayers();
+        }
+        else
+            m_lockTimer -= diff;
     }
 
     /*********************************************************/

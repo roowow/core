@@ -388,6 +388,7 @@ class BattleGround
         uint32 m_prematureCountDownTimer;
         uint32 m_noRealPlayerTimer;         // grace period before ending a bot-only in-progress BG
         bool   m_locked;                    // true after a decisive moment: new real players are blocked, bots fill to max
+        uint32 m_lockTimer;                 // countdown to automatic lock 5 min after STATUS_IN_PROGRESS; 0 when inactive
         char const* m_name;
 
         /* Player lists */

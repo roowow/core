@@ -1010,12 +1010,6 @@ void BattleGroundAV::UpdateScore(BattleGroundTeamIndex teamIdx, int32 points)
     MANGOS_ASSERT(teamIdx < BG_TEAMS_COUNT);
     m_teamScores[teamIdx] += points;                      // m_teamScores is int32 - so no problems here
 
-    // Soft lock: only in Push mode (instanceId % 3 == 1 → AVBattleMode 2).
-    // Native and Random modes leave the BG open for the full duration.
-    if (points < 0 && !IsLocked() && GetStatus() == STATUS_IN_PROGRESS &&
-        GetInstanceID() % 3 == 1)
-        LockForNewPlayers();
-
     if (points < 0)
     {
         // Ivina < Nostalrius > : removed message and winning condition.

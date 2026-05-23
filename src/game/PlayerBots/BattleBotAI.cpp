@@ -1784,8 +1784,17 @@ bool BattleBotAI::DrinkAndEat()
     BattleGround* bg = me->GetBattleGround();
     bool const isWaiting = bg && bg->GetStatus() == STATUS_WAIT_JOIN;
     float const recoveryThreshold = isWaiting ? 100.0f : (isGuard ? 90.0f : 60.0f);
+    float manaRecoveryThreshold = recoveryThreshold;
+    if (me->GetClass() == CLASS_DRUID &&
+        me->GetShapeshiftForm() == FORM_NONE &&
+       (m_role == ROLE_MELEE_DPS || m_role == ROLE_TANK) &&
+       !me->HasAura(AURA_WARSONG_FLAG) &&
+       !me->HasAura(AURA_SILVERWING_FLAG) &&
+        manaRecoveryThreshold < 90.0f)
+        manaRecoveryThreshold = 90.0f;
+
     bool const needToEat = me->GetHealthPercent() < recoveryThreshold;
-    bool needToDrink = (me->GetPowerType() == POWER_MANA) && (me->GetPowerPercent(POWER_MANA) < recoveryThreshold);
+    bool needToDrink = (me->GetPowerType() == POWER_MANA) && (me->GetPowerPercent(POWER_MANA) < manaRecoveryThreshold);
 
     if (needToDrink &&
         me->GetClass() == CLASS_DRUID &&
@@ -5707,6 +5716,12 @@ void BattleBotAI::UpdateOutOfCombatAI_Druid()
     {
         if (m_role == ROLE_MELEE_DPS || m_role == ROLE_TANK)
         {
+            if (me->GetPowerType() == POWER_MANA &&
+                me->GetPowerPercent(POWER_MANA) < 90.0f &&
+               !me->HasAura(AURA_WARSONG_FLAG) &&
+               !me->HasAura(AURA_SILVERWING_FLAG))
+                return;
+
             if (BattleBotEnterDruidCombatForm(this))
                 return;
 
