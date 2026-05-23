@@ -1724,6 +1724,28 @@ bool BattleBotAI::UseMount()
         me->HasAura(AURA_SILVERWING_FLAG))
         return false;
 
+    uint32 spellId = GetMountSpellId();
+    if (!spellId)
+        return false;
+
+    SpellEntry const* pSpellEntry = sSpellMgr.GetSpellEntry(spellId);
+    if (!pSpellEntry)
+        return false;
+
+    if (me->IsInWater() && me->IsInHighLiquid())
+        return false;
+
+    if (!sSpellMgr.GetRequiredAreaForSpell(pSpellEntry->Id) &&
+        me->GetMap()->GetMapEntry() && !me->GetMap()->GetMapEntry()->IsMountAllowed())
+        return false;
+
+    if (me->GetAreaId() == 35)
+        return false;
+
+    if ((pSpellEntry->Attributes & SPELL_ATTR_ONLY_OUTDOORS) &&
+        !me->GetMap()->GetTerrain()->IsOutdoors(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ()))
+        return false;
+
     // Druid: remove shapeshift before checking display ID and mounting,
     // but only after all blocking conditions have already passed.
     if (me->GetClass() == CLASS_DRUID && me->GetShapeshiftForm() != FORM_NONE)
@@ -1735,17 +1757,13 @@ bool BattleBotAI::UseMount()
     if (me->HasAura(SPELL_AURA_MOD_STEALTH))
         me->RemoveSpellsCausingAura(SPELL_AURA_MOD_STEALTH);
 
-    uint32 spellId = GetMountSpellId();
-    if (!spellId)
-        return false;
-
     if (me->IsMoving())
     {
         ClearPath();
         StopMoving();
     }
 
-    if (me->CastSpell(me, spellId, false) == SPELL_CAST_OK)
+    if (me->CastSpell(me, pSpellEntry, false) == SPELL_CAST_OK)
         return true;
 
     return false;
