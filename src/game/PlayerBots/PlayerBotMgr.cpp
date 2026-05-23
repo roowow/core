@@ -235,7 +235,8 @@ static uint32 GetBattleBotFillTarget(BattleGroundTypeId bgTypeId, BattleGround c
 
 static uint32 GetBattleBotMaxAutoTeamCount(BattleGroundTypeId bgTypeId, BattleGround const* bg)
 {
-    if (bgTypeId == BATTLEGROUND_AV && bg->GetMaxPlayersPerTeam() > 1)
+    // Always reserve 1 slot for a real player; the lock-fill at 5 min fills the last slot.
+    if (bg->GetMaxPlayersPerTeam() > 1)
         return bg->GetMaxPlayersPerTeam() - 1;
 
     return bg->GetMaxPlayersPerTeam();
