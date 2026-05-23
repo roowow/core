@@ -447,7 +447,6 @@ void BattleGround::Update(uint32 diff)
 #endif
             SetStatus(STATUS_IN_PROGRESS);
             SetStartDelayTime(m_startDelayTimes[BG_STARTING_EVENT_FOURTH]);
-            m_lockTimer = 5 * MINUTE * IN_MILLISECONDS;
 
             PlaySoundToAll(SOUND_BG_START);
 
@@ -464,9 +463,13 @@ void BattleGround::Update(uint32 diff)
     }
 
     // Universal 5-minute lock: all BG types lock 5 minutes after STATUS_IN_PROGRESS starts.
-    if (m_lockTimer > 0 && GetStatus() == STATUS_IN_PROGRESS)
+    // Timer is initialized lazily the first time IN_PROGRESS is seen so it works regardless
+    // of how the BG transitioned to IN_PROGRESS (normal queue or GM command).
+    if (!IsLocked() && GetStatus() == STATUS_IN_PROGRESS)
     {
-        if (m_lockTimer <= diff)
+        if (m_lockTimer == 0)
+            m_lockTimer = 5 * MINUTE * IN_MILLISECONDS;
+        else if (m_lockTimer <= diff)
         {
             m_lockTimer = 0;
             LockForNewPlayers();

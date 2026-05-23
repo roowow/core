@@ -1121,7 +1121,10 @@ void PlayerBotMgr::RequestFillLockedBattleGround(BattleGround* bg)
         AddBattleBot(queueType, HORDE, PickLockFillBotLevel(bg), true);
 
     if (allianceMissing || hordeMissing)
+    {
+        bg->AddToBGFreeSlotQueue();
         sBattleGroundMgr.ScheduleQueueUpdate(queueType, bgTypeId, bg->GetBracketId());
+    }
 }
 
 void PlayerBotMgr::RequestReplaceWithBot(BattleGround* bg, Team team)
@@ -1137,6 +1140,7 @@ void PlayerBotMgr::RequestReplaceWithBot(BattleGround* bg, Team team)
         bgTypeId, bg->GetInstanceID(), team);
 
     AddBattleBot(queueType, team, PickLockFillBotLevel(bg), true);
+    bg->AddToBGFreeSlotQueue();
     sBattleGroundMgr.ScheduleQueueUpdate(queueType, bgTypeId, bg->GetBracketId());
 }
 
