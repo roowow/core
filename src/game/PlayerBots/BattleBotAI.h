@@ -162,10 +162,15 @@ public:
     time_t m_avSkipObjectiveExpiry = 0;
     uint32 m_avAssignedGY = 0;
 
-    // AV mine bot identity (set once after 5-minute delay, stable for the BG session)
+    // AV mine bot identity (set once after 3-minute delay, stable for the BG session)
     bool m_avIsMineBot = false;
     bool m_avMineBotDecided = false;
     uint32 m_avMineBotBgInstance = 0;
+
+    // AV cavalry hunter identity (set once after 3-minute delay, stable for the BG session)
+    bool m_avIsCavalryHunter = false;
+    bool m_avCavalryHunterDecided = false;
+    uint32 m_avCavalryHunterBgInstance = 0;
 
     // AV mine bot state machine
     AVMineState m_avMineState = AV_MINE_NONE;

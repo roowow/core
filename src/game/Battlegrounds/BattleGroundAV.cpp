@@ -238,6 +238,10 @@ void BattleGroundAV::BotContributeScraps(Team team, uint32 amount)
 
     setReinforcementLevelGroundUnit(idx, resources);
     CastSpellOnTeam((resources == 500) ? 28418 : (resources == 1000) ? 28419 : 28420, team);
+    char const* tier = (resources == 500) ? "Seasoned" : (resources == 1000) ? "Veteran" : "Champion";
+    sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_SCRAP] inst=%u t=%u team=%s scraps_upgrade=%s total=%u",
+        GetInstanceID(), GetStartTime() / 1000,
+        (team == ALLIANCE) ? "A" : "H", tier, m_teamQuestStatus[idx][0]);
     for (BG_AV_Nodes i = BG_AV_NODES_FIRSTAID_STATION; i <= BG_AV_NODES_FROSTWOLF_WTOWER; ++i)
         if (m_nodes[i].owner == idx && m_nodes[i].state == POINT_CONTROLLED)
             PopulateNode(i);
@@ -253,6 +257,10 @@ void BattleGroundAV::BotContributeGroundAssault(Team team, uint8 mineIdx, uint32
     {
         resetGroundChallengeInvocation(factionId);
         setPlayerGoStatus(factionId, BG_AV_GROUND_ASSAULT, true);
+        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_GND]  inst=%u t=%u team=%s ground_assault=triggered mine=%s",
+            GetInstanceID(), GetStartTime() / 1000,
+            (team == ALLIANCE) ? "A" : "H",
+            (mineIdx == BG_AV_NORTH_MINE) ? "Irondeep" : "Coldtooth");
     }
 }
 
@@ -264,8 +272,10 @@ void BattleGroundAV::BotContributeWorldBossItems(Team team, uint32 amount)
     {
         resetWorldBossChallengeInvocation(factionId);
         setPlayerGoStatus(factionId, BG_AV_WORLDBOSS_ASSAULT, true);
-        // AV_NpcEventAI::checkWorldBossStatus() in battleground_alterac.cpp
-        // polls this flag and starts Thurloga/Renferal escort automatically.
+        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_WB]   inst=%u t=%u team=%s worldboss=triggered boss=%s",
+            GetInstanceID(), GetStartTime() / 1000,
+            (team == ALLIANCE) ? "A" : "H",
+            (team == ALLIANCE) ? "Ivus" : "Lokholar");
     }
 }
 
@@ -275,6 +285,7 @@ void BattleGroundAV::BotContributeAirAssault(Team team, uint32 amount)
 
     // Contribute equally to all three tiers (soldier / lieutenant / commander).
     // Each tier has its own beacon go status; all three ready → global flyover triggers.
+    static char const* const airTierName[] = { "Soldier", "Lieutenant", "Commander" };
     for (uint32 rank = BG_AV_SOLDIER_AIR_ASSAULT; rank <= BG_AV_COMMANDER_AIR_ASSAULT; ++rank)
     {
         uint32 beaconType = BG_AV_AIR_ASSAULT_BEACON_SOLDIER + rank;
@@ -283,17 +294,40 @@ void BattleGroundAV::BotContributeAirAssault(Team team, uint32 amount)
         {
             resetAerialChallengeInvocation(factionId, beaconType);
             setPlayerGoStatus(factionId, beaconType, true);
+            sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_AIR]  inst=%u t=%u team=%s air_assault=beacon tier=%s",
+                GetInstanceID(), GetStartTime() / 1000,
+                (team == ALLIANCE) ? "A" : "H", airTierName[rank]);
         }
     }
 
     if (getPlayerGoStatus(factionId, BG_AV_AIR_ASSAULT_BEACON_SOLDIER) &&
         getPlayerGoStatus(factionId, BG_AV_AIR_ASSAULT_BEACON_LIEUTENANT) &&
-        getPlayerGoStatus(factionId, BG_AV_AIR_ASSAULT_BEACON_COMMANDER))
+        getPlayerGoStatus(factionId, BG_AV_AIR_ASSAULT_BEACON_COMMANDER) &&
+        !getPlayerGoStatus(factionId, BG_AV_AIR_ASSAULT_GLOBAL_SOLDIER))
     {
         setPlayerGoStatus(factionId, BG_AV_AIR_ASSAULT_GLOBAL_SOLDIER,    true);
         setPlayerGoStatus(factionId, BG_AV_AIR_ASSAULT_GLOBAL_LIEUTENANT, true);
         setPlayerGoStatus(factionId, BG_AV_AIR_ASSAULT_GLOBAL_COMMANDER,  true);
-        // AV_NpcEventAI::UpdateAI polls GLOBAL_* flags and triggers war rider flyover.
+        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_AIR]  inst=%u t=%u team=%s air_assault=global_triggered",
+            GetInstanceID(), GetStartTime() / 1000,
+            (team == ALLIANCE) ? "A" : "H");
+    }
+}
+
+void BattleGroundAV::BotContributeCavalryAssault(Team team, uint32 amount)
+{
+    uint32 factionId = (team == ALLIANCE) ? BG_TEAM_ALLIANCE : BG_TEAM_HORDE;
+    // Killing counts as both hide-collection and taming for bot purposes.
+    setChallengeInvocationCounter(factionId, BG_AV_HIDE_CAVALRY_ASSAULT, amount);
+    setChallengeInvocationCounter(factionId, BG_AV_TAMED_CAVALRY_ASSAULT, amount);
+    if (isCavalryChallengeInvocationReady(factionId))
+    {
+        resetCavalryChallengeInvocation(factionId);
+        setPlayerGoStatus(factionId, BG_AV_CAVALRY_ASSAULT, true);
+        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_CAV]  inst=%u t=%u team=%s cavalry=triggered riders=%s",
+            GetInstanceID(), GetStartTime() / 1000,
+            (team == ALLIANCE) ? "A" : "H",
+            (team == ALLIANCE) ? "Ramriders" : "Wolfriders");
     }
 }
 
@@ -384,6 +418,21 @@ void BattleGroundAV::HandleKillUnit(Creature* creature, Player* killer)
             (entry == SUPPLY_OFFICER_HORDE    && killer->GetTeam() == ALLIANCE))
         {
             BotContributeAirAssault(killer->GetTeam(), 5);
+            sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_AIR]  inst=%u t=%u team=%s supplyofficer=killed entry=%u air+5",
+                GetInstanceID(), GetStartTime() / 1000,
+                (killer->GetTeam() == ALLIANCE) ? "A" : "H", entry);
+        }
+
+        // Cavalry assault: Horde uses Frostwolf Wolves, Alliance uses Alterac Rams.
+        // Killing the faction's own cavalry animals replaces the quest turn-in.
+        // 10981 = Frostwolf Wolf — Horde bots kill for Horde cavalry challenge.
+        // 10990 = Alterac Ram   — Alliance bots kill for Alliance cavalry challenge.
+        constexpr uint32 FROSTWOLF_WOLF = 10981;
+        constexpr uint32 ALTERAC_RAM    = 10990;
+        if ((entry == FROSTWOLF_WOLF && killer->GetTeam() == HORDE) ||
+            (entry == ALTERAC_RAM    && killer->GetTeam() == ALLIANCE))
+        {
+            BotContributeCavalryAssault(killer->GetTeam(), 1);
         }
 
         if (isBoss)
@@ -392,6 +441,10 @@ void BattleGroundAV::HandleKillUnit(Creature* creature, Player* killer)
             // This replaces the old carrier-return mechanic.
             Team const team     = killer->GetTeam();
             uint8 const mineIdx = (dIron <= dCold) ? BG_AV_NORTH_MINE : BG_AV_SOUTH_MINE;
+            sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_MINE] inst=%u t=%u team=%s boss_killed=true entry=%u mine=%s scraps+120 gnd+30 wb+20",
+                GetInstanceID(), GetStartTime() / 1000,
+                (team == ALLIANCE) ? "A" : "H", entry,
+                (mineIdx == BG_AV_NORTH_MINE) ? "Irondeep" : "Coldtooth");
             BotContributeScraps(team, 120);
             BotContributeGroundAssault(team, mineIdx, 30);
             BotContributeWorldBossItems(team, 20);

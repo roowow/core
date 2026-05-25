@@ -540,6 +540,7 @@ class BattleGroundAV : public BattleGround
         void BotContributeGroundAssault(Team team, uint8 mineIdx, uint32 amount);
         void BotContributeWorldBossItems(Team team, uint32 amount);
         void BotContributeAirAssault(Team team, uint32 amount);
+        void BotContributeCavalryAssault(Team team, uint32 amount);
 
         uint8 GetBotMineBotCount(Team team) const { return m_botMineBotCount[GetTeamIndexByTeamId(team)]; }
 

@@ -2433,6 +2433,62 @@ static std::pair<uint32, uint32> AV_AllianceDefendObjectives[] =
     { BG_AV_STONEHEARTH_BUNKER, HORDE_ASSAULTED },
 };
 
+// Dedicated cavalry hunter selection (GUID-stable, 2 per faction from DPS pool).
+// Excludes healers, fixed GY guards, mine bots, and bots already in GY capture hold.
+static constexpr uint32 CAVALRY_HUNTER_COUNT = 2;
+
+static bool ShouldBeAVCavalryHunter(BattleBotAI const* pAI)
+{
+    Team const team = pAI->me->GetTeam();
+    Map* map = pAI->me->GetMap();
+    if (!map)
+        return false;
+
+    uint32 alreadyAssigned = 0;
+    std::vector<uint32> eligibleGuids;
+    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
+    {
+        Player* player = itr->getSource();
+        if (!player || player->GetTeam() != team || !player->IsBot())
+            continue;
+        BattleBotAI const* pBotAI = dynamic_cast<BattleBotAI const*>(player->AI());
+        if (!pBotAI)
+            continue;
+        if (pBotAI->m_avIsCavalryHunter)
+        {
+            ++alreadyAssigned;
+            continue;
+        }
+        if (CombatBotBaseAI::IsHealerClass(player->GetClass()))
+            continue;
+        if (pBotAI->m_avAssignedGY != 0)
+            continue;
+        if (pBotAI->m_avIsMineBot)
+            continue;
+        if (BattleBotIsInAVGyCaptureHold(pBotAI))
+            continue;
+        eligibleGuids.push_back(player->GetGUIDLow());
+    }
+
+    if (alreadyAssigned >= CAVALRY_HUNTER_COUNT)
+        return false;
+
+    uint32 const remainingSlots = CAVALRY_HUNTER_COUNT - alreadyAssigned;
+    std::sort(eligibleGuids.begin(), eligibleGuids.end());
+
+    uint32 const myGuid = pAI->me->GetGUIDLow();
+    uint32 count = 0;
+    for (uint32 guid : eligibleGuids)
+    {
+        if (count >= remainingSlots)
+            break;
+        if (guid == myGuid)
+            return true;
+        ++count;
+    }
+    return false;
+}
+
 bool BattleBotAI::StartNewPathToObjective()
 {
     BattleGround* bg = me->GetBattleGround();
@@ -2448,7 +2504,7 @@ bool BattleBotAI::StartNewPathToObjective()
             return BattleBotSelectABObjective(this);
         case BATTLEGROUND_AV:
         {
-            // Guard assignment takes priority over normal attack routing.
+            // Guard assignment takes priority over everything.
             if (m_avAssignedGY != 0)
                 return BattleBotSelectAVGuardObjective(this);
 
@@ -2541,6 +2597,51 @@ bool BattleBotAI::StartNewPathToObjective()
                     myTeam == ALLIANCE ? "A" : "H", me->GetGUIDLow());
                 m_avIsMineBot = false;
                 m_avMineState = AV_MINE_NONE;
+            }
+
+            // Cavalry hunter decision: assigned once per BG after 3-minute delay, then permanent.
+            // Skip while this bot is an active mine bot (mine mission has higher priority).
+            // A released mine bot may re-evaluate here, but cavalry slots are almost always
+            // already full by then, so ShouldBeAVCavalryHunter will simply return false.
+            if (!m_avIsMineBot)
+            {
+                constexpr uint32 CAVALRY_HUNTER_DELAY_MS = 3 * 60 * 1000;
+                if ((!m_avCavalryHunterDecided || m_avCavalryHunterBgInstance != bg->GetInstanceID()) &&
+                    bg->GetStartTime() >= CAVALRY_HUNTER_DELAY_MS)
+                {
+                    m_avCavalryHunterDecided = true;
+                    m_avCavalryHunterBgInstance = bg->GetInstanceID();
+                    m_avIsCavalryHunter = ShouldBeAVCavalryHunter(this);
+                    if (m_avIsCavalryHunter)
+                        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_CAV] inst=%u t=%u team=%s guid=%u cavalryhunter=assigned",
+                            bg->GetInstanceID(), bg->GetStartTime() / 1000,
+                            me->GetTeam() == ALLIANCE ? "A" : "H", me->GetGUIDLow());
+                }
+            }
+
+            // Cavalry hunters seek faction-specific animals and kill them.
+            // Kill contribution handled in HandleKillUnit → BotContributeCavalryAssault.
+            //   Horde: Frostwolf Wolf (10981) ~18 spawns, 300s respawn, area diagonal ~1031 yd
+            //   Alliance: Alterac Ram (10990) ~35 spawns, 430s respawn, area diagonal ~944 yd
+            // 400-yard radius covers the full spawn cluster from the centre point.
+            if (m_avIsCavalryHunter)
+            {
+                constexpr float ATTACK_RADIUS   = 400.0f;
+                constexpr uint32 FROSTWOLF_WOLF = 10981;
+                constexpr uint32 ALTERAC_RAM    = 10990;
+                uint32 const animalEntry = (me->GetTeam() == HORDE) ? FROSTWOLF_WOLF : ALTERAC_RAM;
+
+                if (Creature* pAnimal = me->FindNearestCreature(animalEntry, ATTACK_RADIUS, true))
+                {
+                    AttackStart(pAnimal);
+                    return true;
+                }
+
+                // No animal nearby — walk to the spawn cluster so we arrive ready to hunt.
+                Position const spawnCentre = (me->GetTeam() == HORDE)
+                    ? Position(-848.0f, -340.0f, 57.0f, 0.0f)   // Frostwolf Wolf area centre
+                    : Position(297.0f,  -252.0f,   5.0f, 0.0f); // Alterac Ram area centre
+                return StartNewPathToPosition(spawnCentre, vPaths_AV);
             }
 
             // holdCaptureUntilControlled: non-mine bots stay at a GY being assaulted until

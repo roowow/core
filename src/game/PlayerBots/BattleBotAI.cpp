@@ -2656,6 +2656,9 @@ void BattleBotAI::OnLeaveBattleGround()
     m_avMineBotBgInstance = 0;
     m_avMineState = AV_MINE_NONE;
     m_avMineIndex = 0;
+    m_avIsCavalryHunter = false;
+    m_avCavalryHunterDecided = false;
+    m_avCavalryHunterBgInstance = 0;
     // AV strategy state: reset so InitAVStrategy() re-derives on next BG entry
     m_avStrategyDecided = false;           // allow re-init for next BG session
     m_avStrategyBgInstance = 0;           // clear stale instance ID
@@ -2737,8 +2740,8 @@ void BattleBotAI::InitAVStrategy()
     char const* const modeName = (m_avMode == AV_MODE_NATIVE) ? "Native" :
                                  (m_avMode == AV_MODE_PUSH)   ? "Push"   : "Random";
     char const* const teamName = (me->GetTeam() == ALLIANCE)  ? "Alliance" : "Horde";
-    sLog.Out(LOG_BASIC, LOG_LVL_DETAIL,
-        "[BattleBotAV] strategy instance=%u team=%s mode=%s openingPassive=%um guardGY=%s holdCapture=%s aggressiveTravel=%s mineBots=%u threePhase=%s",
+    sLog.Out(LOG_BG, LOG_LVL_MINIMAL,
+        "[AV_STRAT] instance=%u team=%s mode=%s openingPassive=%um guardGY=%s holdCapture=%s aggressiveTravel=%s mineBots=%u threePhase=%s",
         bg->GetInstanceID(), teamName, modeName,
         m_avOpeningPassiveMinutes,
         m_avGuardGraveyards            ? "true" : "false",
