@@ -4760,7 +4760,16 @@ void Spell::EffectActivateObject(SpellEffectIndex effIdx)
             break;
         case GameObjectActions::Disturb:
             if (m_casterUnit)
+            {
+                if (m_spellInfo->Id == 18431)
+                    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL,
+                        "[OnyxiaLava] BellowingRoar activates GO %s entry %u at %.2f %.2f %.2f caster %s at %.2f %.2f %.2f.",
+                        gameObjTarget->GetGuidStr().c_str(), gameObjTarget->GetEntry(),
+                        gameObjTarget->GetPositionX(), gameObjTarget->GetPositionY(), gameObjTarget->GetPositionZ(),
+                        m_caster->GetGuidStr().c_str(), m_caster->GetPositionX(), m_caster->GetPositionY(), m_caster->GetPositionZ());
+
                 gameObjTarget->Use(m_casterUnit);
+            }
             break;
         case GameObjectActions::Unlock:
             gameObjTarget->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_LOCKED);
