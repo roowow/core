@@ -614,11 +614,14 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     else if (bg->GetTypeID() == BATTLEGROUND_WS && !wsgFlagCarrier)
     {
         // Flag carriers are already handled above; only evaluate others here.
+        // nearObjective score reduction requires active contribution, same as AB —
+        // just running near the flag carrier without fighting does not count.
         nearObjective = IsNearWSGObjective(bg, player);
         if (nearObjective)
         {
-            score -= AFK_WSG_OBJECTIVE_SCORE_REDUCE;
             reasonMask |= AFK_REASON_NEAR_OBJECTIVE;
+            if (activeContribution)
+                score -= AFK_WSG_OBJECTIVE_SCORE_REDUCE;
         }
     }
     else if (bg->GetTypeID() == BATTLEGROUND_AV)
@@ -631,13 +634,13 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
         }
     }
 
-    // AB: nearObjective only counts as effective contribution when actively contributing
+    // AB/WSG: nearObjective only counts as effective contribution when actively contributing
     // (combat/damage/heal/objective), preventing idle walkers from resetting the chain penalty.
-    // WSG/AV: movement near an objective is sufficient (flag chasers, defenders).
+    // AV: movement near an objective is sufficient given its large map and long travel times.
     // WSG flag carrier: always effective regardless of movement.
     bool const nearObjectiveEffective = nearObjective && (
         wsgFlagCarrier ? true :
-        bg->GetTypeID() == BATTLEGROUND_AB ? activeContribution : (moved || inCombat));
+        bg->GetTypeID() == BATTLEGROUND_AV ? (moved || inCombat) : activeContribution);
     bool const effectiveContribution = effectiveDamageDone || effectiveDamageTaken || effectiveHealingDone ||
         objectiveEvent || crowdControlEvent || nearObjectiveEffective || botKill || playerKill || wsgFlagCarrier;
     if (effectiveContribution)
