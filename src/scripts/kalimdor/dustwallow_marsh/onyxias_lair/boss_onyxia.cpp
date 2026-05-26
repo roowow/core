@@ -82,9 +82,29 @@ enum
 };
 
 static float const ONYXIA_AGGRO_RANGE  = 58.0f;
+static float const ONYXIA_LAVA_PLAYER_TRIGGER_RANGE = 3.5f;
+static float const ONYXIA_LAVA_NATIVE_TRIGGER_RANGE = 15.0f;
+static uint32 const ONYXIA_LAVA_EXTRA_WINDOW = 3500;
+static uint32 const ONYXIA_LAVA_EXTRA_PULSE = 500;
 
 static float const ONYXIA_NORMAL_SPEED = 1.28571f;
 static float const ONYXIA_BREATH_SPEED = 3.0f;
+
+static std::vector<uint32> const& GetOnyxiaLavaFissureEntries()
+{
+    static std::vector<uint32> const entries =
+    {
+        176513, 176514, 176515,
+        176809, 176810, 176811, 176812, 176813, 176814, 176815, 176816, 176817, 176818,
+        176819, 176820, 176821, 176822, 176823, 176824, 176825, 176826, 176827, 176828,
+        176829, 176830, 176831, 176832, 176833, 176834, 176835, 176836, 176837, 176838,
+        176839, 176840, 176841, 176842,
+        176908, 176909, 176910, 176911, 176912, 176913, 176914, 176915, 176916, 176917,
+        176918, 176919, 176920, 176921, 176922
+    };
+
+    return entries;
+}
 
 struct sOnyxMove
 {
@@ -147,6 +167,9 @@ struct boss_onyxiaAI : public ScriptedAI
     
     uint32 m_uiBellowingRoarTimer;
     bool   m_bEruptPhase;
+    uint32 m_uiExtraLavaWindowTimer;
+    uint32 m_uiExtraLavaPulseTimer;
+    ObjectGuidSet m_extraLavaTriggeredFissures;
 
     uint32 m_uiAggroRadiusTimer;
     uint32 m_uiLeashCheckTimer;
@@ -182,6 +205,9 @@ struct boss_onyxiaAI : public ScriptedAI
         m_bIsSummoningWhelps   = false;
 
         m_uiBellowingRoarTimer = 10000;
+        m_uiExtraLavaWindowTimer = 0;
+        m_uiExtraLavaPulseTimer = 0;
+        m_extraLavaTriggeredFissures.clear();
         
         m_uiAggroRadiusTimer   = 5000;
         m_uiLeashCheckTimer    = 5000;
@@ -213,6 +239,87 @@ struct boss_onyxiaAI : public ScriptedAI
         DelayEventIfNeed(m_uiCleaveTimer, delay);
         DelayEventIfNeed(m_uiWingBuffetTimer, delay);
         DelayEventIfNeed(m_uiKnockAwayTimer, delay);
+    }
+
+    void StartExtraLavaEruptionWindow()
+    {
+        m_uiExtraLavaWindowTimer = ONYXIA_LAVA_EXTRA_WINDOW;
+        m_uiExtraLavaPulseTimer = 0;
+        m_extraLavaTriggeredFissures.clear();
+    }
+
+    GameObject* SelectNearbyExtraLavaFissure(Player* pPlayer)
+    {
+        std::list<GameObject*> lavaFissures;
+        GetGameObjectListWithEntryInGrid(lavaFissures, pPlayer, GetOnyxiaLavaFissureEntries(), ONYXIA_LAVA_PLAYER_TRIGGER_RANGE);
+
+        GameObject* pNearest = nullptr;
+        float fNearestDistance = ONYXIA_LAVA_PLAYER_TRIGGER_RANGE;
+
+        for (GameObject* pFissure : lavaFissures)
+        {
+            if (!pFissure || !pFissure->IsInWorld())
+                continue;
+
+            if (m_extraLavaTriggeredFissures.find(pFissure->GetObjectGuid()) != m_extraLavaTriggeredFissures.end())
+                continue;
+
+            // The original Bellowing Roar already activates fissures near Onyxia.
+            if (pFissure->IsWithinDistInMap(m_creature, ONYXIA_LAVA_NATIVE_TRIGGER_RANGE))
+                continue;
+
+            float const fDistance = pPlayer->GetDistance(pFissure);
+            if (!pNearest || fDistance < fNearestDistance)
+            {
+                pNearest = pFissure;
+                fNearestDistance = fDistance;
+            }
+        }
+
+        return pNearest;
+    }
+
+    void TriggerExtraLavaFissuresNearPlayers()
+    {
+        Map::PlayerList const& lPlayers = m_creature->GetMap()->GetPlayers();
+        uint32 triggeredCount = 0;
+
+        for (const auto& itr : lPlayers)
+        {
+            Player* pPlayer = itr.getSource();
+            if (!pPlayer || !pPlayer->IsAlive() || !pPlayer->IsTargetableBy(m_creature, true))
+                continue;
+
+            GameObject* pFissure = SelectNearbyExtraLavaFissure(pPlayer);
+            if (!pFissure)
+                continue;
+
+            m_extraLavaTriggeredFissures.insert(pFissure->GetObjectGuid());
+            pFissure->Use(pPlayer);
+            ++triggeredCount;
+        }
+
+        if (triggeredCount)
+            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[OnyxiaLava] extra fissure eruptions triggered %u.", triggeredCount);
+    }
+
+    void UpdateExtraLavaEruptionWindow(uint32 uiDiff)
+    {
+        if (!m_uiExtraLavaWindowTimer)
+            return;
+
+        if (m_uiExtraLavaPulseTimer <= uiDiff)
+        {
+            TriggerExtraLavaFissuresNearPlayers();
+            m_uiExtraLavaPulseTimer = ONYXIA_LAVA_EXTRA_PULSE;
+        }
+        else
+            m_uiExtraLavaPulseTimer -= uiDiff;
+
+        if (m_uiExtraLavaWindowTimer <= uiDiff)
+            m_uiExtraLavaWindowTimer = 0;
+        else
+            m_uiExtraLavaWindowTimer -= uiDiff;
     }
     
     void CheckForTargetsInAggroRadius(uint32 uiDiff)
@@ -541,6 +648,7 @@ struct boss_onyxiaAI : public ScriptedAI
         {
             if (DoCastSpellIfCan(m_creature, SPELL_BELLOWINGROAR, true) == CAST_OK)
             {
+                StartExtraLavaEruptionWindow();
                 m_uiBellowingRoarTimer = urand(15000, 30000);
                 // Do not be interrupted by other casts.
                 DelayCastEvents(2000);
@@ -548,6 +656,8 @@ struct boss_onyxiaAI : public ScriptedAI
         }
         else
             m_uiBellowingRoarTimer -= uiDiff;
+
+        UpdateExtraLavaEruptionWindow(uiDiff);
 
         if (m_uiSummonWhelpsTimer < uiDiff)
         {
@@ -687,6 +797,7 @@ struct boss_onyxiaAI : public ScriptedAI
                 m_creature->SetLevitate(false);
                 m_creature->HandleEmote(EMOTE_ONESHOT_LAND);
                 m_creature->CastSpell(m_creature, SPELL_BELLOWINGROAR, true);
+                StartExtraLavaEruptionWindow();
                 m_uiBellowingRoarTimer = urand (15000, 30000);
                 break;
         }
@@ -705,6 +816,10 @@ struct boss_onyxiaAI : public ScriptedAI
 
         if (m_bTransition)
         {
+            // The landing Bellowing Roar is cast while the phase transition is still active.
+            if (m_uiPhase == PHASE_THREE)
+                UpdateExtraLavaEruptionWindow(uiDiff);
+
             PhaseTransition(uiDiff, false);
             return;
         }
