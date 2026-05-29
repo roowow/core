@@ -27,6 +27,13 @@ make -j20
 make install
 
 cd ..
+if [ -f bin/mangosd ]; then
+    mv -f bin/mangosd bin/mdevgosd
+else
+    echo "bin/mangosd not found after make install."
+    exit 1
+fi
+
 BUILD_TIME=$(date '+%Y-%m-%d %H:%M')
 sed -i "s#^Motd = .*#Motd = \"欢迎进入开发测试服！ | 版本：$BUILD_TIME\"#" /home/rogical/vmangos-dev/etc/mangosd.conf
 
