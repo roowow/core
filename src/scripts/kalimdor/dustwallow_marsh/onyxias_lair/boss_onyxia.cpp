@@ -86,6 +86,7 @@ static float const ONYXIA_LAVA_PLAYER_TRIGGER_RANGE = 3.5f;
 static float const ONYXIA_LAVA_NATIVE_TRIGGER_RANGE = 15.0f;
 static uint32 const ONYXIA_LAVA_EXTRA_WINDOW = 3500;
 static uint32 const ONYXIA_LAVA_EXTRA_PULSE = 500;
+static float const ONYXIA_GROUND_CHASE_OFFSET = 2.0f;
 
 static float const ONYXIA_NORMAL_SPEED = 1.28571f;
 static float const ONYXIA_BREATH_SPEED = 3.0f;
@@ -177,6 +178,34 @@ struct boss_onyxiaAI : public ScriptedAI
 
     ScriptedInstance* m_pInstance;
     std::list<GameObject*> GOListe;
+
+    void StartGroundChase(Unit* pVictim = nullptr)
+    {
+        if (!pVictim)
+            pVictim = m_creature->GetVictim();
+
+        if (!pVictim)
+            return;
+
+        float const angle = pVictim->GetAngle(m_creature) - pVictim->GetOrientation();
+        m_creature->GetMotionMaster()->MoveChase(pVictim, ONYXIA_GROUND_CHASE_OFFSET, angle);
+    }
+
+    void AttackStart(Unit* pVictim) override
+    {
+        if (m_creature->HasReactState(REACT_PASSIVE))
+            return;
+
+        if (m_creature->Attack(pVictim, m_bMeleeAttack))
+        {
+            m_creature->AddThreat(pVictim);
+            m_creature->SetInCombatWith(pVictim);
+            pVictim->SetInCombatWith(m_creature);
+
+            if (m_bCombatMovement)
+                StartGroundChase(pVictim);
+        }
+    }
     
     void Reset() override
     {
@@ -487,6 +516,7 @@ struct boss_onyxiaAI : public ScriptedAI
                 if (DoCastSpellIfCan(m_creature->GetVictim(), SPELL_WINGBUFFET) == CAST_OK)
                 {
                     DelayCastEvents(1500);
+                    StartGroundChase();
                     m_uiWingBuffetTimer = urand(15000, 30000);
                 }
             }
@@ -504,6 +534,7 @@ struct boss_onyxiaAI : public ScriptedAI
                         m_creature->GetThreatManager().modifyThreatPercent(m_creature->GetVictim(), -25);
 
                     DelayCastEvents(1500);
+                    StartGroundChase();
                     m_uiKnockAwayTimer = urand(15000, 30000);
                 }
             }
@@ -745,7 +776,7 @@ struct boss_onyxiaAI : public ScriptedAI
                     m_creature->SetTargetGuid(pVictim->GetObjectGuid()); 
 
                 SetCombatMovement(true);
-                m_creature->GetMotionMaster()->MoveChase(m_creature->GetVictim());
+                StartGroundChase();
 
                 m_bTransition  = false;
                 m_uiTransTimer = 0;
