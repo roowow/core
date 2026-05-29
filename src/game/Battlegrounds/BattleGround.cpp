@@ -951,6 +951,8 @@ void BattleGround::RemovePlayerAtLeave(ObjectGuid guid, bool transport, bool sen
 {
     Team team = GetPlayerTeam(guid);
     bool participant = false;
+    Player* pPlayer = sObjectMgr.GetPlayer(guid);
+
     // Remove from lists/maps
     BattleGroundPlayerMap::iterator itr = m_players.find(guid);
     if (itr != m_players.end())
@@ -968,9 +970,21 @@ void BattleGround::RemovePlayerAtLeave(ObjectGuid guid, bool transport, bool sen
         m_playerScores.erase(itr2);
     }
 
-    m_afkMgr.RemovePlayer(guid);
+    char const* afkStopReason = "player_leave";
+    if (GetStatus() == STATUS_WAIT_LEAVE)
+        afkStopReason = "bg_ended";
+    else if (!pPlayer)
+        afkStopReason = "offline";
+    else if (pPlayer->IsBot())
+        afkStopReason = "bot_removed";
+    else if (!participant)
+        afkStopReason = "not_participant";
+    else if (!sendPacket)
+        afkStopReason = "silent_remove";
+    else if (!transport)
+        afkStopReason = "external_teleport";
 
-    Player* pPlayer = sObjectMgr.GetPlayer(guid);
+    m_afkMgr.RemovePlayer(guid, afkStopReason);
 
     // should remove spirit of redemption
     if (pPlayer && pPlayer->HasAuraType(SPELL_AURA_SPIRIT_OF_REDEMPTION))

@@ -82,7 +82,7 @@ class BattleGroundAfkMgr
 {
 public:
     void Update(BattleGround* bg, uint32 diff);
-    void RemovePlayer(ObjectGuid guid);
+    void RemovePlayer(ObjectGuid guid, char const* reason = nullptr);
     void Reset();
     void RecordDamageDone(ObjectGuid guid, uint32 amount);
     void RecordDamageTaken(ObjectGuid guid, uint32 amount);

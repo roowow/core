@@ -296,6 +296,23 @@ bool IsNearTeamStart(BattleGround* bg, Player* player, ObjectGuid guid, float ra
     bg->GetTeamStartLoc(team, x, y, z, o);
     return IsNearPoint(player, x, y, z, radius);
 }
+
+char const* GetAfkTrackStopReasonForInvalidPlayer(Player* player, BattleGround* bg)
+{
+    if (!player)
+        return "offline";
+
+    if (player->IsBot())
+        return "bot";
+
+    if (!player->GetBattleGround())
+        return "not_in_bg";
+
+    if (player->GetBattleGround() != bg)
+        return "other_bg";
+
+    return "unknown_remove";
+}
 }
 
 void BattleGroundAfkMgr::Update(BattleGround* bg, uint32 diff)
@@ -332,7 +349,12 @@ void BattleGroundAfkMgr::Update(BattleGround* bg, uint32 diff)
     {
         if (bg->GetPlayers().find(itr->first) == bg->GetPlayers().end())
         {
-            SendTrackStop(bg, itr->first, itr->second, itr->second.kicked ? "kicked" : "left");
+            Player* player = sObjectMgr.GetPlayer(itr->first);
+            char const* reason = GetAfkTrackStopReasonForInvalidPlayer(player, bg);
+            if (player && player->GetBattleGround() == bg)
+                reason = "left_roster";
+
+            SendTrackStop(bg, itr->first, itr->second, itr->second.kicked ? "kicked" : reason);
             m_playerStates.erase(itr++);
         }
         else
@@ -340,12 +362,12 @@ void BattleGroundAfkMgr::Update(BattleGround* bg, uint32 diff)
     }
 }
 
-void BattleGroundAfkMgr::RemovePlayer(ObjectGuid guid)
+void BattleGroundAfkMgr::RemovePlayer(ObjectGuid guid, char const* reason)
 {
     std::map<ObjectGuid, BattleGroundAfkPlayerState>::iterator itr = m_playerStates.find(guid);
     if (itr != m_playerStates.end())
     {
-        SendTrackStop(nullptr, guid, itr->second, itr->second.kicked ? "kicked" : "removed");
+        SendTrackStop(nullptr, guid, itr->second, itr->second.kicked ? "kicked" : (reason ? reason : "unknown_remove"));
         m_playerStates.erase(itr);
     }
 }
@@ -428,7 +450,7 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     Player* player = sObjectMgr.GetPlayer(guid);
     if (!player || player->IsBot() || player->GetBattleGround() != bg)
     {
-        RemovePlayer(guid);
+        RemovePlayer(guid, GetAfkTrackStopReasonForInvalidPlayer(player, bg));
         return;
     }
 
