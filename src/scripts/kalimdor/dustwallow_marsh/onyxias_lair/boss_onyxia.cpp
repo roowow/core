@@ -295,6 +295,17 @@ struct boss_onyxiaAI : public ScriptedAI
                 continue;
 
             m_extraLavaTriggeredFissures.insert(pFissure->GetObjectGuid());
+
+            float const distance = pPlayer->GetDistance(pFissure);
+            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL,
+                "[OnyxiaLava] extra fissure trigger player %s %s at %.2f %.2f %.2f fissure %s entry %u at %.2f %.2f %.2f distance %.2f boss at %.2f %.2f %.2f.",
+                pPlayer->GetName(), pPlayer->GetGuidStr().c_str(),
+                pPlayer->GetPositionX(), pPlayer->GetPositionY(), pPlayer->GetPositionZ(),
+                pFissure->GetGuidStr().c_str(), pFissure->GetEntry(),
+                pFissure->GetPositionX(), pFissure->GetPositionY(), pFissure->GetPositionZ(),
+                distance,
+                m_creature->GetPositionX(), m_creature->GetPositionY(), m_creature->GetPositionZ());
+
             pFissure->Use(pPlayer);
             ++triggeredCount;
         }
