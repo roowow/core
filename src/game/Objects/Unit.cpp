@@ -765,7 +765,11 @@ uint32 Unit::DealDamage(Unit* pVictim, uint32 damage, CleanDamage const* cleanDa
     }
 
     if (pVictim->IsCreature())
-        pVictim->ToCreature()->CountDamageTaken(damage, GetCharmerOrOwnerOrOwnGuid().IsPlayer() || pVictim == this);
+    {
+        Creature* victimCreature = pVictim->ToCreature();
+        victimCreature->CountDamageTaken(damage, GetCharmerOrOwnerOrOwnGuid().IsPlayer() || pVictim == this);
+        victimCreature->CountHardcoreGrayAssistDamage(this, damage);
+    }
     else if (pVictim != this)
     {
         if (Player* attackerPlayer = GetAffectingPlayer())

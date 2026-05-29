@@ -537,8 +537,9 @@ class Creature : public Unit
 
         void ResetDamageTakenOrigin()
         {
-            m_playerDamageTaken     = 0;
-            m_nonPlayerDamageTaken   = 0;
+            m_playerDamageTaken                  = 0;
+            m_nonPlayerDamageTaken               = 0;
+            m_hardcoreGrayAssistDamageTaken      = 0;
         }
 
         void CountDamageTaken(uint32 damage, bool fromPlayerOrSelf)
@@ -548,6 +549,8 @@ class Creature : public Unit
             else
                 m_nonPlayerDamageTaken += damage;
         }
+
+        void CountHardcoreGrayAssistDamage(Unit const* attacker, uint32 damage);
 
         bool IsLootAllowedDueToDamageOrigin() const
         {
@@ -566,7 +569,17 @@ class Creature : public Unit
             if (!IsLootAllowedDueToDamageOrigin())
                 return 0.0f;
 
-            return float(m_playerDamageTaken) / (m_playerDamageTaken + m_nonPlayerDamageTaken);
+            uint32 effectivePlayerDamage = m_playerDamageTaken;
+            if (m_hardcoreGrayAssistDamageTaken < effectivePlayerDamage)
+                effectivePlayerDamage -= m_hardcoreGrayAssistDamageTaken;
+            else
+                effectivePlayerDamage = 0;
+
+            uint32 invalidXpDamage = m_nonPlayerDamageTaken + m_hardcoreGrayAssistDamageTaken;
+            if (65 * effectivePlayerDamage <= 35 * invalidXpDamage)
+                return 0.0f;
+
+            return float(effectivePlayerDamage) / (m_playerDamageTaken + m_nonPlayerDamageTaken);
         }
 
         bool HasWeapon() const;
@@ -664,6 +677,7 @@ class Creature : public Unit
         // Used to compute XP.
         uint32 m_playerDamageTaken;
         uint32 m_nonPlayerDamageTaken;
+        uint32 m_hardcoreGrayAssistDamageTaken;
         
         uint32 m_callForHelpTimer;
         float m_callForHelpDist;

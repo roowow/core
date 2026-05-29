@@ -21,6 +21,7 @@
 
 #include "Creature.h"
 #include "Database/DatabaseEnv.h"
+#include "Formulas.h"
 #include "WorldPacket.h"
 #include "World.h"
 #include "ObjectMgr.h"
@@ -202,7 +203,7 @@ Creature::Creature(CreatureSubtype subtype) :
     m_AI_locked(false), m_temporaryFactionFlags(TEMPFACTION_NONE),
     m_meleeDamageSchoolMask(SPELL_SCHOOL_MASK_NORMAL), m_originalEntry(0), m_creatureGroup(nullptr),
     m_combatStartX(0.0f), m_combatStartY(0.0f), m_combatStartZ(0.0f), m_reactState(REACT_DEFENSIVE),
-    m_lastLeashExtensionTime(nullptr), m_playerDamageTaken(0), m_nonPlayerDamageTaken(0), m_creatureInfo(nullptr), m_creatureData(nullptr), m_creatureDataAddon(nullptr),
+    m_lastLeashExtensionTime(nullptr), m_playerDamageTaken(0), m_nonPlayerDamageTaken(0), m_hardcoreGrayAssistDamageTaken(0), m_creatureInfo(nullptr), m_creatureData(nullptr), m_creatureDataAddon(nullptr),
     m_detectionDistance(20.0f), m_callForHelpTimer(0), m_callForHelpDist(5.0f), m_leashDistance(0.0f), m_mountId(0), m_isDeadByDefault(false),
     m_reputationId(-1), m_gossipMenuId(0), m_castingTargetGuid(0)
 {
@@ -1538,6 +1539,35 @@ void Creature::SetLootRecipient(Unit* unit)
         m_lootGroupRecipientId = group->GetId();
 
     SetFlag(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_TAPPED);
+}
+
+void Creature::CountHardcoreGrayAssistDamage(Unit const* attacker, uint32 damage)
+{
+    if (!damage || !attacker || !m_lootRecipientGuid)
+        return;
+
+    Player* tapPlayer = GetOriginalLootRecipient();
+    if (!tapPlayer)
+    {
+        if (Unit* recipientUnit = ObjectAccessor::GetUnit(*this, m_lootRecipientGuid))
+            tapPlayer = recipientUnit->GetCharmerOrOwnerPlayerOrPlayerItself();
+    }
+
+    if (!tapPlayer || !tapPlayer->IsHardcore())
+        return;
+
+    Player* attackerPlayer = attacker->GetCharmerOrOwnerPlayerOrPlayerItself();
+    if (!attackerPlayer || attackerPlayer == tapPlayer)
+        return;
+
+    if (Group* tapGroup = GetGroupLootRecipient())
+        if (tapGroup->IsMember(attackerPlayer->GetObjectGuid()))
+            return;
+
+    if (MaNGOS::XP::GetColorCode(attackerPlayer->GetLevel(), GetLevel()) != MaNGOS::XP::GRAY)
+        return;
+
+    m_hardcoreGrayAssistDamageTaken += damage;
 }
 
 // return true if this creature is tapped by the player or by a member of his group.
