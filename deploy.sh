@@ -41,6 +41,6 @@ sed -i "s#^Motd = .*#Motd = \"欢迎进入开发测试服！ | 版本：$BUILD_T
 
 sleep 20
 
-./wowadmin.sh startbattlebot1
-./wowadmin.sh startbattlebot2
-./wowadmin.sh startbattlebot3
+# ./wowadmin.sh startbattlebot1
+# ./wowadmin.sh startbattlebot2
+# ./wowadmin.sh startbattlebot3
