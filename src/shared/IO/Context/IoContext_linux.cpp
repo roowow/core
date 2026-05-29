@@ -66,10 +66,23 @@ void IO::IoContext::RunUntilShutdown()
             continue;
         }
 
+        // First pass: socket events. Process these before context switches so that
+        // sockets are still alive when we dispatch their events. A context switch
+        // callback processed in the second pass may release the last shared_ptr to a
+        // socket, but by then we have already finished with any epoll events for it
+        // from this same batch.
         for (int i = 0; i < numEvents; i++)
         {
             struct epoll_event const& event = events[i];
+            if (event.data.u32 != static_cast<uint32_t>(IoContextEpollTargetType::ContextSwitchRequest))
+                ((SystemIoEventReceiver*)(event.data.ptr))->OnIoEvent(event.events);
+        }
 
+        // Second pass: context switch events (may free sockets, but their epoll
+        // events from this batch were already dispatched above).
+        for (int i = 0; i < numEvents; i++)
+        {
+            struct epoll_event const& event = events[i];
             if (event.data.u32 == static_cast<uint32_t>(IoContextEpollTargetType::ContextSwitchRequest))
             {
                 while (!m_contextSwitchQueue.empty())
@@ -84,10 +97,6 @@ void IO::IoContext::RunUntilShutdown()
                     }
                     eventReceiver->OnIoEvent(0);
                 }
-            }
-            else
-            {
-                ((SystemIoEventReceiver*)(event.data.ptr))->OnIoEvent(event.events);
             }
         }
     }

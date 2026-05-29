@@ -3,6 +3,10 @@
 #include "Errors.h"
 #include "IpAddress.h"
 
+#if defined(__linux__)
+#include <sys/epoll.h>
+#endif
+
 IO::Networking::AsyncSocket::AsyncSocket(AsyncSocket&& other) noexcept :
     m_ctx(other.m_ctx),
     m_descriptor(std::move(other.m_descriptor)),
@@ -34,6 +38,16 @@ IO::Networking::AsyncSocket::~AsyncSocket()
         return; // Ignore destructor
 
     sLog.Out(LOG_NETWORK, LOG_LVL_DEBUG, "[%s] Destructor called ~AsyncSocket: No references left", GetRemoteIpString().c_str());
+
+#if defined(__linux__)
+    if (state & SocketStateFlags::IS_INITIALIZED)
+    {
+        // Remove from epoll before closing the fd to avoid future stale events after
+        // the descriptor is released and possibly reused by the kernel.
+        ::epoll_ctl(m_ctx->GetUnixEpollDescriptor(), EPOLL_CTL_DEL, m_descriptor.GetNativeSocket(), nullptr);
+    }
+#endif
+
     m_descriptor.CloseSocket(); // <-- This will actually close the socket and release the file descriptor to the kernel
 
     // Logic behind these checks:

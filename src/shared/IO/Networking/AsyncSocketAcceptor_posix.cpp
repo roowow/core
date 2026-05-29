@@ -124,6 +124,10 @@ void IO::Networking::AsyncSocketAcceptor::ClosePortAndStopAcceptingNewConnection
 {
     m_wasClosed = true;
 
+#if defined(__linux__)
+    ::epoll_ctl(m_ctx->GetUnixEpollDescriptor(), EPOLL_CTL_DEL, m_acceptorNativeSocket, nullptr);
+#endif
+
     ::close(m_acceptorNativeSocket);
 }
 
