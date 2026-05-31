@@ -375,6 +375,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "moveto",         SEC_ADMINISTRATOR,     false, &ChatHandler::HandleDebugMoveToCommand,              "", nullptr },
         { "movedistance",   SEC_DEVELOPER,      false, &ChatHandler::HandleDebugMoveDistanceCommand,        "", nullptr },
         { "faceme",         SEC_ADMINISTRATOR,     false, &ChatHandler::HandleDebugFaceMeCommand,              "", nullptr },
+        { "taxiloop",       SEC_DEVELOPER,      false, &ChatHandler::HandleDebugTaxiLoopCommand,            "", nullptr },
         { "assert",         SEC_ADMINISTRATOR,  true,  &ChatHandler::HandleDebugAssertFalseCommand,         "", nullptr },
         { "pvpcredit",      SEC_DEVELOPER,      false, &ChatHandler::HandleDebugPvPCreditCommand,           "", nullptr },
         { "unitstate",      SEC_ADMINISTRATOR,     false, &ChatHandler::HandleUnitStatCommand,                 "", nullptr },

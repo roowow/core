@@ -53,6 +53,8 @@
 #include "MoveSplineInit.h"
 #include "MoveSpline.h"
 
+#include <cmath>
+
 bool ChatHandler::HandleSpellIconFixCommand(char *args)
 {
     uint32 spellId = ExtractSpellIdFromLink(&args);
@@ -2600,6 +2602,82 @@ bool ChatHandler::HandleDebugFaceMeCommand(char* args)
     }
 
     target->SetFacingTo(target->GetAngle(player));
+    return true;
+}
+
+bool ChatHandler::HandleDebugTaxiLoopCommand(char* /*args*/)
+{
+    Player* player = m_session->GetPlayer();
+    if (!player)
+        return false;
+
+    if (player->IsTaxiFlying() || player->IsInCombat() ||
+        player->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_REMOVE_CLIENT_CONTROL))
+    {
+        SendSysMessage("You cannot start a custom taxi loop while busy.");
+        return true;
+    }
+
+    uint32 const sourceTaxiNode = player->GetTeam() == ALLIANCE ? 2 : 23;
+    uint32 const mountDisplayId = sObjectMgr.GetTaxiMountDisplayId(sourceTaxiNode, player->GetTeam(), true);
+    if (!mountDisplayId)
+    {
+        SendSysMessage("Unable to find a taxi mount display for your faction.");
+        return true;
+    }
+
+    float const x = player->GetPositionX();
+    float const y = player->GetPositionY();
+    float const z = player->GetPositionZ();
+    float const orientation = player->GetOrientation();
+    float const forwardX = std::cos(orientation);
+    float const forwardY = std::sin(orientation);
+    float const rightX = -forwardY;
+    float const rightY = forwardX;
+
+    std::vector<TaxiPathNodeEntry> nodes;
+    nodes.reserve(9);
+
+    auto addNode = [&](float forward, float right, float height)
+    {
+        TaxiPathNodeEntry node = {};
+        node.path = 0;
+        node.index = uint32(nodes.size());
+        node.mapid = player->GetMapId();
+        node.x = x + forward * forwardX + right * rightX;
+        node.y = y + forward * forwardY + right * rightY;
+        node.z = z + height;
+        nodes.push_back(node);
+    };
+
+    addNode(0.0f, 0.0f, 0.0f);
+    addNode(10.0f, 0.0f, 8.0f);
+    addNode(35.0f, 10.0f, 18.0f);
+    addNode(60.0f, 30.0f, 25.0f);
+    addNode(80.0f, 0.0f, 28.0f);
+    addNode(60.0f, -30.0f, 25.0f);
+    addNode(35.0f, -10.0f, 18.0f);
+    addNode(10.0f, 0.0f, 8.0f);
+    addNode(0.0f, 0.0f, 0.0f);
+
+    if (!player->GetTaxi().SetCustomTaxiPath(nodes))
+    {
+        SendSysMessage("Unable to create the custom taxi loop.");
+        return true;
+    }
+
+    player->CombatStop();
+    player->TradeCancel(true);
+    player->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+    if (player->IsInDisallowedMountForm())
+    {
+        player->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
+        player->RemoveSpellsCausingAura(SPELL_AURA_TRANSFORM);
+    }
+    player->InterruptNonMeleeSpells(false);
+
+    m_session->SendDoFlight(mountDisplayId, 0);
+    PSendSysMessage("Started a server-side custom taxi loop with %u nodes.", uint32(nodes.size()));
     return true;
 }
 

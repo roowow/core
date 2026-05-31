@@ -23,6 +23,7 @@
 
 #include <deque>
 #include <sstream>
+#include <vector>
 
 class ByteBuffer;
 
@@ -64,6 +65,7 @@ public:
     {
         m_TaxiDestinations.clear();
         m_taxiPath.clear();
+        m_customTaxiPathNodes.clear();
         m_discount = 1.0f;
     }
     void AddTaxiDestination(uint32 dest) { m_TaxiDestinations.push_back(dest); }
@@ -83,6 +85,17 @@ public:
         m_taxiPath.resize(m_taxiPath.size() + 1);
         m_taxiPath.set(m_taxiPath.size() - 1, &entry);
     }
+    bool SetCustomTaxiPath(std::vector<TaxiPathNodeEntry> const& nodes)
+    {
+        ClearTaxiDestinations();
+        if (nodes.size() < 2)
+            return false;
+
+        m_customTaxiPathNodes.assign(nodes.begin(), nodes.end());
+        for (TaxiPathNodeEntry const& node : m_customTaxiPathNodes)
+            AddTaxiPathNode(node);
+        return true;
+    }
     bool empty() const { return m_TaxiDestinations.empty(); }
 
     friend std::ostringstream& operator<< (std::ostringstream& ss, PlayerTaxi const& taxi);
@@ -91,6 +104,8 @@ private:
     TaxiMask m_taximask;
     std::deque<uint32> m_TaxiDestinations;
     TaxiPathNodeList m_taxiPath;
+    // m_taxiPath stores pointers, so server-side paths need player-owned backing nodes.
+    std::deque<TaxiPathNodeEntry> m_customTaxiPathNodes;
 };
 
 std::ostringstream& operator<< (std::ostringstream& ss, PlayerTaxi const& taxi);
