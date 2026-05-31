@@ -75,6 +75,7 @@ enum
 
     DEPART_FLIGHT               = 20,
     LANDING_FLIGHT              = 21,
+    REPOSITION_GROUND           = 22,
 
     PHASE_ONE                   = 1,
     PHASE_TWO                   = 2,
@@ -187,15 +188,26 @@ struct boss_onyxiaAI : public ScriptedAI
         if (!pVictim)
             return;
 
-        float const angle = pVictim->GetAngle(m_creature) - pVictim->GetOrientation();
+        float const absAngle = pVictim->GetAngle(m_creature);
+        float const angle = absAngle - pVictim->GetOrientation();
         float const distNow = m_creature->GetDistance(pVictim, SizeFactor::None);
-        float const onyxiaRadius = m_creature->GetObjectBoundingRadius();
-        float const victimRadius = pVictim->GetObjectBoundingRadius();
-        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL,
-            "[Onyxia] StartGroundChase victim=%s distNow=%.2f onyxiaRadius=%.2f victimRadius=%.2f offset=%.2f angle=%.2f",
-            pVictim->GetName(), distNow, onyxiaRadius, victimRadius, ONYXIA_GROUND_CHASE_OFFSET, angle);
+        float const targetCenterDist = ONYXIA_GROUND_CHASE_OFFSET + m_creature->GetObjectBoundingRadius();
 
-        m_creature->GetMotionMaster()->MoveChase(pVictim, ONYXIA_GROUND_CHASE_OFFSET, angle);
+        if (distNow < targetCenterDist)
+        {
+            // MoveChase won't back away when target is stationary and Onyxia is already "close enough"
+            // (IsFarEnoughToMoveStationaryFollower check in TargetedMovementGenerator prevents it).
+            // Use MovePoint to explicitly back away to the correct distance.
+            float x, y, z;
+            pVictim->GetNearPoint(m_creature, x, y, z, m_creature->GetObjectBoundingRadius(), ONYXIA_GROUND_CHASE_OFFSET, absAngle);
+            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[Onyxia] StartGroundChase: too close (dist=%.2f target=%.2f), MovePoint back", distNow, targetCenterDist);
+            m_creature->GetMotionMaster()->MovePoint(REPOSITION_GROUND, x, y, z, MOVE_PATHFINDING);
+        }
+        else
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[Onyxia] StartGroundChase: dist=%.2f, MoveChase offset=%.2f", distNow, ONYXIA_GROUND_CHASE_OFFSET);
+            m_creature->GetMotionMaster()->MoveChase(pVictim, ONYXIA_GROUND_CHASE_OFFSET, angle);
+        }
     }
 
     void AttackStart(Unit* pVictim) override
@@ -213,7 +225,7 @@ struct boss_onyxiaAI : public ScriptedAI
                 StartGroundChase(pVictim);
         }
     }
-    
+
     void Reset() override
     {
         m_uiPhase              = PHASE_ONE;
@@ -814,6 +826,10 @@ struct boss_onyxiaAI : public ScriptedAI
 
         switch (uiPointId)
         {
+            case REPOSITION_GROUND:
+                if (m_uiPhase == PHASE_ONE || m_uiPhase == PHASE_THREE)
+                    StartGroundChase();
+                break;
             case DEPART_FLIGHT:
                 m_creature->SetOrientation(0.0f);
                 m_uiTransTimer = 1000;
