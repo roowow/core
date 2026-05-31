@@ -86,7 +86,7 @@ static float const ONYXIA_LAVA_PLAYER_TRIGGER_RANGE = 3.5f;
 static float const ONYXIA_LAVA_NATIVE_TRIGGER_RANGE = 15.0f;
 static uint32 const ONYXIA_LAVA_EXTRA_WINDOW = 3500;
 static uint32 const ONYXIA_LAVA_EXTRA_PULSE = 500;
-static float const ONYXIA_GROUND_CHASE_OFFSET = 2.0f;
+static float const ONYXIA_GROUND_CHASE_OFFSET = 5.0f;
 
 static float const ONYXIA_NORMAL_SPEED = 1.28571f;
 static float const ONYXIA_BREATH_SPEED = 3.0f;
