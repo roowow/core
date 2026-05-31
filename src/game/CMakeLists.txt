@@ -23,6 +23,7 @@ set (game_SRCS
     Camera.cpp
     Conditions.cpp
     CreatureGroups.cpp
+    CustomTaxiMgr.cpp
     GameEventMgr.cpp
     GuardMgr.cpp
     GMTicketMgr.cpp
@@ -257,6 +258,7 @@ set (game_SRCS
     ClientDefines.h
     Conditions.h
     CreatureGroups.h
+    CustomTaxiMgr.h
     Formulas.h
     GameEventMgr.h
     Geometry.h

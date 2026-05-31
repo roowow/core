@@ -264,6 +264,15 @@ class ChatHandler
         bool HandleDebugMoveDistanceCommand(char* args);
         bool HandleDebugFaceMeCommand(char* args);
         bool HandleDebugTaxiLoopCommand(char* args);
+        bool HandleCustomTaxiStartCommand(char* args);
+        bool HandleCustomTaxiStopCommand(char* args);
+        bool HandleCustomTaxiStatusCommand(char* args);
+        bool HandleCustomTaxiSaveCommand(char* args);
+        bool HandleCustomTaxiDiscardCommand(char* args);
+        bool HandleCustomTaxiListCommand(char* args);
+        bool HandleCustomTaxiPlayCommand(char* args);
+        bool HandleCustomTaxiDeleteCommand(char* args);
+        bool HandleCustomTaxiReloadCommand(char* args);
         // AHBot
         bool HandleAHBotReloadCommand(char *);
         bool HandleAHBotUpdateCommand(char *);

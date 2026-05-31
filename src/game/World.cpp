@@ -86,6 +86,7 @@
 #include "TransportMgr.h"
 #include "RealmZone.h"
 #include "IO/Multithreading/CreateThread.h"
+#include "CustomTaxiMgr.h"
 
 #include <chrono>
 
@@ -1726,6 +1727,9 @@ void World::SetInitialWorldSettings()
 
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading Taxi path transitions...");
     sObjectMgr.LoadTaxiPathTransitions();
+
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading custom taxi paths...");
+    sCustomTaxiMgr.LoadFromDB();
 
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading GM tickets and surveys...");
     sTicketMgr->Initialize();

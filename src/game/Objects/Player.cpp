@@ -82,6 +82,7 @@
 #include "GameEventMgr.h"
 #include "world/scourge_invasion.h"
 #include "world/world_event_wareffort.h"
+#include "CustomTaxiMgr.h"
 
 #include <climits>
 
@@ -287,6 +288,8 @@ Player::Player(WorldSession* session) : Unit(),
 
 Player::~Player()
 {
+    sCustomTaxiMgr.DiscardRecording(GetObjectGuid());
+
     DeletePacketBroadcaster();
 
     RemoveAI();
@@ -1178,6 +1181,8 @@ void Player::Update(uint32 update_diff, uint32 p_time)
     if (m_AI)
         m_AI->UpdateAI(p_time);
     SetCanDelayTeleport(false);
+
+    sCustomTaxiMgr.UpdateRecorder(this, update_diff);
 
     time_t now = time(nullptr);
 

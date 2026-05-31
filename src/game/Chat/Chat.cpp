@@ -153,6 +153,20 @@ ChatCommand * ChatHandler::getCommandTable()
         { nullptr,       0,                   false, nullptr,                                           "", nullptr },
     };
 
+    static ChatCommand customTaxiCommandTable[] =
+    {
+        { "start",       SEC_ADMINISTRATOR,   false, &ChatHandler::HandleCustomTaxiStartCommand,        "Start recording: .customtaxi start <Name>", nullptr },
+        { "stop",        SEC_ADMINISTRATOR,   false, &ChatHandler::HandleCustomTaxiStopCommand,         "Stop the current recording", nullptr },
+        { "status",      SEC_ADMINISTRATOR,   false, &ChatHandler::HandleCustomTaxiStatusCommand,       "Show the current recording", nullptr },
+        { "save",        SEC_ADMINISTRATOR,   false, &ChatHandler::HandleCustomTaxiSaveCommand,         "Save the stopped recording", nullptr },
+        { "discard",     SEC_ADMINISTRATOR,   false, &ChatHandler::HandleCustomTaxiDiscardCommand,      "Discard the current recording", nullptr },
+        { "list",        SEC_ADMINISTRATOR,   true,  &ChatHandler::HandleCustomTaxiListCommand,         "List saved custom taxi routes", nullptr },
+        { "play",        SEC_ADMINISTRATOR,   false, &ChatHandler::HandleCustomTaxiPlayCommand,         "Play a route: .customtaxi play <Id>", nullptr },
+        { "delete",      SEC_ADMINISTRATOR,   true,  &ChatHandler::HandleCustomTaxiDeleteCommand,       "Delete a route: .customtaxi delete <Id>", nullptr },
+        { "reload",      SEC_ADMINISTRATOR,   true,  &ChatHandler::HandleCustomTaxiReloadCommand,       "Reload custom taxi routes from world DB", nullptr },
+        { nullptr,       0,                   false, nullptr,                                           "", nullptr },
+    };
+
     static ChatCommand accountSetCommandTable[] =
     {
         { "addon",          SEC_CONSOLE,        true,  &ChatHandler::HandleAccountSetAddonCommand,     "", nullptr },
@@ -1242,6 +1256,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "partybot",       SEC_ADMINISTRATOR,  false, nullptr,                       "Manage party bots", partyBotCommandTable },
         { "battlebot",      SEC_ADMINISTRATOR,  true, nullptr,                      "Manage battle bots", battleBotCommandTable},
         { "humanverify",    SEC_GAMEMASTER,     false, nullptr,                   "Test human verification", humanVerifyCommandTable },
+        { "customtaxi",     SEC_ADMINISTRATOR,  true,  nullptr,            "Record server-side taxi routes", customTaxiCommandTable },
         { "world",          SEC_ADMINISTRATOR,  false, nullptr,                                        "", worldCommandTable    },
         { "possess",        SEC_ADMINISTRATOR,     false, &ChatHandler::HandlePossessCommand,             "", nullptr              },
         { "cinematic",      SEC_DEVELOPER,      false, nullptr,                                        "", cinematicCommandTable},

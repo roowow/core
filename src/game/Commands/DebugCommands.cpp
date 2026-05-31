@@ -52,6 +52,7 @@
 #include "CellImpl.h"
 #include "MoveSplineInit.h"
 #include "MoveSpline.h"
+#include "CustomTaxiMgr.h"
 
 #include <cmath>
 
@@ -2693,6 +2694,144 @@ bool ChatHandler::HandleDebugTaxiLoopCommand(char* /*args*/)
 
     m_session->SendDoFlight(mountDisplayId, 0);
     PSendSysMessage("Started a server-side custom taxi loop with %u nodes.", uint32(nodes.size()));
+    return true;
+}
+
+bool ChatHandler::HandleCustomTaxiStartCommand(char* args)
+{
+    Player* player = m_session->GetPlayer();
+    std::string error;
+    if (!sCustomTaxiMgr.StartRecording(player, args ? args : "", error))
+    {
+        PSendSysMessage("Unable to start custom taxi recording: %s", error.c_str());
+        return true;
+    }
+
+    PSendSysMessage("Recording custom taxi route '%s'. Use .gm fly on, fly the route, then use .customtaxi stop.",
+        sCustomTaxiMgr.GetRecorder(player->GetObjectGuid())->name.c_str());
+    return true;
+}
+
+bool ChatHandler::HandleCustomTaxiStopCommand(char* /*args*/)
+{
+    Player* player = m_session->GetPlayer();
+    std::string error;
+    if (!sCustomTaxiMgr.StopRecording(player, error))
+    {
+        PSendSysMessage("Unable to stop custom taxi recording cleanly: %s", error.c_str());
+        return true;
+    }
+
+    CustomTaxiRecorder const* recorder = sCustomTaxiMgr.GetRecorder(player->GetObjectGuid());
+    PSendSysMessage("Stopped custom taxi route '%s': %u nodes, %.1f yards. Use .customtaxi save to persist it.",
+        recorder->name.c_str(), uint32(recorder->nodes.size()), CustomTaxiMgr::CalculateDistance(recorder->nodes));
+    return true;
+}
+
+bool ChatHandler::HandleCustomTaxiStatusCommand(char* /*args*/)
+{
+    Player* player = m_session->GetPlayer();
+    CustomTaxiRecorder const* recorder = sCustomTaxiMgr.GetRecorder(player->GetObjectGuid());
+    if (!recorder)
+    {
+        SendSysMessage("No custom taxi recording exists.");
+        return true;
+    }
+
+    PSendSysMessage("Custom taxi route '%s': state %s, map %u, nodes %u, distance %.1f yards.",
+        recorder->name.c_str(), recorder->recording ? "recording" : "stopped", recorder->mapId,
+        uint32(recorder->nodes.size()), CustomTaxiMgr::CalculateDistance(recorder->nodes));
+    if (!recorder->validationError.empty())
+        PSendSysMessage("Validation error: %s", recorder->validationError.c_str());
+    return true;
+}
+
+bool ChatHandler::HandleCustomTaxiSaveCommand(char* /*args*/)
+{
+    Player* player = m_session->GetPlayer();
+    uint32 pathId = 0;
+    std::string error;
+    if (!sCustomTaxiMgr.SaveRecording(player, pathId, error))
+    {
+        PSendSysMessage("Unable to save custom taxi route: %s", error.c_str());
+        return true;
+    }
+
+    PSendSysMessage("Saved custom taxi route %u. Use .customtaxi play %u near its start point to test it.", pathId, pathId);
+    return true;
+}
+
+bool ChatHandler::HandleCustomTaxiDiscardCommand(char* /*args*/)
+{
+    Player* player = m_session->GetPlayer();
+    if (!sCustomTaxiMgr.DiscardRecording(player->GetObjectGuid()))
+    {
+        SendSysMessage("No custom taxi recording exists.");
+        return true;
+    }
+
+    SendSysMessage("Discarded the current custom taxi recording.");
+    return true;
+}
+
+bool ChatHandler::HandleCustomTaxiListCommand(char* /*args*/)
+{
+    std::map<uint32, CustomTaxiPath> const& paths = sCustomTaxiMgr.GetPaths();
+    if (paths.empty())
+    {
+        SendSysMessage("No saved custom taxi routes.");
+        return true;
+    }
+
+    PSendSysMessage("Saved custom taxi routes: %u", uint32(paths.size()));
+    for (auto const& pair : paths)
+    {
+        CustomTaxiPath const& path = pair.second;
+        PSendSysMessage("%u: '%s', map %u, nodes %u, distance %.1f yards, created by %s.",
+            path.id, path.name.c_str(), path.mapId, uint32(path.nodes.size()),
+            CustomTaxiMgr::CalculateDistance(path.nodes), path.createdBy.c_str());
+    }
+    return true;
+}
+
+bool ChatHandler::HandleCustomTaxiPlayCommand(char* args)
+{
+    uint32 pathId = 0;
+    if (!ExtractUInt32(&args, pathId))
+        return false;
+
+    std::string error;
+    if (!sCustomTaxiMgr.Play(m_session->GetPlayer(), pathId, error))
+    {
+        PSendSysMessage("Unable to play custom taxi route: %s", error.c_str());
+        return true;
+    }
+
+    PSendSysMessage("Started custom taxi route %u.", pathId);
+    return true;
+}
+
+bool ChatHandler::HandleCustomTaxiDeleteCommand(char* args)
+{
+    uint32 pathId = 0;
+    if (!ExtractUInt32(&args, pathId))
+        return false;
+
+    std::string error;
+    if (!sCustomTaxiMgr.DeletePath(pathId, error))
+    {
+        PSendSysMessage("Unable to delete custom taxi route: %s", error.c_str());
+        return true;
+    }
+
+    PSendSysMessage("Deleted custom taxi route %u.", pathId);
+    return true;
+}
+
+bool ChatHandler::HandleCustomTaxiReloadCommand(char* /*args*/)
+{
+    sCustomTaxiMgr.LoadFromDB();
+    PSendSysMessage("Reloaded %u custom taxi routes.", uint32(sCustomTaxiMgr.GetPaths().size()));
     return true;
 }
 
