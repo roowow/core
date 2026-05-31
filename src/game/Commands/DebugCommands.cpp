@@ -2636,7 +2636,7 @@ bool ChatHandler::HandleDebugTaxiLoopCommand(char* /*args*/)
     float const rightY = forwardX;
 
     std::vector<TaxiPathNodeEntry> nodes;
-    nodes.reserve(9);
+    nodes.reserve(11);
 
     auto addNode = [&](float forward, float right, float height)
     {
@@ -2651,14 +2651,29 @@ bool ChatHandler::HandleDebugTaxiLoopCommand(char* /*args*/)
     };
 
     addNode(0.0f, 0.0f, 0.0f);
-    addNode(10.0f, 0.0f, 8.0f);
-    addNode(35.0f, 10.0f, 18.0f);
-    addNode(60.0f, 30.0f, 25.0f);
-    addNode(80.0f, 0.0f, 28.0f);
-    addNode(60.0f, -30.0f, 25.0f);
-    addNode(35.0f, -10.0f, 18.0f);
-    addNode(10.0f, 0.0f, 8.0f);
+    addNode(0.0f, 0.0f, 12.0f);
+    addNode(0.0f, 0.0f, 35.0f);
+    addNode(30.0f, 20.0f, 35.0f);
+    addNode(70.0f, 25.0f, 35.0f);
+    addNode(90.0f, 0.0f, 35.0f);
+    addNode(70.0f, -25.0f, 35.0f);
+    addNode(30.0f, -20.0f, 35.0f);
+    addNode(0.0f, 0.0f, 35.0f);
+    addNode(0.0f, 0.0f, 12.0f);
     addNode(0.0f, 0.0f, 0.0f);
+
+    for (size_t i = 1; i < nodes.size(); ++i)
+    {
+        TaxiPathNodeEntry const& previous = nodes[i - 1];
+        TaxiPathNodeEntry const& current = nodes[i];
+        if (!player->GetMap()->isInLineOfSight(previous.x, previous.y, previous.z + 1.0f,
+                                               current.x, current.y, current.z + 1.0f, true, false))
+        {
+            PSendSysMessage("Custom taxi loop intersects map collision between nodes %u and %u. Move to an open area.",
+                            uint32(i - 1), uint32(i));
+            return true;
+        }
+    }
 
     if (!player->GetTaxi().SetCustomTaxiPath(nodes))
     {
