@@ -188,6 +188,13 @@ struct boss_onyxiaAI : public ScriptedAI
             return;
 
         float const angle = pVictim->GetAngle(m_creature) - pVictim->GetOrientation();
+        float const distNow = m_creature->GetDistance(pVictim, SizeFactor::None);
+        float const onyxiaRadius = m_creature->GetObjectBoundingRadius();
+        float const victimRadius = pVictim->GetObjectBoundingRadius();
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL,
+            "[Onyxia] StartGroundChase victim=%s distNow=%.2f onyxiaRadius=%.2f victimRadius=%.2f offset=%.2f angle=%.2f",
+            pVictim->GetName(), distNow, onyxiaRadius, victimRadius, ONYXIA_GROUND_CHASE_OFFSET, angle);
+
         m_creature->GetMotionMaster()->MoveChase(pVictim, ONYXIA_GROUND_CHASE_OFFSET, angle);
     }
 
