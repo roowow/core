@@ -75,6 +75,7 @@ enum
 
     DEPART_FLIGHT               = 20,
     LANDING_FLIGHT              = 21,
+    LANDING_CENTER              = 22,
 
     PHASE_ONE                   = 1,
     PHASE_TWO                   = 2,
@@ -564,6 +565,24 @@ struct boss_onyxiaAI : public ScriptedAI
         PhaseOne(uiDiff);
     }
 
+    void StartLandedCombat()
+    {
+        if (Unit* pVictim = m_creature->GetVictim())
+            m_creature->SetTargetGuid(pVictim->GetObjectGuid());
+
+        SetCombatMovement(true);
+        m_creature->GetMotionMaster()->MoveChase(m_creature->GetVictim());
+
+        m_bTransition  = false;
+        m_uiTransTimer = 0;
+
+        m_uiFlameBreathTimer = urand(10000, 15000);
+        m_uiTailSweepTimer   = 5000;
+        m_uiCleaveTimer      = urand(2000, 5000);
+        m_uiWingBuffetTimer  = urand(10000, 20000);
+        m_uiKnockAwayTimer   = urand(10000, 20000);
+    }
+
     void PhaseTransition(uint32 uiDiff, bool bDebut)
     {
 //        m_creature->CombatStop(true);
@@ -626,30 +645,17 @@ struct boss_onyxiaAI : public ScriptedAI
                 m_creature->RemoveAurasDueToSpell(17131); /** Stop flying */
                 m_uiTransTimer = 60000; // handled by MovementInform
             }
-            /** Landing in progress */
+            /** Landing in progress: move to cave center, wait for MovementInform(LANDING_CENTER) */
             else if (m_uiTransTimer < uiDiff && m_uiTransCount == 3)
             {
-                m_creature->GetMotionMaster()->MovePoint(0, -33.0f, -213.0f, -89.0f, MOVE_PATHFINDING);
-                m_uiTransTimer = 2000;
+                m_creature->GetMotionMaster()->MovePoint(LANDING_CENTER, -33.0f, -213.0f, -89.0f, MOVE_PATHFINDING);
+                m_uiTransTimer = 30000; // fallback in case pathfinding fails
                 m_uiTransCount = 4;
             }
-            /** Landed. Restore target and start combat movement.*/
+            /** Fallback if MovementInform(LANDING_CENTER) never fired */
             else if (m_uiTransTimer < uiDiff && m_uiTransCount == 4)
-            {               
-                if (Unit* pVictim = m_creature->GetVictim())
-                    m_creature->SetTargetGuid(pVictim->GetObjectGuid()); 
-
-                SetCombatMovement(true);
-                m_creature->GetMotionMaster()->MoveChase(m_creature->GetVictim());
-
-                m_bTransition  = false;
-                m_uiTransTimer = 0;
-
-                m_uiFlameBreathTimer   = urand(10000, 15000);
-                m_uiTailSweepTimer     = 5000;
-                m_uiCleaveTimer        = urand(2000, 5000);
-                m_uiWingBuffetTimer    = urand(10000, 20000);
-                m_uiKnockAwayTimer     = urand(10000, 20000);
+            {
+                StartLandedCombat();
             }
         }
 
@@ -671,6 +677,10 @@ struct boss_onyxiaAI : public ScriptedAI
 
         switch (uiPointId)
         {
+            case LANDING_CENTER:
+                if (m_uiPhase == PHASE_THREE && m_uiTransCount == 4)
+                    StartLandedCombat();
+                break;
             case DEPART_FLIGHT:
                 m_creature->SetOrientation(0.0f);
                 m_uiTransTimer = 1000;
