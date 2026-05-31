@@ -629,7 +629,7 @@ struct boss_onyxiaAI : public ScriptedAI
             /** Landing in progress */
             else if (m_uiTransTimer < uiDiff && m_uiTransCount == 3)
             {
-                m_creature->GetMotionMaster()->MovePoint(0, -8.860f, -212.752f, -87.482f, MOVE_PATHFINDING | MOVE_FLY_MODE);
+                m_creature->GetMotionMaster()->MovePoint(0, -33.0f, -213.0f, -89.0f, MOVE_PATHFINDING);
                 m_uiTransTimer = 2000;
                 m_uiTransCount = 4;
             }
