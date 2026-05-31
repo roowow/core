@@ -1886,9 +1886,11 @@ class Player final: public Unit
 
         void SetEnvironmentFlags(EnvironmentFlags flags, bool apply);
 
+    public:
         void SendMirrorTimerStart(uint32 type, uint32 remaining, uint32 duration, int32 scale, bool paused = false, uint32 spellId = 0);
         void SendMirrorTimerStop(uint32 type);
         void SendMirrorTimerPause(uint32 type, bool state);
+    protected:
 
         void FreezeMirrorTimers(bool state);
         void UpdateMirrorTimers(uint32 diff, bool send = true);
