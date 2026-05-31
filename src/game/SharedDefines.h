@@ -1654,8 +1654,9 @@ enum BattleGroundTypeId
     BATTLEGROUND_AV            = 1,
     BATTLEGROUND_WS            = 2,
     BATTLEGROUND_AB            = 3,
+    BATTLEGROUND_BR            = 4,  // Battle Royale — custom, not in original BG queue
 };
-#define MAX_BATTLEGROUND_TYPE_ID 4
+#define MAX_BATTLEGROUND_TYPE_ID 5
 
 inline BattleGroundTypeId GetBattleGroundTypeIdByMapId(uint32 mapId)
 {

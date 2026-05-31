@@ -38,6 +38,7 @@ set (SCRIPTS_SRCS
     battlegrounds/battleground_alterac.cpp
     custom/custom.cpp
     custom/custom_creatures.cpp
+    custom/BattleRoyaleNPC.cpp
     custom/oo_creatures.cpp
     custom/oo_guild_bank.cpp
     custom/oo_guild_bank_bot.cpp

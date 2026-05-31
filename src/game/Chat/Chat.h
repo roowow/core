@@ -472,6 +472,14 @@ class ChatHandler
         bool HandleDebugAnimCommand(char* args);
         bool HandleDebugBattlegroundCommand(char* args);
         bool HandleDebugAVInfoCommand(char* args);
+
+        // Battle Royale commands (.br ...)
+        bool HandleBRStartCommand(char* args);
+        bool HandleBRJoinCommand(char* args);
+        bool HandleBRStatusCommand(char* args);
+        bool HandleBRZoneCommand(char* args);
+        bool HandleBRPhaseCommand(char* args);
+        bool HandleBRCancelCommand(char* args);
         bool HandleDebugUnitBytes1Command(char* args);
         bool HandleDebugUnitBytes2Command(char* args);
         bool HandleDebugConditionCommand(char* args);

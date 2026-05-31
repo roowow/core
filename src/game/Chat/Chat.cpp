@@ -1217,6 +1217,17 @@ ChatCommand * ChatHandler::getCommandTable()
         { nullptr,          0,                false, nullptr,                                          "", nullptr }
     };
 
+    static ChatCommand brCommandTable[] =
+    {
+        { "start",  SEC_DEVELOPER, false, &ChatHandler::HandleBRStartCommand,  "", nullptr },
+        { "join",   SEC_DEVELOPER, false, &ChatHandler::HandleBRJoinCommand,   "", nullptr },
+        { "status", SEC_DEVELOPER, true,  &ChatHandler::HandleBRStatusCommand, "", nullptr },
+        { "zone",   SEC_DEVELOPER, false, &ChatHandler::HandleBRZoneCommand,   "", nullptr },
+        { "phase",  SEC_DEVELOPER, false, &ChatHandler::HandleBRPhaseCommand,  "", nullptr },
+        { "cancel", SEC_DEVELOPER, false, &ChatHandler::HandleBRCancelCommand, "", nullptr },
+        { nullptr,  0,             false, nullptr,                              "", nullptr },
+    };
+
     static ChatCommand commandTable[] =
     {
         { "account",        SEC_PLAYER,         true, nullptr,                                         "", accountCommandTable  },
@@ -1225,6 +1236,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "character",      SEC_DEVELOPER,   true, nullptr,                                         "", characterCommandTable},
         { "charge",         SEC_ADMINISTRATOR,     false, &ChatHandler::HandleChargeCommand,              "", nullptr },
         { "cheat",          SEC_ADMINISTRATOR,     false, nullptr,                                        "", cheatCommandTable    },
+        { "br",             SEC_DEVELOPER,   false, nullptr,                                        "", brCommandTable       },
         { "debug",          SEC_DEVELOPER,   true, nullptr,                                         "", debugCommandTable    },
         { "deplenish",      SEC_ADMINISTRATOR,     false, &ChatHandler::HandleDeplenishCommand,           "", nullptr              },
         { "replenish",      SEC_ADMINISTRATOR,     false, &ChatHandler::HandleReplenishCommand,           "", nullptr              },

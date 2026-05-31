@@ -17,7 +17,10 @@
 #include "scriptPCH.h"
 #include "custom.h"
 
+void AddSC_BattleRoyaleNPC();
+
 void AddSC_zero_scripts()
 {
     AddSC_custom_creatures();
+    AddSC_BattleRoyaleNPC();
 }

@@ -71,10 +71,14 @@ set (game_SRCS
     Anticheat/HumanVerify/HumanVerifyMgr.cpp
     AuctionHouse/AuctionHouseBotMgr.cpp
     AuctionHouse/AuctionHouseMgr.cpp
+    BattleRoyale/BattleRoyale.cpp
+    BattleRoyale/BattleRoyaleMgr.cpp
+    BattleRoyale/BattleRoyaleZone.cpp
     Battlegrounds/BattleGround.cpp
     Battlegrounds/BattleGroundAfkMgr.cpp
     Battlegrounds/BattleGroundAB.cpp
     Battlegrounds/BattleGroundAV.cpp
+    Battlegrounds/BattleGroundBR.cpp
     Battlegrounds/BattleGroundMgr.cpp
     Battlegrounds/BattleGroundWS.cpp
     Chat/Channel.cpp
@@ -85,6 +89,7 @@ set (game_SRCS
     Chat/MasterPlayer.cpp
     Chat/MasterPlayerChat.cpp
     Commands/AccountCommands.cpp
+    Commands/BattleRoyaleCommands.cpp
     Commands/CharacterCommands.cpp
     Commands/CreatureCommands.cpp
     Commands/DebugCommands.cpp
@@ -550,6 +555,7 @@ include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/AI
   ${CMAKE_CURRENT_SOURCE_DIR}/Anticheat
   ${CMAKE_CURRENT_SOURCE_DIR}/AuctionHouse
+  ${CMAKE_CURRENT_SOURCE_DIR}/BattleRoyale
   ${CMAKE_CURRENT_SOURCE_DIR}/Battlegrounds
   ${CMAKE_CURRENT_SOURCE_DIR}/Chat
   ${CMAKE_CURRENT_SOURCE_DIR}/Commands

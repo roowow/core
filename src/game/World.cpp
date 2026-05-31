@@ -53,6 +53,7 @@
 #include "CreatureAIRegistry.h"
 #include "Policies/SingletonImp.h"
 #include "BattleGroundMgr.h"
+#include "BattleRoyale/BattleRoyaleMgr.h"
 #include "VMapFactory.h"
 #include "GameEventMgr.h"
 #include "PoolManager.h"
@@ -2063,6 +2064,7 @@ void World::Update(uint32 diff)
 
     sMapMgr.Update(diff);
     sBattleGroundMgr.Update(diff);
+    sBattleRoyaleMgr.Update(diff);
     sGuardMgr.Update(diff);
     sZoneScriptMgr.Update(diff);
 
