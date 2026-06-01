@@ -71,6 +71,11 @@ void BattleRoyale::Update(uint32 diff)
 
     if (m_status == BattleRoyaleStatus::PREPARING)
     {
+        // Drain the marker spawn queue during prep so the circle is fully visible
+        // before the game starts — not after.
+        if (map)
+            m_zone.DrainSpawnQueue(map);
+
         if (m_prepareTimer <= diff)
             StartRunning();
         else

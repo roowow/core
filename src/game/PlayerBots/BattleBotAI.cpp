@@ -2870,6 +2870,28 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             me->SetUInt32Value(PLAYER_XP, 0);
         }
 
+        // BR bots must not roll healer specs — pre-set DPS role so
+        // LearnPremadeSpecForClass() picks a matching DPS template.
+        if (m_isBattleRoyaleBot && m_role == ROLE_INVALID)
+        {
+            switch (me->GetClass())
+            {
+                case CLASS_WARRIOR:
+                case CLASS_ROGUE:
+                    m_role = ROLE_MELEE_DPS;
+                    break;
+                case CLASS_DRUID:
+                    m_role = urand(0, 1) ? ROLE_MELEE_DPS : ROLE_RANGE_DPS; // Feral or Balance
+                    break;
+                case CLASS_SHAMAN:
+                    m_role = urand(0, 1) ? ROLE_MELEE_DPS : ROLE_RANGE_DPS; // Enhancement or Elemental
+                    break;
+                default:
+                    m_role = ROLE_RANGE_DPS; // Mage / Hunter / Warlock / Shadow Priest
+                    break;
+            }
+        }
+
         LearnPremadeSpecForClass();
 
         if (m_role == ROLE_INVALID)
@@ -3482,6 +3504,10 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     // During deployment (taxi) or protection period (immune): stay put
     if (me->IsTaxiFlying() || me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER))
         return;
+
+    // In BR there are no tanks — force any protection warrior to play as melee DPS.
+    if (me->GetClass() == CLASS_WARRIOR && m_role == ROLE_TANK)
+        m_role = ROLE_MELEE_DPS;
 
     BattleGround* bg = me->GetBattleGround();
     if (!bg || bg->GetTypeID() != BATTLEGROUND_BR)

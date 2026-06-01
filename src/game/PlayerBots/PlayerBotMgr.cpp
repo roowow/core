@@ -1082,14 +1082,17 @@ void PlayerBotMgr::AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam,
 
 void PlayerBotMgr::AddBattleRoyaleBot(uint32 brInstanceId)
 {
-    // BR: ranged/melee DPS only. Excluded:
-    //   Priest/Druid/Paladin/Shaman — can roll pure healer spec
-    //   Warrior — can roll Protection (tank) spec, plays passively in BR
+    // BR: DPS only. Healer specs are prevented by pre-setting m_role before LearnPremadeSpecForClass().
+    // Excluded: Paladin (Holy spec issues in FFA context).
     std::vector<uint32> availableClasses = {
-        CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,
-        CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,
-        CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
+        CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR,
+        CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,
+        CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,
+        CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
         CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK,
+        CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,  // shadow
+        CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,   // balance / feral
+        CLASS_SHAMAN,  CLASS_SHAMAN,  CLASS_SHAMAN,  // elemental / enhancement
     };
 
     uint8 botClass = SelectRandomContainerElement(availableClasses);

@@ -26,6 +26,8 @@ public:
 
     // Spawn the initial marker ring (called when entering PREPARING state)
     void RefreshMarkers(Map* map) { UpdateMarkers(map); }
+    // Drain pending spawn queue one batch at a time (call each tick during PREPARING)
+    void DrainSpawnQueue(Map* map) { ProcessSpawnBatch(map); }
 
     float GetCenterX() const { return m_centerX; }
     float GetCenterY() const { return m_centerY; }
