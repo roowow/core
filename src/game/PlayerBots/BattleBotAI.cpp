@@ -1869,9 +1869,9 @@ float BattleBotAI::GetMaxAggroDistanceForMap() const
         return 50.0f;
 
     // Non-aggressive travel: no new combat initiation outside objective radius.
-    // Exception: always fight the enemy captain when nearby — passive mode shouldn't apply there.
+    // Exception: always fight enemy strategic NPCs when nearby — passive mode shouldn't apply there.
     if (!m_avAggressiveTravelCombat && !BattleBotIsNearAVFlag(this, AV_FLAG_DEFENSE_RADIUS) &&
-        !BattleBotIsNearAVCaptain(this, 40.0f))
+        !BattleBotIsNearAVCaptain(this, 40.0f) && !BattleBotIsNearAVGeneral(this, 40.0f))
         return 0.0f;
 
     return 20.0f;
@@ -1885,6 +1885,7 @@ bool BattleBotAI::ShouldUseAVOpeningPassiveCombat() const
         me->IsInCombat() ||
         m_avAssignedGY != 0 ||
         BattleBotIsNearAVFlag(this, 10.0f) ||
+        BattleBotIsNearAVGeneral(this, 40.0f) ||
         BattleBotIsInAVGyCaptureHold(this))
         return false;
 
@@ -2116,6 +2117,11 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
     // Ignore attackers while carrying flag, just keep running.
     if (ShouldIgnoreCombat())
         return nullptr;
+
+    // The enemy general is the final AV objective. Once reached, attack immediately
+    // even in passive push modes instead of walking around until the NPC retaliates.
+    if (Unit* pGeneralTarget = BattleBotSelectAVGeneralTarget(this, pExcept, 40.0f))
+        return pGeneralTarget;
 
     if (ShouldUseAVOpeningPassiveCombat())
     {
@@ -3235,17 +3241,19 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                 bgForAssault && bgForAssault->GetTypeID() == BATTLEGROUND_AV &&
                 ((me->GetTeam() == HORDE    && (bgForAssault->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_ASSAULTED)    || bgForAssault->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_CONTROLLED)))    ||
                  (me->GetTeam() == ALLIANCE && (bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED) || bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_CONTROLLED))));
+            bool const avNearGeneral = BattleBotIsNearAVGeneral(this, 40.0f);
 
             // Passive travelers don't initiate combat outside objectives.
             // Guards, bots inside a capture hold, bots near any AV flag, and bots near the
-            // enemy captain always fight.
+            // enemy captain and enemy general always fight.
             bool const avPassiveTraveler = !m_avAggressiveTravelCombat &&
                 m_avAssignedGY == 0 && !BattleBotIsInAVGyCaptureHold(this) &&
                 !BattleBotIsNearAVFlag(this, AV_FLAG_DEFENSE_RADIUS) &&
                 !BattleBotIsNearAVCaptain(this, 40.0f) &&
+                !avNearGeneral &&
                 bgForAssault && bgForAssault->GetTypeID() == BATTLEGROUND_AV;
 
-            if (!avTotalAssault && !avPassiveTraveler)
+            if (avNearGeneral || (!avTotalAssault && !avPassiveTraveler))
             {
                 if (m_role != ROLE_HEALER)
                 {

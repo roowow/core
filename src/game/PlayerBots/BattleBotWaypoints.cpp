@@ -1505,6 +1505,9 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
     &vPath_AV_Horde_Cave_to_Frostwolf_Graveyard_Flag,
     &vPath_AV_Alliance_Cave_Slop_Crossroad_to_Alliance_Slope_Crossroad,
     &vPath_AV_Stormpike_Graveyard_to_Stormpike_Flag,
+    &vPath_AV_Horde_Base_Second_Crossroads_to_Horde_Base_DrekThar1,
+    &vPath_AV_Horde_Base_Second_Crossroads_to_Horde_Base_DrekThar2,
+    &vPath_AV_Alliance_Base_Bunker_Third_Crossroad_to_Alliance_Base_Vanndar_Stormpike,
     &vPath_AV_Stormpike_to_Irondeep_Morloch,
     &vPath_AV_TowerPoint_to_Coldtooth_Snivvle,
 };
@@ -1933,6 +1936,28 @@ bool BattleBotIsNearAVCaptain(BattleBotAI const* pAI, float radius)
             return true;
 
     return false;
+}
+
+Unit* BattleBotSelectAVGeneralTarget(BattleBotAI const* pAI, Unit* pExcept, float radius)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
+        return nullptr;
+
+    uint32 const generalType = (pAI->me->GetTeam() == HORDE) ? BG_AV_BOSS_A : BG_AV_BOSS_H;
+    Creature* pGeneral = pAI->me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(generalType, 0));
+    if (!pGeneral || pGeneral == pExcept || !pGeneral->IsAlive() ||
+        !pAI->IsValidHostileTarget(pGeneral) ||
+        !pAI->me->IsWithinDist(pGeneral, radius) ||
+        !pAI->me->IsWithinLOSInMap(pGeneral))
+        return nullptr;
+
+    return pGeneral;
+}
+
+bool BattleBotIsNearAVGeneral(BattleBotAI const* pAI, float radius)
+{
+    return BattleBotSelectAVGeneralTarget(pAI, nullptr, radius) != nullptr;
 }
 
 bool BattleBotIsNearOpenObjectiveFlag(BattleBotAI const* pAI, float radius)
