@@ -69,8 +69,8 @@ bool ChatHandler::HandleBRInfoCommand(char* /*args*/)
                     instanceId, statusStr, mins, secs);
     PSendSysMessage("存活: %u/%u  待加入机器人: %u",
                     br->GetAliveCount(), br->GetTotalCount(), br->GetPendingBotCount());
-    PSendSysMessage("毒圈: 阶段 %u  半径: %.1f 码  伤害: %u/秒",
-                    zone.GetPhase(), zone.GetCurrentRadius(), zone.GetCurrentDamage());
+    PSendSysMessage("毒圈: 阶段 %u  半径: %.1f 码  伤害: %.1f%%/秒",
+                    zone.GetPhase(), zone.GetCurrentRadius(), zone.GetCurrentDamagePercent());
     PSendSysMessage("圆心: (%.0f, %.0f)  队列等待: %u 人",
                     zone.GetCenterX(), zone.GetCenterY(), sBattleRoyaleMgr.GetQueueSize());
 

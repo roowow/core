@@ -12,12 +12,12 @@
 
 #include <cmath>
 
-static uint32 const ZONE_MARKER_ENTRY           = 900101;
-static uint32 const ZONE_MARKER_UPDATE_MS       = 10000; // refresh every 10 s
-static float  const ZONE_MARKER_SPACING         = 80.0f; // yards between markers
-static uint32 const ZONE_MARKER_MIN             = 24;
-static uint32 const ZONE_MARKER_MAX             = 72;
-static float  const ZONE_MARKER_CHANGE_THRESHOLD = 30.0f; // force refresh if radius shifts this much
+static uint32 const ZONE_MARKER_ENTRY            = 900101;
+static float  const ZONE_MARKER_SPACING          = 50.0f;  // yards between markers
+static uint32 const ZONE_MARKER_MIN              = 24;
+static uint32 const ZONE_MARKER_MAX              = 96;
+static float  const ZONE_MARKER_CHANGE_THRESHOLD = 30.0f;  // force refresh if radius shifts this much
+static float  const ZONE_MARKER_INNER_OFFSET     = 20.0f;  // inner warning ring distance from boundary
 
 static uint32 const ZONE_WARN_INTERVAL_MS = 5000;
 
@@ -45,11 +45,11 @@ bool BattleRoyaleZone::IsInsideZone(float x, float y) const
     return (dx * dx + dy * dy) <= (m_currentRadius * m_currentRadius);
 }
 
-uint32 BattleRoyaleZone::GetCurrentDamage() const
+float BattleRoyaleZone::GetCurrentDamagePercent() const
 {
     if (!m_tmpl || m_phase >= uint32(m_tmpl->phases.size()))
-        return 0;
-    return m_tmpl->phases[m_phase].damagePerSec;
+        return 0.0f;
+    return m_tmpl->phases[m_phase].damagePercent;
 }
 
 void BattleRoyaleZone::Update(uint32 diff, std::map<ObjectGuid, BattleRoyalePlayer>& players, Map* map)
@@ -167,14 +167,12 @@ void BattleRoyaleZone::RemoveMarkers(Map* map)
     m_lastMarkerRadius = -1.0f;
 }
 
-void BattleRoyaleZone::UpdateMarkers(Map* map)
+void BattleRoyaleZone::SpawnRing(Map* map, float radius)
 {
-    RemoveMarkers(map);
-    if (!map)
+    if (radius <= 0.0f)
         return;
 
-    // clamp(ceil(2π * r / spacing), MIN, MAX)
-    uint32 count = uint32(std::ceil(2.0f * float(M_PI_F) * m_currentRadius / ZONE_MARKER_SPACING));
+    uint32 count = uint32(std::ceil(2.0f * float(M_PI_F) * radius / ZONE_MARKER_SPACING));
     if (count < ZONE_MARKER_MIN) count = ZONE_MARKER_MIN;
     if (count > ZONE_MARKER_MAX) count = ZONE_MARKER_MAX;
 
@@ -182,10 +180,8 @@ void BattleRoyaleZone::UpdateMarkers(Map* map)
     for (uint32 i = 0; i < count; ++i)
     {
         float angle = angleStep * float(i);
-        float x = m_centerX + m_currentRadius * std::cos(angle);
-        float y = m_centerY + m_currentRadius * std::sin(angle);
-        // Search from MAX_HEIGHT downward across the full terrain range.
-        // DEFAULT_HEIGHT_SEARCH is only 10 units, which misses AB terrain at z = -110..+40.
+        float x = m_centerX + radius * std::cos(angle);
+        float y = m_centerY + radius * std::sin(angle);
         float z = map->GetHeight(x, y, MAX_HEIGHT, false, MAX_HEIGHT);
         if (z <= INVALID_HEIGHT)
             continue;
@@ -203,17 +199,31 @@ void BattleRoyaleZone::UpdateMarkers(Map* map)
         map->Add(go);
         m_markerGuids.push_back(go->GetObjectGuid());
     }
+}
+
+void BattleRoyaleZone::UpdateMarkers(Map* map)
+{
+    RemoveMarkers(map);
+    if (!map)
+        return;
+
+    SpawnRing(map, m_currentRadius);                              // outer ring: zone boundary
+    if (m_currentRadius > ZONE_MARKER_INNER_OFFSET * 2.0f)
+        SpawnRing(map, m_currentRadius - ZONE_MARKER_INNER_OFFSET); // inner warning ring
 
     m_lastMarkerRadius = m_currentRadius;
 }
 
 void BattleRoyaleZone::ApplyZoneDamage(Player* player)
 {
-    uint32 dmg = GetCurrentDamage();
-    if (!dmg || !player->IsAlive())
+    float pct = GetCurrentDamagePercent();
+    if (pct <= 0.0f || !player->IsAlive())
         return;
-    // EnvironmentalDamage shows in the combat log as fire damage with no attacker
-    player->EnvironmentalDamage(DAMAGE_FIRE, dmg);
+    uint32 dmg = uint32(float(player->GetMaxHealth()) * pct / 100.0f);
+    if (dmg < 1)
+        dmg = 1;
+    // DAMAGE_DROWNING: no school → bypasses fire resistance and all other mitigation
+    player->EnvironmentalDamage(DAMAGE_DROWNING, dmg);
 }
 
 void BattleRoyaleZone::SendZoneWarning(Player* player)

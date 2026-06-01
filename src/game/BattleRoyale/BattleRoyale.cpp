@@ -83,9 +83,17 @@ void BattleRoyale::Update(uint32 diff)
         m_runningTime += diff;
 
         if (map)
+        {
+            uint32 phaseBefore = m_zone.GetPhase();
             m_zone.Update(diff, m_players, map);
+            uint32 phaseAfter = m_zone.GetPhase();
+            if (phaseAfter != phaseBefore)
+                BroadcastPhaseChange(phaseAfter);
+        }
 
-        // Check for player deaths — collect first, eliminate after to avoid iterator invalidation
+        // Check for player deaths and re-enforce FFA.
+        // Player::UpdateArea() clears PLAYER_FLAGS_FFA_PVP on every sub-zone change (AB has
+        // several sub-zones), so we re-apply it each update if it was cleared.
         if (map)
         {
             std::vector<ObjectGuid> toEliminate;
@@ -95,7 +103,12 @@ void BattleRoyale::Update(uint32 diff)
                     continue;
                 Player* player = map->GetPlayer(it->first);
                 if (!player || !player->IsAlive())
+                {
                     toEliminate.push_back(it->first);
+                    continue;
+                }
+                if (!player->IsFFAPvP())
+                    player->SetFFAPvP(true);
             }
             for (ObjectGuid const& guid : toEliminate)
                 Eliminate(guid);
@@ -268,8 +281,22 @@ void BattleRoyale::StartPreparing()
     m_status = BattleRoyaleStatus::PREPARING;
     m_prepareTimer = 30000;
 
-    // Spawn zone markers now so players can see the boundary during prep
+    // Re-apply FFA PvP now that players are on the BG map.
+    // Player::UpdateArea() clears the flag when entering a non-arena area,
+    // so we must re-set it after teleport completes.
     Map* map = m_host ? m_host->GetBgMap() : nullptr;
+    if (map)
+    {
+        for (auto it = m_players.begin(); it != m_players.end(); ++it)
+        {
+            if (!it->second.alive)
+                continue;
+            if (Player* player = map->GetPlayer(it->first))
+                player->SetFFAPvP(true);
+        }
+    }
+
+    // Spawn zone markers now so players can see the boundary during prep
     if (map)
         m_zone.RefreshMarkers(map);
 
@@ -291,6 +318,9 @@ void BattleRoyale::StartRunning()
         player->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER | UNIT_FLAG_IMMUNE_TO_NPC);
         ChatHandler(player).PSendSysMessage("[Battle Royale] 对局开始！最后存活者获胜！");
     }
+
+    // Announce initial zone damage so players know the starting pressure.
+    BroadcastPhaseChange(0);
 }
 
 void BattleRoyale::Eliminate(ObjectGuid guid, bool notify)
@@ -420,6 +450,26 @@ void BattleRoyale::ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlay
 
     WorldLocation const& pos = brPlayer.savedPosition;
     player->TeleportTo(pos.mapId, pos.x, pos.y, pos.z, pos.o);
+}
+
+void BattleRoyale::BroadcastPhaseChange(uint32 phase)
+{
+    uint32 totalPhases = m_tmpl ? uint32(m_tmpl->phases.size()) : 0;
+    bool isFinal = (totalPhases > 0 && phase == totalPhases - 1 &&
+                    m_tmpl->phases[phase].durationMs == 0);
+
+    char buf[128];
+    if (isFinal)
+    {
+        snprintf(buf, sizeof(buf), "[Battle Royale] 决赛圈已形成！圈外伤害 %.0f%%/秒，快速回圈！",
+                 m_zone.GetCurrentDamagePercent());
+    }
+    else
+    {
+        snprintf(buf, sizeof(buf), "[Battle Royale] 毒圈进入第 %u 阶段，圈外伤害 %.0f%%/秒！",
+                 phase + 1, m_zone.GetCurrentDamagePercent());
+    }
+    BroadcastToAll(buf);
 }
 
 void BattleRoyale::BroadcastToAll(std::string const& msg)

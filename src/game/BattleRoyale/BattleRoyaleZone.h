@@ -20,9 +20,9 @@ public:
     void Cleanup(Map* map);
 
     bool  IsInsideZone(float x, float y) const;
-    float GetCurrentRadius()  const { return m_currentRadius; }
-    uint32 GetCurrentDamage() const;
-    uint32 GetPhase()         const { return m_phase; }
+    float GetCurrentRadius()        const { return m_currentRadius; }
+    float GetCurrentDamagePercent() const;
+    uint32 GetPhase()               const { return m_phase; }
 
     // Spawn the initial marker ring (called when entering PREPARING state)
     void RefreshMarkers(Map* map) { UpdateMarkers(map); }
@@ -38,6 +38,7 @@ private:
     void  ApplyZoneDamage(Player* player);
     void  SendZoneWarning(Player* player);
     void  StartNextPhase();
+    void  SpawnRing(Map* map, float radius);
     void  UpdateMarkers(Map* map);
     void  RemoveMarkers(Map* map);
 

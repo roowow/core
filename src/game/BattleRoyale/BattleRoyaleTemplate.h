@@ -14,7 +14,7 @@ struct BRZonePhase
     float  startRadius;
     float  endRadius;
     uint32 durationMs;
-    uint32 damagePerSec;
+    float  damagePercent; // % of max health per second, bypasses all mitigation
 };
 
 struct BattleRoyaleTemplate
@@ -78,11 +78,11 @@ inline BattleRoyaleTemplate const& GetABTemplate()
             t.spawnPoints.push_back(s);
 
         BRZonePhase const phases[] = {
-            { 600.0f, 400.0f, 2 * 60 * 1000,  80   }, // phase 1: 2 min
-            { 400.0f, 230.0f, 90 * 1000,       200  }, // phase 2: 1.5 min
-            { 230.0f, 120.0f, 90 * 1000,       400  }, // phase 3: 1.5 min
-            { 120.0f,  50.0f, 1 * 60 * 1000,   800  }, // phase 4: 1 min
-            {  50.0f,  50.0f, 0,               2000  }, // final ring
+            { 600.0f, 400.0f, 2 * 60 * 1000,  2.0f  }, // phase 1: 2 min,   2%/s (~50s to die)
+            { 400.0f, 230.0f, 90 * 1000,       4.0f  }, // phase 2: 1.5 min, 4%/s (~25s to die)
+            { 230.0f, 120.0f, 90 * 1000,       8.0f  }, // phase 3: 1.5 min, 8%/s (~12s to die)
+            { 120.0f,  50.0f, 1 * 60 * 1000,  15.0f  }, // phase 4: 1 min,  15%/s (~7s to die)
+            {  50.0f,  50.0f, 0,              25.0f  }, // final ring,       25%/s (~4s to die)
         };
         for (BRZonePhase const& ph : phases)
             t.phases.push_back(ph);

@@ -72,6 +72,7 @@ private:
     void Eliminate(ObjectGuid guid, bool notify = true);
     void ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlayer);
     void BroadcastToAll(std::string const& msg);
+    void BroadcastPhaseChange(uint32 phase);
 
     BattleRoyaleStatus  m_status;
     BattleRoyaleZone    m_zone;
