@@ -3,8 +3,10 @@
 
 #include "BattleRoyaleTemplate.h"
 #include "BattleRoyalePlayer.h"
+#include "ObjectGuid.h"
 
 #include <map>
+#include <vector>
 #include <cmath>
 
 class Map;
@@ -24,12 +26,14 @@ public:
 
     // GM helpers
     void ForcePhase(uint32 phase);
-    void ForceRadius(float r) { m_currentRadius = r; }
+    void ForceRadius(float r) { m_currentRadius = r; m_lastMarkerRadius = -1.0f; }
 
 private:
     void  ApplyZoneDamage(Player* player);
     void  SendZoneWarning(Player* player);
     void  StartNextPhase();
+    void  UpdateMarkers(Map* map);
+    void  RemoveMarkers(Map* map);
 
     float   m_centerX       = 0.0f;
     float   m_centerY       = 0.0f;
@@ -38,7 +42,11 @@ private:
     float   m_targetRadius  = 600.0f;
     uint32  m_phase         = 0;
     uint32  m_phaseTimer    = 0;
-    uint32  m_damageTimer   = 1000;  // damage tick every 1 s
+    uint32  m_damageTimer   = 1000;
+
+    uint32  m_markerTimer        = 0;
+    float   m_lastMarkerRadius   = -1.0f;  // -1 = markers not yet spawned
+    std::vector<ObjectGuid> m_markerGuids;
 
     BattleRoyaleTemplate const* m_tmpl = nullptr;
 };

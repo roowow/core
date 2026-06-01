@@ -25,6 +25,8 @@ struct BattleRoyaleTemplate
     float  centerY;
     uint32 maxPlayers;
     bool   enabled;
+    BRSpawnPoint deploymentStart;
+    uint32 deploymentTimeoutMs;
 
     std::vector<BRSpawnPoint> spawnPoints;
     std::vector<BRZonePhase>  phases;
@@ -43,31 +45,34 @@ inline BattleRoyaleTemplate const& GetABTemplate()
         t.centerY    = 1008.0f;
         t.maxPlayers = 20;
         t.enabled    = true;
+        t.deploymentStart     = { 990.0f, 1008.0f, 250.0f, 0.0f };
+        t.deploymentTimeoutMs = 30000;
 
         // 20 spawn points across AB.
         // Z source: db = derived from database (guard/flag/trigger), est = estimated from nearby terrain.
         // All must be verified in-game with .go xyz before use in production.
+        // All 20 spawn points verified in-game by GM
         BRSpawnPoint const sp[] = {
-            { 1313.0f, 1310.0f,  -7.7f, 0.0f  }, // db: alliance base trigger
-            {  684.0f,  681.0f, -12.9f, 3.14f }, // db: horde base trigger
-            { 1182.0f, 1183.0f, -45.3f, 0.0f  }, // db: stables guard
-            { 1200.0f, 1160.0f, -56.4f, 3.14f }, // db: stables flag ref
-            {  820.0f,  815.0f, -57.7f, 1.57f }, // db: blacksmith guard
-            {  840.0f,  858.0f, -56.5f, 4.71f }, // db: blacksmith flag ref
-            {  810.0f, 1185.0f,  11.9f, 0.0f  }, // db: farm flag
-            {  790.0f, 1165.0f,  11.9f, 3.14f }, // db: farm flag ref
-            { 1147.0f,  820.0f, -98.4f, 1.57f }, // db: lumber mill flag
-            { 1175.0f,  832.0f,-106.6f, 0.0f  }, // db: lumber mill guard
-            {  820.0f, 1178.0f,  36.4f, 3.14f }, // db: lumber mill area guard
-            {  990.0f, 1010.0f, -42.6f, 1.57f }, // db: gold mine flag
-            {  997.0f, 1003.0f, -31.4f, 0.0f  }, // db: gold mine guard
-            { 1290.0f, 1230.0f, -30.0f, 3.14f }, // est: alliance-stables road
-            { 1100.0f, 1100.0f, -42.0f, 0.0f  }, // est: northeast center
-            {  900.0f, 1100.0f, -25.0f, 1.57f }, // est: farm-gold mine road
-            {  720.0f,  950.0f, -20.0f, 0.0f  }, // est: horde-farm road
-            {  740.0f,  790.0f, -30.0f, 4.71f }, // est: horde-blacksmith road
-            {  900.0f,  930.0f, -42.0f, 3.14f }, // est: blacksmith-gold mine road
-            { 1060.0f,  910.0f, -65.0f, 0.0f  }, // est: lumber mill-gold mine road
+            { 1365.0f, 1280.0f,  -8.0f, 0.0f  }, // alliance base exterior
+            {  700.0f,  730.0f, -20.0f, 3.14f }, // horde base exterior
+            { 1182.0f, 1183.0f, -45.3f, 0.0f  }, // stables guard
+            { 1200.0f, 1160.0f, -56.4f, 3.14f }, // stables area
+            {  820.0f,  815.0f, -57.7f, 1.57f }, // blacksmith guard
+            {  840.0f,  858.0f, -56.5f, 4.71f }, // blacksmith area
+            {  860.0f, 1150.0f,  20.0f, 0.0f  }, // farm exterior road
+            {  900.0f, 1090.0f,  -5.0f, 3.14f }, // farm south road
+            { 1147.0f,  820.0f, -98.4f, 1.57f }, // lumber mill flag
+            { 1155.0f,  840.0f, -98.4f, 0.0f  }, // lumber mill approach
+            {  820.0f, 1178.0f,  36.4f, 3.14f }, // lumber mill platform
+            { 1010.0f,  985.0f, -42.0f, 1.57f }, // gold mine exterior
+            {  997.0f, 1003.0f, -31.4f, 0.0f  }, // gold mine guard
+            { 1280.0f, 1220.0f, -20.0f, 3.14f }, // alliance-stables road
+            { 1100.0f, 1100.0f, -42.0f, 0.0f  }, // northeast center
+            {  900.0f, 1100.0f, -25.0f, 1.57f }, // farm-gold mine road
+            {  750.0f,  965.0f, -22.0f, 0.0f  }, // horde-farm road
+            {  740.0f,  790.0f, -30.0f, 4.71f }, // horde-blacksmith road
+            {  900.0f,  930.0f, -42.0f, 3.14f }, // blacksmith-gold mine road
+            { 1050.0f,  905.0f, -50.0f, 0.0f  }, // lumber mill-gold mine road
         };
         for (BRSpawnPoint const& s : sp)
             t.spawnPoints.push_back(s);

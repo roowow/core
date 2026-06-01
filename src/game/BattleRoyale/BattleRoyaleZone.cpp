@@ -2,11 +2,22 @@
 
 #include "Player.h"
 #include "Map.h"
+#include "GameObject.h"
+#include "GameObjectDefines.h"
+#include "GridMap.h"
 #include "MirrorTimer.h"
 #include "Chat.h"
 #include "SharedDefines.h"
+#include "Log.h"
 
 #include <cmath>
+
+static uint32 const ZONE_MARKER_ENTRY           = 900101;
+static uint32 const ZONE_MARKER_UPDATE_MS       = 10000; // refresh every 10 s
+static float  const ZONE_MARKER_SPACING         = 80.0f; // yards between markers
+static uint32 const ZONE_MARKER_MIN             = 24;
+static uint32 const ZONE_MARKER_MAX             = 72;
+static float  const ZONE_MARKER_CHANGE_THRESHOLD = 30.0f; // force refresh if radius shifts this much
 
 static uint32 const ZONE_WARN_INTERVAL_MS = 5000;
 
@@ -62,6 +73,26 @@ void BattleRoyaleZone::Update(uint32 diff, std::map<ObjectGuid, BattleRoyalePlay
             StartNextPhase();
         else
             m_phaseTimer -= diff;
+    }
+
+    // Zone marker refresh: every ZONE_MARKER_UPDATE_MS or when radius changes significantly
+    if (map)
+    {
+        bool radiusChanged = std::fabs(m_currentRadius - m_lastMarkerRadius) >= ZONE_MARKER_CHANGE_THRESHOLD;
+        if (m_lastMarkerRadius < 0.0f || radiusChanged)
+        {
+            UpdateMarkers(map);
+            m_markerTimer = ZONE_MARKER_UPDATE_MS;
+        }
+        else if (m_markerTimer <= diff)
+        {
+            UpdateMarkers(map);
+            m_markerTimer = ZONE_MARKER_UPDATE_MS;
+        }
+        else
+        {
+            m_markerTimer -= diff;
+        }
     }
 
     // Damage tick
@@ -123,9 +154,66 @@ void BattleRoyaleZone::Update(uint32 diff, std::map<ObjectGuid, BattleRoyalePlay
     }
 }
 
-void BattleRoyaleZone::Cleanup(Map* /*map*/)
+void BattleRoyaleZone::Cleanup(Map* map)
 {
-    // TODO: remove fire-pillar GameObjects here
+    RemoveMarkers(map);
+}
+
+void BattleRoyaleZone::RemoveMarkers(Map* map)
+{
+    if (!map)
+    {
+        m_markerGuids.clear();
+        return;
+    }
+    for (ObjectGuid const& guid : m_markerGuids)
+    {
+        if (GameObject* go = map->GetGameObject(guid))
+        {
+            go->SetRespawnTime(0);
+            go->Delete();
+        }
+    }
+    m_markerGuids.clear();
+    m_lastMarkerRadius = -1.0f;
+}
+
+void BattleRoyaleZone::UpdateMarkers(Map* map)
+{
+    RemoveMarkers(map);
+    if (!map)
+        return;
+
+    // clamp(ceil(2π * r / spacing), MIN, MAX)
+    uint32 count = uint32(std::ceil(2.0f * float(M_PI_F) * m_currentRadius / ZONE_MARKER_SPACING));
+    if (count < ZONE_MARKER_MIN) count = ZONE_MARKER_MIN;
+    if (count > ZONE_MARKER_MAX) count = ZONE_MARKER_MAX;
+
+    float angleStep = 2.0f * float(M_PI_F) / float(count);
+    for (uint32 i = 0; i < count; ++i)
+    {
+        float angle = angleStep * float(i);
+        float x = m_centerX + m_currentRadius * std::cos(angle);
+        float y = m_centerY + m_currentRadius * std::sin(angle);
+        float z = map->GetHeight(x, y, MAX_HEIGHT);
+        if (z <= INVALID_HEIGHT)
+            continue;
+
+        GameObject* go = new GameObject;
+        if (!go->Create(map->GenerateLocalLowGuid(HIGHGUID_GAMEOBJECT), ZONE_MARKER_ENTRY, map,
+                        x, y, z + 0.1f, angle, 0.0f, 0.0f, 0.0f, 0.0f, GO_ANIMPROGRESS_DEFAULT, GO_STATE_READY))
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleZone] Failed to create zone marker (entry %u) at %.1f,%.1f,%.1f",
+                     ZONE_MARKER_ENTRY, x, y, z);
+            delete go;
+            continue;
+        }
+        go->SetRespawnTime(0);
+        go->AddToWorld();
+        m_markerGuids.push_back(go->GetObjectGuid());
+    }
+
+    m_lastMarkerRadius = m_currentRadius;
 }
 
 void BattleRoyaleZone::ApplyZoneDamage(Player* player)

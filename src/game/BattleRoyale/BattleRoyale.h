@@ -12,15 +12,17 @@
 
 class Player;
 class BattleGroundBR;
+class Map;
 
 enum class BattleRoyaleStatus : uint8
 {
     WAITING   = 0,
     COUNTDOWN = 1,
-    PREPARING = 2,
-    RUNNING   = 3,
-    FINISHED  = 4,
-    CANCELLED = 5,
+    DEPLOYING = 2,
+    PREPARING = 3,
+    RUNNING   = 4,
+    FINISHED  = 5,
+    CANCELLED = 6,
 };
 
 struct BRRankEntry
@@ -36,7 +38,7 @@ public:
     explicit BattleRoyale(BattleRoyaleTemplate const* tmpl, BattleGroundBR* host);
 
     // Called by BattleRoyaleMgr
-    void AddPlayer(Player* player);
+    void AddPlayer(Player* player, BRSpawnPoint const& landingPoint, uint32 deploymentPathId);
     void Update(uint32 diff);
     void Cancel();
 
@@ -58,6 +60,8 @@ public:
     std::map<ObjectGuid, BattleRoyalePlayer> const& GetPlayers() const { return m_players; }
 
 private:
+    void UpdateDeploying(uint32 diff, Map* map);
+    void CompleteDeployment(Player* player, BattleRoyalePlayer& brPlayer, bool teleportToLandingPoint);
     void StartPreparing();
     void StartRunning();
     void Finish();
@@ -73,6 +77,8 @@ private:
     std::map<ObjectGuid, BattleRoyalePlayer> m_players;
     std::vector<BRRankEntry>                 m_ranks;
 
+    uint32  m_deploymentTimer = 30000;
+    uint32  m_landedCount     = 0;
     uint32  m_prepareTimer  = 30000; // 30 s protection period
     uint32  m_aliveCount    = 0;
     uint32  m_totalCount    = 0;

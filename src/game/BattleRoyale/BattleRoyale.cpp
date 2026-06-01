@@ -7,20 +7,23 @@
 #include "BattleGround.h"
 #include "BattleGroundMgr.h"
 #include "Chat.h"
+#include "CustomTaxiMgr.h"
 #include "Log.h"
+#include "MotionMaster.h"
 
 #include <cstdio>
 
 static uint32 const BR_FINISH_DELAY_MS = 10000;
 
 BattleRoyale::BattleRoyale(BattleRoyaleTemplate const* tmpl, BattleGroundBR* host)
-    : m_status(BattleRoyaleStatus::PREPARING), m_tmpl(tmpl), m_host(host),
+    : m_status(BattleRoyaleStatus::DEPLOYING), m_tmpl(tmpl), m_host(host),
+      m_deploymentTimer(tmpl ? tmpl->deploymentTimeoutMs : 30000), m_landedCount(0),
       m_prepareTimer(30000), m_aliveCount(0), m_totalCount(0), m_finishTimer(0), m_runningTime(0)
 {
     m_zone.Init(tmpl);
 }
 
-void BattleRoyale::AddPlayer(Player* player)
+void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, uint32 deploymentPathId)
 {
     ObjectGuid guid = player->GetObjectGuid();
 
@@ -30,6 +33,8 @@ void BattleRoyale::AddPlayer(Player* player)
     brPlayer.outsideZone   = false;
     brPlayer.zoneWarnTimer = 0;
     brPlayer.placementRank = 0;
+    brPlayer.landingPoint  = landingPoint;
+    brPlayer.deploymentPathId = deploymentPathId;
     brPlayer.savedPosition = WorldLocation(player->GetMapId(),
                                            player->GetPositionX(),
                                            player->GetPositionY(),
@@ -46,12 +51,18 @@ void BattleRoyale::AddPlayer(Player* player)
     player->SetBattleGroundId(m_host->GetInstanceID(), BATTLEGROUND_BR);
     player->SetBGTeam(TEAM_NONE);
 
-    ChatHandler(player).PSendSysMessage("[Battle Royale] 欢迎！30 秒后对局开始，共 %u 名参与者。", m_totalCount);
+    ChatHandler(player).PSendSysMessage("[Battle Royale] 欢迎！正在准备空降，共 %u 名参与者。", m_totalCount);
 }
 
 void BattleRoyale::Update(uint32 diff)
 {
     Map* map = m_host ? m_host->GetBgMap() : nullptr;
+
+    if (m_status == BattleRoyaleStatus::DEPLOYING)
+    {
+        UpdateDeploying(diff, map);
+        return;
+    }
 
     if (m_status == BattleRoyaleStatus::PREPARING)
     {
@@ -133,6 +144,112 @@ bool BattleRoyale::IsAlive(ObjectGuid guid) const
 }
 
 // --- private ---
+
+void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
+{
+    if (map)
+    {
+        for (auto it = m_players.begin(); it != m_players.end(); ++it)
+        {
+            BattleRoyalePlayer& brPlayer = it->second;
+            if (brPlayer.landed)
+                continue;
+
+            Player* player = map->GetPlayer(it->first);
+            if (!player)
+                continue;
+
+            if (brPlayer.deploymentStarted)
+            {
+                if (!player->IsTaxiFlying())
+                    CompleteDeployment(player, brPlayer, false);
+                continue;
+            }
+
+            if (!brPlayer.deploymentPathId)
+            {
+                CompleteDeployment(player, brPlayer, true);
+                continue;
+            }
+
+            std::string error;
+            if (sCustomTaxiMgr.Play(player, brPlayer.deploymentPathId, error))
+            {
+                brPlayer.deploymentStarted = true;
+                ChatHandler(player).PSendSysMessage("[Battle Royale] 空降开始。");
+                sLog.Out(LOG_BASIC, LOG_LVL_DETAIL,
+                         "[BattleRoyale] Deployment started player %s path %u instance %u.",
+                         player->GetName().c_str(), brPlayer.deploymentPathId,
+                         m_host ? m_host->GetInstanceID() : 0u);
+            }
+            else
+            {
+                sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                         "[BattleRoyale] Deployment path %u failed for player %s: %s. Falling back to landing point.",
+                         brPlayer.deploymentPathId, player->GetName().c_str(), error.c_str());
+                CompleteDeployment(player, brPlayer, true);
+            }
+        }
+    }
+
+    if (m_landedCount >= m_totalCount)
+    {
+        StartPreparing();
+        return;
+    }
+
+    if (m_deploymentTimer > diff)
+    {
+        m_deploymentTimer -= diff;
+        return;
+    }
+
+    sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+             "[BattleRoyale] Deployment timeout in instance %u. Falling back remaining players to landing points.",
+             m_host ? m_host->GetInstanceID() : 0u);
+
+    for (auto it = m_players.begin(); it != m_players.end(); ++it)
+    {
+        if (it->second.landed)
+            continue;
+        Player* player = map ? map->GetPlayer(it->first) : nullptr;
+        CompleteDeployment(player, it->second, true);
+    }
+
+    StartPreparing();
+}
+
+void BattleRoyale::CompleteDeployment(Player* player, BattleRoyalePlayer& brPlayer, bool teleportToLandingPoint)
+{
+    if (brPlayer.landed)
+        return;
+
+    if (player && teleportToLandingPoint)
+    {
+        if (player->IsTaxiFlying())
+        {
+            player->GetMotionMaster()->MovementExpired();
+            player->GetTaxi().ClearTaxiDestinations();
+        }
+
+        BRSpawnPoint const& landing = brPlayer.landingPoint;
+        player->TeleportTo(m_tmpl->mapId, landing.x, landing.y, landing.z, landing.o);
+    }
+
+    brPlayer.deploymentStarted = false;
+    brPlayer.landed = true;
+    ++m_landedCount;
+}
+
+void BattleRoyale::StartPreparing()
+{
+    if (m_status != BattleRoyaleStatus::DEPLOYING)
+        return;
+
+    m_status = BattleRoyaleStatus::PREPARING;
+    m_prepareTimer = 30000;
+    BroadcastToAll("[Battle Royale] 空降完成！30 秒后对局开始。");
+}
 
 void BattleRoyale::StartRunning()
 {
@@ -257,6 +374,12 @@ void BattleRoyale::Cancel()
 
 void BattleRoyale::ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlayer)
 {
+    if (player->IsTaxiFlying())
+    {
+        player->GetMotionMaster()->MovementExpired();
+        player->GetTaxi().ClearTaxiDestinations();
+    }
+
     player->SetFFAPvP(brPlayer.savedFFAPvP);
     player->SetBGTeam(TEAM_NONE);
     player->SetBattleGroundId(0, BATTLEGROUND_TYPE_NONE);

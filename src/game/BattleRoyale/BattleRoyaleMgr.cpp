@@ -8,6 +8,7 @@
 #include "MapManager.h"
 #include "BattleGroundMgr.h"
 #include "Chat.h"
+#include "Database/DatabaseEnv.h"
 #include "Log.h"
 #include "World.h"
 #include "WorldPacket.h"
@@ -212,6 +213,11 @@ void BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers)
 BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& players)
 {
     BattleRoyaleTemplate const& tmpl = GetABTemplate();
+    if (tmpl.spawnPoints.empty())
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleMgr] Template %u has no spawn points.", tmpl.id);
+        return nullptr;
+    }
 
     auto* host = new BattleGroundBR();
     host->SetMaxPlayers(tmpl.maxPlayers);
@@ -235,18 +241,43 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
     m_instances[instanceId] = br;
 
     std::vector<BRSpawnPoint> const& spawns = tmpl.spawnPoints;
+    std::map<uint32, uint32> deploymentPaths;
+    std::unique_ptr<QueryResult> pathResult = WorldDatabase.PQuery(
+        "SELECT `spawn_index`, `custom_taxi_path_id` FROM `battle_royale_deployment_path` "
+        "WHERE `template_id` = %u", tmpl.id);
+    if (pathResult)
+    {
+        do
+        {
+            Field* fields = pathResult->Fetch();
+            deploymentPaths[fields[0].GetUInt32()] = fields[1].GetUInt32();
+        }
+        while (pathResult->NextRow());
+    }
+
+    std::vector<uint32> spawnIndexes;
+    spawnIndexes.reserve(spawns.size());
+    for (uint32 i = 0; i < uint32(spawns.size()); ++i)
+        spawnIndexes.push_back(i);
+    for (uint32 i = uint32(spawnIndexes.size()); i > 1; --i)
+        std::swap(spawnIndexes[i - 1], spawnIndexes[urand(0, i - 1)]);
+
     for (uint32 i = 0; i < uint32(players.size()); ++i)
     {
         Player* player = players[i];
-        BRSpawnPoint const& sp = spawns[i % spawns.size()];
+        uint32 spawnIndex = spawnIndexes[i % spawnIndexes.size()];
+        BRSpawnPoint const& sp = spawns[spawnIndex];
+        uint32 deploymentPathId = deploymentPaths[spawnIndex];
 
         // Register player BEFORE TeleportTo so BattleGroundMap::CanEnter()
         // finds the correct instanceId when the transfer is processed.
         player->SetBattleGroundEntryPoint();
-        br->AddPlayer(player);
+        br->AddPlayer(player, sp, deploymentPathId);
         m_playerInstMap[player->GetObjectGuid()] = instanceId;
 
-        player->TeleportTo(tmpl.mapId, sp.x, sp.y, sp.z, sp.o);
+        BRSpawnPoint const& deploymentStart = tmpl.deploymentStart;
+        player->TeleportTo(tmpl.mapId, deploymentStart.x, deploymentStart.y,
+                           deploymentStart.z, deploymentStart.o);
     }
 
     return br;
