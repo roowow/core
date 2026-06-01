@@ -64,37 +64,14 @@ bool ChatHandler::HandleBRInfoCommand(char* /*args*/)
 
     BattleRoyaleZone const& zone = br->GetZone();
 
-    SendSysMessage("========== BR 对局信息 ==========");
-    PSendSysMessage("实例 ID: %-6u  状态: %s  运行: %02u:%02u",
+    PSendSysMessage("[BR] 实例 %-6u  状态: %s  运行: %02u:%02u",
                     instanceId, statusStr, mins, secs);
-    PSendSysMessage("存活: %u/%u  待加入机器人: %u",
-                    br->GetAliveCount(), br->GetTotalCount(), br->GetPendingBotCount());
-    PSendSysMessage("毒圈: 阶段 %u  半径: %.1f 码  伤害: %.1f%%/秒",
-                    zone.GetPhase(), zone.GetCurrentRadius(), zone.GetCurrentDamagePercent());
-    PSendSysMessage("圆心: (%.0f, %.0f)  队列等待: %u 人",
-                    zone.GetCenterX(), zone.GetCenterY(), sBattleRoyaleMgr.GetQueueSize());
-
-    SendSysMessage("----- 参与者 -----");
-    auto const& players = br->GetPlayers();
-    for (auto it = players.begin(); it != players.end(); ++it)
-    {
-        BattleRoyalePlayer const& p = it->second;
-        char const* botTag  = p.bot        ? "[机器人]" : "";
-        char const* zoneTag = p.outsideZone ? " 圈外"   : "";
-
-        if (p.alive)
-        {
-            Player* target = player->GetMap() ? player->GetMap()->GetPlayer(it->first) : nullptr;
-            char const* name = target ? target->GetName() : "(离线)";
-            PSendSysMessage("  [存活] %s%s%s", name, botTag, zoneTag);
-        }
-        else
-        {
-            Player* target = sObjectMgr.GetPlayer(it->first);
-            char const* name = target ? target->GetName() : "(已离开)";
-            PSendSysMessage("  [第%2u] %s%s", p.placementRank, name, botTag);
-        }
-    }
+    PSendSysMessage("[BR] 存活: %u/%u  待加入机器人: %u  队列: %u",
+                    br->GetAliveCount(), br->GetTotalCount(),
+                    br->GetPendingBotCount(), sBattleRoyaleMgr.GetQueueSize());
+    PSendSysMessage("[BR] 毒圈: 阶段 %u  半径: %.1f 码  伤害: %.1f%%/秒  圆心: (%.0f, %.0f)",
+                    zone.GetPhase(), zone.GetCurrentRadius(), zone.GetCurrentDamagePercent(),
+                    zone.GetCenterX(), zone.GetCenterY());
     return true;
 }
 

@@ -3538,7 +3538,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             float const safeRadius = zone.GetCurrentRadius() * 0.75f;
             float const targetX = cx - (dx / dist) * safeRadius;
             float const targetY = cy - (dy / dist) * safeRadius;
-            float const targetZ = me->GetMap()->GetHeight(targetX, targetY, me->GetPositionZ(), false);
+            float const targetZ = me->GetMap()->GetHeight(targetX, targetY, MAX_HEIGHT, false, MAX_HEIGHT);
             if (targetZ > INVALID_HEIGHT)
                 me->GetMotionMaster()->MovePoint(0, targetX, targetY, targetZ);
         }
@@ -3576,7 +3576,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             float const angle = float(urand(0, 628)) * 0.01f;
             float const px = cx + std::cos(angle) * (float(urand(20, 100)) * 0.01f * r);
             float const py = cy + std::sin(angle) * (float(urand(20, 100)) * 0.01f * r);
-            float const pz = me->GetMap()->GetHeight(px, py, me->GetPositionZ(), false);
+            float const pz = me->GetMap()->GetHeight(px, py, MAX_HEIGHT, false, MAX_HEIGHT);
             if (pz > INVALID_HEIGHT)
                 me->GetMotionMaster()->MovePoint(0, px, py, pz);
             return;
@@ -3595,20 +3595,8 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         return;
     }
 
-    // Patrol: pick a random point inside the zone when idle
-    if (!me->IsMoving())
-    {
-        float const cx = zone.GetCenterX();
-        float const cy = zone.GetCenterY();
-        float const r  = zone.GetCurrentRadius() * 0.65f;
-        float const angle = float(urand(0, 628)) * 0.01f;
-        float const d     = float(urand(0, 100)) * 0.01f * r;
-        float const px = cx + std::cos(angle) * d;
-        float const py = cy + std::sin(angle) * d;
-        float const pz = me->GetMap()->GetHeight(px, py, me->GetPositionZ(), false);
-        if (pz > INVALID_HEIGHT)
-            me->GetMotionMaster()->MovePoint(0, px, py, pz);
-    }
+    // Patrol using recorded AB waypoints — guaranteed valid terrain Z values.
+    UpdateWaypointMovement();
 }
 
 bool BattleBotAI::TryUseBattleGroundFlag(uint32 entry)

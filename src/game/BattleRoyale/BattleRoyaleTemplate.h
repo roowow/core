@@ -46,9 +46,8 @@ inline BattleRoyaleTemplate const& GetABTemplate()
         t.enabled    = true;
         t.deploymentStart = { 990.0f, 1008.0f, 250.0f, 0.0f };
 
-        // 20 verified spawn points across AB (maxPlayers = 30; bots 21-30 reuse these via modulo).
-        // Z source: db = derived from database (guard/flag/trigger), est = estimated from nearby terrain.
-        // All 20 points verified in-game by GM. Add 10 more to eliminate shared spawn points.
+        // 26 verified spawn points across AB (maxPlayers = 30; bots 27-30 reuse via modulo).
+        // Z source: db = derived from database, est = GM-verified in-game.
         BRSpawnPoint const sp[] = {
             { 1365.0f, 1280.0f,  -8.0f, 0.0f  }, // alliance base exterior
             {  700.0f,  730.0f, -20.0f, 3.14f }, // horde base exterior
@@ -70,13 +69,19 @@ inline BattleRoyaleTemplate const& GetABTemplate()
             {  740.0f,  790.0f, -30.0f, 4.71f }, // horde-blacksmith road
             {  900.0f,  930.0f, -42.0f, 3.14f }, // blacksmith-gold mine road
             { 1050.0f,  905.0f, -50.0f, 0.0f  }, // lumber mill-gold mine road
+            { 1050.0f, 1200.0f, -30.0f, 0.0f  }, // alliance-farm road north
+            {  800.0f,  700.0f, -35.0f, 3.14f }, // horde-blacksmith south
+            { 1300.0f, 1350.0f,  -5.0f, 0.0f  }, // alliance base interior
+            {  920.0f, 1250.0f,  10.0f, 3.14f }, // farm north road
+            {  720.0f,  900.0f, -25.0f, 1.57f }, // horde-farm west
+            {  990.0f,  870.0f, -48.0f, 0.0f  }, // gold mine-lumber mill south
         };
         for (BRSpawnPoint const& s : sp)
             t.spawnPoints.push_back(s);
 
         BRZonePhase const phases[] = {
-            { 600.0f, 400.0f, 6 * 60 * 1000,  2.0f  }, // phase 1: 6 min,  2%/s (~50s to die)
-            { 400.0f, 230.0f, 4 * 60 * 1000,  4.0f  }, // phase 2: 4 min,  4%/s (~25s to die)
+            { 520.0f, 380.0f, 6 * 60 * 1000,  2.0f  }, // phase 1: 6 min,  2%/s (~50s to die)
+            { 380.0f, 230.0f, 4 * 60 * 1000,  4.0f  }, // phase 2: 4 min,  4%/s (~25s to die)
             { 230.0f, 120.0f, 3 * 60 * 1000,  8.0f  }, // phase 3: 3 min,  8%/s (~12s to die)
             { 120.0f,  50.0f, 2 * 60 * 1000, 15.0f  }, // phase 4: 2 min, 15%/s (~7s to die)
             {  50.0f,  50.0f, 0,             25.0f  }, // final ring,     25%/s (~4s to die)
