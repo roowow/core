@@ -195,7 +195,7 @@ void BattleRoyaleZone::UpdateMarkers(Map* map)
         float angle = angleStep * float(i);
         float x = m_centerX + m_currentRadius * std::cos(angle);
         float y = m_centerY + m_currentRadius * std::sin(angle);
-        float z = map->GetHeight(x, y, MAX_HEIGHT);
+        float z = map->GetHeight(x, y, MAX_HEIGHT, false); // terrain only, vmap requires active grid
         if (z <= INVALID_HEIGHT)
             continue;
 
