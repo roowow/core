@@ -158,6 +158,7 @@ void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
     if (br->GetStatus() == BattleRoyaleStatus::FINISHED ||
         br->GetStatus() == BattleRoyaleStatus::CANCELLED)
     {
+        br->DecrementPendingBotCount();
         if (PlayerBotEntry* e = bot->GetSession() ? bot->GetSession()->GetBot() : nullptr)
             e->requestRemoval = true;
         return;
@@ -168,6 +169,7 @@ void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
     if (idxIt == m_botSpawnIndexes.end() || idxIt->second.empty())
     {
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleMgr] OnBotReady: no spawn index left for instance %u.", instanceId);
+        br->DecrementPendingBotCount();
         if (PlayerBotEntry* e = bot->GetSession() ? bot->GetSession()->GetBot() : nullptr)
             e->requestRemoval = true;
         return;

@@ -40,6 +40,7 @@ public:
     // Called by BattleRoyaleMgr
     void AddPlayer(Player* player, BRSpawnPoint const& landingPoint, uint32 deploymentPathId, bool isBot = false);
     void SetPendingBotCount(uint32 count) { m_pendingBotCount = count; }
+    void DecrementPendingBotCount() { if (m_pendingBotCount > 0) --m_pendingBotCount; }
     void Update(uint32 diff);
     void Cancel();
 

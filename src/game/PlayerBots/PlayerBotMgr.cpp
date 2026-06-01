@@ -1096,7 +1096,8 @@ void PlayerBotMgr::AddBattleRoyaleBot(uint32 brInstanceId)
     };
 
     uint8 botClass = SelectRandomContainerElement(availableClasses);
-    Team botTeam = urand(0, 1) ? ALLIANCE : HORDE;
+    // Shaman is Horde-only in vanilla; force team to avoid a race-lookup failure.
+    Team botTeam = (botClass == CLASS_SHAMAN) ? HORDE : (urand(0, 1) ? ALLIANCE : HORDE);
     uint8 botRace = SelectRandomRaceForClass(botClass, botTeam);
     if (!botRace)
         return;

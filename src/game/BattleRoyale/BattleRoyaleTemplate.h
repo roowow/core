@@ -84,12 +84,12 @@ inline BattleRoyaleTemplate const& GetABTemplate()
             t.spawnPoints.push_back(s);
 
         BRZonePhase const phases[] = {
-            { 520.0f, 380.0f, 6 * 60 * 1000,  2.0f  }, // phase 1: 6 min,  2%/s (~50s to die)
-            { 380.0f, 230.0f, 4 * 60 * 1000,  4.0f  }, // phase 2: 4 min,  4%/s (~25s to die)
-            { 230.0f, 120.0f, 3 * 60 * 1000,  8.0f  }, // phase 3: 3 min,  8%/s (~12s to die)
-            { 120.0f,  50.0f, 2 * 60 * 1000, 15.0f  }, // phase 4: 2 min, 15%/s (~7s to die)
-            {  50.0f,  50.0f, 0,             25.0f  }, // final ring,     25%/s (~4s to die)
-        }; // total: 15 min
+            { 520.0f, 380.0f, 3 * 60 * 1000,  2.0f  }, // phase 1:  0:00,  2%/s (~50s to die)
+            { 380.0f, 230.0f, 3 * 60 * 1000,  4.0f  }, // phase 2:  3:00,  4%/s (~25s to die)
+            { 230.0f, 120.0f, 3 * 60 * 1000,  8.0f  }, // phase 3:  6:00,  8%/s (~12s to die)
+            { 120.0f,  50.0f, 3 * 60 * 1000, 15.0f  }, // phase 4:  9:00, 15%/s (~7s to die)
+            {  50.0f,  50.0f, 0,             25.0f  }, // final ring: 12:00, 25%/s (~4s to die)
+        }; // total: 12 min
         for (BRZonePhase const& ph : phases)
             t.phases.push_back(ph);
 
