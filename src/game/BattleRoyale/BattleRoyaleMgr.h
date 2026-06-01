@@ -27,7 +27,7 @@ public:
     uint32 GetQueueSize() const { return uint32(m_queue.size()); }
 
     // GM commands
-    void ForceStartNow();
+    void ForceStartNow();                  // bypasses MIN_PLAYERS for single-GM testing
     BattleRoyale* GetInstanceForPlayer(ObjectGuid guid);
 
     // Called by BattleRoyale when it finishes
@@ -35,7 +35,7 @@ public:
 
 private:
     bool CanEnqueue(Player* player, std::string& outError) const;
-    void TryCreateGame();
+    void TryCreateGame(bool ignoreMinPlayers = false);
     BattleRoyale* CreateInstance(std::vector<Player*> const& players);
 
     std::deque<ObjectGuid>          m_queue;

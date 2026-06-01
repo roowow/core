@@ -29,10 +29,11 @@ void BattleRoyaleMgr::Update(uint32 diff)
         if (br->GetStatus() == BattleRoyaleStatus::CANCELLED)
         {
             uint32 instanceId = it->first;
+            BattleGroundBR* host = br->GetHost();
 
             // Null the owner pointer BEFORE deleting to prevent use-after-free
-            // (BattleGroundBR may still receive Update calls from the map)
-            if (BattleGroundBR* host = br->GetHost())
+            // (BattleGroundBR may still receive Update calls from the map thread)
+            if (host)
                 host->SetOwner(nullptr);
 
             // Remove player -> instance mappings
@@ -45,6 +46,9 @@ void BattleRoyaleMgr::Update(uint32 diff)
             }
 
             delete br;
+            // ~BattleGround() calls RemoveBattleGround() and m_map->SetUnload()+SetBG(nullptr),
+            // which unregisters the host and schedules the BG map for unloading.
+            delete host;
             it = m_instances.erase(it);
         }
         else
@@ -119,7 +123,7 @@ void BattleRoyaleMgr::ForceStartNow()
 {
     m_countdownActive = false;
     m_countdownTimer  = 0;
-    TryCreateGame();
+    TryCreateGame(true); // ignore MIN_PLAYERS for GM testing
 }
 
 BattleRoyale* BattleRoyaleMgr::GetInstanceForPlayer(ObjectGuid guid)
@@ -156,7 +160,7 @@ bool BattleRoyaleMgr::CanEnqueue(Player* player, std::string& outError) const
     return true;
 }
 
-void BattleRoyaleMgr::TryCreateGame()
+void BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers)
 {
     if (m_queue.empty())
         return;
@@ -184,13 +188,16 @@ void BattleRoyaleMgr::TryCreateGame()
 
     m_queue = remaining;
 
-    if (uint32(players.size()) < MIN_PLAYERS)
+    if (!ignoreMinPlayers && uint32(players.size()) < MIN_PLAYERS)
     {
         // Not enough online players – put them back and wait
         for (Player* p : players)
             m_queue.push_front(p->GetObjectGuid());
         return;
     }
+
+    if (players.empty())
+        return;
 
     BattleRoyale* br = CreateInstance(players);
     if (!br)
@@ -233,11 +240,13 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
         Player* player = players[i];
         BRSpawnPoint const& sp = spawns[i % spawns.size()];
 
+        // Register player BEFORE TeleportTo so BattleGroundMap::CanEnter()
+        // finds the correct instanceId when the transfer is processed.
         player->SetBattleGroundEntryPoint();
-        player->TeleportTo(tmpl.mapId, sp.x, sp.y, sp.z, sp.o);
-
         br->AddPlayer(player);
         m_playerInstMap[player->GetObjectGuid()] = instanceId;
+
+        player->TeleportTo(tmpl.mapId, sp.x, sp.y, sp.z, sp.o);
     }
 
     return br;
