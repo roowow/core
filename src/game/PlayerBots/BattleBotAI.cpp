@@ -3483,6 +3483,18 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     if (me->IsTaxiFlying() || me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER))
         return;
 
+    // Bots lack client-side physics: if teleported to a spawn point above the terrain,
+    // they float. Detect this and issue a MovePoint to the ground below.
+    if (!me->IsMoving())
+    {
+        float groundZ = me->GetMap()->GetHeight(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), false);
+        if (groundZ > INVALID_HEIGHT && me->GetPositionZ() > groundZ + 1.5f)
+        {
+            me->GetMotionMaster()->MovePoint(0, me->GetPositionX(), me->GetPositionY(), groundZ);
+            return;
+        }
+    }
+
     BattleGround* bg = me->GetBattleGround();
     if (!bg || bg->GetTypeID() != BATTLEGROUND_BR)
         return;
@@ -3523,9 +3535,40 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     if (DrinkAndEat())
         return;
 
-    // Already in combat: UpdateInCombatAI handles it
+    // Already in combat — but first check if the target is reachable.
+    // Targets on rooftops, steep slopes, or floating can cause the bot to freeze
+    // because UpdateInCombatAI keeps chasing forever without reaching them.
     if (me->GetVictim())
-        return;
+    {
+        bool stuck = false;
+
+        // Primary check: pathfinder already says the target cannot be reached
+        if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE &&
+            !me->GetMotionMaster()->GetCurrent()->IsReachable())
+            stuck = true;
+
+        // Secondary check: target is significantly above or below us (roof / pit)
+        if (!stuck && me->GetVictim() && me->GetDistanceZ(me->GetVictim()) > 6.0f)
+            stuck = true;
+
+        if (stuck)
+        {
+            me->AttackStop();
+            me->ClearTarget();
+            // Force a patrol step so the bot doesn't immediately re-pick the same target
+            float const cx = zone.GetCenterX();
+            float const cy = zone.GetCenterY();
+            float const r  = zone.GetCurrentRadius() * 0.5f;
+            float const angle = float(urand(0, 628)) * 0.01f;
+            float const px = cx + std::cos(angle) * (float(urand(20, 100)) * 0.01f * r);
+            float const py = cy + std::sin(angle) * (float(urand(20, 100)) * 0.01f * r);
+            float const pz = me->GetMap()->GetHeight(px, py, me->GetPositionZ(), false);
+            if (pz > INVALID_HEIGHT)
+                me->GetMotionMaster()->MovePoint(0, px, py, pz);
+            return;
+        }
+        return; // target reachable, let UpdateInCombatAI handle it
+    }
 
     // Select a target
     if (Unit* pTarget = SelectAttackTarget())

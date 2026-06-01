@@ -43,15 +43,14 @@ inline BattleRoyaleTemplate const& GetABTemplate()
         t.mapId      = 529; // MAP_ARATHI_BASIN
         t.centerX    = 990.0f;  // Gold Mine / geometric center of all 5 nodes
         t.centerY    = 1008.0f;
-        t.maxPlayers = 20;
+        t.maxPlayers = 30;
         t.enabled    = true;
         t.deploymentStart     = { 990.0f, 1008.0f, 250.0f, 0.0f };
         t.deploymentTimeoutMs = 45000;
 
-        // 20 spawn points across AB.
+        // 20 verified spawn points across AB (maxPlayers = 30; bots 21-30 reuse these via modulo).
         // Z source: db = derived from database (guard/flag/trigger), est = estimated from nearby terrain.
-        // All must be verified in-game with .go xyz before use in production.
-        // All 20 spawn points verified in-game by GM
+        // All 20 points verified in-game by GM. Add 10 more to eliminate shared spawn points.
         BRSpawnPoint const sp[] = {
             { 1365.0f, 1280.0f,  -8.0f, 0.0f  }, // alliance base exterior
             {  700.0f,  730.0f, -20.0f, 3.14f }, // horde base exterior
@@ -78,12 +77,12 @@ inline BattleRoyaleTemplate const& GetABTemplate()
             t.spawnPoints.push_back(s);
 
         BRZonePhase const phases[] = {
-            { 600.0f, 400.0f, 2 * 60 * 1000,  2.0f  }, // phase 1: 2 min,   2%/s (~50s to die)
-            { 400.0f, 230.0f, 90 * 1000,       4.0f  }, // phase 2: 1.5 min, 4%/s (~25s to die)
-            { 230.0f, 120.0f, 90 * 1000,       8.0f  }, // phase 3: 1.5 min, 8%/s (~12s to die)
-            { 120.0f,  50.0f, 1 * 60 * 1000,  15.0f  }, // phase 4: 1 min,  15%/s (~7s to die)
-            {  50.0f,  50.0f, 0,              25.0f  }, // final ring,       25%/s (~4s to die)
-        };
+            { 600.0f, 400.0f, 6 * 60 * 1000,  2.0f  }, // phase 1: 6 min,  2%/s (~50s to die)
+            { 400.0f, 230.0f, 4 * 60 * 1000,  4.0f  }, // phase 2: 4 min,  4%/s (~25s to die)
+            { 230.0f, 120.0f, 3 * 60 * 1000,  8.0f  }, // phase 3: 3 min,  8%/s (~12s to die)
+            { 120.0f,  50.0f, 2 * 60 * 1000, 15.0f  }, // phase 4: 2 min, 15%/s (~7s to die)
+            {  50.0f,  50.0f, 0,             25.0f  }, // final ring,     25%/s (~4s to die)
+        }; // total: 15 min
         for (BRZonePhase const& ph : phases)
             t.phases.push_back(ph);
 

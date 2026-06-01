@@ -1082,17 +1082,14 @@ void PlayerBotMgr::AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam,
 
 void PlayerBotMgr::AddBattleRoyaleBot(uint32 brInstanceId)
 {
-    // Same class pool as regular battle bots, no faction restriction for FFA
+    // BR: pure-DPS classes only. Priest/Druid/Paladin/Shaman are excluded because
+    // their random spec can be a pure healer, leaving bots that never attack.
     std::vector<uint32> availableClasses = {
         CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR,
         CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,
         CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,
-        CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,
-        CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
-        CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,
-        CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK,
-        CLASS_PALADIN, CLASS_PALADIN,
-        CLASS_SHAMAN,  CLASS_SHAMAN,
+        CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
+        CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK,
     };
 
     uint8 botClass = SelectRandomContainerElement(availableClasses);

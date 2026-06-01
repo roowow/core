@@ -265,7 +265,20 @@ void BattleRoyale::CompleteDeployment(Player* player, BattleRoyalePlayer& brPlay
         }
 
         BRSpawnPoint const& landing = brPlayer.landingPoint;
-        player->TeleportTo(m_tmpl->mapId, landing.x, landing.y, landing.z, landing.o);
+        float landZ = landing.z;
+        // Bots have no client-side physics. Snap their Z to actual terrain so they
+        // don't float at spawn points that are slightly above the ground mesh.
+        if (brPlayer.bot)
+        {
+            Map* bgMap = m_host ? m_host->GetBgMap() : nullptr;
+            if (bgMap)
+            {
+                float groundZ = bgMap->GetHeight(landing.x, landing.y, landing.z + 5.0f, false, 20.0f);
+                if (groundZ > INVALID_HEIGHT)
+                    landZ = groundZ;
+            }
+        }
+        player->TeleportTo(m_tmpl->mapId, landing.x, landing.y, landZ, landing.o);
     }
 
     brPlayer.deploymentStarted = false;
