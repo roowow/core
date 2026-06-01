@@ -8,20 +8,19 @@
 struct BattleRoyalePlayer
 {
     ObjectGuid    guid;
-    bool          alive         = true;
-    bool          outsideZone   = false;
-    uint32        zoneWarnTimer = 0;   // countdown to next direction warning (ms)
-    uint32        placementRank = 0;   // 0 = still in game, 1 = winner, N = Nth eliminated
-    BRSpawnPoint  landingPoint  = { 0.0f, 0.0f, 0.0f, 0.0f };
-    uint32        deploymentPathId = 0;
+    bool          alive             = true;
+    bool          bot               = false;  // true = AI bot, does not receive rewards
+    bool          outsideZone       = false;
+    uint32        zoneWarnTimer     = 0;
+    uint32        placementRank     = 0;      // 0 = still in game, 1 = winner, N = Nth eliminated
+    BRSpawnPoint  landingPoint      = { 0.0f, 0.0f, 0.0f, 0.0f };
+    uint32        deploymentPathId  = 0;
     bool          deploymentStarted = false;
-    bool          landed = false;
+    bool          landed            = false;
 
     // Saved on enter, restored on leave
     WorldLocation savedPosition;
-    bool          savedFFAPvP   = false;
-
-    bool IsBot() const { return guid.IsEmpty(); } // bots will have their guid set normally; this is a placeholder
+    bool          savedFFAPvP = false;
 };
 
 #endif // MANGOS_BATTLEROYALEPLAYER_H
