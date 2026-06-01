@@ -18,7 +18,7 @@ static uint32 const BR_FINISH_DELAY_MS = 10000;
 
 BattleRoyale::BattleRoyale(BattleRoyaleTemplate const* tmpl, BattleGroundBR* host)
     : m_status(BattleRoyaleStatus::DEPLOYING), m_tmpl(tmpl), m_host(host),
-      m_landedCount(0),
+      m_landedCount(0), m_deploymentTimer(30000),
       m_prepareTimer(30000), m_aliveCount(0), m_totalCount(0), m_finishTimer(0), m_runningTime(0)
 {
     m_zone.Init(tmpl);
@@ -236,7 +236,15 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
     }
 
     if (m_landedCount >= m_totalCount && m_pendingBotCount == 0)
+    {
         StartPreparing();
+        return;
+    }
+
+    if (m_deploymentTimer <= diff)
+        StartPreparing();
+    else
+        m_deploymentTimer -= diff;
 }
 
 void BattleRoyale::CompleteDeployment(Player* player, BattleRoyalePlayer& brPlayer, bool teleportToLandingPoint)
@@ -261,12 +269,28 @@ void BattleRoyale::CompleteDeployment(Player* player, BattleRoyalePlayer& brPlay
             Map* bgMap = m_host ? m_host->GetBgMap() : nullptr;
             if (bgMap)
             {
-                float groundZ = bgMap->GetHeight(landing.x, landing.y, landing.z + 5.0f, false, 20.0f);
+                float groundZ = bgMap->GetHeight(landing.x, landing.y, MAX_HEIGHT, false, MAX_HEIGHT);
                 if (groundZ > INVALID_HEIGHT)
                     landZ = groundZ;
             }
         }
         player->TeleportTo(m_tmpl->mapId, landing.x, landing.y, landZ, landing.o);
+    }
+    else if (player && brPlayer.bot)
+    {
+        // Bot landed via taxi normally (teleportToLandingPoint = false).
+        // The taxi endpoint may be slightly above the server terrain mesh — real players
+        // fall via client physics, bots don't. Snap to actual ground here.
+        Map* bgMap = m_host ? m_host->GetBgMap() : nullptr;
+        if (bgMap)
+        {
+            float gx = player->GetPositionX();
+            float gy = player->GetPositionY();
+            float gz = player->GetPositionZ();
+            float groundZ = bgMap->GetHeight(gx, gy, MAX_HEIGHT, false, MAX_HEIGHT);
+            if (groundZ > INVALID_HEIGHT && gz > groundZ + 0.5f)
+                player->TeleportTo(m_tmpl->mapId, gx, gy, groundZ, player->GetOrientation());
+        }
     }
 
     brPlayer.deploymentStarted = false;

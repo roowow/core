@@ -84,6 +84,7 @@ private:
 
     uint32  m_pendingBotCount  = 0;   // bots created but not yet added via AddPlayer
     uint32  m_landedCount      = 0;
+    uint32  m_deploymentTimer  = 30000;
     uint32  m_prepareTimer     = 30000;
     uint32  m_aliveCount       = 0;
     uint32  m_totalCount       = 0;
