@@ -1924,6 +1924,8 @@ void CombatBotBaseAI::AddAllSpellReagents()
 bool CombatBotBaseAI::AreOthersOnSameTarget(ObjectGuid guid, bool checkMelee, bool checkSpells) const
 {
     Group* pGroup = me->GetGroup();
+    if (!pGroup)
+        return false;
     for (GroupReference* itr = pGroup->GetFirstMember(); itr != nullptr; itr = itr->next())
     {
         if (Player* pMember = itr->getSource())

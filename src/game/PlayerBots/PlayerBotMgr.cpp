@@ -1082,10 +1082,10 @@ void PlayerBotMgr::AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam,
 
 void PlayerBotMgr::AddBattleRoyaleBot(uint32 brInstanceId)
 {
-    // BR: pure-DPS classes only. Priest/Druid/Paladin/Shaman are excluded because
-    // their random spec can be a pure healer, leaving bots that never attack.
+    // BR: ranged/melee DPS only. Excluded:
+    //   Priest/Druid/Paladin/Shaman — can roll pure healer spec
+    //   Warrior — can roll Protection (tank) spec, plays passively in BR
     std::vector<uint32> availableClasses = {
-        CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR,
         CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,
         CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,
         CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
