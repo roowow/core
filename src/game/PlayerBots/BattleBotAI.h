@@ -135,11 +135,6 @@ public:
     bool m_wasDead = false;
     bool m_wasInBG = false;
 
-    // Battle Royale bot
-    bool   m_isBattleRoyaleBot  = false;
-    uint32 m_brInstanceId       = 0;
-    bool   m_brReadyNotified    = false;
-
     // Movement System
     void UpdateWaypointMovement();
     void DoGraveyardJump();
