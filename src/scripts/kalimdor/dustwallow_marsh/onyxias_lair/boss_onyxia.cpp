@@ -76,6 +76,7 @@ enum
     DEPART_FLIGHT               = 20,
     LANDING_FLIGHT              = 21,
     LANDING_CENTER              = 22,
+    REPOSITION_GROUND           = 23,   // explicit back-off before MoveChase in phase 3
 
     PHASE_ONE                   = 1,
     PHASE_TWO                   = 2,
@@ -567,12 +568,6 @@ struct boss_onyxiaAI : public ScriptedAI
 
     void StartLandedCombat()
     {
-        if (Unit* pVictim = m_creature->GetVictim())
-            m_creature->SetTargetGuid(pVictim->GetObjectGuid());
-
-        SetCombatMovement(true);
-        m_creature->GetMotionMaster()->MoveChase(m_creature->GetVictim());
-
         m_bTransition  = false;
         m_uiTransTimer = 0;
 
@@ -581,6 +576,31 @@ struct boss_onyxiaAI : public ScriptedAI
         m_uiCleaveTimer      = urand(2000, 5000);
         m_uiWingBuffetTimer  = urand(10000, 20000);
         m_uiKnockAwayTimer   = urand(10000, 20000);
+
+        Unit* pVictim = m_creature->GetVictim();
+        if (pVictim)
+            m_creature->SetTargetGuid(pVictim->GetObjectGuid());
+
+        SetCombatMovement(true);
+
+        if (pVictim)
+        {
+            // MoveChase(dist=0) won't back away if Onyxia landed too close to the victim
+            // because CanReachWithMeleeAutoAttack returns true and the generator exits early.
+            // If we're already within melee range, use MovePoint to step back first.
+            static float const REPOSITION_OFFSET = 5.0f; // yards beyond combined bounding radius
+            if (m_creature->CanReachWithMeleeAutoAttack(pVictim))
+            {
+                float x, y, z;
+                float const angle = pVictim->GetAngle(m_creature);
+                pVictim->GetNearPoint(m_creature, x, y, z, m_creature->GetObjectBoundingRadius(), REPOSITION_OFFSET, angle);
+                m_creature->GetMotionMaster()->MovePoint(REPOSITION_GROUND, x, y, z, MOVE_PATHFINDING);
+            }
+            else
+            {
+                m_creature->GetMotionMaster()->MoveChase(pVictim);
+            }
+        }
     }
 
     void PhaseTransition(uint32 uiDiff, bool bDebut)
@@ -680,6 +700,11 @@ struct boss_onyxiaAI : public ScriptedAI
             case LANDING_CENTER:
                 if (m_uiPhase == PHASE_THREE && m_uiTransCount == 4)
                     StartLandedCombat();
+                break;
+            case REPOSITION_GROUND:
+                // Back-off MovePoint finished; switch to normal MoveChase.
+                if (!m_bTransition)
+                    m_creature->GetMotionMaster()->MoveChase(m_creature->GetVictim());
                 break;
             case DEPART_FLIGHT:
                 m_creature->SetOrientation(0.0f);
