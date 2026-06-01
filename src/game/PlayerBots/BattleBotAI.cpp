@@ -3549,6 +3549,9 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     if (DrinkAndEat())
         return;
 
+    if (UseMount())
+        return;
+
     // Already in combat — but first check if the target is reachable.
     // Targets on rooftops, steep slopes, or floating can cause the bot to freeze
     // because UpdateInCombatAI keeps chasing forever without reaching them.

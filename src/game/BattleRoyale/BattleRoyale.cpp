@@ -423,11 +423,20 @@ void BattleRoyale::Finish()
     if (m_status == BattleRoyaleStatus::FINISHED || m_status == BattleRoyaleStatus::CANCELLED)
         return;
 
-    // Assign rank 1 to the last survivor
+    // Assign rank 1 to the last survivor and reward winner honor
+    Map* finishMap = m_host ? m_host->GetBgMap() : nullptr;
     for (auto it = m_players.begin(); it != m_players.end(); ++it)
     {
-        if (it->second.alive)
-            it->second.placementRank = 1;
+        if (!it->second.alive)
+            continue;
+        it->second.placementRank = 1;
+        if (!it->second.bot && finishMap && m_host)
+        {
+            Player* winner = finishMap->GetPlayer(it->first);
+            uint32 winHonor = m_host->GetBonusHonorFromKill(5);
+            if (winner && winHonor)
+                winner->GetHonorMgr().Add(winHonor, BONUS);
+        }
     }
 
     m_status      = BattleRoyaleStatus::FINISHED;

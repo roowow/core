@@ -1080,7 +1080,7 @@ void PlayerBotMgr::AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam,
     }
 }
 
-void PlayerBotMgr::AddBattleRoyaleBot(uint32 brInstanceId)
+bool PlayerBotMgr::AddBattleRoyaleBot(uint32 brInstanceId)
 {
     // BR: DPS only. Healer specs are prevented by pre-setting m_role before LearnPremadeSpecForClass().
     // Excluded: Paladin (Holy spec issues in FFA context).
@@ -1100,7 +1100,7 @@ void PlayerBotMgr::AddBattleRoyaleBot(uint32 brInstanceId)
     Team botTeam = (botClass == CLASS_SHAMAN) ? HORDE : (urand(0, 1) ? ALLIANCE : HORDE);
     uint8 botRace = SelectRandomRaceForClass(botClass, botTeam);
     if (!botRace)
-        return;
+        return false;
 
     uint32 const instanceId = sMapMgr.GetContinentInstanceId(1, 16224.356f, 16284.763f);
     BattleBotAI* ai = new BattleBotAI(botRace, botClass, 60, 1, instanceId,
@@ -1108,6 +1108,7 @@ void PlayerBotMgr::AddBattleRoyaleBot(uint32 brInstanceId)
     ai->m_isBattleRoyaleBot = true;
     ai->m_brInstanceId = brInstanceId;
     AddBot(ai);
+    return true;
 }
 
 void PlayerBotMgr::DeleteBattleBots()

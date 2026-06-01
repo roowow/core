@@ -354,11 +354,13 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
             botIndexes.push_back(spawnIndexes[i % spawnIndexes.size()]);
         m_botSpawnIndexes[instanceId] = botIndexes;
 
-        br->SetPendingBotCount(botCount);
+        uint32 actualBotCount = 0;
         for (uint32 i = 0; i < botCount; ++i)
-            sPlayerBotMgr.AddBattleRoyaleBot(instanceId);
+            if (sPlayerBotMgr.AddBattleRoyaleBot(instanceId))
+                ++actualBotCount;
+        br->SetPendingBotCount(actualBotCount);
 
-        sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyaleMgr] Requested %u bots for instance %u.", botCount, instanceId);
+        sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyaleMgr] Requested %u/%u bots for instance %u.", actualBotCount, botCount, instanceId);
     }
 
     return br;
