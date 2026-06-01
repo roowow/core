@@ -3483,18 +3483,6 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     if (me->IsTaxiFlying() || me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER))
         return;
 
-    // Bots lack client-side physics: if teleported to a spawn point above the terrain,
-    // they float. Detect this and issue a MovePoint to the ground below.
-    if (!me->IsMoving())
-    {
-        float groundZ = me->GetMap()->GetHeight(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), false);
-        if (groundZ > INVALID_HEIGHT && me->GetPositionZ() > groundZ + 1.5f)
-        {
-            me->GetMotionMaster()->MovePoint(0, me->GetPositionX(), me->GetPositionY(), groundZ);
-            return;
-        }
-    }
-
     BattleGround* bg = me->GetBattleGround();
     if (!bg || bg->GetTypeID() != BATTLEGROUND_BR)
         return;
@@ -3567,7 +3555,11 @@ void BattleBotAI::UpdateBattleRoyaleAI()
                 me->GetMotionMaster()->MovePoint(0, px, py, pz);
             return;
         }
-        return; // target reachable, let UpdateInCombatAI handle it
+        // Target is reachable: run the full class combat rotation.
+        // UpdateBattleGroundAI() returns true, so UpdateInCombatAI() in UpdateAI()
+        // is never reached — we must call it explicitly here.
+        UpdateInCombatAI();
+        return;
     }
 
     // Select a target

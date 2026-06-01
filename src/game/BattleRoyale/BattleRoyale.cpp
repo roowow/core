@@ -18,7 +18,7 @@ static uint32 const BR_FINISH_DELAY_MS = 10000;
 
 BattleRoyale::BattleRoyale(BattleRoyaleTemplate const* tmpl, BattleGroundBR* host)
     : m_status(BattleRoyaleStatus::DEPLOYING), m_tmpl(tmpl), m_host(host),
-      m_deploymentTimer(tmpl ? tmpl->deploymentTimeoutMs : 45000), m_landedCount(0),
+      m_landedCount(0),
       m_prepareTimer(30000), m_aliveCount(0), m_totalCount(0), m_finishTimer(0), m_runningTime(0)
 {
     m_zone.Init(tmpl);
@@ -146,7 +146,18 @@ void BattleRoyale::OnPlayerDied(ObjectGuid guid)
 void BattleRoyale::OnPlayerLeftMap(ObjectGuid guid)
 {
     auto it = m_players.find(guid);
-    if (it != m_players.end() && it->second.alive)
+    if (it == m_players.end())
+        return;
+
+    // If the player leaves during deployment (e.g. disconnect), count them as landed
+    // so the remaining players are not stuck waiting forever.
+    if (m_status == BattleRoyaleStatus::DEPLOYING && !it->second.landed)
+    {
+        it->second.landed = true;
+        ++m_landedCount;
+    }
+
+    if (it->second.alive)
         Eliminate(guid, false);
 }
 
@@ -225,30 +236,7 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
     }
 
     if (m_landedCount >= m_totalCount && m_pendingBotCount == 0)
-    {
         StartPreparing();
-        return;
-    }
-
-    if (m_deploymentTimer > diff)
-    {
-        m_deploymentTimer -= diff;
-        return;
-    }
-
-    sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-             "[BattleRoyale] Deployment timeout in instance %u. Falling back remaining players to landing points.",
-             m_host ? m_host->GetInstanceID() : 0u);
-
-    for (auto it = m_players.begin(); it != m_players.end(); ++it)
-    {
-        if (it->second.landed)
-            continue;
-        Player* player = map ? map->GetPlayer(it->first) : nullptr;
-        CompleteDeployment(player, it->second, true);
-    }
-
-    StartPreparing();
 }
 
 void BattleRoyale::CompleteDeployment(Player* player, BattleRoyalePlayer& brPlayer, bool teleportToLandingPoint)

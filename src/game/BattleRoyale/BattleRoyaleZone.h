@@ -38,9 +38,15 @@ private:
     void  ApplyZoneDamage(Player* player);
     void  SendZoneWarning(Player* player);
     void  StartNextPhase();
-    void  SpawnRing(Map* map, float radius);
+    void  QueueRing(Map* map, float radius);   // computes positions into m_pendingSpawns
+    void  ProcessSpawnBatch(Map* map);          // creates up to SPAWN_BATCH_SIZE GOs per tick
     void  UpdateMarkers(Map* map);
     void  RemoveMarkers(Map* map);
+
+    // pending marker spawn queue
+    struct PendingMarker { float x, y, z, angle; };
+    std::vector<PendingMarker> m_pendingSpawns;
+    uint32 m_pendingSpawnIdx = 0;
 
     float   m_centerX       = 0.0f;
     float   m_centerY       = 0.0f;

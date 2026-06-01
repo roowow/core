@@ -26,7 +26,6 @@ struct BattleRoyaleTemplate
     uint32 maxPlayers;
     bool   enabled;
     BRSpawnPoint deploymentStart;
-    uint32 deploymentTimeoutMs;
 
     std::vector<BRSpawnPoint> spawnPoints;
     std::vector<BRZonePhase>  phases;
@@ -45,8 +44,7 @@ inline BattleRoyaleTemplate const& GetABTemplate()
         t.centerY    = 1008.0f;
         t.maxPlayers = 30;
         t.enabled    = true;
-        t.deploymentStart     = { 990.0f, 1008.0f, 250.0f, 0.0f };
-        t.deploymentTimeoutMs = 45000;
+        t.deploymentStart = { 990.0f, 1008.0f, 250.0f, 0.0f };
 
         // 20 verified spawn points across AB (maxPlayers = 30; bots 21-30 reuse these via modulo).
         // Z source: db = derived from database (guard/flag/trigger), est = estimated from nearby terrain.

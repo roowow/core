@@ -13,11 +13,12 @@
 #include <cmath>
 
 static uint32 const ZONE_MARKER_ENTRY            = 900101;
-static float  const ZONE_MARKER_SPACING          = 50.0f;  // yards between markers
+static float  const ZONE_MARKER_SPACING          = 20.0f;  // yards between markers
 static uint32 const ZONE_MARKER_MIN              = 24;
-static uint32 const ZONE_MARKER_MAX              = 96;
+static uint32 const ZONE_MARKER_MAX              = 200;
 static float  const ZONE_MARKER_CHANGE_THRESHOLD = 30.0f;  // force refresh if radius shifts this much
 static float  const ZONE_MARKER_INNER_OFFSET     = 20.0f;  // inner warning ring distance from boundary
+static uint32 const ZONE_SPAWN_BATCH_SIZE        = 20;     // GOs to create per map update tick
 
 static uint32 const ZONE_WARN_INTERVAL_MS = 5000;
 
@@ -82,6 +83,9 @@ void BattleRoyaleZone::Update(uint32 diff, std::map<ObjectGuid, BattleRoyalePlay
         bool radiusChanged = std::fabs(m_currentRadius - m_lastMarkerRadius) >= ZONE_MARKER_CHANGE_THRESHOLD;
         if (m_lastMarkerRadius < 0.0f || radiusChanged)
             UpdateMarkers(map);
+
+        // Drain the pending spawn queue a batch at a time to avoid a single-frame packet spike.
+        ProcessSpawnBatch(map);
     }
 
     // Damage tick
@@ -150,6 +154,10 @@ void BattleRoyaleZone::Cleanup(Map* map)
 
 void BattleRoyaleZone::RemoveMarkers(Map* map)
 {
+    // Cancel any in-progress async spawn queue first
+    m_pendingSpawns.clear();
+    m_pendingSpawnIdx = 0;
+
     if (!map)
     {
         m_markerGuids.clear();
@@ -167,9 +175,9 @@ void BattleRoyaleZone::RemoveMarkers(Map* map)
     m_lastMarkerRadius = -1.0f;
 }
 
-void BattleRoyaleZone::SpawnRing(Map* map, float radius)
+void BattleRoyaleZone::QueueRing(Map* map, float radius)
 {
-    if (radius <= 0.0f)
+    if (radius <= 0.0f || !map)
         return;
 
     uint32 count = uint32(std::ceil(2.0f * float(M_PI_F) * radius / ZONE_MARKER_SPACING));
@@ -185,19 +193,41 @@ void BattleRoyaleZone::SpawnRing(Map* map, float radius)
         float z = map->GetHeight(x, y, MAX_HEIGHT, false, MAX_HEIGHT);
         if (z <= INVALID_HEIGHT)
             continue;
+        m_pendingSpawns.push_back({ x, y, z + 0.1f, angle });
+    }
+}
 
+void BattleRoyaleZone::ProcessSpawnBatch(Map* map)
+{
+    if (!map || m_pendingSpawnIdx >= uint32(m_pendingSpawns.size()))
+        return;
+
+    uint32 end = std::min(m_pendingSpawnIdx + ZONE_SPAWN_BATCH_SIZE,
+                          uint32(m_pendingSpawns.size()));
+    for (uint32 i = m_pendingSpawnIdx; i < end; ++i)
+    {
+        PendingMarker const& pm = m_pendingSpawns[i];
         GameObject* go = new GameObject;
         if (!go->Create(map->GenerateLocalLowGuid(HIGHGUID_GAMEOBJECT), ZONE_MARKER_ENTRY, map,
-                        x, y, z + 0.1f, angle, 0.0f, 0.0f, 0.0f, 0.0f, GO_ANIMPROGRESS_DEFAULT, GO_STATE_READY))
+                        pm.x, pm.y, pm.z, pm.angle, 0.0f, 0.0f, 0.0f, 0.0f,
+                        GO_ANIMPROGRESS_DEFAULT, GO_STATE_READY))
         {
-            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleZone] Failed to create zone marker (entry %u) at %.1f,%.1f,%.1f",
-                     ZONE_MARKER_ENTRY, x, y, z);
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                     "[BattleRoyaleZone] Failed to create zone marker (entry %u) at %.1f,%.1f,%.1f",
+                     ZONE_MARKER_ENTRY, pm.x, pm.y, pm.z);
             delete go;
             continue;
         }
         go->SetRespawnTime(0);
         map->Add(go);
         m_markerGuids.push_back(go->GetObjectGuid());
+    }
+    m_pendingSpawnIdx = end;
+
+    if (m_pendingSpawnIdx >= uint32(m_pendingSpawns.size()))
+    {
+        m_pendingSpawns.clear();
+        m_pendingSpawnIdx = 0;
     }
 }
 
@@ -207,9 +237,14 @@ void BattleRoyaleZone::UpdateMarkers(Map* map)
     if (!map)
         return;
 
-    SpawnRing(map, m_currentRadius);                              // outer ring: zone boundary
+    // Queue positions for async batch creation — actual GO spawns are spread
+    // over multiple ticks in ProcessSpawnBatch() to avoid a single-frame packet spike.
+    m_pendingSpawns.clear();
+    m_pendingSpawnIdx = 0;
+
+    QueueRing(map, m_currentRadius);
     if (m_currentRadius > ZONE_MARKER_INNER_OFFSET * 2.0f)
-        SpawnRing(map, m_currentRadius - ZONE_MARKER_INNER_OFFSET); // inner warning ring
+        QueueRing(map, m_currentRadius - ZONE_MARKER_INNER_OFFSET);
 
     m_lastMarkerRadius = m_currentRadius;
 }
