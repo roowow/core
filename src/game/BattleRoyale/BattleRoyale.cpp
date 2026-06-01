@@ -248,6 +248,12 @@ void BattleRoyale::StartPreparing()
 
     m_status = BattleRoyaleStatus::PREPARING;
     m_prepareTimer = 30000;
+
+    // Spawn zone markers now so players can see the boundary during prep
+    Map* map = m_host ? m_host->GetBgMap() : nullptr;
+    if (map)
+        m_zone.RefreshMarkers(map);
+
     BroadcastToAll("[Battle Royale] 空降完成！30 秒后对局开始。");
 }
 

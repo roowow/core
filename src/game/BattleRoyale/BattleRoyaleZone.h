@@ -24,6 +24,9 @@ public:
     uint32 GetCurrentDamage() const;
     uint32 GetPhase()         const { return m_phase; }
 
+    // Spawn the initial marker ring (called when entering PREPARING state)
+    void RefreshMarkers(Map* map) { UpdateMarkers(map); }
+
     // GM helpers
     void ForcePhase(uint32 phase);
     void ForceRadius(float r) { m_currentRadius = r; m_lastMarkerRadius = -1.0f; }
