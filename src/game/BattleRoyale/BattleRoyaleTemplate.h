@@ -39,33 +39,35 @@ inline BattleRoyaleTemplate const& GetABTemplate()
         BattleRoyaleTemplate t;
         t.id         = 1;
         t.mapId      = 529; // MAP_ARATHI_BASIN
-        t.centerX    = -867.0f;
-        t.centerY    = -427.0f;
+        t.centerX    = 990.0f;  // Gold Mine / geometric center of all 5 nodes
+        t.centerY    = 1008.0f;
         t.maxPlayers = 20;
         t.enabled    = true;
 
-        // 20 spawn points spread across AB (approximate, must be verified in-game)
+        // 20 spawn points across AB.
+        // Z source: db = derived from database (guard/flag/trigger), est = estimated from nearby terrain.
+        // All must be verified in-game with .go xyz before use in production.
         BRSpawnPoint const sp[] = {
-            { -910.0f, -301.0f, -73.6f, 0.0f   },
-            { -716.0f, -415.0f, -72.8f, 3.14f  },
-            { -787.0f, -575.0f, -82.6f, 1.57f  },
-            { -948.0f, -575.0f, -82.2f, 4.71f  },
-            { -1040.0f,-415.0f, -73.5f, 0.0f   },
-            { -867.0f, -370.0f, -73.0f, 1.57f  },
-            { -867.0f, -490.0f, -73.0f, 4.71f  },
-            { -800.0f, -427.0f, -73.0f, 3.14f  },
-            { -940.0f, -427.0f, -73.0f, 0.0f   },
-            { -820.0f, -340.0f, -72.0f, 2.35f  },
-            { -780.0f, -500.0f, -80.0f, 0.78f  },
-            { -960.0f, -500.0f, -79.0f, 5.49f  },
-            { -960.0f, -340.0f, -71.5f, 3.92f  },
-            { -680.0f, -360.0f, -68.0f, 2.0f   },
-            { -1060.0f,-360.0f, -69.0f, 4.3f   },
-            { -690.0f, -490.0f, -76.0f, 1.2f   },
-            { -1050.0f,-490.0f, -76.0f, 5.0f   },
-            { -867.0f, -300.0f, -71.0f, 1.57f  },
-            { -760.0f, -550.0f, -84.0f, 1.0f   },
-            { -980.0f, -550.0f, -84.0f, 5.2f   },
+            { 1313.0f, 1310.0f,  -7.7f, 0.0f  }, // db: alliance base trigger
+            {  684.0f,  681.0f, -12.9f, 3.14f }, // db: horde base trigger
+            { 1182.0f, 1183.0f, -45.3f, 0.0f  }, // db: stables guard
+            { 1200.0f, 1160.0f, -56.4f, 3.14f }, // db: stables flag ref
+            {  820.0f,  815.0f, -57.7f, 1.57f }, // db: blacksmith guard
+            {  840.0f,  858.0f, -56.5f, 4.71f }, // db: blacksmith flag ref
+            {  810.0f, 1185.0f,  11.9f, 0.0f  }, // db: farm flag
+            {  790.0f, 1165.0f,  11.9f, 3.14f }, // db: farm flag ref
+            { 1147.0f,  820.0f, -98.4f, 1.57f }, // db: lumber mill flag
+            { 1175.0f,  832.0f,-106.6f, 0.0f  }, // db: lumber mill guard
+            {  820.0f, 1178.0f,  36.4f, 3.14f }, // db: lumber mill area guard
+            {  990.0f, 1010.0f, -42.6f, 1.57f }, // db: gold mine flag
+            {  997.0f, 1003.0f, -31.4f, 0.0f  }, // db: gold mine guard
+            { 1290.0f, 1230.0f, -30.0f, 3.14f }, // est: alliance-stables road
+            { 1100.0f, 1100.0f, -42.0f, 0.0f  }, // est: northeast center
+            {  900.0f, 1100.0f, -25.0f, 1.57f }, // est: farm-gold mine road
+            {  720.0f,  950.0f, -20.0f, 0.0f  }, // est: horde-farm road
+            {  740.0f,  790.0f, -30.0f, 4.71f }, // est: horde-blacksmith road
+            {  900.0f,  930.0f, -42.0f, 3.14f }, // est: blacksmith-gold mine road
+            { 1060.0f,  910.0f, -65.0f, 0.0f  }, // est: lumber mill-gold mine road
         };
         for (BRSpawnPoint const& s : sp)
             t.spawnPoints.push_back(s);
