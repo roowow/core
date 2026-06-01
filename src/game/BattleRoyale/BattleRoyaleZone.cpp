@@ -75,24 +75,13 @@ void BattleRoyaleZone::Update(uint32 diff, std::map<ObjectGuid, BattleRoyalePlay
             m_phaseTimer -= diff;
     }
 
-    // Zone marker refresh: every ZONE_MARKER_UPDATE_MS or when radius changes significantly
+    // Rebuild markers only when radius shifts by the threshold or on first call.
+    // No periodic rebuild — static GOs flicker when deleted+recreated unnecessarily.
     if (map)
     {
         bool radiusChanged = std::fabs(m_currentRadius - m_lastMarkerRadius) >= ZONE_MARKER_CHANGE_THRESHOLD;
         if (m_lastMarkerRadius < 0.0f || radiusChanged)
-        {
             UpdateMarkers(map);
-            m_markerTimer = ZONE_MARKER_UPDATE_MS;
-        }
-        else if (m_markerTimer <= diff)
-        {
-            UpdateMarkers(map);
-            m_markerTimer = ZONE_MARKER_UPDATE_MS;
-        }
-        else
-        {
-            m_markerTimer -= diff;
-        }
     }
 
     // Damage tick

@@ -51,7 +51,6 @@ private:
     uint32  m_damageTimer   = 1000;
     bool    m_radiusForced  = false;
 
-    uint32  m_markerTimer        = 0;
     float   m_lastMarkerRadius   = -1.0f;  // -1 = markers not yet spawned
     std::vector<ObjectGuid> m_markerGuids;
 
