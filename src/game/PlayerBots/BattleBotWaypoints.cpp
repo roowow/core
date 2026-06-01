@@ -1698,6 +1698,7 @@ void BattleBotAI::StartNewPathFromAnywhere()
     switch (me->GetBattleGround()->GetTypeID())
     {
         case BATTLEGROUND_AB:
+        case BATTLEGROUND_BR:   // BR uses AB map, reuse the same recorded paths
         {
             vPaths = &vPaths_AB;
             break;

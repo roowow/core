@@ -3595,6 +3595,26 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         return;
     }
 
+    // Redirect toward center if too close to the boundary so waypoint patrol
+    // doesn't walk the bot into the damage zone.
+    {
+        float const safeMargin = 25.0f;
+        float const cx  = zone.GetCenterX();
+        float const cy  = zone.GetCenterY();
+        float const ddx = me->GetPositionX() - cx;
+        float const ddy = me->GetPositionY() - cy;
+        float const dist = std::sqrt(ddx * ddx + ddy * ddy);
+        if (dist > 0.5f && dist > zone.GetCurrentRadius() - safeMargin)
+        {
+            float const tx = cx + (ddx / dist) * (zone.GetCurrentRadius() * 0.65f);
+            float const ty = cy + (ddy / dist) * (zone.GetCurrentRadius() * 0.65f);
+            float const tz = me->GetMap()->GetHeight(tx, ty, MAX_HEIGHT, false, MAX_HEIGHT);
+            if (tz > INVALID_HEIGHT)
+                me->GetMotionMaster()->MovePoint(0, tx, ty, tz);
+            return;
+        }
+    }
+
     // Patrol using recorded AB waypoints — guaranteed valid terrain Z values.
     UpdateWaypointMovement();
 }

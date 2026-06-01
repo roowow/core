@@ -46,7 +46,7 @@ inline BattleRoyaleTemplate const& GetABTemplate()
         t.enabled    = true;
         t.deploymentStart = { 990.0f, 1008.0f, 250.0f, 0.0f };
 
-        // 26 verified spawn points across AB (maxPlayers = 30; bots 27-30 reuse via modulo).
+        // 30 verified spawn points across AB (maxPlayers = 30; no modulo reuse).
         // Z source: db = derived from database, est = GM-verified in-game.
         BRSpawnPoint const sp[] = {
             { 1365.0f, 1280.0f,  -8.0f, 0.0f  }, // alliance base exterior
@@ -75,6 +75,10 @@ inline BattleRoyaleTemplate const& GetABTemplate()
             {  920.0f, 1250.0f,  10.0f, 3.14f }, // farm north road
             {  720.0f,  900.0f, -25.0f, 1.57f }, // horde-farm west
             {  990.0f,  870.0f, -48.0f, 0.0f  }, // gold mine-lumber mill south
+            {  700.0f,  800.0f, -22.0f, 1.57f }, // horde base-blacksmith road
+            { 1320.0f, 1160.0f, -30.0f, 3.14f }, // alliance base south road
+            { 1100.0f,  900.0f, -55.0f, 4.71f }, // northeast-gold mine road
+            { 1000.0f, 1150.0f, -20.0f, 0.0f  }, // gold mine-farm road north
         };
         for (BRSpawnPoint const& s : sp)
             t.spawnPoints.push_back(s);
