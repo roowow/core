@@ -90,6 +90,7 @@ class PlayerBotMgr
         bool DeleteRandomBot();
 
         void AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam, uint32 botLevel, bool temporary);
+        void AddBattleRoyaleBot(uint32 brInstanceId);
         void DeleteBattleBots();
         void SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId);
 

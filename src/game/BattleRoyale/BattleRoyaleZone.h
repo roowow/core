@@ -27,6 +27,9 @@ public:
     // Spawn the initial marker ring (called when entering PREPARING state)
     void RefreshMarkers(Map* map) { UpdateMarkers(map); }
 
+    float GetCenterX() const { return m_centerX; }
+    float GetCenterY() const { return m_centerY; }
+
     // GM helpers
     void ForcePhase(uint32 phase);
     void ForceRadius(float r) { m_currentRadius = r; m_lastMarkerRadius = -1.0f; }

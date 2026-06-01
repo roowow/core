@@ -10,6 +10,7 @@
 #include "CustomTaxiMgr.h"
 #include "Log.h"
 #include "MotionMaster.h"
+#include "PlayerBotMgr.h"
 
 #include <cstdio>
 
@@ -17,41 +18,45 @@ static uint32 const BR_FINISH_DELAY_MS = 10000;
 
 BattleRoyale::BattleRoyale(BattleRoyaleTemplate const* tmpl, BattleGroundBR* host)
     : m_status(BattleRoyaleStatus::DEPLOYING), m_tmpl(tmpl), m_host(host),
-      m_deploymentTimer(tmpl ? tmpl->deploymentTimeoutMs : 30000), m_landedCount(0),
+      m_deploymentTimer(tmpl ? tmpl->deploymentTimeoutMs : 45000), m_landedCount(0),
       m_prepareTimer(30000), m_aliveCount(0), m_totalCount(0), m_finishTimer(0), m_runningTime(0)
 {
     m_zone.Init(tmpl);
 }
 
-void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, uint32 deploymentPathId)
+void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, uint32 deploymentPathId, bool isBot)
 {
     ObjectGuid guid = player->GetObjectGuid();
 
     BattleRoyalePlayer brPlayer;
-    brPlayer.guid          = guid;
-    brPlayer.alive         = true;
-    brPlayer.outsideZone   = false;
-    brPlayer.zoneWarnTimer = 0;
-    brPlayer.placementRank = 0;
-    brPlayer.landingPoint  = landingPoint;
+    brPlayer.guid             = guid;
+    brPlayer.alive            = true;
+    brPlayer.bot              = isBot;
+    brPlayer.outsideZone      = false;
+    brPlayer.zoneWarnTimer    = 0;
+    brPlayer.placementRank    = 0;
+    brPlayer.landingPoint     = landingPoint;
     brPlayer.deploymentPathId = deploymentPathId;
-    brPlayer.savedPosition = WorldLocation(player->GetMapId(),
-                                           player->GetPositionX(),
-                                           player->GetPositionY(),
-                                           player->GetPositionZ(),
-                                           player->GetOrientation());
-    brPlayer.savedFFAPvP   = player->IsFFAPvP();
+    brPlayer.savedPosition    = WorldLocation(player->GetMapId(),
+                                              player->GetPositionX(),
+                                              player->GetPositionY(),
+                                              player->GetPositionZ(),
+                                              player->GetOrientation());
+    brPlayer.savedFFAPvP = player->IsFFAPvP();
 
     m_players[guid] = brPlayer;
     ++m_totalCount;
     ++m_aliveCount;
+    if (isBot && m_pendingBotCount > 0)
+        --m_pendingBotCount;
 
     player->SetFFAPvP(true);
     player->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER | UNIT_FLAG_IMMUNE_TO_NPC);
     player->SetBattleGroundId(m_host->GetInstanceID(), BATTLEGROUND_BR);
     player->SetBGTeam(TEAM_NONE);
 
-    ChatHandler(player).PSendSysMessage("[Battle Royale] 欢迎！正在准备空降，共 %u 名参与者。", m_totalCount);
+    if (!isBot)
+        ChatHandler(player).PSendSysMessage("[Battle Royale] 欢迎！正在准备空降，共 %u 名参与者。", m_totalCount);
 }
 
 void BattleRoyale::Update(uint32 diff)
@@ -192,7 +197,7 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         }
     }
 
-    if (m_landedCount >= m_totalCount)
+    if (m_landedCount >= m_totalCount && m_pendingBotCount == 0)
     {
         StartPreparing();
         return;
@@ -390,6 +395,14 @@ void BattleRoyale::ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlay
     player->SetBGTeam(TEAM_NONE);
     player->SetBattleGroundId(0, BATTLEGROUND_TYPE_NONE);
     player->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER | UNIT_FLAG_IMMUNE_TO_NPC);
+
+    if (brPlayer.bot)
+    {
+        // Bots are removed from the world when the session is cleaned up
+        if (PlayerBotEntry* entry = player->GetSession() ? player->GetSession()->GetBot() : nullptr)
+            entry->requestRemoval = true;
+        return;
+    }
 
     WorldLocation const& pos = brPlayer.savedPosition;
     player->TeleportTo(pos.mapId, pos.x, pos.y, pos.z, pos.o);

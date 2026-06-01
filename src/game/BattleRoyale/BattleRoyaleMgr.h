@@ -33,14 +33,18 @@ public:
     // Called by BattleRoyale when it finishes
     void OnInstanceEnd(uint32 instanceId);
 
+    // Called by BattleBotAI when a BR bot finishes initialization and is ready to enter the instance
+    void OnBotReady(Player* bot, uint32 instanceId);
+
 private:
     bool CanEnqueue(Player* player, std::string& outError) const;
     void TryCreateGame(bool ignoreMinPlayers = false);
     BattleRoyale* CreateInstance(std::vector<Player*> const& players);
 
-    std::deque<ObjectGuid>          m_queue;
-    std::map<uint32, BattleRoyale*> m_instances;         // instanceId -> BattleRoyale
-    std::map<ObjectGuid, uint32>    m_playerInstMap;      // playerGuid -> instanceId
+    std::deque<ObjectGuid>                        m_queue;
+    std::map<uint32, BattleRoyale*>               m_instances;       // instanceId -> BattleRoyale
+    std::map<ObjectGuid, uint32>                  m_playerInstMap;   // playerGuid -> instanceId
+    std::map<uint32, std::vector<uint32>>          m_botSpawnIndexes; // instanceId -> remaining shuffled spawn indexes for bots
 
     uint32  m_countdownTimer  = 0;
     bool    m_countdownActive = false;

@@ -94,6 +94,7 @@ public:
 
     void UpdateFlagCarrierAI();
     bool UpdateBattleGroundAI();
+    void UpdateBattleRoyaleAI();
     bool TryUseBattleGroundFlag(uint32 entry);
     void UpdateInCombatAI() final;
     void UpdateOutOfCombatAI() final;
@@ -116,7 +117,10 @@ public:
     void UpdateInCombatAI_Druid() final;
     void UpdateOutOfCombatAI_Druid() final;
 
-    uint8 m_battlegroundId = 0;
+    uint8  m_battlegroundId     = 0;
+    bool   m_isBattleRoyaleBot  = false;
+    uint32 m_brInstanceId       = 0;
+    bool   m_brReadyNotified    = false;
     ShortTimeTracker m_updateTimer;
     uint8 m_race = 0;
     uint8 m_class = 0;

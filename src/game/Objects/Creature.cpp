@@ -1881,6 +1881,9 @@ bool Creature::CreateFromProto(uint32 guidlow, CreatureInfo const* cinfo, uint32
 
 bool Creature::LoadFromDB(uint32 guidlow, Map* map, bool force)
 {
+    if (!map->CanLoadDBSpawns())
+        return false;
+
     CreatureData const* data = sObjectMgr.GetCreatureData(guidlow);
 
     if (!data)

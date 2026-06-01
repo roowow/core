@@ -147,6 +147,9 @@ bool IsEnabledOnMap<Creature>(Map* map, uint32 guid)
 template <class T>
 void LoadHelper(CellGuidSet const& guid_set, CellPair& cell, GridRefManager<T>& m, uint32& count, Map* map, GridType& grid)
 {
+    if (!map->CanLoadDBSpawns())
+        return;
+
     BattleGround* bg = map->IsBattleGround() ? ((BattleGroundMap*)map)->GetBG() : nullptr;
 
     for (const auto& guid : guid_set)

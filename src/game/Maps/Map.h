@@ -332,6 +332,7 @@ class Map : public GridRefManager<NGridType>
         virtual ~Map() override;
         void PrintInfos(ChatHandler& handler);
         void SpawnActiveObjects();
+        virtual bool CanLoadDBSpawns() const { return true; }
         // currently unused for normal maps
         bool CanUnload(uint32 diff)
         {
@@ -1027,6 +1028,7 @@ class BattleGroundMap : public Map
         void InitVisibilityDistance() override;
         BattleGround* GetBG() const { return m_bg; }
         void SetBG(BattleGround* bg) { m_bg = bg; }
+        bool CanLoadDBSpawns() const override;
 
         // can't be nullptr for loaded map
         BattleGroundPersistentState* GetPersistanceState() const;

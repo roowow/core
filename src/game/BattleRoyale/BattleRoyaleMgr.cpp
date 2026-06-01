@@ -12,6 +12,7 @@
 #include "Log.h"
 #include "World.h"
 #include "WorldPacket.h"
+#include "PlayerBotMgr.h"
 
 #include <algorithm>
 
@@ -50,6 +51,7 @@ void BattleRoyaleMgr::Update(uint32 diff)
             // ~BattleGround() calls RemoveBattleGround() and m_map->SetUnload()+SetBG(nullptr),
             // which unregisters the host and schedules the BG map for unloading.
             delete host;
+            m_botSpawnIndexes.erase(instanceId);
             it = m_instances.erase(it);
         }
         else
@@ -139,6 +141,64 @@ BattleRoyale* BattleRoyaleMgr::GetInstanceForPlayer(ObjectGuid guid)
 void BattleRoyaleMgr::OnInstanceEnd(uint32 /*instanceId*/)
 {
     // Cleanup handled in Update when status == CANCELLED
+}
+
+void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
+{
+    auto instIt = m_instances.find(instanceId);
+    if (instIt == m_instances.end())
+    {
+        // Instance already gone (cancelled before bot finished loading)
+        if (PlayerBotEntry* e = bot->GetSession() ? bot->GetSession()->GetBot() : nullptr)
+            e->requestRemoval = true;
+        return;
+    }
+
+    BattleRoyale* br = instIt->second;
+    if (br->GetStatus() == BattleRoyaleStatus::FINISHED ||
+        br->GetStatus() == BattleRoyaleStatus::CANCELLED)
+    {
+        if (PlayerBotEntry* e = bot->GetSession() ? bot->GetSession()->GetBot() : nullptr)
+            e->requestRemoval = true;
+        return;
+    }
+
+    // Allocate a spawn index for this bot
+    auto idxIt = m_botSpawnIndexes.find(instanceId);
+    if (idxIt == m_botSpawnIndexes.end() || idxIt->second.empty())
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleMgr] OnBotReady: no spawn index left for instance %u.", instanceId);
+        if (PlayerBotEntry* e = bot->GetSession() ? bot->GetSession()->GetBot() : nullptr)
+            e->requestRemoval = true;
+        return;
+    }
+
+    BattleRoyaleTemplate const& tmpl = GetABTemplate();
+    uint32 spawnIndex = idxIt->second.back();
+    idxIt->second.pop_back();
+
+    BRSpawnPoint const& sp = tmpl.spawnPoints[spawnIndex % tmpl.spawnPoints.size()];
+
+    std::map<uint32, uint32> deploymentPaths;
+    std::unique_ptr<QueryResult> pathResult = WorldDatabase.PQuery(
+        "SELECT `spawn_index`, `custom_taxi_path_id` FROM `battle_royale_deployment_path` "
+        "WHERE `template_id` = %u AND `spawn_index` = %u", tmpl.id, spawnIndex);
+    uint32 deploymentPathId = 0;
+    if (pathResult)
+    {
+        Field* fields = pathResult->Fetch();
+        deploymentPathId = fields[1].GetUInt32();
+    }
+
+    bot->SetBattleGroundEntryPoint();
+    br->AddPlayer(bot, sp, deploymentPathId, true /*isBot*/);
+    m_playerInstMap[bot->GetObjectGuid()] = instanceId;
+
+    BRSpawnPoint const& start = tmpl.deploymentStart;
+    bot->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o);
+
+    sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyaleMgr] Bot %s ready for instance %u (spawn %u).",
+             bot->GetName(), instanceId, spawnIndex);
 }
 
 // --- private ---
@@ -262,7 +322,8 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
     for (uint32 i = uint32(spawnIndexes.size()); i > 1; --i)
         std::swap(spawnIndexes[i - 1], spawnIndexes[urand(0, i - 1)]);
 
-    for (uint32 i = 0; i < uint32(players.size()); ++i)
+    uint32 const realCount = uint32(players.size());
+    for (uint32 i = 0; i < realCount; ++i)
     {
         Player* player = players[i];
         uint32 spawnIndex = spawnIndexes[i % spawnIndexes.size()];
@@ -278,6 +339,24 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
         BRSpawnPoint const& deploymentStart = tmpl.deploymentStart;
         player->TeleportTo(tmpl.mapId, deploymentStart.x, deploymentStart.y,
                            deploymentStart.z, deploymentStart.o);
+    }
+
+    // Fill remaining slots with bots
+    uint32 const botCount = (tmpl.maxPlayers > realCount) ? (tmpl.maxPlayers - realCount) : 0;
+    if (botCount > 0)
+    {
+        // Save remaining shuffled spawn indexes for bots arriving asynchronously
+        std::vector<uint32> botIndexes;
+        botIndexes.reserve(botCount);
+        for (uint32 i = realCount; i < realCount + botCount; ++i)
+            botIndexes.push_back(spawnIndexes[i % spawnIndexes.size()]);
+        m_botSpawnIndexes[instanceId] = botIndexes;
+
+        br->SetPendingBotCount(botCount);
+        for (uint32 i = 0; i < botCount; ++i)
+            sPlayerBotMgr.AddBattleRoyaleBot(instanceId);
+
+        sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyaleMgr] Requested %u bots for instance %u.", botCount, instanceId);
     }
 
     return br;

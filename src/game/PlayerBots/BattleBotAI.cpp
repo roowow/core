@@ -30,6 +30,10 @@
 #include "ObjectMgr.h"
 #include "PlayerBotMgr.h"
 #include "Opcodes.h"
+#include "BattleRoyaleMgr.h"
+#include "BattleRoyale.h"
+#include "BattleGroundBR.h"
+#include "GridMap.h"
 #include "WorldPacket.h"
 #include "World.h"
 #include "Spell.h"
@@ -2919,6 +2923,17 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             return;
         }
 
+        // BR bots don't use the BG queue — notify BattleRoyaleMgr and wait for teleport
+        if (m_isBattleRoyaleBot)
+        {
+            if (!m_brReadyNotified)
+            {
+                m_brReadyNotified = true;
+                sBattleRoyaleMgr.OnBotReady(me, m_brInstanceId);
+            }
+            return;
+        }
+
         if (!me->InBattleGroundQueue())
         {
             bool canQueue;
@@ -2993,8 +3008,16 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         {
             if (me->GetDeathState() == CORPSE)
             {
-                me->BuildPlayerRepop();
-                me->RepopAtGraveyard();
+                if (m_isBattleRoyaleBot)
+                {
+                    // BR: elimination is handled by BattleRoyale::OnPlayerDied.
+                    // BattleRoyale::ReturnPlayer will mark this bot for removal.
+                }
+                else
+                {
+                    me->BuildPlayerRepop();
+                    me->RepopAtGraveyard();
+                }
             }
         }
         else
@@ -3446,9 +3469,85 @@ bool BattleBotAI::UpdateBattleGroundAI()
                 return TryUseBattleGroundFlag(GO_WSG_WARSONG_FLAG);
             }
         }
+        case BATTLEGROUND_BR:
+            UpdateBattleRoyaleAI();
+            return true;
     }
 
     return false;
+}
+
+void BattleBotAI::UpdateBattleRoyaleAI()
+{
+    // During deployment (taxi) or protection period (immune): stay put
+    if (me->IsTaxiFlying() || me->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER))
+        return;
+
+    BattleGround* bg = me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_BR)
+        return;
+
+    BattleRoyale* br = static_cast<BattleGroundBR*>(bg)->GetOwner();
+    if (!br || br->GetStatus() != BattleRoyaleStatus::RUNNING)
+        return;
+
+    BattleRoyaleZone const& zone = br->GetZone();
+    bool const inZone = zone.IsInsideZone(me->GetPositionX(), me->GetPositionY());
+
+    if (!inZone)
+    {
+        // Stop combat and run back to center
+        if (me->GetVictim())
+        {
+            me->AttackStop();
+            me->ClearTarget();
+        }
+        float const cx = zone.GetCenterX();
+        float const cy = zone.GetCenterY();
+        float const dx = cx - me->GetPositionX();
+        float const dy = cy - me->GetPositionY();
+        float const dist = std::sqrt(dx * dx + dy * dy);
+        if (dist > 0.5f)
+        {
+            float const safeRadius = zone.GetCurrentRadius() * 0.75f;
+            float const targetX = cx - (dx / dist) * safeRadius;
+            float const targetY = cy - (dy / dist) * safeRadius;
+            float const targetZ = me->GetMap()->GetHeight(targetX, targetY, me->GetPositionZ(), false);
+            if (targetZ > INVALID_HEIGHT)
+                me->GetMotionMaster()->MovePoint(0, targetX, targetY, targetZ);
+        }
+        return;
+    }
+
+    // In zone: eat/drink if needed
+    if (DrinkAndEat())
+        return;
+
+    // Already in combat: UpdateInCombatAI handles it
+    if (me->GetVictim())
+        return;
+
+    // Select a target
+    if (Unit* pTarget = SelectAttackTarget())
+    {
+        AttackStart(pTarget);
+        return;
+    }
+
+    // Patrol: pick a random point inside the zone when idle
+    if (!me->IsMoving())
+    {
+        float const cx = zone.GetCenterX();
+        float const cy = zone.GetCenterY();
+        float const r  = zone.GetCurrentRadius() * 0.65f;
+        float const angle = float(urand(0, 628)) * 0.01f;
+        float const d     = float(urand(0, 100)) * 0.01f * r;
+        float const px = cx + std::cos(angle) * d;
+        float const py = cy + std::sin(angle) * d;
+        float const pz = me->GetMap()->GetHeight(px, py, me->GetPositionZ(), false);
+        if (pz > INVALID_HEIGHT)
+            me->GetMotionMaster()->MovePoint(0, px, py, pz);
+    }
 }
 
 bool BattleBotAI::TryUseBattleGroundFlag(uint32 entry)

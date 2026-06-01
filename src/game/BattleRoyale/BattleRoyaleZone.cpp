@@ -195,7 +195,9 @@ void BattleRoyaleZone::UpdateMarkers(Map* map)
         float angle = angleStep * float(i);
         float x = m_centerX + m_currentRadius * std::cos(angle);
         float y = m_centerY + m_currentRadius * std::sin(angle);
-        float z = map->GetHeight(x, y, MAX_HEIGHT, false); // terrain only, vmap requires active grid
+        // Search from MAX_HEIGHT downward across the full terrain range.
+        // DEFAULT_HEIGHT_SEARCH is only 10 units, which misses AB terrain at z = -110..+40.
+        float z = map->GetHeight(x, y, MAX_HEIGHT, false, MAX_HEIGHT);
         if (z <= INVALID_HEIGHT)
             continue;
 
@@ -221,7 +223,8 @@ void BattleRoyaleZone::ApplyZoneDamage(Player* player)
     uint32 dmg = GetCurrentDamage();
     if (!dmg || !player->IsAlive())
         return;
-    player->DealDamage(player, dmg, nullptr, DIRECT_DAMAGE, SPELL_SCHOOL_MASK_FIRE, nullptr, false);
+    // EnvironmentalDamage shows in the combat log as fire damage with no attacker
+    player->EnvironmentalDamage(DAMAGE_FIRE, dmg);
 }
 
 void BattleRoyaleZone::SendZoneWarning(Player* player)

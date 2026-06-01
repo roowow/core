@@ -46,7 +46,7 @@ inline BattleRoyaleTemplate const& GetABTemplate()
         t.maxPlayers = 20;
         t.enabled    = true;
         t.deploymentStart     = { 990.0f, 1008.0f, 250.0f, 0.0f };
-        t.deploymentTimeoutMs = 30000;
+        t.deploymentTimeoutMs = 45000;
 
         // 20 spawn points across AB.
         // Z source: db = derived from database (guard/flag/trigger), est = estimated from nearby terrain.

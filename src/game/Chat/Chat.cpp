@@ -1225,6 +1225,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "zone",   SEC_DEVELOPER, false, &ChatHandler::HandleBRZoneCommand,   "", nullptr },
         { "phase",  SEC_DEVELOPER, false, &ChatHandler::HandleBRPhaseCommand,  "", nullptr },
         { "cancel", SEC_DEVELOPER, false, &ChatHandler::HandleBRCancelCommand, "", nullptr },
+        { "info",   SEC_DEVELOPER, false, &ChatHandler::HandleBRInfoCommand,   "", nullptr },
         { nullptr,  0,             false, nullptr,                              "", nullptr },
     };
 

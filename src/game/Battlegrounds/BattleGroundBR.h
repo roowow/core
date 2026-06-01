@@ -16,6 +16,7 @@ public:
     ~BattleGroundBR() override;
 
     void SetOwner(BattleRoyale* owner) { m_owner = owner; }
+    BattleRoyale* GetOwner() const { return m_owner; }
 
     // Override all BG mechanics to no-ops — BR handles everything
     bool SetupBattleGround() override { return true; }

@@ -210,6 +210,9 @@ public:
 
 void Map::SpawnActiveObjects()
 {
+    if (!CanLoadDBSpawns())
+        return;
+
     if (MapPersistentState* state = GetPersistentState())
         state->InitPools();
     ActiveObjectsGridLoader loader(this);
@@ -2454,6 +2457,11 @@ void BattleGroundMap::Update(uint32 diff)
 BattleGroundPersistentState* BattleGroundMap::GetPersistanceState() const
 {
     return dynamic_cast<BattleGroundPersistentState*>(Map::GetPersistentState());
+}
+
+bool BattleGroundMap::CanLoadDBSpawns() const
+{
+    return !m_bg || m_bg->GetTypeID() != BATTLEGROUND_BR;
 }
 
 

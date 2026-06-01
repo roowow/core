@@ -1080,6 +1080,35 @@ void PlayerBotMgr::AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam,
     }
 }
 
+void PlayerBotMgr::AddBattleRoyaleBot(uint32 brInstanceId)
+{
+    // Same class pool as regular battle bots, no faction restriction for FFA
+    std::vector<uint32> availableClasses = {
+        CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR,
+        CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,
+        CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,
+        CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,
+        CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
+        CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,
+        CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK,
+        CLASS_PALADIN, CLASS_PALADIN,
+        CLASS_SHAMAN,  CLASS_SHAMAN,
+    };
+
+    uint8 botClass = SelectRandomContainerElement(availableClasses);
+    Team botTeam = urand(0, 1) ? ALLIANCE : HORDE;
+    uint8 botRace = SelectRandomRaceForClass(botClass, botTeam);
+    if (!botRace)
+        return;
+
+    uint32 const instanceId = sMapMgr.GetContinentInstanceId(1, 16224.356f, 16284.763f);
+    BattleBotAI* ai = new BattleBotAI(botRace, botClass, 60, 1, instanceId,
+                                       16224.356f, 16284.763f, 13.175f, 4.56f, 0, true);
+    ai->m_isBattleRoyaleBot = true;
+    ai->m_brInstanceId = brInstanceId;
+    AddBot(ai);
+}
+
 void PlayerBotMgr::DeleteBattleBots()
 {
     for (auto const& itr : m_bots)

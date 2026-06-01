@@ -952,6 +952,9 @@ void GameObject::SaveToDB(uint32 mapid)
 
 bool GameObject::LoadFromDB(uint32 guid, Map* map, bool force)
 {
+    if (!map->CanLoadDBSpawns())
+        return false;
+
     GameObjectData const* data = sObjectMgr.GetGOData(guid);
 
     if (!data)
