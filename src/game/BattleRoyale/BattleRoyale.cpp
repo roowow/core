@@ -148,6 +148,20 @@ bool BattleRoyale::IsAlive(ObjectGuid guid) const
     return it != m_players.end() && it->second.alive;
 }
 
+void BattleRoyale::ForceSetPhase(uint32 phase)
+{
+    m_zone.ForcePhase(phase);
+    if (Map* map = m_host ? m_host->GetBgMap() : nullptr)
+        m_zone.RefreshMarkers(map);
+}
+
+void BattleRoyale::ForceSetRadius(float radius)
+{
+    m_zone.ForceRadius(radius);
+    if (Map* map = m_host ? m_host->GetBgMap() : nullptr)
+        m_zone.RefreshMarkers(map);
+}
+
 // --- private ---
 
 void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)

@@ -32,7 +32,7 @@ public:
 
     // GM helpers
     void ForcePhase(uint32 phase);
-    void ForceRadius(float r) { m_currentRadius = r; m_lastMarkerRadius = -1.0f; }
+    void ForceRadius(float r) { m_currentRadius = r; m_lastMarkerRadius = -1.0f; m_radiusForced = true; }
 
 private:
     void  ApplyZoneDamage(Player* player);
@@ -49,6 +49,7 @@ private:
     uint32  m_phase         = 0;
     uint32  m_phaseTimer    = 0;
     uint32  m_damageTimer   = 1000;
+    bool    m_radiusForced  = false;
 
     uint32  m_markerTimer        = 0;
     float   m_lastMarkerRadius   = -1.0f;  // -1 = markers not yet spawned

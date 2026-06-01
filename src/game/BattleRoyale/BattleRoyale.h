@@ -59,8 +59,8 @@ public:
     BattleGroundBR*    GetHost()      const { return m_host; }
 
     // GM helpers
-    void ForceSetPhase(uint32 phase) { m_zone.ForcePhase(phase); }
-    void ForceSetRadius(float r)     { m_zone.ForceRadius(r); }
+    void ForceSetPhase(uint32 phase);
+    void ForceSetRadius(float r);
     std::map<ObjectGuid, BattleRoyalePlayer> const& GetPlayers() const { return m_players; }
 
 private:

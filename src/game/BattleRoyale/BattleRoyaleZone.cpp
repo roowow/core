@@ -59,7 +59,7 @@ void BattleRoyaleZone::Update(uint32 diff, std::map<ObjectGuid, BattleRoyalePlay
 
     // Smooth radius shrink
     BRZonePhase const& phase = m_tmpl->phases[m_phase];
-    if (phase.durationMs > 0 && m_phaseTimer > 0)
+    if (!m_radiusForced && phase.durationMs > 0 && m_phaseTimer > 0)
     {
         float elapsed  = float(phase.durationMs - m_phaseTimer);
         float progress = elapsed / float(phase.durationMs);
@@ -252,6 +252,8 @@ void BattleRoyaleZone::ForcePhase(uint32 phase)
     m_targetRadius  = m_tmpl->phases[phase].endRadius;
     m_currentRadius = m_startRadius;
     m_phaseTimer    = m_tmpl->phases[phase].durationMs;
+    m_radiusForced  = false;
+    m_lastMarkerRadius = -1.0f;
 }
 
 void BattleRoyaleZone::StartNextPhase()
@@ -270,6 +272,7 @@ void BattleRoyaleZone::StartNextPhase()
     m_phase         = next;
     m_startRadius   = m_tmpl->phases[next].startRadius;
     m_targetRadius  = m_tmpl->phases[next].endRadius;
-    m_currentRadius = m_startRadius;
+    if (!m_radiusForced)
+        m_currentRadius = m_startRadius;
     m_phaseTimer    = m_tmpl->phases[next].durationMs;
 }
