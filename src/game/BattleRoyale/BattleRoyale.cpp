@@ -179,14 +179,14 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
                 ChatHandler(player).PSendSysMessage("[Battle Royale] 空降开始。");
                 sLog.Out(LOG_BASIC, LOG_LVL_DETAIL,
                          "[BattleRoyale] Deployment started player %s path %u instance %u.",
-                         player->GetName().c_str(), brPlayer.deploymentPathId,
+                         player->GetName(), brPlayer.deploymentPathId,
                          m_host ? m_host->GetInstanceID() : 0u);
             }
             else
             {
                 sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
                          "[BattleRoyale] Deployment path %u failed for player %s: %s. Falling back to landing point.",
-                         brPlayer.deploymentPathId, player->GetName().c_str(), error.c_str());
+                         brPlayer.deploymentPathId, player->GetName(), error.c_str());
                 CompleteDeployment(player, brPlayer, true);
             }
         }
