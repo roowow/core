@@ -211,7 +211,7 @@ void BattleRoyaleZone::UpdateMarkers(Map* map)
             continue;
         }
         go->SetRespawnTime(0);
-        go->AddToWorld();
+        map->Add(go);
         m_markerGuids.push_back(go->GetObjectGuid());
     }
 

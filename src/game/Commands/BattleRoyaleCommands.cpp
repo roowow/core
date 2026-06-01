@@ -4,6 +4,8 @@
 #include "Player.h"
 #include "BattleRoyale/BattleRoyaleMgr.h"
 #include "BattleRoyale/BattleRoyale.h"
+#include "Battlegrounds/BattleGroundBR.h"
+#include "ObjectMgr.h"
 
 // .br start   — force start immediately with queued players
 bool ChatHandler::HandleBRStartCommand(char* /*args*/)
