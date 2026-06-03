@@ -2838,6 +2838,10 @@ bool BattleBotAI::IsBadPlayer(Unit const* pTarget) const
     if (pTarget->HasAura(AURA_SILVERWING_FLAG))
         return false;
 
+    if (BattleGround* bg = me->GetBattleGround())
+        if (bg->GetTypeID() == BATTLEGROUND_BR)
+            return false;
+
     if (pTarget->IsMounted())
         return true;
 
