@@ -18,6 +18,7 @@
 #include <cstdio>
 
 static uint32 const BR_FINISH_DELAY_MS     = 10000;
+static uint32 const BR_DEPLOYMENT_START_DELAY_MS = 3000;
 static uint32 const BR_COMMON_CHEST_ENTRY  = 900110;
 
 // All custom BR item entries live in this range; used for inventory cleanup on player exit.
@@ -44,6 +45,7 @@ void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, u
     brPlayer.placementRank    = 0;
     brPlayer.landingPoint     = landingPoint;
     brPlayer.deploymentPathId = deploymentPathId;
+    brPlayer.deploymentStartDelayTimer = BR_DEPLOYMENT_START_DELAY_MS;
     brPlayer.savedPosition    = WorldLocation(player->GetMapId(),
                                               player->GetPositionX(),
                                               player->GetPositionY(),
@@ -213,6 +215,15 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
             Player* player = map->GetPlayer(it->first);
             if (!player)
                 continue;
+
+            if (brPlayer.deploymentStartDelayTimer > 0)
+            {
+                if (brPlayer.deploymentStartDelayTimer <= diff)
+                    brPlayer.deploymentStartDelayTimer = 0;
+                else
+                    brPlayer.deploymentStartDelayTimer -= diff;
+                continue;
+            }
 
             if (brPlayer.deploymentStarted)
             {
@@ -536,7 +547,15 @@ void BattleRoyale::BroadcastPhaseChange(uint32 phase)
 void BattleRoyale::SpawnChests(Map* map)
 {
     if (!map || !m_tmpl || m_tmpl->commonChestPoints.empty())
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
+                 "[BattleRoyale] SpawnChests skipped: map=%s tmpl=%s points=%u",
+                 map ? "ok" : "null",
+                 m_tmpl ? "ok" : "null",
+                 m_tmpl ? uint32(m_tmpl->commonChestPoints.size()) : 0u);
+        BroadcastToAll("[孤胆称雄][调试] 跳过补给箱生成（无坐标或地图无效）。");
         return;
+    }
 
     for (BRSpawnPoint const& pos : m_tmpl->commonChestPoints)
     {
@@ -557,8 +576,14 @@ void BattleRoyale::SpawnChests(Map* map)
         map->Add(go);
         m_chestGuids.push_back(go->GetObjectGuid());
     }
-    sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyale] Spawned %u common chests for instance %u.",
-             uint32(m_chestGuids.size()), m_host ? m_host->GetInstanceID() : 0u);
+    uint32 const spawnedCount = uint32(m_chestGuids.size());
+    uint32 const totalPoints  = uint32(m_tmpl->commonChestPoints.size());
+    sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
+             "[BattleRoyale] Spawned %u / %u common chests for instance %u.",
+             spawnedCount, totalPoints, m_host ? m_host->GetInstanceID() : 0u);
+    char broadcastBuf[128];
+    snprintf(broadcastBuf, sizeof(broadcastBuf), "[孤胆称雄] 已生成 %u 个补给箱。", spawnedCount);
+    BroadcastToAll(broadcastBuf);
 }
 
 void BattleRoyale::CleanupChests(Map* map)

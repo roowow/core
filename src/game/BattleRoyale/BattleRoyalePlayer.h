@@ -15,6 +15,7 @@ struct BattleRoyalePlayer
     uint32        placementRank     = 0;      // 0 = still in game, 1 = winner, N = Nth eliminated
     BRSpawnPoint  landingPoint      = { 0.0f, 0.0f, 0.0f, 0.0f };
     uint32        deploymentPathId  = 0;
+    uint32        deploymentStartDelayTimer = 0;
     bool          deploymentStarted = false;
     bool          landed            = false;
     uint32        killCount         = 0;

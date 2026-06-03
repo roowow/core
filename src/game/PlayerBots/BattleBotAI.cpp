@@ -3549,13 +3549,6 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         return;
     }
 
-    // In zone: eat/drink if needed
-    if (DrinkAndEat())
-        return;
-
-    if (UseMount())
-        return;
-
     // Already in combat — but first check if the target is reachable.
     // Targets on rooftops, steep slopes, or floating can cause the bot to freeze
     // because UpdateInCombatAI keeps chasing forever without reaching them.
@@ -3595,12 +3588,19 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         return;
     }
 
-    // Select a target
+    // In BR, visible enemies should interrupt travel setup immediately.
+    // Only recover or mount when there is no target worth attacking.
     if (Unit* pTarget = SelectAttackTarget())
     {
         AttackStart(pTarget);
         return;
     }
+
+    if (DrinkAndEat())
+        return;
+
+    if (UseMount())
+        return;
 
     // Redirect toward center if too close to the boundary so waypoint patrol
     // doesn't walk the bot into the damage zone.
