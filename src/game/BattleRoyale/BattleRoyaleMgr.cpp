@@ -112,7 +112,6 @@ void ApplyBattleRoyaleStagingMount(Player* player, uint32 deploymentPathId)
 BattleRoyaleMgr::BattleRoyaleMgr()
 {
     LoadSpawnPoints();
-    LoadChestPoints();
 }
 
 void BattleRoyaleMgr::LoadSpawnPoints()
@@ -148,42 +147,6 @@ void BattleRoyaleMgr::LoadSpawnPoints()
     sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
              "[BattleRoyaleMgr] Loaded %u spawn points for template %u.",
              uint32(tmpl.spawnPoints.size()), tmpl.id);
-}
-
-void BattleRoyaleMgr::LoadChestPoints()
-{
-    BattleRoyaleTemplate& tmpl = GetABTemplate();
-    tmpl.commonChestPoints.clear();
-
-    std::unique_ptr<QueryResult> result(WorldDatabase.PQuery(
-        "SELECT `position_x`, `position_y`, `position_z`, `orientation` "
-        "FROM `battle_royale_chest_point` "
-        "WHERE `template_id` = %u AND `chest_type` = 0 "
-        "ORDER BY `id`", tmpl.id));
-
-    if (!result)
-    {
-        sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
-                 "[BattleRoyaleMgr] No common chest points in DB for template %u. "
-                 "Use '.br chest add' in-game to record positions.", tmpl.id);
-        return;
-    }
-
-    do
-    {
-        Field* fields = result->Fetch();
-        BRSpawnPoint pt;
-        pt.x = fields[0].GetFloat();
-        pt.y = fields[1].GetFloat();
-        pt.z = fields[2].GetFloat();
-        pt.o = fields[3].GetFloat();
-        tmpl.commonChestPoints.push_back(pt);
-    }
-    while (result->NextRow());
-
-    sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
-             "[BattleRoyaleMgr] Loaded %u common chest points for template %u.",
-             uint32(tmpl.commonChestPoints.size()), tmpl.id);
 }
 
 void BattleRoyaleMgr::Update(uint32 diff)

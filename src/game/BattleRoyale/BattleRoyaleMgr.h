@@ -36,10 +36,6 @@ public:
     // Called by BattleBotAI when a BR bot finishes initialization and is ready to enter the instance
     void OnBotReady(Player* bot, uint32 instanceId);
 
-    // Load (or reload) chest spawn points from battle_royale_chest_point table into the template.
-    // Safe to call at runtime (e.g., after .br chest add).
-    void LoadChestPoints();
-
     // Load (or reload) player spawn points from battle_royale_spawn_point table into the template.
     // Safe to call at runtime (e.g., after .br spawn add).
     void LoadSpawnPoints();

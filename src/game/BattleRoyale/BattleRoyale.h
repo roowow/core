@@ -73,9 +73,8 @@ private:
     void Eliminate(ObjectGuid guid, bool notify = true, ObjectGuid killerGuid = ObjectGuid());
     void ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlayer);
     void SendBattleReport(ObjectGuid playerGuid, BattleRoyalePlayer const& brPlayer, uint32 survivalSec) const;
-    void SpawnChests(Map* map);
-    void CleanupChests(Map* map);
     static void CleanupBRItems(Player* player);
+    void DrainPendingCorpseLoot();
     void BroadcastToAll(std::string const& msg);
     void BroadcastPhaseChange(uint32 phase);
 
@@ -86,7 +85,6 @@ private:
 
     std::map<ObjectGuid, BattleRoyalePlayer> m_players;
     std::vector<BRRankEntry>                 m_ranks;
-    std::vector<ObjectGuid>                  m_chestGuids;
 
     uint32  m_pendingBotCount  = 0;   // bots created but not yet added via AddPlayer
     uint32  m_landedCount      = 0;

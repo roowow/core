@@ -483,8 +483,6 @@ class ChatHandler
         bool HandleBRInfoCommand(char* args);
         bool HandleBRSpawnAddCommand(char* args);
         bool HandleBRSpawnListCommand(char* args);
-        bool HandleBRChestAddCommand(char* args);
-        bool HandleBRChestListCommand(char* args);
         bool HandleDebugUnitBytes1Command(char* args);
         bool HandleDebugUnitBytes2Command(char* args);
         bool HandleDebugConditionCommand(char* args);

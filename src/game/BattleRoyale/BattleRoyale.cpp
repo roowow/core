@@ -13,17 +13,24 @@
 #include "PlayerBotMgr.h"
 
 #include "Mail.h"
-#include "GameObject.h"
+#include "Corpse.h"
+#include "ObjectAccessor.h"
 
+#include <algorithm>
 #include <cstdio>
 
 static uint32 const BR_FINISH_DELAY_MS     = 10000;
 static uint32 const BR_DEPLOYMENT_START_DELAY_MS = 3000;
-static uint32 const BR_COMMON_CHEST_ENTRY  = 900110;
 static float  const BR_LANDING_CORRECTION_DISTANCE = 5.0f;
 
-// All custom BR item entries live in this range; used for inventory cleanup on player exit.
-static uint32 const BR_ITEM_ENTRIES[] = { 900200, 900210, 900211, 900212, 900213 };
+// Custom BR item entries — must match what is actually in item_template (DB).
+// Used for inventory cleanup on exit and corpse loot transfer.
+// 900214-900221 reserved for future items; not yet in DB, omitted here.
+static uint32 const BR_ITEM_ENTRIES[] =
+{
+    900200, 900210, 900211, 900212, 900213,
+    900222, 900223, 900224, 900225, 900226
+};
 
 BattleRoyale::BattleRoyale(BattleRoyaleTemplate const* tmpl, BattleGroundBR* host)
     : m_status(BattleRoyaleStatus::DEPLOYING), m_tmpl(tmpl), m_host(host),
@@ -71,6 +78,10 @@ void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, u
 
 void BattleRoyale::Update(uint32 diff)
 {
+    // Fill corpse loot deferred from Eliminate() — BuildPlayerRepop() may not
+    // have run yet when Eliminate() was called (HandleKillPlayer fires before it).
+    DrainPendingCorpseLoot();
+
     Map* map = m_host ? m_host->GetBgMap() : nullptr;
 
     if (m_status == BattleRoyaleStatus::DEPLOYING)
@@ -378,7 +389,6 @@ void BattleRoyale::StartRunning()
     // Announce initial zone damage so players know the starting pressure.
     BroadcastPhaseChange(0);
 
-    SpawnChests(map);
 }
 
 void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid)
@@ -449,6 +459,48 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
     if (!it->second.bot)
         SendBattleReport(guid, it->second, survivalSec);
 
+    // Create corpse and fill BR loot while the player is still on the BR map.
+    // HandleKillPlayer fires before BuildPlayerRepop() in the normal death chain;
+    // we call it ourselves so the corpse lands in this BR instance rather than on
+    // whatever map the player ends up on after ReturnPlayer() teleports them away.
+    if (player && !player->IsAlive() && !it->second.bot)
+    {
+        for (uint32 entry : BR_ITEM_ENTRIES)
+        {
+            uint32 count = player->GetItemCount(entry);
+            if (count == 0)
+                continue;
+            // LootItem::count is uint8; cap to 255 to prevent silent truncation.
+            it->second.pendingCorpseLoot.push_back({entry, std::min(count, uint32(255))});
+        }
+
+        if (!it->second.pendingCorpseLoot.empty())
+        {
+            if (!player->GetCorpse())
+                player->BuildPlayerRepop();
+
+            if (Corpse* corpse = player->GetCorpse())
+            {
+                if (!corpse->lootForBody)
+                {
+                    for (BRLootEntry const& e : it->second.pendingCorpseLoot)
+                    {
+                        LootItem item(e.itemEntry, e.count);
+                        corpse->loot.items.push_back(item);
+                        ++corpse->loot.unlootedCount;
+                    }
+                    corpse->loot.m_personal = true;
+                    corpse->lootForBody     = true;
+                    corpse->SetFlag(CORPSE_FIELD_DYNAMIC_FLAGS, CORPSE_DYNFLAG_LOOTABLE);
+                    corpse->ForceValuesUpdateAtIndex(CORPSE_FIELD_DYNAMIC_FLAGS);
+                }
+                it->second.pendingCorpseLoot.clear();
+            }
+            // If GetCorpse() is still null after BuildPlayerRepop() (shouldn't happen),
+            // DrainPendingCorpseLoot() retries next tick with map/instance validation.
+        }
+    }
+
     // MVP: return player immediately (no spectating)
     if (player)
     {
@@ -500,7 +552,6 @@ void BattleRoyale::Finish()
     m_status      = BattleRoyaleStatus::FINISHED;
     m_finishTimer = BR_FINISH_DELAY_MS;
     m_zone.Cleanup(m_host ? m_host->GetBgMap() : nullptr);
-    CleanupChests(m_host ? m_host->GetBgMap() : nullptr);
     BroadcastToAll("[孤胆称雄] 尘埃落定，孤胆之战结束。10 秒后送回原地。");
 
     sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyale] Instance %u finished. Total players: %u",
@@ -511,7 +562,6 @@ void BattleRoyale::Cancel()
 {
     m_status = BattleRoyaleStatus::CANCELLED;
     m_zone.Cleanup(m_host ? m_host->GetBgMap() : nullptr);
-    CleanupChests(m_host ? m_host->GetBgMap() : nullptr);
 
     Map* map = m_host ? m_host->GetBgMap() : nullptr;
     for (auto it = m_players.begin(); it != m_players.end(); ++it)
@@ -535,6 +585,12 @@ void BattleRoyale::ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlay
     }
 
     CleanupBRItems(player);
+
+    // BuildPlayerRepop() in Eliminate() sets the player to DEAD (ghost) so the corpse
+    // lands on the BR map. Resurrect here before teleporting so the player arrives at
+    // their original location alive, not as a ghost.
+    if (!player->IsAlive())
+        player->ResurrectPlayer(1.0f);
 
     player->SetFFAPvP(brPlayer.savedFFAPvP);
     player->SetBGTeam(TEAM_NONE);
@@ -573,74 +629,56 @@ void BattleRoyale::BroadcastPhaseChange(uint32 phase)
     BroadcastToAll(buf);
 }
 
-void BattleRoyale::SpawnChests(Map* map)
-{
-    if (!map || !m_tmpl || m_tmpl->commonChestPoints.empty())
-    {
-        sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
-                 "[BattleRoyale] SpawnChests skipped: map=%s tmpl=%s points=%u",
-                 map ? "ok" : "null",
-                 m_tmpl ? "ok" : "null",
-                 m_tmpl ? uint32(m_tmpl->commonChestPoints.size()) : 0u);
-        BroadcastToAll("[孤胆称雄] 本局没有补给箱投放，猎场只留下脚步与刀锋。");
-        return;
-    }
-
-    for (BRSpawnPoint const& pos : m_tmpl->commonChestPoints)
-    {
-        GameObject* go = new GameObject;
-        if (!go->Create(map->GenerateLocalLowGuid(HIGHGUID_GAMEOBJECT),
-                        BR_COMMON_CHEST_ENTRY, map,
-                        pos.x, pos.y, pos.z, pos.o,
-                        0.0f, 0.0f, 0.0f, 0.0f,
-                        GO_ANIMPROGRESS_DEFAULT, GO_STATE_READY))
-        {
-            delete go;
-            sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-                     "[BattleRoyale] Failed to spawn common chest at %.1f,%.1f,%.1f",
-                     pos.x, pos.y, pos.z);
-            continue;
-        }
-        go->SetRespawnTime(0);
-        // Set loot state to GO_READY before Add() so the initial object update
-        // packet sent to nearby clients already carries the interactable DYN_FLAGS.
-        // Without this, the chest spawns as GO_NOT_READY; the server transitions it
-        // to GO_READY on the next tick but never sends a DYN_FLAGS update, leaving
-        // the client permanently showing the chest as non-interactable.
-        go->SetLootState(GO_READY);
-        map->Add(go);
-        m_chestGuids.push_back(go->GetObjectGuid());
-    }
-    uint32 const spawnedCount = uint32(m_chestGuids.size());
-    uint32 const totalPoints  = uint32(m_tmpl->commonChestPoints.size());
-    sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
-             "[BattleRoyale] Spawned %u / %u common chests for instance %u.",
-             spawnedCount, totalPoints, m_host ? m_host->GetInstanceID() : 0u);
-    char broadcastBuf[128];
-    snprintf(broadcastBuf, sizeof(broadcastBuf), "[孤胆称雄] %u 个补给箱已散落猎场，先到者先得。", spawnedCount);
-    BroadcastToAll(broadcastBuf);
-}
-
-void BattleRoyale::CleanupChests(Map* map)
-{
-    if (map)
-    {
-        for (ObjectGuid const& guid : m_chestGuids)
-        {
-            if (GameObject* go = map->GetGameObject(guid))
-            {
-                go->SetRespawnTime(0);
-                go->Delete();
-            }
-        }
-    }
-    m_chestGuids.clear();
-}
-
 void BattleRoyale::CleanupBRItems(Player* player)
 {
     for (uint32 entry : BR_ITEM_ENTRIES)
         player->DestroyItemCount(entry, 200, true, false);
+}
+
+void BattleRoyale::DrainPendingCorpseLoot()
+{
+    // Fallback for the rare case where BuildPlayerRepop() in Eliminate() didn't
+    // produce a corpse in time. Primary filling happens synchronously in Eliminate().
+    uint32 const brMapId     = m_tmpl ? m_tmpl->mapId : 0;
+    uint32 const brInstId    = m_host ? m_host->GetInstanceID() : 0;
+
+    for (auto& kv : m_players)
+    {
+        BattleRoyalePlayer& brPlayer = kv.second;
+        if (brPlayer.pendingCorpseLoot.empty())
+            continue;
+
+        Corpse* corpse = sObjectAccessor.GetCorpseForPlayerGUID(kv.first);
+        if (!corpse)
+            continue;  // BuildPlayerRepop() hasn't run yet — retry next tick
+
+        // Reject corpses that aren't in this BR instance (e.g. stale corpse from
+        // a previous death, or one created on the player's home map after teleport).
+        if (corpse->GetMapId() != brMapId || corpse->GetInstanceId() != brInstId)
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_DETAIL,
+                     "[BattleRoyale] Discarding pending corpse loot: wrong map/instance "
+                     "(corpse map=%u inst=%u, BR map=%u inst=%u)",
+                     corpse->GetMapId(), corpse->GetInstanceId(), brMapId, brInstId);
+            brPlayer.pendingCorpseLoot.clear();
+            continue;
+        }
+
+        if (!corpse->lootForBody)
+        {
+            for (BRLootEntry const& e : brPlayer.pendingCorpseLoot)
+            {
+                LootItem item(e.itemEntry, e.count);
+                corpse->loot.items.push_back(item);
+                ++corpse->loot.unlootedCount;
+            }
+            corpse->loot.m_personal = true;
+            corpse->lootForBody     = true;
+            corpse->SetFlag(CORPSE_FIELD_DYNAMIC_FLAGS, CORPSE_DYNFLAG_LOOTABLE);
+            corpse->ForceValuesUpdateAtIndex(CORPSE_FIELD_DYNAMIC_FLAGS);
+        }
+        brPlayer.pendingCorpseLoot.clear();
+    }
 }
 
 void BattleRoyale::SendBattleReport(ObjectGuid playerGuid, BattleRoyalePlayer const& brPlayer, uint32 survivalSec) const
