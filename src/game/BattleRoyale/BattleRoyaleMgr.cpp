@@ -8,6 +8,7 @@
 #include "MapManager.h"
 #include "BattleGroundMgr.h"
 #include "Chat.h"
+#include "CustomTaxiMgr.h"
 #include "Database/DatabaseEnv.h"
 #include "Log.h"
 #include "World.h"
@@ -40,6 +41,39 @@ BRSpawnPoint GetCompactDeploymentStart(BRSpawnPoint const& start, uint32 index)
     point.x += offset[0];
     point.y += offset[1];
     return point;
+}
+
+uint32 GetBattleRoyaleStagingMountDisplayId(Player* player, uint32 deploymentPathId)
+{
+    if (!player)
+        return 0;
+
+    if (deploymentPathId)
+    {
+        auto const& paths = sCustomTaxiMgr.GetPaths();
+        auto pathItr = paths.find(deploymentPathId);
+        if (pathItr != paths.end() && pathItr->second.mountDisplayId)
+            return pathItr->second.mountDisplayId;
+    }
+
+    uint32 const sourceTaxiNode = player->GetTeam() == ALLIANCE ? 2 : 23;
+    return sObjectMgr.GetTaxiMountDisplayId(sourceTaxiNode, player->GetTeam(), true);
+}
+
+void ApplyBattleRoyaleStagingMount(Player* player, uint32 deploymentPathId)
+{
+    uint32 const mountDisplayId = GetBattleRoyaleStagingMountDisplayId(player, deploymentPathId);
+    if (!mountDisplayId)
+        return;
+
+    player->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+    if (player->IsInDisallowedMountForm())
+    {
+        player->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
+        player->RemoveSpellsCausingAura(SPELL_AURA_TRANSFORM);
+    }
+
+    player->Mount(mountDisplayId);
 }
 }
 
@@ -297,7 +331,9 @@ void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
     m_playerInstMap[bot->GetObjectGuid()] = instanceId;
 
     BRSpawnPoint const start = GetCompactDeploymentStart(tmpl.deploymentStart, spawnIndex);
-    bot->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o);
+    ApplyBattleRoyaleStagingMount(bot, deploymentPathId);
+    if (!bot->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o) && bot->IsMounted())
+        bot->Unmount();
 
     sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyaleMgr] Bot %s ready for instance %u (spawn %u).",
              bot->GetName(), instanceId, spawnIndex);
@@ -439,8 +475,10 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
         m_playerInstMap[player->GetObjectGuid()] = instanceId;
 
         BRSpawnPoint const deploymentStart = GetCompactDeploymentStart(tmpl.deploymentStart, spawnIndex);
-        player->TeleportTo(tmpl.mapId, deploymentStart.x, deploymentStart.y,
-                           deploymentStart.z, deploymentStart.o);
+        ApplyBattleRoyaleStagingMount(player, deploymentPathId);
+        if (!player->TeleportTo(tmpl.mapId, deploymentStart.x, deploymentStart.y,
+                                deploymentStart.z, deploymentStart.o) && player->IsMounted())
+            player->Unmount();
     }
 
     // Fill remaining slots with bots

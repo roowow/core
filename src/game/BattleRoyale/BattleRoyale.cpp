@@ -321,6 +321,9 @@ void BattleRoyale::CompleteDeployment(Player* player, BattleRoyalePlayer& brPlay
             player->TeleportTo(m_tmpl->mapId, landing.x, landing.y, landZ, landing.o);
     }
 
+    if (player && player->IsMounted())
+        player->Unmount();
+
     brPlayer.deploymentStarted = false;
     brPlayer.landed = true;
     ++m_landedCount;

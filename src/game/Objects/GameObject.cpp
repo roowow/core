@@ -1473,6 +1473,14 @@ void GameObject::Use(Unit* user)
 
             GetMap()->ScriptsStart(sGameObjectScripts, GetGUIDLow(), user->GetObjectGuid(), GetObjectGuid());
             TriggerLinkedGameObject(user);
+
+            // DB-spawned chests open via gameobject_scripts (indexed by spawn GUID).
+            // Dynamically created chests have no DB GUID and therefore no scripts;
+            // open their loot window directly so they behave like regular chests.
+            if (GetDBTableGUIDLow() == 0 && getLootState() == GO_READY
+                && GetGOInfo()->GetLootId() && GetGOInfo()->GetLockId() == 0)
+                ((Player*)user)->SendLoot(GetObjectGuid(), LOOT_CORPSE);
+
             return;
         }
         case GAMEOBJECT_TYPE_GENERIC:                       // 5
