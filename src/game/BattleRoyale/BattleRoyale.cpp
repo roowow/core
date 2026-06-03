@@ -20,6 +20,7 @@
 static uint32 const BR_FINISH_DELAY_MS     = 10000;
 static uint32 const BR_DEPLOYMENT_START_DELAY_MS = 3000;
 static uint32 const BR_COMMON_CHEST_ENTRY  = 900110;
+static float  const BR_LANDING_CORRECTION_DISTANCE = 5.0f;
 
 // All custom BR item entries live in this range; used for inventory cleanup on player exit.
 static uint32 const BR_ITEM_ENTRIES[] = { 900200, 900210, 900211, 900212, 900213 };
@@ -65,7 +66,7 @@ void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, u
     player->SetBGTeam(TEAM_NONE);
 
     if (!isBot)
-        ChatHandler(player).PSendSysMessage("[孤胆称雄] 欢迎！正在准备空降，共 %u 名参与者。", m_totalCount);
+        ChatHandler(player).PSendSysMessage("[孤胆称雄] 号角已响，你将空降入场。此局已有 %u 名独行者。", m_totalCount);
 }
 
 void BattleRoyale::Update(uint32 diff)
@@ -242,7 +243,7 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
             if (sCustomTaxiMgr.Play(player, brPlayer.deploymentPathId, error))
             {
                 brPlayer.deploymentStarted = true;
-                ChatHandler(player).PSendSysMessage("[孤胆称雄] 空降开始。");
+                ChatHandler(player).PSendSysMessage("[孤胆称雄] 风声掠过耳畔，空降开始。落地后，只有自己可信。");
                 sLog.Out(LOG_BASIC, LOG_LVL_DETAIL,
                          "[BattleRoyale] Deployment started player %s path %u instance %u.",
                          player->GetName(), brPlayer.deploymentPathId,
@@ -299,21 +300,25 @@ void BattleRoyale::CompleteDeployment(Player* player, BattleRoyalePlayer& brPlay
         }
         player->TeleportTo(m_tmpl->mapId, landing.x, landing.y, landZ, landing.o);
     }
-    else if (player && brPlayer.bot)
+    else if (player)
     {
-        // Bot landed via taxi normally (teleportToLandingPoint = false).
-        // The taxi endpoint may be slightly above the server terrain mesh — real players
-        // fall via client physics, bots don't. Snap to actual ground here.
+        // Keep DB spawn points authoritative. If an old or hand-written route ends away
+        // from the assigned spawn point, snap the participant to the recorded landing.
+        // Bots also need a terrain-Z snap because they do not fall via client physics.
+        BRSpawnPoint const& landing = brPlayer.landingPoint;
+        float landZ = landing.z;
         Map* bgMap = m_host ? m_host->GetBgMap() : nullptr;
-        if (bgMap)
+        if (brPlayer.bot && bgMap)
         {
-            float gx = player->GetPositionX();
-            float gy = player->GetPositionY();
-            float gz = player->GetPositionZ();
-            float groundZ = bgMap->GetHeight(gx, gy, MAX_HEIGHT, false, MAX_HEIGHT);
-            if (groundZ > INVALID_HEIGHT && gz > groundZ + 0.5f)
-                player->TeleportTo(m_tmpl->mapId, gx, gy, groundZ, player->GetOrientation());
+            float groundZ = bgMap->GetHeight(landing.x, landing.y, MAX_HEIGHT, false, MAX_HEIGHT);
+            if (groundZ > INVALID_HEIGHT)
+                landZ = groundZ;
         }
+
+        bool const farFromLanding = player->GetDistance(landing.x, landing.y, landZ) > BR_LANDING_CORRECTION_DISTANCE;
+        bool const botFloating = brPlayer.bot && player->GetPositionZ() > landZ + 0.5f;
+        if (farFromLanding || botFloating)
+            player->TeleportTo(m_tmpl->mapId, landing.x, landing.y, landZ, landing.o);
     }
 
     brPlayer.deploymentStarted = false;
@@ -348,7 +353,7 @@ void BattleRoyale::StartPreparing()
     if (map)
         m_zone.RefreshMarkers(map);
 
-    BroadcastToAll("[孤胆称雄] 空降完成！30 秒后对局开始。");
+    BroadcastToAll("[孤胆称雄] 众人已落地，猎场即将苏醒。30 秒后解除庇护。");
 }
 
 void BattleRoyale::StartRunning()
@@ -364,7 +369,7 @@ void BattleRoyale::StartRunning()
         if (!player)
             continue;
         player->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER | UNIT_FLAG_IMMUNE_TO_NPC);
-        ChatHandler(player).PSendSysMessage("[孤胆称雄] 对局开始！最后存活者获胜！");
+        ChatHandler(player).PSendSysMessage("[孤胆称雄] 庇护散去，猎场开战！活到最后，方可称雄。");
     }
 
     // Announce initial zone damage so players know the starting pressure.
@@ -406,13 +411,34 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
         player->SendMirrorTimerStop(MirrorTimer::FATIGUE);
 
     if (notify && player)
-        ChatHandler(player).PSendSysMessage("[孤胆称雄] 你已被淘汰！排名第 %u。", it->second.placementRank);
+        ChatHandler(player).PSendSysMessage("[孤胆称雄] 你的征途止步于此，最终排名第 %u。", it->second.placementRank);
 
     // Broadcast to survivors
     {
-        char buf[128];
-        std::string name = player ? player->GetName() : "玩家";
-        snprintf(buf, sizeof(buf), "[孤胆称雄] %s 已被淘汰，剩余 %u 名存活者。", name.c_str(), m_aliveCount);
+        char buf[192];
+        std::string victimName = player ? player->GetName() : "一名试炼者";
+        std::string victimTitle = it->second.bot ? "机器人" : "玩家";
+
+        if (killerGuid && killerGuid != guid)
+        {
+            Player* killer = map ? map->GetPlayer(killerGuid) : nullptr;
+            auto killerRecord = m_players.find(killerGuid);
+            bool const killerIsBot = killerRecord != m_players.end() && killerRecord->second.bot;
+            std::string killerName = killer ? killer->GetName() : "未知猎手";
+            std::string killerTitle = killerIsBot ? "机器人" : "玩家";
+            snprintf(buf, sizeof(buf), "[孤胆称雄] %s %s 被 %s %s 击倒，猎场还剩 %u 人。",
+                     victimTitle.c_str(), victimName.c_str(), killerTitle.c_str(), killerName.c_str(), m_aliveCount);
+        }
+        else if (!notify)
+        {
+            snprintf(buf, sizeof(buf), "[孤胆称雄] %s %s 离开猎场，剩余 %u 名独行者。",
+                     victimTitle.c_str(), victimName.c_str(), m_aliveCount);
+        }
+        else
+        {
+            snprintf(buf, sizeof(buf), "[孤胆称雄] %s %s 倒在毒圈边缘，猎场还剩 %u 人。",
+                     victimTitle.c_str(), victimName.c_str(), m_aliveCount);
+        }
         BroadcastToAll(buf);
     }
 
@@ -444,7 +470,7 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
         {
             Player* winner = map->GetPlayer(winnerGuid);
             if (winner)
-                ChatHandler(winner).PSendSysMessage("[孤胆称雄] 恭喜！你是最后的存活者！");
+                ChatHandler(winner).PSendSysMessage("[孤胆称雄] 冠军诞生！你独自站到最后，猎场记住了你的名字。");
         }
 
         Finish();
@@ -472,7 +498,7 @@ void BattleRoyale::Finish()
     m_finishTimer = BR_FINISH_DELAY_MS;
     m_zone.Cleanup(m_host ? m_host->GetBgMap() : nullptr);
     CleanupChests(m_host ? m_host->GetBgMap() : nullptr);
-    BroadcastToAll("[孤胆称雄] 对局结束！10 秒后返回原位置。");
+    BroadcastToAll("[孤胆称雄] 尘埃落定，孤胆之战结束。10 秒后送回原地。");
 
     sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyale] Instance %u finished. Total players: %u",
              m_host ? m_host->GetInstanceID() : 0u, m_totalCount);
@@ -553,7 +579,7 @@ void BattleRoyale::SpawnChests(Map* map)
                  map ? "ok" : "null",
                  m_tmpl ? "ok" : "null",
                  m_tmpl ? uint32(m_tmpl->commonChestPoints.size()) : 0u);
-        BroadcastToAll("[孤胆称雄][调试] 跳过补给箱生成（无坐标或地图无效）。");
+        BroadcastToAll("[孤胆称雄] 本局没有补给箱投放，猎场只留下脚步与刀锋。");
         return;
     }
 
@@ -573,6 +599,12 @@ void BattleRoyale::SpawnChests(Map* map)
             continue;
         }
         go->SetRespawnTime(0);
+        // Set loot state to GO_READY before Add() so the initial object update
+        // packet sent to nearby clients already carries the interactable DYN_FLAGS.
+        // Without this, the chest spawns as GO_NOT_READY; the server transitions it
+        // to GO_READY on the next tick but never sends a DYN_FLAGS update, leaving
+        // the client permanently showing the chest as non-interactable.
+        go->SetLootState(GO_READY);
         map->Add(go);
         m_chestGuids.push_back(go->GetObjectGuid());
     }
@@ -582,7 +614,7 @@ void BattleRoyale::SpawnChests(Map* map)
              "[BattleRoyale] Spawned %u / %u common chests for instance %u.",
              spawnedCount, totalPoints, m_host ? m_host->GetInstanceID() : 0u);
     char broadcastBuf[128];
-    snprintf(broadcastBuf, sizeof(broadcastBuf), "[孤胆称雄] 已生成 %u 个补给箱。", spawnedCount);
+    snprintf(broadcastBuf, sizeof(broadcastBuf), "[孤胆称雄] %u 个补给箱已散落猎场，先到者先得。", spawnedCount);
     BroadcastToAll(broadcastBuf);
 }
 
@@ -615,16 +647,21 @@ void BattleRoyale::SendBattleReport(ObjectGuid playerGuid, BattleRoyalePlayer co
     uint32 const total = m_totalCount;
     uint32 const mm    = survivalSec / 60;
     uint32 const ss    = survivalSec % 60;
+    char const* closing = rank == 1
+        ? "你是最后的存活者。此战过后，孤胆称雄。"
+        : "下一次落地，猎场仍会等待新的名字。";
 
-    char body[512];
+    char body[768];
     snprintf(body, sizeof(body),
-             "本次孤胆称雄战报：\n\n"
-             "最终排名：第 %u 名 / 共 %u 人\n"
-             "击杀数量：%u 人\n"
-             "存活时间：%02u:%02u",
-             rank, total, kills, mm, ss);
+             "孤胆称雄战报\n\n"
+             "猎场已经沉寂，属于你的这一局写入战册。\n\n"
+             "最终名次：第 %u 名 / 共 %u 人\n"
+             "击倒对手：%u 人\n"
+             "存活时间：%02u:%02u\n\n"
+             "%s",
+             rank, total, kills, mm, ss, closing);
 
-    const char* subject = (rank == 1) ? "「孤胆称雄」战报 - 冠军！" : "「孤胆称雄」战报";
+    const char* subject = (rank == 1) ? "「孤胆称雄」冠军战报" : "「孤胆称雄」猎场战报";
 
     MailDraft(subject, std::string(body))
         .SendMailTo(MailReceiver(playerGuid),

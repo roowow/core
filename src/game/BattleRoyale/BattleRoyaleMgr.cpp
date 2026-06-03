@@ -18,6 +18,31 @@
 
 INSTANTIATE_SINGLETON_1(BattleRoyaleMgr);
 
+namespace
+{
+BRSpawnPoint GetCompactDeploymentStart(BRSpawnPoint const& start, uint32 index)
+{
+    static float const offsets[][2] =
+    {
+        {   0.0f,   0.0f },
+        {   6.0f,   0.0f }, {   0.0f,   6.0f }, {  -6.0f,   0.0f }, {   0.0f,  -6.0f },
+        {   4.5f,   4.5f }, {  -4.5f,   4.5f }, {  -4.5f,  -4.5f }, {   4.5f,  -4.5f },
+        {  12.0f,   0.0f }, {   0.0f,  12.0f }, { -12.0f,   0.0f }, {   0.0f, -12.0f },
+        {   8.5f,   8.5f }, {  -8.5f,   8.5f }, {  -8.5f,  -8.5f }, {   8.5f,  -8.5f },
+        {  18.0f,   0.0f }, {   0.0f,  18.0f }, { -18.0f,   0.0f }, {   0.0f, -18.0f },
+        {  13.0f,  13.0f }, { -13.0f,  13.0f }, { -13.0f, -13.0f }, {  13.0f, -13.0f },
+        {  16.0f,   8.0f }, {  -8.0f,  16.0f }, { -16.0f,  -8.0f }, {   8.0f, -16.0f },
+        {  16.0f,  -8.0f }, {   8.0f,  16.0f }
+    };
+
+    BRSpawnPoint point = start;
+    float const* offset = offsets[index % (sizeof(offsets) / sizeof(offsets[0]))];
+    point.x += offset[0];
+    point.y += offset[1];
+    return point;
+}
+}
+
 BattleRoyaleMgr::BattleRoyaleMgr()
 {
     LoadSpawnPoints();
@@ -140,7 +165,7 @@ void BattleRoyaleMgr::Update(uint32 diff)
         m_countdownTimer  = COUNTDOWN_SEC * 1000;
 
         WorldPacket data;
-        ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM, "[孤胆称雄] 对局即将开始，60 秒后开局！还没报名的快去找令使！");
+        ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM, "[孤胆称雄] 猎场将启，60 秒后封场开局！想称雄者，速去令使处报名。");
         sWorld.SendGlobalMessage(&data);
     }
 
@@ -164,7 +189,7 @@ bool BattleRoyaleMgr::EnqueuePlayer(Player* player, std::string& outError)
 
     ObjectGuid guid = player->GetObjectGuid();
     m_queue.push_back(guid);
-    ChatHandler(player).PSendSysMessage("[孤胆称雄] 已加入队列（当前 %u 人）。", uint32(m_queue.size()));
+    ChatHandler(player).PSendSysMessage("[孤胆称雄] 你已立下孤胆战约，当前候战 %u 人。", uint32(m_queue.size()));
     return true;
 }
 
@@ -183,7 +208,7 @@ bool BattleRoyaleMgr::DequeuePlayer(Player* player)
         m_countdownTimer  = 0;
     }
 
-    ChatHandler(player).PSendSysMessage("[孤胆称雄] 已离开队列。");
+    ChatHandler(player).PSendSysMessage("[孤胆称雄] 你已收起战约，离开候战队列。");
     return true;
 }
 
@@ -271,7 +296,7 @@ void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
     br->AddPlayer(bot, sp, deploymentPathId, true /*isBot*/);
     m_playerInstMap[bot->GetObjectGuid()] = instanceId;
 
-    BRSpawnPoint const& start = tmpl.deploymentStart;
+    BRSpawnPoint const start = GetCompactDeploymentStart(tmpl.deploymentStart, spawnIndex);
     bot->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o);
 
     sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyaleMgr] Bot %s ready for instance %u (spawn %u).",
@@ -413,7 +438,7 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
         br->AddPlayer(player, sp, deploymentPathId);
         m_playerInstMap[player->GetObjectGuid()] = instanceId;
 
-        BRSpawnPoint const& deploymentStart = tmpl.deploymentStart;
+        BRSpawnPoint const deploymentStart = GetCompactDeploymentStart(tmpl.deploymentStart, spawnIndex);
         player->TeleportTo(tmpl.mapId, deploymentStart.x, deploymentStart.y,
                            deploymentStart.z, deploymentStart.o);
     }

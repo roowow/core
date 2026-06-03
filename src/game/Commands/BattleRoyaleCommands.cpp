@@ -14,11 +14,11 @@ bool ChatHandler::HandleBRStartCommand(char* /*args*/)
 {
     if (sBattleRoyaleMgr.GetQueueSize() == 0)
     {
-        SendSysMessage("[BR] 队列为空，无法开始。");
+        SendSysMessage("[孤胆称雄] 候战席无人，猎场暂不能开启。");
         return true;
     }
     sBattleRoyaleMgr.ForceStartNow();
-    SendSysMessage("[BR] 已强制开始对局。");
+    SendSysMessage("[孤胆称雄] 已强制敲响开局号角。");
     return true;
 }
 
@@ -28,16 +28,16 @@ bool ChatHandler::HandleBRJoinCommand(char* /*args*/)
     Player* player = m_session->GetPlayer();
     std::string err;
     if (sBattleRoyaleMgr.EnqueuePlayer(player, err))
-        PSendSysMessage("[BR] 已加入队列（%u 人）。", sBattleRoyaleMgr.GetQueueSize());
+        PSendSysMessage("[孤胆称雄] 报名确认，候战席当前 %u 人。", sBattleRoyaleMgr.GetQueueSize());
     else
-        PSendSysMessage("[BR] 无法加入：%s", err.c_str());
+        PSendSysMessage("[孤胆称雄] 暂不能入场：%s", err.c_str());
     return true;
 }
 
 // .br status  — show queue count and active instances
 bool ChatHandler::HandleBRStatusCommand(char* /*args*/)
 {
-    PSendSysMessage("[BR] 队列人数：%u。", sBattleRoyaleMgr.GetQueueSize());
+    PSendSysMessage("[孤胆称雄] 当前候战人数：%u。", sBattleRoyaleMgr.GetQueueSize());
     return true;
 }
 
