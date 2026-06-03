@@ -20,7 +20,43 @@ INSTANTIATE_SINGLETON_1(BattleRoyaleMgr);
 
 BattleRoyaleMgr::BattleRoyaleMgr()
 {
+    LoadSpawnPoints();
     LoadChestPoints();
+}
+
+void BattleRoyaleMgr::LoadSpawnPoints()
+{
+    BattleRoyaleTemplate& tmpl = GetABTemplate();
+    tmpl.spawnPoints.clear();
+
+    std::unique_ptr<QueryResult> result(WorldDatabase.PQuery(
+        "SELECT `position_x`, `position_y`, `position_z`, `orientation` "
+        "FROM `battle_royale_spawn_point` "
+        "WHERE `template_id` = %u ORDER BY `id`", tmpl.id));
+
+    if (!result)
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
+                 "[BattleRoyaleMgr] No spawn points in DB for template %u. "
+                 "Use '.br spawn add' in-game to record positions.", tmpl.id);
+        return;
+    }
+
+    do
+    {
+        Field* fields = result->Fetch();
+        BRSpawnPoint pt;
+        pt.x = fields[0].GetFloat();
+        pt.y = fields[1].GetFloat();
+        pt.z = fields[2].GetFloat();
+        pt.o = fields[3].GetFloat();
+        tmpl.spawnPoints.push_back(pt);
+    }
+    while (result->NextRow());
+
+    sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
+             "[BattleRoyaleMgr] Loaded %u spawn points for template %u.",
+             uint32(tmpl.spawnPoints.size()), tmpl.id);
 }
 
 void BattleRoyaleMgr::LoadChestPoints()

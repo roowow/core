@@ -126,6 +126,53 @@ bool ChatHandler::HandleBRPhaseCommand(char* args)
     return true;
 }
 
+// .br spawn add  — record GM's current position as a player spawn point
+bool ChatHandler::HandleBRSpawnAddCommand(char* /*args*/)
+{
+    Player* player = m_session->GetPlayer();
+
+    if (player->GetMapId() != 529)
+    {
+        SendSysMessage("[BR] 此命令只能在阿拉希盆地（地图 529）内使用。");
+        return true;
+    }
+
+    float x = player->GetPositionX();
+    float y = player->GetPositionY();
+    float z = player->GetPositionZ();
+    float o = player->GetOrientation();
+
+    WorldDatabase.PExecute(
+        "INSERT INTO `battle_royale_spawn_point` "
+        "(`template_id`, `position_x`, `position_y`, `position_z`, `orientation`) "
+        "VALUES (%u, %f, %f, %f, %f)",
+        1u, x, y, z, o);
+
+    sBattleRoyaleMgr.LoadSpawnPoints();
+
+    PSendSysMessage("[BR] 已记录出生点 (%.2f, %.2f, %.2f)，当前共 %u / %u 个。",
+                    x, y, z,
+                    uint32(GetABTemplate().spawnPoints.size()),
+                    GetABTemplate().maxPlayers);
+    return true;
+}
+
+// .br spawn list  — list all recorded spawn points
+bool ChatHandler::HandleBRSpawnListCommand(char* /*args*/)
+{
+    BattleRoyaleTemplate const& tmpl = GetABTemplate();
+    uint32 count = uint32(tmpl.spawnPoints.size());
+    PSendSysMessage("[BR] 出生点共 %u 个（需要 %u 个）：", count, tmpl.maxPlayers);
+    for (uint32 i = 0; i < count; ++i)
+    {
+        BRSpawnPoint const& pt = tmpl.spawnPoints[i];
+        PSendSysMessage("[BR]  #%-2u  (%.2f, %.2f, %.2f)", i + 1, pt.x, pt.y, pt.z);
+    }
+    if (count == 0)
+        SendSysMessage("[BR] 暂无记录。用 .br spawn add 在地面上添加。");
+    return true;
+}
+
 // .br chest add  — record GM's current position as a common chest spawn point
 // Must be used standing on the ground inside Arathi Basin (mapId 529).
 bool ChatHandler::HandleBRChestAddCommand(char* /*args*/)

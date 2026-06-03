@@ -1217,6 +1217,13 @@ ChatCommand * ChatHandler::getCommandTable()
         { nullptr,          0,                false, nullptr,                                          "", nullptr }
     };
 
+    static ChatCommand brSpawnCommandTable[] =
+    {
+        { "add",  SEC_DEVELOPER, false, &ChatHandler::HandleBRSpawnAddCommand,  "", nullptr },
+        { "list", SEC_DEVELOPER, true,  &ChatHandler::HandleBRSpawnListCommand, "", nullptr },
+        { nullptr, 0,            false, nullptr,                                 "", nullptr },
+    };
+
     static ChatCommand brChestCommandTable[] =
     {
         { "add",  SEC_DEVELOPER, false, &ChatHandler::HandleBRChestAddCommand,  "", nullptr },
@@ -1233,6 +1240,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "phase",  SEC_DEVELOPER, false, &ChatHandler::HandleBRPhaseCommand,  "", nullptr },
         { "cancel", SEC_DEVELOPER, false, &ChatHandler::HandleBRCancelCommand, "", nullptr },
         { "info",   SEC_DEVELOPER, false, &ChatHandler::HandleBRInfoCommand,   "", nullptr },
+        { "spawn",  SEC_DEVELOPER, false, nullptr,                              "", brSpawnCommandTable },
         { "chest",  SEC_DEVELOPER, false, nullptr,                              "", brChestCommandTable },
         { nullptr,  0,             false, nullptr,                              "", nullptr },
     };
