@@ -603,7 +603,7 @@ void BattleRoyale::SendBattleReport(ObjectGuid playerGuid, BattleRoyalePlayer co
 
     MailDraft(subject, std::string(body))
         .SendMailTo(MailReceiver(playerGuid),
-                    MailSender(MAIL_NORMAL, 0, MAIL_STATIONERY_DEFAULT));
+                    MailSender(MAIL_NORMAL, uint32(0), MAIL_STATIONERY_DEFAULT));
 }
 
 void BattleRoyale::BroadcastToAll(std::string const& msg)
