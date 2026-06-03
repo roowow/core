@@ -21,6 +21,8 @@ INSTANTIATE_SINGLETON_1(BattleRoyaleMgr);
 
 namespace
 {
+uint32 const BR_DEFAULT_DEPLOYMENT_PATH_BASE = 910000;
+
 BRSpawnPoint GetCompactDeploymentStart(BRSpawnPoint const& start, uint32 index)
 {
     static float const offsets[][2] =
@@ -41,6 +43,36 @@ BRSpawnPoint GetCompactDeploymentStart(BRSpawnPoint const& start, uint32 index)
     point.x += offset[0];
     point.y += offset[1];
     return point;
+}
+
+bool IsBattleRoyaleDeploymentPathLoaded(uint32 pathId)
+{
+    if (!pathId)
+        return false;
+
+    auto const& paths = sCustomTaxiMgr.GetPaths();
+    auto pathItr = paths.find(pathId);
+    return pathItr != paths.end() && !pathItr->second.nodes.empty();
+}
+
+uint32 ResolveBattleRoyaleDeploymentPath(uint32 spawnIndex, std::map<uint32, uint32> const& deploymentPaths)
+{
+    auto pathItr = deploymentPaths.find(spawnIndex);
+    if (pathItr != deploymentPaths.end() && IsBattleRoyaleDeploymentPathLoaded(pathItr->second))
+        return pathItr->second;
+
+    uint32 const defaultPathId = BR_DEFAULT_DEPLOYMENT_PATH_BASE + spawnIndex;
+    if (IsBattleRoyaleDeploymentPathLoaded(defaultPathId))
+        return defaultPathId;
+
+    if (pathItr != deploymentPaths.end() && pathItr->second)
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                 "[BattleRoyaleMgr] Deployment path %u for spawn %u is not loaded; default path %u is unavailable.",
+                 pathItr->second, spawnIndex, defaultPathId);
+    }
+
+    return 0;
 }
 
 uint32 GetBattleRoyaleStagingMountDisplayId(Player* player, uint32 deploymentPathId)
@@ -319,12 +351,12 @@ void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
     std::unique_ptr<QueryResult> pathResult = WorldDatabase.PQuery(
         "SELECT `spawn_index`, `custom_taxi_path_id` FROM `battle_royale_deployment_path` "
         "WHERE `template_id` = %u AND `spawn_index` = %u", tmpl.id, spawnIndex);
-    uint32 deploymentPathId = 0;
     if (pathResult)
     {
         Field* fields = pathResult->Fetch();
-        deploymentPathId = fields[1].GetUInt32();
+        deploymentPaths[fields[0].GetUInt32()] = fields[1].GetUInt32();
     }
+    uint32 deploymentPathId = ResolveBattleRoyaleDeploymentPath(spawnIndex, deploymentPaths);
 
     bot->SetBattleGroundEntryPoint();
     br->AddPlayer(bot, sp, deploymentPathId, true /*isBot*/);
@@ -466,7 +498,7 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
         Player* player = players[i];
         uint32 spawnIndex = spawnIndexes[i % spawnIndexes.size()];
         BRSpawnPoint const& sp = spawns[spawnIndex];
-        uint32 deploymentPathId = deploymentPaths[spawnIndex];
+        uint32 deploymentPathId = ResolveBattleRoyaleDeploymentPath(spawnIndex, deploymentPaths);
 
         // Register player BEFORE TeleportTo so BattleGroundMap::CanEnter()
         // finds the correct instanceId when the transfer is processed.

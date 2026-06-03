@@ -1180,6 +1180,10 @@ bool GameObject::ActivateToQuest(Player const* pTarget) const
     if (pTarget->HasQuestForGO(GetEntry()))
         return true;
 
+    if (GetGoType() == GAMEOBJECT_TYPE_CHEST && GetDBTableGUIDLow() == 0 &&
+        getLootState() == GO_READY && GetGOInfo()->GetLootId() && GetGOInfo()->GetLockId() == 0)
+        return true;
+
     if (!sObjectMgr.IsGameObjectForQuests(GetEntry()))
         return false;
 
