@@ -17,6 +17,7 @@ struct BattleRoyalePlayer
     uint32        deploymentPathId  = 0;
     bool          deploymentStarted = false;
     bool          landed            = false;
+    uint32        killCount         = 0;
 
     // Saved on enter, restored on leave
     WorldLocation savedPosition;

@@ -29,13 +29,16 @@ struct BattleRoyaleTemplate
 
     std::vector<BRSpawnPoint> spawnPoints;
     std::vector<BRZonePhase>  phases;
+    std::vector<BRSpawnPoint> commonChestPoints; // 普通箱生成点，需 GM 现场验证
 };
 
 // Arathi Basin MVP template – spawn coordinates must be verified in-game by a GM.
-inline BattleRoyaleTemplate const& GetABTemplate()
+// Returns a mutable reference so BattleRoyaleMgr::LoadChestPoints() can populate
+// commonChestPoints from the database after server startup.
+inline BattleRoyaleTemplate& GetABTemplate()
 {
     // C++14 guarantees thread-safe initialization of static local variables (§6.7)
-    static BattleRoyaleTemplate const tmpl = []() -> BattleRoyaleTemplate
+    static BattleRoyaleTemplate tmpl = []() -> BattleRoyaleTemplate
     {
         BattleRoyaleTemplate t;
         t.id         = 1;
@@ -92,6 +95,9 @@ inline BattleRoyaleTemplate const& GetABTemplate()
         }; // total: 12 min
         for (BRZonePhase const& ph : phases)
             t.phases.push_back(ph);
+
+        // commonChestPoints 由 BattleRoyaleMgr::LoadChestPoints() 从数据库加载，此处留空。
+        // 使用 .br chest add 命令在游戏内站到目标位置后记录坐标。
 
         return t;
     }();

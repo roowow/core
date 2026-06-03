@@ -12,9 +12,16 @@
 #include "MotionMaster.h"
 #include "PlayerBotMgr.h"
 
+#include "Mail.h"
+#include "GameObject.h"
+
 #include <cstdio>
 
-static uint32 const BR_FINISH_DELAY_MS = 10000;
+static uint32 const BR_FINISH_DELAY_MS     = 10000;
+static uint32 const BR_COMMON_CHEST_ENTRY  = 900110;
+
+// All custom BR item entries live in this range; used for inventory cleanup on player exit.
+static uint32 const BR_ITEM_ENTRIES[] = { 900200, 900210, 900211, 900212, 900213 };
 
 BattleRoyale::BattleRoyale(BattleRoyaleTemplate const* tmpl, BattleGroundBR* host)
     : m_status(BattleRoyaleStatus::DEPLOYING), m_tmpl(tmpl), m_host(host),
@@ -56,7 +63,7 @@ void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, u
     player->SetBGTeam(TEAM_NONE);
 
     if (!isBot)
-        ChatHandler(player).PSendSysMessage("[Battle Royale] 欢迎！正在准备空降，共 %u 名参与者。", m_totalCount);
+        ChatHandler(player).PSendSysMessage("[孤胆称雄] 欢迎！正在准备空降，共 %u 名参与者。", m_totalCount);
 }
 
 void BattleRoyale::Update(uint32 diff)
@@ -141,11 +148,11 @@ void BattleRoyale::Update(uint32 diff)
     }
 }
 
-void BattleRoyale::OnPlayerDied(ObjectGuid guid)
+void BattleRoyale::OnPlayerDied(ObjectGuid victim, ObjectGuid killer)
 {
-    auto it = m_players.find(guid);
+    auto it = m_players.find(victim);
     if (it != m_players.end() && it->second.alive)
-        Eliminate(guid);
+        Eliminate(victim, true, killer);
 }
 
 void BattleRoyale::OnPlayerLeftMap(ObjectGuid guid)
@@ -224,7 +231,7 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
             if (sCustomTaxiMgr.Play(player, brPlayer.deploymentPathId, error))
             {
                 brPlayer.deploymentStarted = true;
-                ChatHandler(player).PSendSysMessage("[Battle Royale] 空降开始。");
+                ChatHandler(player).PSendSysMessage("[孤胆称雄] 空降开始。");
                 sLog.Out(LOG_BASIC, LOG_LVL_DETAIL,
                          "[BattleRoyale] Deployment started player %s path %u instance %u.",
                          player->GetName(), brPlayer.deploymentPathId,
@@ -330,7 +337,7 @@ void BattleRoyale::StartPreparing()
     if (map)
         m_zone.RefreshMarkers(map);
 
-    BroadcastToAll("[Battle Royale] 空降完成！30 秒后对局开始。");
+    BroadcastToAll("[孤胆称雄] 空降完成！30 秒后对局开始。");
 }
 
 void BattleRoyale::StartRunning()
@@ -346,14 +353,16 @@ void BattleRoyale::StartRunning()
         if (!player)
             continue;
         player->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER | UNIT_FLAG_IMMUNE_TO_NPC);
-        ChatHandler(player).PSendSysMessage("[Battle Royale] 对局开始！最后存活者获胜！");
+        ChatHandler(player).PSendSysMessage("[孤胆称雄] 对局开始！最后存活者获胜！");
     }
 
     // Announce initial zone damage so players know the starting pressure.
     BroadcastPhaseChange(0);
+
+    SpawnChests(map);
 }
 
-void BattleRoyale::Eliminate(ObjectGuid guid, bool notify)
+void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid)
 {
     auto it = m_players.find(guid);
     if (it == m_players.end() || !it->second.alive)
@@ -363,11 +372,21 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify)
     it->second.placementRank = m_aliveCount;
     --m_aliveCount;
 
+    uint32 const survivalSec = m_runningTime / 1000;
+
     BRRankEntry entry;
     entry.guid        = guid;
     entry.rank        = it->second.placementRank;
-    entry.survivalSec = m_runningTime / 1000;
+    entry.survivalSec = survivalSec;
     m_ranks.push_back(entry);
+
+    // Credit kill to the killer (works for both real players and bots)
+    if (killerGuid && killerGuid != guid)
+    {
+        auto killerIt = m_players.find(killerGuid);
+        if (killerIt != m_players.end())
+            ++killerIt->second.killCount;
+    }
 
     Map* map = m_host ? m_host->GetBgMap() : nullptr;
     Player* player = map ? map->GetPlayer(guid) : nullptr;
@@ -376,15 +395,19 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify)
         player->SendMirrorTimerStop(MirrorTimer::FATIGUE);
 
     if (notify && player)
-        ChatHandler(player).PSendSysMessage("[Battle Royale] 你已被淘汰！排名第 %u。", it->second.placementRank);
+        ChatHandler(player).PSendSysMessage("[孤胆称雄] 你已被淘汰！排名第 %u。", it->second.placementRank);
 
     // Broadcast to survivors
     {
         char buf[128];
         std::string name = player ? player->GetName() : "玩家";
-        snprintf(buf, sizeof(buf), "[Battle Royale] %s 已被淘汰，剩余 %u 名存活者。", name.c_str(), m_aliveCount);
+        snprintf(buf, sizeof(buf), "[孤胆称雄] %s 已被淘汰，剩余 %u 名存活者。", name.c_str(), m_aliveCount);
         BroadcastToAll(buf);
     }
+
+    // Send battle report mail before returning the player
+    if (!it->second.bot)
+        SendBattleReport(guid, it->second, survivalSec);
 
     // MVP: return player immediately (no spectating)
     if (player)
@@ -410,7 +433,7 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify)
         {
             Player* winner = map->GetPlayer(winnerGuid);
             if (winner)
-                ChatHandler(winner).PSendSysMessage("[Battle Royale] 恭喜！你是最后的存活者！");
+                ChatHandler(winner).PSendSysMessage("[孤胆称雄] 恭喜！你是最后的存活者！");
         }
 
         Finish();
@@ -423,26 +446,22 @@ void BattleRoyale::Finish()
     if (m_status == BattleRoyaleStatus::FINISHED || m_status == BattleRoyaleStatus::CANCELLED)
         return;
 
-    // Assign rank 1 to the last survivor and reward winner honor
-    Map* finishMap = m_host ? m_host->GetBgMap() : nullptr;
+    // Assign rank 1 to the last survivor and send battle report
+    uint32 const finishSurvivalSec = m_runningTime / 1000;
     for (auto it = m_players.begin(); it != m_players.end(); ++it)
     {
         if (!it->second.alive)
             continue;
         it->second.placementRank = 1;
-        if (!it->second.bot && finishMap && m_host)
-        {
-            Player* winner = finishMap->GetPlayer(it->first);
-            uint32 winHonor = m_host->GetBonusHonorFromKill(5);
-            if (winner && winHonor)
-                winner->GetHonorMgr().Add(winHonor, BONUS);
-        }
+        if (!it->second.bot)
+            SendBattleReport(it->first, it->second, finishSurvivalSec);
     }
 
     m_status      = BattleRoyaleStatus::FINISHED;
     m_finishTimer = BR_FINISH_DELAY_MS;
     m_zone.Cleanup(m_host ? m_host->GetBgMap() : nullptr);
-    BroadcastToAll("[Battle Royale] 对局结束！10 秒后返回原位置。");
+    CleanupChests(m_host ? m_host->GetBgMap() : nullptr);
+    BroadcastToAll("[孤胆称雄] 对局结束！10 秒后返回原位置。");
 
     sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyale] Instance %u finished. Total players: %u",
              m_host ? m_host->GetInstanceID() : 0u, m_totalCount);
@@ -452,6 +471,7 @@ void BattleRoyale::Cancel()
 {
     m_status = BattleRoyaleStatus::CANCELLED;
     m_zone.Cleanup(m_host ? m_host->GetBgMap() : nullptr);
+    CleanupChests(m_host ? m_host->GetBgMap() : nullptr);
 
     Map* map = m_host ? m_host->GetBgMap() : nullptr;
     for (auto it = m_players.begin(); it != m_players.end(); ++it)
@@ -473,6 +493,8 @@ void BattleRoyale::ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlay
         player->GetMotionMaster()->MovementExpired();
         player->GetTaxi().ClearTaxiDestinations();
     }
+
+    CleanupBRItems(player);
 
     player->SetFFAPvP(brPlayer.savedFFAPvP);
     player->SetBGTeam(TEAM_NONE);
@@ -500,15 +522,88 @@ void BattleRoyale::BroadcastPhaseChange(uint32 phase)
     char buf[128];
     if (isFinal)
     {
-        snprintf(buf, sizeof(buf), "[Battle Royale] 决赛圈已形成！圈外伤害 %.0f%%/秒，快速回圈！",
+        snprintf(buf, sizeof(buf), "[孤胆称雄] 决赛圈已形成！圈外伤害 %.0f%%/秒，快速回圈！",
                  m_zone.GetCurrentDamagePercent());
     }
     else
     {
-        snprintf(buf, sizeof(buf), "[Battle Royale] 毒圈进入第 %u 阶段，圈外伤害 %.0f%%/秒！",
+        snprintf(buf, sizeof(buf), "[孤胆称雄] 毒圈进入第 %u 阶段，圈外伤害 %.0f%%/秒！",
                  phase + 1, m_zone.GetCurrentDamagePercent());
     }
     BroadcastToAll(buf);
+}
+
+void BattleRoyale::SpawnChests(Map* map)
+{
+    if (!map || !m_tmpl || m_tmpl->commonChestPoints.empty())
+        return;
+
+    for (BRSpawnPoint const& pos : m_tmpl->commonChestPoints)
+    {
+        GameObject* go = new GameObject;
+        if (!go->Create(map->GenerateLocalLowGuid(HIGHGUID_GAMEOBJECT),
+                        BR_COMMON_CHEST_ENTRY, map,
+                        pos.x, pos.y, pos.z, pos.o,
+                        0.0f, 0.0f, 0.0f, 0.0f,
+                        GO_ANIMPROGRESS_DEFAULT, GO_STATE_READY))
+        {
+            delete go;
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                     "[BattleRoyale] Failed to spawn common chest at %.1f,%.1f,%.1f",
+                     pos.x, pos.y, pos.z);
+            continue;
+        }
+        go->SetRespawnTime(0);
+        map->Add(go);
+        m_chestGuids.push_back(go->GetObjectGuid());
+    }
+    sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyale] Spawned %u common chests for instance %u.",
+             uint32(m_chestGuids.size()), m_host ? m_host->GetInstanceID() : 0u);
+}
+
+void BattleRoyale::CleanupChests(Map* map)
+{
+    if (map)
+    {
+        for (ObjectGuid const& guid : m_chestGuids)
+        {
+            if (GameObject* go = map->GetGameObject(guid))
+            {
+                go->SetRespawnTime(0);
+                go->Delete();
+            }
+        }
+    }
+    m_chestGuids.clear();
+}
+
+void BattleRoyale::CleanupBRItems(Player* player)
+{
+    for (uint32 entry : BR_ITEM_ENTRIES)
+        player->DestroyItemCount(entry, 200, true, false);
+}
+
+void BattleRoyale::SendBattleReport(ObjectGuid playerGuid, BattleRoyalePlayer const& brPlayer, uint32 survivalSec) const
+{
+    uint32 const rank  = brPlayer.placementRank;
+    uint32 const kills = brPlayer.killCount;
+    uint32 const total = m_totalCount;
+    uint32 const mm    = survivalSec / 60;
+    uint32 const ss    = survivalSec % 60;
+
+    char body[512];
+    snprintf(body, sizeof(body),
+             "本次孤胆称雄战报：\n\n"
+             "最终排名：第 %u 名 / 共 %u 人\n"
+             "击杀数量：%u 人\n"
+             "存活时间：%02u:%02u",
+             rank, total, kills, mm, ss);
+
+    const char* subject = (rank == 1) ? "「孤胆称雄」战报 - 冠军！" : "「孤胆称雄」战报";
+
+    MailDraft(subject, std::string(body))
+        .SendMailTo(MailReceiver(playerGuid),
+                    MailSender(MAIL_NORMAL, 0, MAIL_STATIONERY_DEFAULT));
 }
 
 void BattleRoyale::BroadcastToAll(std::string const& msg)

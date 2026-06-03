@@ -4,7 +4,9 @@
 #include "Player.h"
 #include "BattleRoyale/BattleRoyaleMgr.h"
 #include "BattleRoyale/BattleRoyale.h"
+#include "BattleRoyale/BattleRoyaleTemplate.h"
 #include "Battlegrounds/BattleGroundBR.h"
+#include "Database/DatabaseEnv.h"
 #include "ObjectMgr.h"
 
 // .br start   — force start immediately with queued players
@@ -121,6 +123,53 @@ bool ChatHandler::HandleBRPhaseCommand(char* args)
     uint32 phase = uint32(atoi(args));
     br->ForceSetPhase(phase);
     PSendSysMessage("[BR] 已切换到阶段 %u。", phase);
+    return true;
+}
+
+// .br chest add  — record GM's current position as a common chest spawn point
+// Must be used standing on the ground inside Arathi Basin (mapId 529).
+bool ChatHandler::HandleBRChestAddCommand(char* /*args*/)
+{
+    Player* player = m_session->GetPlayer();
+
+    if (player->GetMapId() != 529)
+    {
+        SendSysMessage("[BR] 此命令只能在阿拉希盆地（地图 529）内使用。");
+        return true;
+    }
+
+    float x = player->GetPositionX();
+    float y = player->GetPositionY();
+    float z = player->GetPositionZ();
+    float o = player->GetOrientation();
+    uint32 const templateId = 1;
+
+    WorldDatabase.PExecute(
+        "INSERT INTO `battle_royale_chest_point` "
+        "(`template_id`, `chest_type`, `position_x`, `position_y`, `position_z`, `orientation`) "
+        "VALUES (%u, 0, %f, %f, %f, %f)",
+        templateId, x, y, z, o);
+
+    sBattleRoyaleMgr.LoadChestPoints();
+
+    PSendSysMessage("[BR] 已记录普通箱位置 (%.2f, %.2f, %.2f)，当前共 %u 个。",
+                    x, y, z, uint32(GetABTemplate().commonChestPoints.size()));
+    return true;
+}
+
+// .br chest list  — list all recorded common chest positions
+bool ChatHandler::HandleBRChestListCommand(char* /*args*/)
+{
+    BattleRoyaleTemplate const& tmpl = GetABTemplate();
+    uint32 count = uint32(tmpl.commonChestPoints.size());
+    PSendSysMessage("[BR] 普通箱位置共 %u 个：", count);
+    for (uint32 i = 0; i < count; ++i)
+    {
+        BRSpawnPoint const& pt = tmpl.commonChestPoints[i];
+        PSendSysMessage("[BR]  #%-2u  (%.2f, %.2f, %.2f)", i + 1, pt.x, pt.y, pt.z);
+    }
+    if (count == 0)
+        SendSysMessage("[BR] 暂无记录。用 .br chest add 在地面上添加。");
     return true;
 }
 

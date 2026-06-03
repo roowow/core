@@ -36,6 +36,10 @@ public:
     // Called by BattleBotAI when a BR bot finishes initialization and is ready to enter the instance
     void OnBotReady(Player* bot, uint32 instanceId);
 
+    // Load (or reload) chest spawn points from battle_royale_chest_point table into the template.
+    // Safe to call at runtime (e.g., after .br chest add).
+    void LoadChestPoints();
+
 private:
     bool CanEnqueue(Player* player, std::string& outError) const;
     void TryCreateGame(bool ignoreMinPlayers = false);
@@ -49,7 +53,7 @@ private:
     uint32  m_countdownTimer  = 0;
     bool    m_countdownActive = false;
 
-    static uint32 const MIN_PLAYERS   = 2;    // minimum real players to start (low for GM testing)
+    static uint32 const MIN_PLAYERS   = 1;    // single player is enough; bots fill remaining slots
     static uint32 const COUNTDOWN_SEC = 60;
 };
 

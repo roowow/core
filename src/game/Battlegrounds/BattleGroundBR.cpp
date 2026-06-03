@@ -40,14 +40,6 @@ void BattleGroundBR::RemovePlayerAtLeave(ObjectGuid guid, bool /*transport*/, bo
 void BattleGroundBR::HandleKillPlayer(Player* victim, Player* killer)
 {
     if (m_owner && victim)
-        m_owner->OnPlayerDied(victim->GetObjectGuid());
-
-    // Award the killer honor equal to one standard BG honorable kill.
-    // Bots cannot use honor — only reward real players.
-    if (killer && killer->GetSession() && !killer->GetSession()->GetBot())
-    {
-        uint32 honor = GetBonusHonorFromKill(1);
-        if (honor)
-            killer->GetHonorMgr().Add(honor, BONUS);
-    }
+        m_owner->OnPlayerDied(victim->GetObjectGuid(), killer ? killer->GetObjectGuid() : ObjectGuid());
+    // No honor reward in BR — kills are rewarded via season score instead.
 }

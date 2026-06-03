@@ -2,7 +2,7 @@
 #include "BattleRoyale/BattleRoyaleMgr.h"
 #include "Chat/Chat.h"
 
-// NPC entry — place an NPC with this entry in Stormwind and Orgrimmar via DB
+// NPC entries — 900100 = Alliance (Ironforge, displayId 15728), 900102 = Horde (Orgrimmar, displayId 15731)
 static uint32 const NPC_BATTLE_ROYALE_QUEUE = 900100;
 
 enum BRGossipAction
@@ -18,7 +18,7 @@ bool GossipHello_BattleRoyaleNPC(Player* player, Creature* creature)
     bool inGame  = sBattleRoyaleMgr.IsPlayerInGame(player->GetObjectGuid());
 
     if (!inQueue && !inGame)
-        player->ADD_GOSSIP_ITEM(GOSSIP_ICON_BATTLE, "加入 Battle Royale 队列", GOSSIP_SENDER_MAIN, BR_ACTION_JOIN);
+        player->ADD_GOSSIP_ITEM(GOSSIP_ICON_BATTLE, "报名参加孤胆称雄", GOSSIP_SENDER_MAIN, BR_ACTION_JOIN);
     if (inQueue)
         player->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT,   "离开队列",               GOSSIP_SENDER_MAIN, BR_ACTION_LEAVE);
 
@@ -38,14 +38,14 @@ bool GossipSelect_BattleRoyaleNPC(Player* player, Creature* creature, uint32 /*s
         {
             std::string err;
             if (!sBattleRoyaleMgr.EnqueuePlayer(player, err))
-                ChatHandler(player).PSendSysMessage("[Battle Royale] %s", err.c_str());
+                ChatHandler(player).PSendSysMessage("[孤胆称雄] %s", err.c_str());
             break;
         }
         case BR_ACTION_LEAVE:
             sBattleRoyaleMgr.DequeuePlayer(player);
             break;
         case BR_ACTION_STATUS:
-            ChatHandler(player).PSendSysMessage("[Battle Royale] 当前队列：%u 人。", sBattleRoyaleMgr.GetQueueSize());
+            ChatHandler(player).PSendSysMessage("[孤胆称雄] 当前队列：%u 人。", sBattleRoyaleMgr.GetQueueSize());
             break;
         default:
             break;

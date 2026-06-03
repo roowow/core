@@ -46,8 +46,8 @@ public:
 
     // Called by BattleGroundBR when a player leaves the map
     void OnPlayerLeftMap(ObjectGuid guid);
-    // Called by BattleGroundBR::OnPlayerKilled hook (see BattleGroundBR)
-    void OnPlayerDied(ObjectGuid guid);
+    // Called by BattleGroundBR::HandleKillPlayer; killer may be null guid for zone deaths
+    void OnPlayerDied(ObjectGuid victim, ObjectGuid killer = ObjectGuid());
 
     // Queries
     BattleRoyaleStatus GetStatus()         const { return m_status; }
@@ -70,8 +70,12 @@ private:
     void StartPreparing();
     void StartRunning();
     void Finish();
-    void Eliminate(ObjectGuid guid, bool notify = true);
+    void Eliminate(ObjectGuid guid, bool notify = true, ObjectGuid killerGuid = ObjectGuid());
     void ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlayer);
+    void SendBattleReport(ObjectGuid playerGuid, BattleRoyalePlayer const& brPlayer, uint32 survivalSec) const;
+    void SpawnChests(Map* map);
+    void CleanupChests(Map* map);
+    static void CleanupBRItems(Player* player);
     void BroadcastToAll(std::string const& msg);
     void BroadcastPhaseChange(uint32 phase);
 
@@ -82,6 +86,7 @@ private:
 
     std::map<ObjectGuid, BattleRoyalePlayer> m_players;
     std::vector<BRRankEntry>                 m_ranks;
+    std::vector<ObjectGuid>                  m_chestGuids;
 
     uint32  m_pendingBotCount  = 0;   // bots created but not yet added via AddPlayer
     uint32  m_landedCount      = 0;

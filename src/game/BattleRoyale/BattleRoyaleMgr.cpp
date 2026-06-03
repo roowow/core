@@ -18,7 +18,46 @@
 
 INSTANTIATE_SINGLETON_1(BattleRoyaleMgr);
 
-BattleRoyaleMgr::BattleRoyaleMgr() = default;
+BattleRoyaleMgr::BattleRoyaleMgr()
+{
+    LoadChestPoints();
+}
+
+void BattleRoyaleMgr::LoadChestPoints()
+{
+    BattleRoyaleTemplate& tmpl = GetABTemplate();
+    tmpl.commonChestPoints.clear();
+
+    std::unique_ptr<QueryResult> result(WorldDatabase.PQuery(
+        "SELECT `position_x`, `position_y`, `position_z`, `orientation` "
+        "FROM `battle_royale_chest_point` "
+        "WHERE `template_id` = %u AND `chest_type` = 0 "
+        "ORDER BY `id`", tmpl.id));
+
+    if (!result)
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
+                 "[BattleRoyaleMgr] No common chest points in DB for template %u. "
+                 "Use '.br chest add' in-game to record positions.", tmpl.id);
+        return;
+    }
+
+    do
+    {
+        Field* fields = result->Fetch();
+        BRSpawnPoint pt;
+        pt.x = fields[0].GetFloat();
+        pt.y = fields[1].GetFloat();
+        pt.z = fields[2].GetFloat();
+        pt.o = fields[3].GetFloat();
+        tmpl.commonChestPoints.push_back(pt);
+    }
+    while (result->NextRow());
+
+    sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
+             "[BattleRoyaleMgr] Loaded %u common chest points for template %u.",
+             uint32(tmpl.commonChestPoints.size()), tmpl.id);
+}
 
 void BattleRoyaleMgr::Update(uint32 diff)
 {
@@ -65,7 +104,7 @@ void BattleRoyaleMgr::Update(uint32 diff)
         m_countdownTimer  = COUNTDOWN_SEC * 1000;
 
         WorldPacket data;
-        ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM, "[Battle Royale] 队列人数已达到，60 秒后开始对局！");
+        ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM, "[孤胆称雄] 对局即将开始，60 秒后开局！还没报名的快去找令使！");
         sWorld.SendGlobalMessage(&data);
     }
 
@@ -89,7 +128,7 @@ bool BattleRoyaleMgr::EnqueuePlayer(Player* player, std::string& outError)
 
     ObjectGuid guid = player->GetObjectGuid();
     m_queue.push_back(guid);
-    ChatHandler(player).PSendSysMessage("[Battle Royale] 已加入队列（当前 %u 人）。", uint32(m_queue.size()));
+    ChatHandler(player).PSendSysMessage("[孤胆称雄] 已加入队列（当前 %u 人）。", uint32(m_queue.size()));
     return true;
 }
 
@@ -108,7 +147,7 @@ bool BattleRoyaleMgr::DequeuePlayer(Player* player)
         m_countdownTimer  = 0;
     }
 
-    ChatHandler(player).PSendSysMessage("[Battle Royale] 已离开队列。");
+    ChatHandler(player).PSendSysMessage("[孤胆称雄] 已离开队列。");
     return true;
 }
 

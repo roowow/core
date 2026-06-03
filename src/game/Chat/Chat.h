@@ -481,6 +481,8 @@ class ChatHandler
         bool HandleBRPhaseCommand(char* args);
         bool HandleBRCancelCommand(char* args);
         bool HandleBRInfoCommand(char* args);
+        bool HandleBRChestAddCommand(char* args);
+        bool HandleBRChestListCommand(char* args);
         bool HandleDebugUnitBytes1Command(char* args);
         bool HandleDebugUnitBytes2Command(char* args);
         bool HandleDebugConditionCommand(char* args);
