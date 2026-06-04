@@ -19,7 +19,8 @@
 #include <cstdio>
 
 static uint32 const BR_FINISH_DELAY_MS     = 10000;
-static uint32 const BR_DEPLOYMENT_START_DELAY_MS = 3000;
+static uint32 const BR_DEPLOYMENT_START_DELAY_MS = 10000;
+static uint32 const BR_DEPLOYMENT_TIMEOUT_MS = 30000;
 static float  const BR_LANDING_CORRECTION_DISTANCE = 5.0f;
 
 // Reference loot table entry for BR corpse drops (reference_loot_template.entry).
@@ -36,7 +37,7 @@ static uint32 const BR_ITEM_ENTRIES[] =
 
 BattleRoyale::BattleRoyale(BattleRoyaleTemplate const* tmpl, BattleGroundBR* host)
     : m_status(BattleRoyaleStatus::DEPLOYING), m_tmpl(tmpl), m_host(host),
-      m_landedCount(0), m_deploymentTimer(30000),
+      m_landedCount(0), m_deploymentTimer(BR_DEPLOYMENT_TIMEOUT_MS),
       m_prepareTimer(30000), m_aliveCount(0), m_totalCount(0), m_finishTimer(0), m_runningTime(0)
 {
     m_zone.Init(tmpl);
@@ -55,7 +56,9 @@ void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, u
     brPlayer.placementRank    = 0;
     brPlayer.landingPoint     = landingPoint;
     brPlayer.deploymentPathId = deploymentPathId;
-    brPlayer.deploymentStartDelayTimer = BR_DEPLOYMENT_START_DELAY_MS;
+    // Real players and early bots wait in the staging ring until all async bots
+    // are ready; the shared 10s launch countdown is armed in StartDeploymentLaunch().
+    brPlayer.deploymentStartDelayTimer = m_deploymentLaunchStarted ? BR_DEPLOYMENT_START_DELAY_MS : 0;
     brPlayer.savedPosition    = WorldLocation(player->GetMapId(),
                                               player->GetPositionX(),
                                               player->GetPositionY(),
@@ -88,19 +91,6 @@ void BattleRoyale::Update(uint32 diff)
         return;
     }
 
-    if (m_status == BattleRoyaleStatus::PREPARING)
-    {
-        // Drain the marker spawn queue during prep so the circle is fully visible
-        // before the game starts — not after.
-        if (map)
-            m_zone.DrainSpawnQueue(map);
-
-        if (m_prepareTimer <= diff)
-            StartRunning();
-        else
-            m_prepareTimer -= diff;
-        return;
-    }
 
     if (m_status == BattleRoyaleStatus::RUNNING)
     {
@@ -212,8 +202,69 @@ void BattleRoyale::ForceSetRadius(float radius)
 
 // --- private ---
 
+void BattleRoyale::StartDeploymentLaunch()
+{
+    if (m_deploymentLaunchStarted)
+        return;
+
+    m_deploymentLaunchStarted = true;
+    m_deploymentTimer = BR_DEPLOYMENT_TIMEOUT_MS;
+
+    for (auto& entry : m_players)
+    {
+        BattleRoyalePlayer& brPlayer = entry.second;
+        if (!brPlayer.landed && !brPlayer.deploymentStarted)
+            brPlayer.deploymentStartDelayTimer = BR_DEPLOYMENT_START_DELAY_MS;
+    }
+
+    sLog.Out(LOG_BASIC, LOG_LVL_DETAIL,
+             "[BattleRoyale] Deployment launch armed for instance %u players %u.",
+             m_host ? m_host->GetInstanceID() : 0u, m_totalCount);
+}
+
 void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
 {
+    if (!m_deploymentLaunchStarted)
+    {
+        bool allParticipantsInMap = map != nullptr;
+        if (allParticipantsInMap)
+        {
+            for (auto const& entry : m_players)
+            {
+                BattleRoyalePlayer const& brPlayer = entry.second;
+                if (!brPlayer.landed && !map->GetPlayer(entry.first))
+                {
+                    allParticipantsInMap = false;
+                    break;
+                }
+            }
+        }
+
+        if (m_pendingBotCount == 0 && allParticipantsInMap)
+            StartDeploymentLaunch();
+        else
+        {
+            // Keep everyone staged together while BR bots finish async login
+            // and their map transfers complete.
+            // If a bot creation stalls, fall back after the deployment timeout
+            // instead of leaving real players suspended in the air forever.
+            if (m_deploymentTimer <= diff)
+            {
+                sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                         "[BattleRoyale] Timed out waiting for BR deployment readiness in instance %u (pending bots %u); launching current players.",
+                         m_host ? m_host->GetInstanceID() : 0u,
+                         m_pendingBotCount);
+                m_pendingBotCount = 0;
+                StartDeploymentLaunch();
+            }
+            else
+            {
+                m_deploymentTimer -= diff;
+                return;
+            }
+        }
+    }
+
     if (map)
     {
         for (auto it = m_players.begin(); it != m_players.end(); ++it)
@@ -343,9 +394,6 @@ void BattleRoyale::StartPreparing()
     if (m_status != BattleRoyaleStatus::DEPLOYING)
         return;
 
-    m_status = BattleRoyaleStatus::PREPARING;
-    m_prepareTimer = 30000;
-
     // Re-apply FFA PvP now that players are on the BG map.
     // Player::UpdateArea() clears the flag when entering a non-arena area,
     // so we must re-set it after teleport completes.
@@ -361,11 +409,15 @@ void BattleRoyale::StartPreparing()
         }
     }
 
-    // Spawn zone markers now so players can see the boundary during prep
+    // Spawn zone markers and drain the queue immediately so the boundary
+    // is visible from the first moment the game starts.
     if (map)
+    {
         m_zone.RefreshMarkers(map);
+        m_zone.DrainSpawnQueue(map);
+    }
 
-    BroadcastToAll("[孤胆称雄] 众人已落地，猎场即将苏醒。30 秒后解除庇护。");
+    StartRunning();
 }
 
 void BattleRoyale::StartRunning()
@@ -381,10 +433,8 @@ void BattleRoyale::StartRunning()
         if (!player)
             continue;
         player->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER | UNIT_FLAG_IMMUNE_TO_NPC);
-        ChatHandler(player).PSendSysMessage("[孤胆称雄] 庇护散去，猎场开战！活到最后，方可称雄。");
     }
 
-    // Announce initial zone damage so players know the starting pressure.
     BroadcastPhaseChange(0);
 
 }

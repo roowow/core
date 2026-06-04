@@ -55,6 +55,7 @@ public:
     uint32             GetTotalCount()     const { return m_totalCount; }
     uint32             GetPendingBotCount() const { return m_pendingBotCount; }
     uint32             GetRunningTimeSecs() const { return m_runningTime / 1000; }
+    bool               HasDeploymentLaunchStarted() const { return m_deploymentLaunchStarted; }
     bool               IsAlive(ObjectGuid guid) const;
     BattleRoyaleZone const& GetZone() const { return m_zone; }
     BattleGroundBR*    GetHost()      const { return m_host; }
@@ -65,6 +66,7 @@ public:
     std::map<ObjectGuid, BattleRoyalePlayer> const& GetPlayers() const { return m_players; }
 
 private:
+    void StartDeploymentLaunch();
     void UpdateDeploying(uint32 diff, Map* map);
     void CompleteDeployment(Player* player, BattleRoyalePlayer& brPlayer, bool teleportToLandingPoint);
     void StartPreparing();
@@ -86,6 +88,7 @@ private:
     std::vector<BRRankEntry>                 m_ranks;
 
     uint32  m_pendingBotCount  = 0;   // bots created but not yet added via AddPlayer
+    bool    m_deploymentLaunchStarted = false;
     uint32  m_landedCount      = 0;
     uint32  m_deploymentTimer  = 30000;
     uint32  m_prepareTimer     = 30000;
