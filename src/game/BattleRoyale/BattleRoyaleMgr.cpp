@@ -111,11 +111,8 @@ void ApplyBattleRoyaleStagingMount(Player* player, uint32 deploymentPathId)
 void ApplyBattleRoyaleDeploymentStagingState(Player* player, uint32 deploymentPathId)
 {
     ApplyBattleRoyaleStagingMount(player, deploymentPathId);
-    // The launch countdown can last several seconds while bots finish entering
-    // the map. Keep participants hovering at the route start instead of letting
-    // gravity pull them away from the first taxi node.
-    player->SetHover(true);
-    player->SetHoverReal(true);
+    // Hover is applied after the cross-map teleport completes. Applying it here
+    // is unreliable because TeleportTo can reset movement state during transfer.
 }
 }
 
@@ -342,11 +339,11 @@ void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
     }
     uint32 deploymentPathId = ResolveBattleRoyaleDeploymentPath(spawnIndex, deploymentPaths);
 
+    BRSpawnPoint const start = GetCompactDeploymentStart(tmpl.deploymentStart, spawnIndex);
     bot->SetBattleGroundEntryPoint();
-    br->AddPlayer(bot, sp, deploymentPathId, true /*isBot*/);
+    br->AddPlayer(bot, sp, start, deploymentPathId, true /*isBot*/);
     m_playerInstMap[bot->GetObjectGuid()] = instanceId;
 
-    BRSpawnPoint const start = GetCompactDeploymentStart(tmpl.deploymentStart, spawnIndex);
     ApplyBattleRoyaleDeploymentStagingState(bot, deploymentPathId);
     if (!bot->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o))
     {
@@ -492,13 +489,14 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
         BRSpawnPoint const& sp = spawns[spawnIndex];
         uint32 deploymentPathId = ResolveBattleRoyaleDeploymentPath(spawnIndex, deploymentPaths);
 
+        BRSpawnPoint const deploymentStart = GetCompactDeploymentStart(tmpl.deploymentStart, spawnIndex);
+
         // Register player BEFORE TeleportTo so BattleGroundMap::CanEnter()
         // finds the correct instanceId when the transfer is processed.
         player->SetBattleGroundEntryPoint();
-        br->AddPlayer(player, sp, deploymentPathId);
+        br->AddPlayer(player, sp, deploymentStart, deploymentPathId);
         m_playerInstMap[player->GetObjectGuid()] = instanceId;
 
-        BRSpawnPoint const deploymentStart = GetCompactDeploymentStart(tmpl.deploymentStart, spawnIndex);
         ApplyBattleRoyaleDeploymentStagingState(player, deploymentPathId);
         if (!player->TeleportTo(tmpl.mapId, deploymentStart.x, deploymentStart.y,
                                 deploymentStart.z, deploymentStart.o))

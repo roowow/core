@@ -23,6 +23,8 @@ static uint32 const BR_FINISH_DELAY_MS     = 10000;
 static uint32 const BR_DEPLOYMENT_START_DELAY_MS = 10000;
 static uint32 const BR_DEPLOYMENT_TIMEOUT_MS = 30000;
 static float  const BR_LANDING_CORRECTION_DISTANCE = 5.0f;
+static float  const BR_DEPLOYMENT_STAGING_RESTORE_DISTANCE = 3.0f;
+static float  const BR_DEPLOYMENT_TAXI_START_RESTORE_DISTANCE = 19.0f;
 
 // Reference loot table entry for BR corpse drops (reference_loot_template.entry).
 static uint32 const BR_CORPSE_LOOT_REF_ID = 9001;
@@ -36,6 +38,94 @@ static uint32 const BR_ITEM_ENTRIES[] =
     900222, 900223, 900225, 900226
 };
 
+namespace
+{
+TaxiPathNodeEntry const* GetBattleRoyaleDeploymentFirstNode(uint32 pathId)
+{
+    if (!pathId)
+        return nullptr;
+
+    auto const& paths = sCustomTaxiMgr.GetPaths();
+    auto pathItr = paths.find(pathId);
+    if (pathItr == paths.end() || pathItr->second.nodes.empty())
+        return nullptr;
+
+    return &pathItr->second.nodes.front();
+}
+
+void RefreshBattleRoyaleDeploymentHover(Player* player, bool forceClientRefresh)
+{
+    if (!player)
+        return;
+
+    if (player->HasPendingMovementChange(SET_HOVER))
+    {
+        if (player->IsBot())
+            player->SetHoverReal(true);
+        player->SetFallInformation(0);
+        return;
+    }
+
+    // If the client ignored an earlier hover packet, the server-side flag can be
+    // set while the player is visibly falling. Clear only the local flag so the
+    // next SetHover(true) sends a fresh controller packet.
+    if (forceClientRefresh && player->IsHovering())
+        player->SetHoverReal(false);
+
+    player->SetHover(true);
+
+    // Bots have no real client mover, so keep their local movement flag explicit.
+    if (player->IsBot())
+        player->SetHoverReal(true);
+
+    player->SetFallInformation(0);
+}
+
+void ClearBattleRoyaleDeploymentHover(Player* player)
+{
+    if (!player)
+        return;
+
+    if (player->IsHovering() || player->HasPendingMovementChange(SET_HOVER))
+        player->SetHover(false);
+
+    player->SetHoverReal(false);
+    player->SetFallInformation(0);
+}
+
+bool RestoreBattleRoyaleDeploymentStart(Player* player, BRSpawnPoint const& start, float maxDistance)
+{
+    if (!player)
+        return false;
+
+    if (player->GetDistance3dToCenter(start.x, start.y, start.z) <= maxDistance)
+        return false;
+
+    if (player->HasPendingMovementChange(TELEPORT))
+        return true;
+
+    player->NearTeleportTo(start.x, start.y, start.z, start.o);
+    player->SetFallInformation(0);
+    return true;
+}
+
+bool RestoreBattleRoyaleTaxiStart(Player* player, TaxiPathNodeEntry const& firstNode)
+{
+    if (!player || player->GetMapId() != firstNode.mapid)
+        return false;
+
+    if (player->GetDistance3dToCenter(firstNode.x, firstNode.y, firstNode.z) <= BR_DEPLOYMENT_TAXI_START_RESTORE_DISTANCE)
+        return false;
+
+    if (player->HasPendingMovementChange(TELEPORT))
+        return true;
+
+    player->NearTeleportTo(firstNode.x, firstNode.y, firstNode.z, player->GetOrientation());
+    player->SetFallInformation(0);
+    return true;
+}
+}
+
 BattleRoyale::BattleRoyale(BattleRoyaleTemplate const* tmpl, BattleGroundBR* host)
     : m_status(BattleRoyaleStatus::DEPLOYING), m_tmpl(tmpl), m_host(host),
       m_landedCount(0), m_deploymentTimer(BR_DEPLOYMENT_TIMEOUT_MS),
@@ -44,7 +134,7 @@ BattleRoyale::BattleRoyale(BattleRoyaleTemplate const* tmpl, BattleGroundBR* hos
     m_zone.Init(tmpl);
 }
 
-void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, uint32 deploymentPathId, bool isBot)
+void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, BRSpawnPoint const& deploymentStartPoint, uint32 deploymentPathId, bool isBot)
 {
     ObjectGuid guid = player->GetObjectGuid();
 
@@ -56,6 +146,7 @@ void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, u
     brPlayer.zoneWarnTimer    = 0;
     brPlayer.placementRank    = 0;
     brPlayer.landingPoint     = landingPoint;
+    brPlayer.deploymentStartPoint = deploymentStartPoint;
     brPlayer.deploymentPathId = deploymentPathId;
     // Real players and early bots wait in the staging ring until all async bots
     // are ready; the shared 10s launch countdown is armed in StartDeploymentLaunch().
@@ -227,6 +318,8 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
 {
     // Cross-map teleport resets movement flags and clears hover.
     // Re-apply every tick to keep staged players suspended until their taxi begins.
+    // Once the launch countdown expires, stop forcing the compact staging point
+    // so route-start correction can move the player to the first taxi node.
     if (map)
     {
         for (auto const& kv : m_players)
@@ -234,11 +327,14 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
             if (kv.second.landed || kv.second.deploymentStarted)
                 continue;
             if (Player* p = map->GetPlayer(kv.first))
-                if (!p->IsHovering())
-                {
-                    p->SetHover(true);
-                    p->SetHoverReal(true);
-                }
+            {
+                bool const enforceStagingPoint =
+                    !m_deploymentLaunchStarted || kv.second.deploymentStartDelayTimer > 0;
+                bool const restored = enforceStagingPoint &&
+                    RestoreBattleRoyaleDeploymentStart(
+                        p, kv.second.deploymentStartPoint, BR_DEPLOYMENT_STAGING_RESTORE_DISTANCE);
+                RefreshBattleRoyaleDeploymentHover(p, restored);
+            }
         }
     }
 
@@ -313,16 +409,22 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
 
             if (!brPlayer.deploymentPathId)
             {
+                ClearBattleRoyaleDeploymentHover(player);
                 CompleteDeployment(player, brPlayer, true);
                 continue;
             }
 
-            std::string error;
-            if (player->IsHovering())
+            if (TaxiPathNodeEntry const* firstNode = GetBattleRoyaleDeploymentFirstNode(brPlayer.deploymentPathId))
             {
-                player->SetHover(false);
-                player->SetHoverReal(false);
+                if (RestoreBattleRoyaleTaxiStart(player, *firstNode))
+                {
+                    RefreshBattleRoyaleDeploymentHover(player, true);
+                    continue;
+                }
             }
+
+            std::string error;
+            ClearBattleRoyaleDeploymentHover(player);
 
             if (sCustomTaxiMgr.Play(player, brPlayer.deploymentPathId, error))
             {
@@ -360,11 +462,7 @@ void BattleRoyale::CompleteDeployment(Player* player, BattleRoyalePlayer& brPlay
     if (brPlayer.landed)
         return;
 
-    if (player && player->IsHovering())
-    {
-        player->SetHover(false);
-        player->SetHoverReal(false);
-    }
+    ClearBattleRoyaleDeploymentHover(player);
 
     if (player && teleportToLandingPoint)
     {
