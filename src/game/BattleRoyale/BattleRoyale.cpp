@@ -231,11 +231,14 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
             continue;
 
         // Start orbit for anyone not yet on it (includes late-arriving bots).
-        // Hold the player in place with hover until the taxi takes over so they
-        // don't free-fall during the gap between map arrival and Play().
+        // Re-apply hover every tick until Play() succeeds: the cross-map WorldPort
+        // ACK can take several ticks to arrive, during which the client sends
+        // falling position updates that would override a one-shot hover.
         if (!brPlayer.orbitStarted)
         {
-            player->SetHover(true);
+            // Keep hover fresh each tick so the client can't fall through.
+            if (!player->IsHovering() && !player->HasPendingMovementChange(SET_HOVER))
+                player->SetHover(true);
             player->SetHoverReal(true);
             player->SetFallInformation(0);
 
@@ -279,10 +282,6 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
 
             if (!allReady)
             {
-                player->SetHover(true);
-                player->SetHoverReal(true);
-                player->SetFallInformation(0);
-
                 std::string err;
                 if (sCustomTaxiMgr.Play(player, BR_ORBIT_PATH_ID, err))
                 {
@@ -290,8 +289,15 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
                     player->SetHoverReal(false);
                 }
                 else
+                {
+                    // Re-orbit failed; hover to prevent falling while retrying.
+                    if (!player->IsHovering() && !player->HasPendingMovementChange(SET_HOVER))
+                        player->SetHover(true);
+                    player->SetHoverReal(true);
+                    player->SetFallInformation(0);
                     sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
                              "[BattleRoyale] Re-orbit failed for %s: %s", player->GetName(), err.c_str());
+                }
                 continue;
             }
         }
