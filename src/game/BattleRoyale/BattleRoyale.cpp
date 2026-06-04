@@ -15,6 +15,7 @@
 #include "Mail.h"
 #include "Corpse.h"
 #include "LootMgr.h"
+#include "ObjectAccessor.h"
 
 #include <cstdio>
 
@@ -224,6 +225,23 @@ void BattleRoyale::StartDeploymentLaunch()
 
 void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
 {
+    // Cross-map teleport resets movement flags and clears hover.
+    // Re-apply every tick to keep staged players suspended until their taxi begins.
+    if (map)
+    {
+        for (auto const& kv : m_players)
+        {
+            if (kv.second.landed || kv.second.deploymentStarted)
+                continue;
+            if (Player* p = map->GetPlayer(kv.first))
+                if (!p->IsHovering())
+                {
+                    p->SetHover(true);
+                    p->SetHoverReal(true);
+                }
+        }
+    }
+
     if (!m_deploymentLaunchStarted)
     {
         bool allParticipantsInMap = map != nullptr;
@@ -515,28 +533,20 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
     if (!it->second.bot)
         SendBattleReport(guid, it->second, survivalSec);
 
-    // Create corpse and fill BR loot while the player is still on the BR map.
-    // HandleKillPlayer fires before BuildPlayerRepop() in the normal death chain;
-    // we call it ourselves so the corpse lands in this BR instance rather than on
-    // whatever map the player ends up on after ReturnPlayer() teleports them away.
-    //
-    // Bots have no real client, so CMSG_REPOP_REQUEST is never sent and
-    // BuildPlayerRepop() is never called automatically — always call it here.
-    //
-    // Loot is generated from reference_loot_template (BR_CORPSE_LOOT_REF_ID),
-    // identical to how AV generates insignia drops: no inventory scanning needed.
-    if (player && !player->IsAlive())
-    {
-        if (!player->GetCorpse())
-            player->BuildPlayerRepop();
+    // Fill BR loot on the corpse — applies to all death types (PvP, zone damage, etc.).
+    // If the player is still on the BR map, create the corpse first if needed.
+    // If they already left (released spirit), ObjectAccessor finds them globally.
+    if (player && !player->IsAlive() && !player->GetCorpse())
+        player->BuildPlayerRepop();
 
-        if (Corpse* corpse = player->GetCorpse())
+    if (Player* lp = player ? player : sObjectAccessor.FindPlayer(guid))
+    {
+        if (Corpse* corpse = lp->GetCorpse())
         {
-            corpse->loot.FillLoot(BR_CORPSE_LOOT_REF_ID, LootTemplates_Reference, player, true);
-            corpse->loot.gold       = urand(100, 1000);  // 1–10 silver guaranteed
-            corpse->loot.m_personal = true;  // anyone can loot, not just the killer
-            corpse->lootForBody     = true;  // prevent AV-style lazy refill on first open
-            // gold is always present; unlootedCount only tracks items
+            corpse->loot.FillLoot(BR_CORPSE_LOOT_REF_ID, LootTemplates_Reference, lp, true);
+            corpse->loot.gold       = urand(100, 1000);
+            corpse->loot.m_personal = true;
+            corpse->lootForBody     = true;
             corpse->SetShowLootableToFriendly(true);
             corpse->SetFlag(CORPSE_FIELD_DYNAMIC_FLAGS, CORPSE_DYNFLAG_LOOTABLE);
             corpse->ForceValuesUpdateAtIndex(CORPSE_FIELD_DYNAMIC_FLAGS);

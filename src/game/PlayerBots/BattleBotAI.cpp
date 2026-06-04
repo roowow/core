@@ -1784,6 +1784,9 @@ bool BattleBotAI::DrinkAndEat()
     if (me->GetVictim())
         return false;
 
+    if (me->IsInCombat())
+        return false;
+
     bool const isGuard = BattleBotIsWSGHomeGuardCandidate(this) || BattleBotIsABGuardingOwnedNode(this);
     BattleGround* bg = me->GetBattleGround();
     bool const isWaiting = bg && bg->GetStatus() == STATUS_WAIT_JOIN;
@@ -3522,6 +3525,24 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         return;
 
     BattleRoyaleZone const& zone = br->GetZone();
+
+    // Snap bots to ground if they fell off a cliff and are floating in mid-air.
+    // Server movement doesn't apply gravity, so bots can hover after walking off edges.
+    {
+        float const groundZ = me->GetMap()->GetHeight(
+            me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), true, MAX_HEIGHT);
+        if (groundZ > INVALID_HEIGHT && me->GetPositionZ() > groundZ + 5.0f)
+        {
+            if (me->GetVictim())
+            {
+                me->AttackStop();
+                me->ClearTarget();
+            }
+            me->NearTeleportTo(me->GetPositionX(), me->GetPositionY(), groundZ + 0.5f, me->GetOrientation());
+            return;
+        }
+    }
+
     bool const inZone = zone.IsInsideZone(me->GetPositionX(), me->GetPositionY());
 
     if (!inZone)
@@ -3586,6 +3607,22 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         // is never reached — we must call it explicitly here.
         UpdateInCombatAI();
         return;
+    }
+
+    // Retaliate against anyone currently attacking us.
+    for (Unit* attacker : me->GetAttackers())
+    {
+        if (attacker &&
+            !IsBadPlayer(attacker) &&
+            !BattleBotHasBlind(attacker) &&
+            IsValidHostileTarget(attacker) &&
+            me->IsWithinDist(attacker, VISIBILITY_DISTANCE_NORMAL) &&
+            me->GetDistanceZ(attacker) < 10.0f &&
+            me->IsWithinLOSInMap(attacker))
+        {
+            AttackStart(attacker);
+            return;
+        }
     }
 
     // In BR, visible enemies should interrupt travel setup immediately.
