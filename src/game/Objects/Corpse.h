@@ -92,11 +92,15 @@ class Corpse : public WorldObject
         GridReference<Corpse>& GetGridRef() { return m_gridRef; }
 
         bool IsExpired(time_t t) const;
+        // Explicit corpse-display exception. Default corpses still hide loot sparkle from friendly players.
+        void SetShowLootableToFriendly(bool show) { m_showLootableToFriendly = show; }
+        bool ShouldShowLootableToFriendly() const { return m_showLootableToFriendly; }
         void SetFactionTemplate(FactionTemplateEntry const* entry) { m_faction = entry; }
         FactionTemplateEntry const* GetFactionTemplate() const { return m_faction; }
         uint32 GetFactionTemplateId() const final;
     private:
         GridReference<Corpse> m_gridRef;
+        bool m_showLootableToFriendly;
         FactionTemplateEntry const* m_faction;
 
         CorpseType m_type;

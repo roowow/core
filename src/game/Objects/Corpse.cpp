@@ -29,7 +29,7 @@
 #include "ObjectMgr.h"
 #include "MapManager.h"
 
-Corpse::Corpse(CorpseType type) : WorldObject(), loot(this), lootRecipient(nullptr), m_faction(nullptr)
+Corpse::Corpse(CorpseType type) : WorldObject(), loot(this), lootRecipient(nullptr), m_showLootableToFriendly(false), m_faction(nullptr)
 {
     m_objectType |= TYPEMASK_CORPSE;
     m_objectTypeId = TYPEID_CORPSE;
@@ -294,5 +294,7 @@ bool Corpse::IsExpired(time_t t) const
 
 uint32 Corpse::GetFactionTemplateId() const 
 {
-    return m_faction->ID;
+    // Player corpses do not always carry a cached faction template.
+    // Treat unset corpse faction as neutral/unknown instead of dereferencing null.
+    return m_faction ? m_faction->ID : 0;
 }

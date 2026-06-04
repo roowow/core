@@ -74,7 +74,6 @@ private:
     void ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlayer);
     void SendBattleReport(ObjectGuid playerGuid, BattleRoyalePlayer const& brPlayer, uint32 survivalSec) const;
     static void CleanupBRItems(Player* player);
-    void DrainPendingCorpseLoot();
     void BroadcastToAll(std::string const& msg);
     void BroadcastPhaseChange(uint32 phase);
 

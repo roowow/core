@@ -5,14 +5,6 @@
 #include "ObjectGuid.h"
 #include "SharedDefines.h"
 
-#include <vector>
-
-struct BRLootEntry
-{
-    uint32 itemEntry;
-    uint32 count;
-};
-
 struct BattleRoyalePlayer
 {
     ObjectGuid    guid;
@@ -27,9 +19,6 @@ struct BattleRoyalePlayer
     bool          deploymentStarted = false;
     bool          landed            = false;
     uint32        killCount         = 0;
-
-    // BR items read at death, applied to the corpse once BuildPlayerRepop() has run.
-    std::vector<BRLootEntry> pendingCorpseLoot;
 
     // Saved on enter, restored on leave
     WorldLocation savedPosition;

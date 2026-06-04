@@ -955,7 +955,9 @@ void Object::BuildValuesUpdate(uint8 updatetype, ByteBuffer* data, UpdateMask* u
                         if (loot->isLooted()) // nothing to loot or everything looted.
                             dynFlags &= ~CORPSE_DYNFLAG_LOOTABLE;
                         if (dynFlags & CORPSE_DYNFLAG_LOOTABLE)
-                            if (corpse->IsFriendlyTo(target))
+                            // Keep the original friendly-corpse hiding rule unless a feature
+                            // explicitly marks this corpse as loot-visible to friendly players.
+                            if (corpse->IsFriendlyTo(target) && !corpse->ShouldShowLootableToFriendly())
                                 dynFlags &= ~CORPSE_DYNFLAG_LOOTABLE;
                     }
                     *data << dynFlags;

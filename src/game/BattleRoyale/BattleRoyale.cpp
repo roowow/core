@@ -14,17 +14,19 @@
 
 #include "Mail.h"
 #include "Corpse.h"
-#include "ObjectAccessor.h"
+#include "LootMgr.h"
 
-#include <algorithm>
 #include <cstdio>
 
 static uint32 const BR_FINISH_DELAY_MS     = 10000;
 static uint32 const BR_DEPLOYMENT_START_DELAY_MS = 3000;
 static float  const BR_LANDING_CORRECTION_DISTANCE = 5.0f;
 
-// Custom BR item entries — must match what is actually in item_template (DB).
-// Used for inventory cleanup on exit and corpse loot transfer.
+// Reference loot table entry for BR corpse drops (reference_loot_template.entry).
+static uint32 const BR_CORPSE_LOOT_REF_ID = 9001;
+
+// BR item entries — must match what is actually in item_template (DB).
+// Used only for CleanupBRItems() when a player exits the match.
 // 900214-900221 reserved for future items; not yet in DB, omitted here.
 static uint32 const BR_ITEM_ENTRIES[] =
 {
@@ -78,10 +80,6 @@ void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, u
 
 void BattleRoyale::Update(uint32 diff)
 {
-    // Fill corpse loot deferred from Eliminate() — BuildPlayerRepop() may not
-    // have run yet when Eliminate() was called (HandleKillPlayer fires before it).
-    DrainPendingCorpseLoot();
-
     Map* map = m_host ? m_host->GetBgMap() : nullptr;
 
     if (m_status == BattleRoyaleStatus::DEPLOYING)
@@ -430,27 +428,23 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
     {
         char buf[192];
         std::string victimName = player ? player->GetName() : "一名试炼者";
-        std::string victimTitle = it->second.bot ? "机器人" : "玩家";
 
         if (killerGuid && killerGuid != guid)
         {
             Player* killer = map ? map->GetPlayer(killerGuid) : nullptr;
-            auto killerRecord = m_players.find(killerGuid);
-            bool const killerIsBot = killerRecord != m_players.end() && killerRecord->second.bot;
             std::string killerName = killer ? killer->GetName() : "未知猎手";
-            std::string killerTitle = killerIsBot ? "机器人" : "玩家";
-            snprintf(buf, sizeof(buf), "[孤胆称雄] %s %s 被 %s %s 击倒，猎场还剩 %u 人。",
-                     victimTitle.c_str(), victimName.c_str(), killerTitle.c_str(), killerName.c_str(), m_aliveCount);
+            snprintf(buf, sizeof(buf), "[孤胆称雄] %s 被 %s 击倒，猎场还剩 %u 人。",
+                     victimName.c_str(), killerName.c_str(), m_aliveCount);
         }
         else if (!notify)
         {
-            snprintf(buf, sizeof(buf), "[孤胆称雄] %s %s 离开猎场，剩余 %u 名独行者。",
-                     victimTitle.c_str(), victimName.c_str(), m_aliveCount);
+            snprintf(buf, sizeof(buf), "[孤胆称雄] %s 离开猎场，剩余 %u 名独行者。",
+                     victimName.c_str(), m_aliveCount);
         }
         else
         {
-            snprintf(buf, sizeof(buf), "[孤胆称雄] %s %s 倒在毒圈边缘，猎场还剩 %u 人。",
-                     victimTitle.c_str(), victimName.c_str(), m_aliveCount);
+            snprintf(buf, sizeof(buf), "[孤胆称雄] %s 倒在毒圈边缘，猎场还剩 %u 人。",
+                     victimName.c_str(), m_aliveCount);
         }
         BroadcastToAll(buf);
     }
@@ -463,41 +457,37 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
     // HandleKillPlayer fires before BuildPlayerRepop() in the normal death chain;
     // we call it ourselves so the corpse lands in this BR instance rather than on
     // whatever map the player ends up on after ReturnPlayer() teleports them away.
-    if (player && !player->IsAlive() && !it->second.bot)
+    //
+    // Bots have no real client, so CMSG_REPOP_REQUEST is never sent and
+    // BuildPlayerRepop() is never called automatically — always call it here.
+    //
+    // Loot is generated from reference_loot_template (BR_CORPSE_LOOT_REF_ID),
+    // identical to how AV generates insignia drops: no inventory scanning needed.
+    if (player && !player->IsAlive())
     {
-        for (uint32 entry : BR_ITEM_ENTRIES)
-        {
-            uint32 count = player->GetItemCount(entry);
-            if (count == 0)
-                continue;
-            // LootItem::count is uint8; cap to 255 to prevent silent truncation.
-            it->second.pendingCorpseLoot.push_back({entry, std::min(count, uint32(255))});
-        }
+        if (!player->GetCorpse())
+            player->BuildPlayerRepop();
 
-        if (!it->second.pendingCorpseLoot.empty())
+        if (Corpse* corpse = player->GetCorpse())
         {
-            if (!player->GetCorpse())
-                player->BuildPlayerRepop();
-
-            if (Corpse* corpse = player->GetCorpse())
+            corpse->loot.FillLoot(BR_CORPSE_LOOT_REF_ID, LootTemplates_Reference, player, true);
+            corpse->loot.m_personal = true;  // anyone can loot, not just the killer
+            corpse->lootForBody     = true;  // prevent AV-style lazy refill on first open
+            if (corpse->loot.unlootedCount > 0)
             {
-                if (!corpse->lootForBody)
-                {
-                    for (BRLootEntry const& e : it->second.pendingCorpseLoot)
-                    {
-                        LootItem item(e.itemEntry, e.count);
-                        corpse->loot.items.push_back(item);
-                        ++corpse->loot.unlootedCount;
-                    }
-                    corpse->loot.m_personal = true;
-                    corpse->lootForBody     = true;
-                    corpse->SetFlag(CORPSE_FIELD_DYNAMIC_FLAGS, CORPSE_DYNFLAG_LOOTABLE);
-                    corpse->ForceValuesUpdateAtIndex(CORPSE_FIELD_DYNAMIC_FLAGS);
-                }
-                it->second.pendingCorpseLoot.clear();
+                // BR is FFA and eliminated players are returned/restored immediately, so their
+                // corpse may look friendly to same-faction survivors. Keep only BR loot sparkle visible.
+                corpse->SetShowLootableToFriendly(true);
+                corpse->SetFlag(CORPSE_FIELD_DYNAMIC_FLAGS, CORPSE_DYNFLAG_LOOTABLE);
+                corpse->ForceValuesUpdateAtIndex(CORPSE_FIELD_DYNAMIC_FLAGS);
             }
-            // If GetCorpse() is still null after BuildPlayerRepop() (shouldn't happen),
-            // DrainPendingCorpseLoot() retries next tick with map/instance validation.
+            else
+            {
+                sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                         "[BattleRoyale] FillLoot produced no items for BR corpse "
+                         "(ref=%u). Check reference_loot_template entry %u is loaded.",
+                         BR_CORPSE_LOOT_REF_ID, BR_CORPSE_LOOT_REF_ID);
+            }
         }
     }
 
@@ -633,52 +623,6 @@ void BattleRoyale::CleanupBRItems(Player* player)
 {
     for (uint32 entry : BR_ITEM_ENTRIES)
         player->DestroyItemCount(entry, 200, true, false);
-}
-
-void BattleRoyale::DrainPendingCorpseLoot()
-{
-    // Fallback for the rare case where BuildPlayerRepop() in Eliminate() didn't
-    // produce a corpse in time. Primary filling happens synchronously in Eliminate().
-    uint32 const brMapId     = m_tmpl ? m_tmpl->mapId : 0;
-    uint32 const brInstId    = m_host ? m_host->GetInstanceID() : 0;
-
-    for (auto& kv : m_players)
-    {
-        BattleRoyalePlayer& brPlayer = kv.second;
-        if (brPlayer.pendingCorpseLoot.empty())
-            continue;
-
-        Corpse* corpse = sObjectAccessor.GetCorpseForPlayerGUID(kv.first);
-        if (!corpse)
-            continue;  // BuildPlayerRepop() hasn't run yet — retry next tick
-
-        // Reject corpses that aren't in this BR instance (e.g. stale corpse from
-        // a previous death, or one created on the player's home map after teleport).
-        if (corpse->GetMapId() != brMapId || corpse->GetInstanceId() != brInstId)
-        {
-            sLog.Out(LOG_BASIC, LOG_LVL_DETAIL,
-                     "[BattleRoyale] Discarding pending corpse loot: wrong map/instance "
-                     "(corpse map=%u inst=%u, BR map=%u inst=%u)",
-                     corpse->GetMapId(), corpse->GetInstanceId(), brMapId, brInstId);
-            brPlayer.pendingCorpseLoot.clear();
-            continue;
-        }
-
-        if (!corpse->lootForBody)
-        {
-            for (BRLootEntry const& e : brPlayer.pendingCorpseLoot)
-            {
-                LootItem item(e.itemEntry, e.count);
-                corpse->loot.items.push_back(item);
-                ++corpse->loot.unlootedCount;
-            }
-            corpse->loot.m_personal = true;
-            corpse->lootForBody     = true;
-            corpse->SetFlag(CORPSE_FIELD_DYNAMIC_FLAGS, CORPSE_DYNFLAG_LOOTABLE);
-            corpse->ForceValuesUpdateAtIndex(CORPSE_FIELD_DYNAMIC_FLAGS);
-        }
-        brPlayer.pendingCorpseLoot.clear();
-    }
 }
 
 void BattleRoyale::SendBattleReport(ObjectGuid playerGuid, BattleRoyalePlayer const& brPlayer, uint32 survivalSec) const
