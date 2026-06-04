@@ -272,16 +272,8 @@ void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
         return;
     }
 
-    if (br->HasDeploymentLaunchStarted())
-    {
-        br->DecrementPendingBotCount();
-        if (PlayerBotEntry* e = bot->GetSession() ? bot->GetSession()->GetBot() : nullptr)
-            e->requestRemoval = true;
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-                 "[BattleRoyaleMgr] Late BR bot %s arrived after deployment launch for instance %u; removing it.",
-                 bot->GetName(), instanceId);
-        return;
-    }
+    // Orbit starts immediately when players enter the map; late bots are allowed
+    // to join — UpdateDeploying will start their orbit on the next tick.
 
     // Allocate a spawn index for this bot
     auto idxIt = m_botSpawnIndexes.find(instanceId);

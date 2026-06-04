@@ -21,7 +21,6 @@
 #include <cstdio>
 
 static uint32 const BR_FINISH_DELAY_MS           = 10000;
-static uint32 const BR_DEPLOYMENT_TIMEOUT_MS     = 30000;
 static float  const BR_LANDING_CORRECTION_DISTANCE = 5.0f;
 // Shared orbit taxi path ID — one circle above AB center, radius 30, altitude 250.
 // Defined in BattleRoyale.sql as 'br_ab_orbit'. All players ride this together
@@ -49,7 +48,7 @@ static uint32 const BR_ITEM_ENTRIES[] =
 
 BattleRoyale::BattleRoyale(BattleRoyaleTemplate const* tmpl, BattleGroundBR* host)
     : m_status(BattleRoyaleStatus::DEPLOYING), m_tmpl(tmpl), m_host(host),
-      m_landedCount(0), m_deploymentTimer(BR_DEPLOYMENT_TIMEOUT_MS),
+      m_landedCount(0),
       m_prepareTimer(30000), m_aliveCount(0), m_totalCount(0), m_finishTimer(0), m_runningTime(0)
 {
     m_zone.Init(tmpl);
@@ -216,55 +215,11 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
     if (!map)
         return;
 
-    // Phase 1: wait for all participants, then start the shared orbit for everyone.
+    // Phase 1 & 2: start orbit for any player in the map who hasn't started yet,
+    // then when orbit ends start the individual drop. Bots that arrive late (async)
+    // are handled here too — they just join the orbit whenever they land in the map.
     if (!m_orbitStarted)
-    {
-        bool allInMap = true;
-        for (auto const& kv : m_players)
-        {
-            if (!kv.second.landed && !map->GetPlayer(kv.first))
-            {
-                allInMap = false;
-                break;
-            }
-        }
-
-        if (m_pendingBotCount > 0 || !allInMap)
-        {
-            if (m_deploymentTimer <= diff)
-            {
-                sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-                         "[BattleRoyale] Deployment timed out in instance %u (pending bots %u); starting orbit anyway.",
-                         m_host ? m_host->GetInstanceID() : 0u, m_pendingBotCount);
-                m_pendingBotCount = 0;
-                // fall through to start orbit
-            }
-            else
-            {
-                m_deploymentTimer -= diff;
-                return;
-            }
-        }
-
         m_orbitStarted = true;
-        for (auto& kv : m_players)
-        {
-            if (kv.second.landed)
-                continue;
-            Player* p = map->GetPlayer(kv.first);
-            if (!p)
-                continue;
-            std::string error;
-            if (sCustomTaxiMgr.Play(p, BR_ORBIT_PATH_ID, error))
-                kv.second.orbitStarted = true;
-            else
-                sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-                         "[BattleRoyale] Orbit taxi failed for %s: %s", p->GetName(), error.c_str());
-        }
-        return;
-    }
-
-    // Phase 2 & 3: orbit done → individual drop; drop done → land.
     for (auto it = m_players.begin(); it != m_players.end(); ++it)
     {
         BattleRoyalePlayer& brPlayer = it->second;
@@ -275,6 +230,18 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         if (!player)
             continue;
 
+        // Start orbit for anyone not yet on it (includes late-arriving bots).
+        if (!brPlayer.orbitStarted)
+        {
+            std::string error;
+            if (sCustomTaxiMgr.Play(player, BR_ORBIT_PATH_ID, error))
+                brPlayer.orbitStarted = true;
+            else
+                sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                         "[BattleRoyale] Orbit taxi failed for %s: %s", player->GetName(), error.c_str());
+            continue;
+        }
+
         if (player->IsTaxiFlying())
             continue; // orbit or drop still in progress
 
@@ -284,7 +251,35 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
             continue;
         }
 
-        // Orbit ended — start individual drop path.
+        // Orbit ended. Check if all participants are in the map and orbiting.
+        // If not, re-orbit until everyone is ready, then drop together.
+        {
+            bool allReady = (m_pendingBotCount == 0);
+            if (allReady)
+            {
+                for (auto const& kv : m_players)
+                {
+                    if (!kv.second.landed && !kv.second.orbitStarted)
+                    {
+                        allReady = false;
+                        break;
+                    }
+                }
+            }
+
+            if (!allReady)
+            {
+                std::string err;
+                if (sCustomTaxiMgr.Play(player, BR_ORBIT_PATH_ID, err))
+                    brPlayer.orbitStarted = true;
+                else
+                    sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                             "[BattleRoyale] Re-orbit failed for %s: %s", player->GetName(), err.c_str());
+                continue;
+            }
+        }
+
+        // All ready — start individual drop path.
         if (!brPlayer.deploymentPathId)
         {
             CompleteDeployment(player, brPlayer, true);
