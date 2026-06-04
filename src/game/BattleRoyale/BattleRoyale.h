@@ -39,7 +39,7 @@ public:
     explicit BattleRoyale(BattleRoyaleTemplate const* tmpl, BattleGroundBR* host);
 
     // Called by BattleRoyaleMgr
-    void AddPlayer(Player* player, BRSpawnPoint const& landingPoint, BRSpawnPoint const& deploymentStartPoint, uint32 deploymentPathId, bool isBot = false);
+    void AddPlayer(Player* player, BRSpawnPoint const& landingPoint, uint32 deploymentPathId, bool isBot = false);
     void SetPendingBotCount(uint32 count) { m_pendingBotCount = count; }
     void DecrementPendingBotCount() { if (m_pendingBotCount > 0) --m_pendingBotCount; }
     void Update(uint32 diff);
@@ -67,7 +67,6 @@ public:
     std::map<ObjectGuid, BattleRoyalePlayer> const& GetPlayers() const { return m_players; }
 
 private:
-    void StartDeploymentLaunch();
     void UpdateDeploying(uint32 diff, Map* map);
     void CompleteDeployment(Player* player, BattleRoyalePlayer& brPlayer, bool teleportToLandingPoint);
     void StartPreparing();
@@ -93,7 +92,7 @@ private:
     std::vector<BRRankEntry>                 m_ranks;
 
     uint32  m_pendingBotCount  = 0;   // bots created but not yet added via AddPlayer
-    bool    m_deploymentLaunchStarted = false;
+    bool    m_orbitStarted     = false;
     uint32  m_landedCount      = 0;
     uint32  m_deploymentTimer  = 30000;
     uint32  m_prepareTimer     = 30000;

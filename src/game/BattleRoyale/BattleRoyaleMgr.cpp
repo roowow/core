@@ -23,28 +23,6 @@ namespace
 {
 uint32 const BR_DEFAULT_DEPLOYMENT_PATH_BASE = 910000;
 
-BRSpawnPoint GetCompactDeploymentStart(BRSpawnPoint const& start, uint32 index)
-{
-    static float const offsets[][2] =
-    {
-        {   0.0f,   0.0f },
-        {   6.0f,   0.0f }, {   0.0f,   6.0f }, {  -6.0f,   0.0f }, {   0.0f,  -6.0f },
-        {   4.5f,   4.5f }, {  -4.5f,   4.5f }, {  -4.5f,  -4.5f }, {   4.5f,  -4.5f },
-        {  12.0f,   0.0f }, {   0.0f,  12.0f }, { -12.0f,   0.0f }, {   0.0f, -12.0f },
-        {   8.5f,   8.5f }, {  -8.5f,   8.5f }, {  -8.5f,  -8.5f }, {   8.5f,  -8.5f },
-        {  18.0f,   0.0f }, {   0.0f,  18.0f }, { -18.0f,   0.0f }, {   0.0f, -18.0f },
-        {  13.0f,  13.0f }, { -13.0f,  13.0f }, { -13.0f, -13.0f }, {  13.0f, -13.0f },
-        {  16.0f,   8.0f }, {  -8.0f,  16.0f }, { -16.0f,  -8.0f }, {   8.0f, -16.0f },
-        {  16.0f,  -8.0f }, {   8.0f,  16.0f }
-    };
-
-    BRSpawnPoint point = start;
-    float const* offset = offsets[index % (sizeof(offsets) / sizeof(offsets[0]))];
-    point.x += offset[0];
-    point.y += offset[1];
-    return point;
-}
-
 bool IsBattleRoyaleDeploymentPathLoaded(uint32 pathId)
 {
     if (!pathId)
@@ -108,12 +86,6 @@ void ApplyBattleRoyaleStagingMount(Player* player, uint32 deploymentPathId)
     player->Mount(mountDisplayId);
 }
 
-void ApplyBattleRoyaleDeploymentStagingState(Player* player, uint32 deploymentPathId)
-{
-    ApplyBattleRoyaleStagingMount(player, deploymentPathId);
-    // Hover is applied after the cross-map teleport completes. Applying it here
-    // is unreliable because TeleportTo can reset movement state during transfer.
-}
 }
 
 BattleRoyaleMgr::BattleRoyaleMgr()
@@ -339,19 +311,14 @@ void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
     }
     uint32 deploymentPathId = ResolveBattleRoyaleDeploymentPath(spawnIndex, deploymentPaths);
 
-    BRSpawnPoint const start = GetCompactDeploymentStart(tmpl.deploymentStart, spawnIndex);
+    BRSpawnPoint const& start = tmpl.deploymentStart;
     bot->SetBattleGroundEntryPoint();
-    br->AddPlayer(bot, sp, start, deploymentPathId, true /*isBot*/);
+    br->AddPlayer(bot, sp, deploymentPathId, true /*isBot*/);
     m_playerInstMap[bot->GetObjectGuid()] = instanceId;
 
-    ApplyBattleRoyaleDeploymentStagingState(bot, deploymentPathId);
+    ApplyBattleRoyaleStagingMount(bot, deploymentPathId);
     if (!bot->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o))
     {
-        if (bot->IsHovering())
-        {
-            bot->SetHover(false);
-            bot->SetHoverReal(false);
-        }
         if (bot->IsMounted())
             bot->Unmount();
     }
@@ -489,23 +456,17 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
         BRSpawnPoint const& sp = spawns[spawnIndex];
         uint32 deploymentPathId = ResolveBattleRoyaleDeploymentPath(spawnIndex, deploymentPaths);
 
-        BRSpawnPoint const deploymentStart = GetCompactDeploymentStart(tmpl.deploymentStart, spawnIndex);
+        BRSpawnPoint const& start = tmpl.deploymentStart;
 
         // Register player BEFORE TeleportTo so BattleGroundMap::CanEnter()
         // finds the correct instanceId when the transfer is processed.
         player->SetBattleGroundEntryPoint();
-        br->AddPlayer(player, sp, deploymentStart, deploymentPathId);
+        br->AddPlayer(player, sp, deploymentPathId);
         m_playerInstMap[player->GetObjectGuid()] = instanceId;
 
-        ApplyBattleRoyaleDeploymentStagingState(player, deploymentPathId);
-        if (!player->TeleportTo(tmpl.mapId, deploymentStart.x, deploymentStart.y,
-                                deploymentStart.z, deploymentStart.o))
+        ApplyBattleRoyaleStagingMount(player, deploymentPathId);
+        if (!player->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o))
         {
-            if (player->IsHovering())
-            {
-                player->SetHover(false);
-                player->SetHoverReal(false);
-            }
             if (player->IsMounted())
                 player->Unmount();
         }
