@@ -56,7 +56,7 @@ public:
     uint32             GetTotalCount()     const { return m_totalCount; }
     uint32             GetPendingBotCount() const { return m_pendingBotCount; }
     uint32             GetRunningTimeSecs() const { return m_runningTime / 1000; }
-    bool               HasDeploymentLaunchStarted() const { return m_deploymentLaunchStarted; }
+    bool               HasDeploymentLaunchStarted() const { return m_orbitStarted; }
     bool               IsAlive(ObjectGuid guid) const;
     BattleRoyaleZone const& GetZone() const { return m_zone; }
     BattleGroundBR*    GetHost()      const { return m_host; }
