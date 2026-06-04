@@ -24,9 +24,9 @@ public:
     float GetCurrentDamagePercent() const;
     uint32 GetPhase()               const { return m_phase; }
 
-    // Spawn the initial marker ring (called when entering PREPARING state)
+    // Spawn the initial marker ring when BR starts running.
     void RefreshMarkers(Map* map) { UpdateMarkers(map); }
-    // Drain pending spawn queue one batch at a time (call each tick during PREPARING)
+    // Drain pending marker spawns immediately at match start.
     void DrainSpawnQueue(Map* map) { ProcessSpawnBatch(map); }
 
     float GetCenterX() const { return m_centerX; }

@@ -45,10 +45,10 @@ inline BattleRoyaleTemplate& GetABTemplate()
         t.maxPlayers = 30;
         t.enabled    = true;
         // Teleport destination = first node of the shared orbit path (br_ab_orbit, ID 909999).
-        // The orbit is a circle of radius 30 centred on (990, 1008); node 0 is at angle 0°
-        // (east), so x = 990 + 30 = 1020. CustomTaxiMgr::Play() requires the player to be
+        // The orbit is a circle of radius 60 centred on (990, 1008); node 0 is at angle 0°
+        // (east), so x = 990 + 60 = 1050. CustomTaxiMgr::Play() requires the player to be
         // within 20 yards of node 0, so the staging point must equal this position.
-        t.deploymentStart = { 1020.0f, 1008.0f, 250.0f, 0.0f };
+        t.deploymentStart = { 1050.0f, 1008.0f, 250.0f, 0.0f };
 
         // spawnPoints 由 BattleRoyaleMgr::LoadSpawnPoints() 从数据库加载，此处留空。
         // 使用 .br spawn add 命令在游戏内站到目标位置后记录坐标。

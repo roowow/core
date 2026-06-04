@@ -1716,6 +1716,9 @@ bool BattleBotAI::UseMount()
 
     if (BattleGround* bg = me->GetBattleGround())
     {
+        if (bg->GetTypeID() == BATTLEGROUND_BR)
+            return false;
+
         if (bg->GetStatus() == STATUS_WAIT_JOIN)
             return false;
         // Don't interrupt active AV/WSG path traversal to mount; bots can mount
@@ -3523,6 +3526,13 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     BattleRoyale* br = static_cast<BattleGroundBR*>(bg)->GetOwner();
     if (!br || br->GetStatus() != BattleRoyaleStatus::RUNNING)
         return;
+
+    // BR is meant to be fought on foot; mounted bots cross the shrinking field too quickly.
+    if (me->IsMounted())
+    {
+        me->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+        return;
+    }
 
     BattleRoyaleZone const& zone = br->GetZone();
 

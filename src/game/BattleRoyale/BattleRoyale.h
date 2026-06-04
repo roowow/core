@@ -20,10 +20,9 @@ enum class BattleRoyaleStatus : uint8
     WAITING   = 0,
     COUNTDOWN = 1,
     DEPLOYING = 2,
-    PREPARING = 3,
-    RUNNING   = 4,
-    FINISHED  = 5,
-    CANCELLED = 6,
+    RUNNING   = 3,
+    FINISHED  = 4,
+    CANCELLED = 5,
 };
 
 struct BRRankEntry
@@ -69,7 +68,6 @@ public:
 private:
     void UpdateDeploying(uint32 diff, Map* map);
     void CompleteDeployment(Player* player, BattleRoyalePlayer& brPlayer, bool teleportToLandingPoint);
-    void StartPreparing();
     void StartRunning();
     void Finish();
     void Eliminate(ObjectGuid guid, bool notify = true, ObjectGuid killerGuid = ObjectGuid());
@@ -94,7 +92,6 @@ private:
     uint32  m_pendingBotCount  = 0;   // bots created but not yet added via AddPlayer
     bool    m_orbitStarted     = false;
     uint32  m_landedCount      = 0;
-    uint32  m_prepareTimer     = 30000;
     uint32  m_aliveCount       = 0;
     uint32  m_totalCount       = 0;
     uint32  m_finishTimer      = 0;

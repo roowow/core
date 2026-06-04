@@ -10,6 +10,7 @@
 #include "CustomTaxiMgr.h"
 #include "Log.h"
 #include "MotionMaster.h"
+#include "ObjectMgr.h"
 #include "PlayerBotMgr.h"
 
 #include "Mail.h"
@@ -49,7 +50,7 @@ static uint32 const BR_ITEM_ENTRIES[] =
 BattleRoyale::BattleRoyale(BattleRoyaleTemplate const* tmpl, BattleGroundBR* host)
     : m_status(BattleRoyaleStatus::DEPLOYING), m_tmpl(tmpl), m_host(host),
       m_landedCount(0),
-      m_prepareTimer(30000), m_aliveCount(0), m_totalCount(0), m_finishTimer(0), m_runningTime(0)
+      m_aliveCount(0), m_totalCount(0), m_finishTimer(0), m_runningTime(0)
 {
     m_zone.Init(tmpl);
 }
@@ -215,11 +216,16 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
     if (!map)
         return;
 
-    // Phase 1 & 2: start orbit for any player in the map who hasn't started yet,
-    // then when orbit ends start the individual drop. Bots that arrive late (async)
-    // are handled here too — they just join the orbit whenever they land in the map.
     if (!m_orbitStarted)
         m_orbitStarted = true;
+
+    // Look up orbit nodes once per tick (shared by all players).
+    auto const& taxiPaths = sCustomTaxiMgr.GetPaths();
+    auto const orbitIt = taxiPaths.find(BR_ORBIT_PATH_ID);
+    std::vector<TaxiPathNodeEntry> const* orbitNodes =
+        (orbitIt != taxiPaths.end() && !orbitIt->second.nodes.empty())
+        ? &orbitIt->second.nodes : nullptr;
+
     for (auto it = m_players.begin(); it != m_players.end(); ++it)
     {
         BattleRoyalePlayer& brPlayer = it->second;
@@ -230,106 +236,126 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         if (!player)
             continue;
 
-        // Start orbit for anyone not yet on it (includes late-arriving bots).
-        // Re-apply hover every tick until Play() succeeds: the cross-map WorldPort
-        // ACK can take several ticks to arrive, during which the client sends
-        // falling position updates that would override a one-shot hover.
-        if (!brPlayer.orbitStarted)
-        {
-            // Keep hover fresh each tick so the client can't fall through.
-            if (!player->IsHovering() && !player->HasPendingMovementChange(SET_HOVER))
-                player->SetHover(true);
-            player->SetHoverReal(true);
-            player->SetFallInformation(0);
-
-            std::string error;
-            if (sCustomTaxiMgr.Play(player, BR_ORBIT_PATH_ID, error))
-            {
-                player->SetHover(false);
-                player->SetHoverReal(false);
-                brPlayer.orbitStarted = true;
-            }
-            else
-                sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-                         "[BattleRoyale] Orbit taxi failed for %s: %s", player->GetName(), error.c_str());
-            continue;
-        }
-
         if (player->IsTaxiFlying())
-            continue; // orbit or drop still in progress
+            continue; // combined orbit+drop flight in progress
 
         if (brPlayer.deploymentStarted)
         {
+            // Combined flight ended — land.
             CompleteDeployment(player, brPlayer, false);
             continue;
         }
 
-        // Orbit ended. Check if all participants are in the map and orbiting.
-        // If not, re-orbit until everyone is ready, then drop together.
-        {
-            bool allReady = (m_pendingBotCount == 0);
-            if (allReady)
-            {
-                for (auto const& kv : m_players)
-                {
-                    if (!kv.second.landed && !kv.second.orbitStarted)
-                    {
-                        allReady = false;
-                        break;
-                    }
-                }
-            }
+        // Player hasn't started the combined flight yet.
+        // Hold them in place with hover until the flight starts.
+        if (!player->IsHovering() && !player->HasPendingMovementChange(SET_HOVER))
+            player->SetHover(true);
+        player->SetHoverReal(true);
+        player->SetFallInformation(0);
 
-            if (!allReady)
-            {
-                std::string err;
-                if (sCustomTaxiMgr.Play(player, BR_ORBIT_PATH_ID, err))
-                {
-                    player->SetHover(false);
-                    player->SetHoverReal(false);
-                }
-                else
-                {
-                    // Re-orbit failed; hover to prevent falling while retrying.
-                    if (!player->IsHovering() && !player->HasPendingMovementChange(SET_HOVER))
-                        player->SetHover(true);
-                    player->SetHoverReal(true);
-                    player->SetFallInformation(0);
-                    sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-                             "[BattleRoyale] Re-orbit failed for %s: %s", player->GetName(), err.c_str());
-                }
-                continue;
-            }
-        }
-
-        // All ready — start individual drop path.
-        if (!brPlayer.deploymentPathId)
+        if (!orbitNodes)
         {
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                     "[BattleRoyale] Orbit path %u not loaded; teleporting %s to landing point.",
+                     BR_ORBIT_PATH_ID, player->GetName());
+            player->SetHover(false);
+            player->SetHoverReal(false);
             CompleteDeployment(player, brPlayer, true);
             continue;
         }
 
-        std::string error;
-        if (sCustomTaxiMgr.Play(player, brPlayer.deploymentPathId, error))
+        if (!brPlayer.deploymentPathId)
         {
-            brPlayer.deploymentStarted = true;
-            ChatHandler(player).PSendSysMessage("[孤胆称雄] 长风送客，御空而下。落地之后，刀剑无情，唯凭本事。");
-            sLog.Out(LOG_BASIC, LOG_LVL_DETAIL,
-                     "[BattleRoyale] Drop started for %s path %u instance %u.",
-                     player->GetName(), brPlayer.deploymentPathId,
-                     m_host ? m_host->GetInstanceID() : 0u);
+            // No drop path — land directly.
+            player->SetHover(false);
+            player->SetHoverReal(false);
+            CompleteDeployment(player, brPlayer, true);
+            continue;
         }
-        else
+
+        auto const dropIt = taxiPaths.find(brPlayer.deploymentPathId);
+        if (dropIt == taxiPaths.end() || dropIt->second.nodes.empty())
         {
             sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-                     "[BattleRoyale] Drop path %u failed for %s: %s. Teleporting to landing point.",
-                     brPlayer.deploymentPathId, player->GetName(), error.c_str());
+                     "[BattleRoyale] Drop path %u not loaded for %s; teleporting to landing point.",
+                     brPlayer.deploymentPathId, player->GetName());
+            player->SetHover(false);
+            player->SetHoverReal(false);
             CompleteDeployment(player, brPlayer, true);
+            continue;
         }
+
+        // Build combined path: orbit nodes first, then drop nodes (indices shifted).
+        std::vector<TaxiPathNodeEntry> combined;
+        combined.reserve(orbitNodes->size() + dropIt->second.nodes.size());
+        for (auto const& n : *orbitNodes)
+            combined.push_back(n);
+        uint32 const offset = uint32(combined.size());
+        for (auto const& n : dropIt->second.nodes)
+        {
+            TaxiPathNodeEntry node = n;
+            node.index = offset + n.index;
+            combined.push_back(node);
+        }
+
+        // Setup and start combined flight (mirrors CustomTaxiMgr::Play internals).
+        player->CombatStop();
+        player->TradeCancel(true);
+        player->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+        if (player->IsInDisallowedMountForm())
+        {
+            player->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
+            player->RemoveSpellsCausingAura(SPELL_AURA_TRANSFORM);
+        }
+        player->InterruptNonMeleeSpells(false);
+
+        if (!player->GetTaxi().SetCustomTaxiPath(combined))
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                     "[BattleRoyale] SetCustomTaxiPath failed for %s; teleporting to landing point.", player->GetName());
+            player->SetHover(false);
+            player->SetHoverReal(false);
+            CompleteDeployment(player, brPlayer, true);
+            continue;
+        }
+
+        // Prefer the drop path's own mountDisplayId, then orbit path's, then faction default.
+        uint32 mountDisplayId = dropIt->second.mountDisplayId
+            ? dropIt->second.mountDisplayId
+            : orbitIt->second.mountDisplayId;
+        if (!mountDisplayId)
+        {
+            uint32 const sourceTaxiNode = player->GetTeam() == ALLIANCE ? 2 : 23;
+            mountDisplayId = sObjectMgr.GetTaxiMountDisplayId(sourceTaxiNode, player->GetTeam(), true);
+        }
+        if (!mountDisplayId)
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                     "[BattleRoyale] No mount display ID for %s; teleporting to landing point.", player->GetName());
+            player->SetHover(false);
+            player->SetHoverReal(false);
+            CompleteDeployment(player, brPlayer, true);
+            continue;
+        }
+
+        player->SetHover(false);
+        player->SetHoverReal(false);
+        player->GetSession()->SendDoFlight(mountDisplayId, 0);
+
+        brPlayer.orbitStarted    = true;
+        brPlayer.deploymentStarted = true;
+        ChatHandler(player).PSendSysMessage("[孤胆称雄] 长风送客，御空而下。落地之后，刀剑无情，唯凭本事。");
+        sLog.Out(LOG_BASIC, LOG_LVL_DETAIL,
+                 "[BattleRoyale] Combined orbit+drop flight started for %s instance %u.",
+                 player->GetName(), m_host ? m_host->GetInstanceID() : 0u);
     }
 
-    if (m_landedCount >= m_totalCount && m_pendingBotCount == 0)
-        StartPreparing();
+    // m_pendingBotCount tracks bots requested but not yet arrived. A bot whose
+    // creation failed never calls OnBotReady, so it never calls AddPlayer and
+    // never enters m_totalCount. Excluding it from the trigger would stall the
+    // game indefinitely, so we only gate on the players we actually registered.
+    if (m_landedCount >= m_totalCount)
+        StartRunning();
 }
 
 void BattleRoyale::CompleteDeployment(Player* player, BattleRoyalePlayer& brPlayer, bool teleportToLandingPoint)
@@ -390,15 +416,19 @@ void BattleRoyale::CompleteDeployment(Player* player, BattleRoyalePlayer& brPlay
     ++m_landedCount;
 }
 
-void BattleRoyale::StartPreparing()
+void BattleRoyale::StartRunning()
 {
     if (m_status != BattleRoyaleStatus::DEPLOYING)
         return;
 
+    m_status = BattleRoyaleStatus::RUNNING;
+    m_pendingBotCount = 0; // any bot that hasn't arrived is abandoned; clear the counter
+
+    Map* map = m_host ? m_host->GetBgMap() : nullptr;
+
     // Re-apply FFA PvP now that players are on the BG map.
     // Player::UpdateArea() clears the flag when entering a non-arena area,
     // so we must re-set it after teleport completes.
-    Map* map = m_host ? m_host->GetBgMap() : nullptr;
     if (map)
     {
         for (auto it = m_players.begin(); it != m_players.end(); ++it)
@@ -418,14 +448,6 @@ void BattleRoyale::StartPreparing()
         m_zone.DrainSpawnQueue(map);
     }
 
-    StartRunning();
-}
-
-void BattleRoyale::StartRunning()
-{
-    m_status = BattleRoyaleStatus::RUNNING;
-
-    Map* map = m_host ? m_host->GetBgMap() : nullptr;
     for (auto it = m_players.begin(); it != m_players.end(); ++it)
     {
         if (!it->second.alive)

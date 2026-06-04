@@ -263,17 +263,16 @@ void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
     }
 
     BattleRoyale* br = instIt->second;
-    if (br->GetStatus() == BattleRoyaleStatus::FINISHED ||
-        br->GetStatus() == BattleRoyaleStatus::CANCELLED)
+    if (br->GetStatus() != BattleRoyaleStatus::DEPLOYING)
     {
+        // Game already past deployment (running, finished, or cancelled).
+        // A late bot arriving now would bypass the deployment flow and land
+        // mid-match with immunities that are never removed. Reject it.
         br->DecrementPendingBotCount();
         if (PlayerBotEntry* e = bot->GetSession() ? bot->GetSession()->GetBot() : nullptr)
             e->requestRemoval = true;
         return;
     }
-
-    // Orbit starts immediately when players enter the map; late bots are allowed
-    // to join — UpdateDeploying will start their orbit on the next tick.
 
     // Allocate a spawn index for this bot
     auto idxIt = m_botSpawnIndexes.find(instanceId);

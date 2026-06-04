@@ -55,10 +55,10 @@ bool ChatHandler::HandleBRInfoCommand(char* /*args*/)
     uint32 instanceId = host ? host->GetInstanceID() : 0;
 
     static char const* const statusNames[] = {
-        "等待", "倒计时", "空降", "准备期", "运行中", "已结束", "已取消"
+        "等待", "倒计时", "空降", "运行中", "已结束", "已取消"
     };
     uint8 statusIdx = uint8(br->GetStatus());
-    char const* statusStr = statusIdx < 7 ? statusNames[statusIdx] : "未知";
+    char const* statusStr = statusIdx < 6 ? statusNames[statusIdx] : "未知";
 
     uint32 elapsed = br->GetRunningTimeSecs();
     uint32 mins = elapsed / 60, secs = elapsed % 60;
