@@ -54,6 +54,17 @@ TaxiPathNodeEntry const* GetBattleRoyaleDeploymentFirstNode(uint32 pathId)
     return &pathItr->second.nodes.front();
 }
 
+void SyncBattleRoyaleBotHoverToObservers(Player* player, bool apply)
+{
+    if (!player || !player->IsBot() || !player->IsInWorld())
+        return;
+
+    // Battle royale bots are Player objects without a real client mover.
+    // Unit::SetHover() treats them as server-controlled and sends spline hover,
+    // but observers render player movement more reliably with MSG_MOVE_HOVER.
+    MovementPacketSender::SendMovementFlagChangeToObservers(player, MOVEFLAG_HOVER, apply);
+}
+
 void RefreshBattleRoyaleDeploymentHover(Player* player, bool forceClientRefresh)
 {
     if (!player)
@@ -62,22 +73,31 @@ void RefreshBattleRoyaleDeploymentHover(Player* player, bool forceClientRefresh)
     if (player->HasPendingMovementChange(SET_HOVER))
     {
         if (player->IsBot())
+        {
             player->SetHoverReal(true);
+            SyncBattleRoyaleBotHoverToObservers(player, true);
+        }
         player->SetFallInformation(0);
         return;
     }
 
+    bool const wasHovering = player->IsHovering();
+
     // If the client ignored an earlier hover packet, the server-side flag can be
     // set while the player is visibly falling. Clear only the local flag so the
     // next SetHover(true) sends a fresh controller packet.
-    if (forceClientRefresh && player->IsHovering())
+    if (forceClientRefresh && wasHovering)
         player->SetHoverReal(false);
 
     player->SetHover(true);
 
     // Bots have no real client mover, so keep their local movement flag explicit.
     if (player->IsBot())
+    {
         player->SetHoverReal(true);
+        if (!wasHovering || forceClientRefresh)
+            SyncBattleRoyaleBotHoverToObservers(player, true);
+    }
 
     player->SetFallInformation(0);
 }
@@ -91,6 +111,7 @@ void ClearBattleRoyaleDeploymentHover(Player* player)
         player->SetHover(false);
 
     player->SetHoverReal(false);
+    SyncBattleRoyaleBotHoverToObservers(player, false);
     player->SetFallInformation(0);
 }
 
@@ -676,6 +697,18 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
             corpse->SetShowLootableToFriendly(true);
             corpse->SetFlag(CORPSE_FIELD_DYNAMIC_FLAGS, CORPSE_DYNFLAG_LOOTABLE);
             corpse->ForceValuesUpdateAtIndex(CORPSE_FIELD_DYNAMIC_FLAGS);
+            // The 1.12 client may not re-evaluate corpse sparkle from a VALUES update
+            // alone. Re-send a creation packet to observers that already have the corpse
+            // in their visible list so the sparkle appears immediately.
+            if (Map* corpseMap = corpse->GetMap())
+            {
+                for (auto const& kv : m_players)
+                {
+                    if (Player* observer = corpseMap->GetPlayer(kv.first))
+                        if (observer->IsInVisibleList(corpse))
+                            corpse->SendCreateUpdateToPlayer(observer);
+                }
+            }
         }
     }
 
