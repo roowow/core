@@ -231,11 +231,21 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
             continue;
 
         // Start orbit for anyone not yet on it (includes late-arriving bots).
+        // Hold the player in place with hover until the taxi takes over so they
+        // don't free-fall during the gap between map arrival and Play().
         if (!brPlayer.orbitStarted)
         {
+            player->SetHover(true);
+            player->SetHoverReal(true);
+            player->SetFallInformation(0);
+
             std::string error;
             if (sCustomTaxiMgr.Play(player, BR_ORBIT_PATH_ID, error))
+            {
+                player->SetHover(false);
+                player->SetHoverReal(false);
                 brPlayer.orbitStarted = true;
+            }
             else
                 sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
                          "[BattleRoyale] Orbit taxi failed for %s: %s", player->GetName(), error.c_str());
@@ -269,9 +279,16 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
 
             if (!allReady)
             {
+                player->SetHover(true);
+                player->SetHoverReal(true);
+                player->SetFallInformation(0);
+
                 std::string err;
                 if (sCustomTaxiMgr.Play(player, BR_ORBIT_PATH_ID, err))
-                    brPlayer.orbitStarted = true;
+                {
+                    player->SetHover(false);
+                    player->SetHoverReal(false);
+                }
                 else
                     sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
                              "[BattleRoyale] Re-orbit failed for %s: %s", player->GetName(), err.c_str());
