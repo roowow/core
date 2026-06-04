@@ -19,14 +19,16 @@
 #include "ObjectAccessor.h"
 #include "Database/DatabaseEnv.h"
 
+#include <cmath>
 #include <cstdio>
 
 static uint32 const BR_FINISH_DELAY_MS           = 10000;
 static float  const BR_LANDING_CORRECTION_DISTANCE = 5.0f;
-// Shared orbit taxi path ID — one circle above AB center, radius 30, altitude 250.
+// Shared orbit taxi path ID — one circle above AB center, radius 60, altitude 250.
 // Defined in BattleRoyale.sql as 'br_ab_orbit'. All players ride this together
 // before branching to their individual drop paths.
 static uint32 const BR_ORBIT_PATH_ID             = 909999;
+static float  const BR_TWO_PI                    = 6.2831853071795864769f;
 
 // Reference loot table entry for BR corpse drops (reference_loot_template.entry).
 static uint32 const BR_CORPSE_LOOT_REF_ID = 9001;
@@ -36,6 +38,17 @@ static uint32 const BR_SCORE_RANK1    = 10;
 static uint32 const BR_SCORE_RANK2    = 5;
 static uint32 const BR_SCORE_RANK3    = 3;
 static uint32 const BR_SCORE_PER_KILL = 1;
+static uint32 const BR_WINNER_CELEBRATION_SPELL_ID = 27571;
+
+static uint32 BattleRoyaleMixSeed(uint32 value)
+{
+    value ^= value >> 16;
+    value *= 0x7feb352d;
+    value ^= value >> 15;
+    value *= 0x846ca68b;
+    value ^= value >> 16;
+    return value;
+}
 
 // BR item entries — must match what is actually in item_template (DB).
 // Used only for CleanupBRItems() when a player exits the match.
@@ -132,6 +145,8 @@ void BattleRoyale::Update(uint32 diff)
                 }
                 if (!player->IsFFAPvP())
                     player->SetFFAPvP(true);
+                if (player->IsMounted())
+                    player->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
             }
             for (ObjectGuid const& guid : toEliminate)
                 Eliminate(guid);
@@ -285,11 +300,51 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
             continue;
         }
 
-        // Build combined path: orbit nodes first, then drop nodes (indices shifted).
+        // Build a personal combined path. Everyone starts from the staging point,
+        // immediately fans out to a different point on the orbit ring, then follows
+        // the shared orbit from a rotated node before taking their own drop path.
         std::vector<TaxiPathNodeEntry> combined;
-        combined.reserve(orbitNodes->size() + dropIt->second.nodes.size());
-        for (auto const& n : *orbitNodes)
-            combined.push_back(n);
+        combined.reserve(orbitNodes->size() + dropIt->second.nodes.size() + 2);
+
+        uint32 const seed = BattleRoyaleMixSeed(player->GetObjectGuid().GetCounter() ^ brPlayer.deploymentPathId);
+        size_t const orbitCount = orbitNodes->size();
+        uint32 const angleBucket = seed % 10000;
+        float const angle = BR_TWO_PI * float(angleBucket) / 10000.0f;
+        size_t const orbitStart = size_t(float(angleBucket) * float(orbitCount) / 10000.0f + 0.5f) % orbitCount;
+
+        TaxiPathNodeEntry startNode = (*orbitNodes)[orbitStart];
+        startNode.index = 0;
+        startNode.mapid = player->GetMapId();
+        startNode.x = player->GetPositionX();
+        startNode.y = player->GetPositionY();
+        startNode.z = player->GetPositionZ();
+        startNode.delay = 0;
+        combined.push_back(startNode);
+
+        float const centerX = m_tmpl ? m_tmpl->centerX : (*orbitNodes)[orbitStart].x;
+        float const centerY = m_tmpl ? m_tmpl->centerY : (*orbitNodes)[orbitStart].y;
+        float const radiusX = (*orbitNodes)[orbitStart].x - centerX;
+        float const radiusY = (*orbitNodes)[orbitStart].y - centerY;
+        float radius = std::sqrt(radiusX * radiusX + radiusY * radiusY);
+        if (radius < 5.0f)
+            radius = 60.0f;
+
+        TaxiPathNodeEntry spreadNode = (*orbitNodes)[orbitStart];
+        spreadNode.index = 1;
+        spreadNode.mapid = player->GetMapId();
+        spreadNode.x = centerX + std::cos(angle) * radius;
+        spreadNode.y = centerY + std::sin(angle) * radius;
+        spreadNode.z = (*orbitNodes)[orbitStart].z;
+        spreadNode.delay = 0;
+        combined.push_back(spreadNode);
+
+        for (size_t i = 0; i < orbitCount; ++i)
+        {
+            TaxiPathNodeEntry node = (*orbitNodes)[(orbitStart + i) % orbitCount];
+            node.index = uint32(combined.size());
+            combined.push_back(node);
+        }
+
         uint32 const offset = uint32(combined.size());
         for (auto const& n : dropIt->second.nodes)
         {
@@ -616,6 +671,7 @@ void BattleRoyale::Finish()
         {
             if (Player* p = map->GetPlayer(it->first))
             {
+                p->CastSpell(p, BR_WINNER_CELEBRATION_SPELL_ID, true);
                 if (p->GetSession())
                 {
                     it->second.logName = p->GetName();

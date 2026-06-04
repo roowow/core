@@ -53,7 +53,7 @@ public:
     BattleRoyaleStatus GetStatus()         const { return m_status; }
     uint32             GetAliveCount()     const;
     uint32             GetTotalCount()     const { return m_totalCount; }
-    uint32             GetPendingBotCount() const { return m_pendingBotCount; }
+    uint32             GetPendingBotCount() const { return m_status == BattleRoyaleStatus::DEPLOYING ? m_pendingBotCount : 0; }
     uint32             GetRunningTimeSecs() const { return m_runningTime / 1000; }
     bool               HasDeploymentLaunchStarted() const { return m_orbitStarted; }
     bool               IsAlive(ObjectGuid guid) const;

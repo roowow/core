@@ -6365,6 +6365,11 @@ SpellCastResult Spell::CheckCast(bool strict)
                 if (!m_casterUnit)
                     return SPELL_FAILED_BAD_TARGETS;
 
+                if (Player* playerCaster = m_casterUnit->ToPlayer())
+                    if (BattleGround* bg = playerCaster->GetBattleGround())
+                        if (bg->GetTypeID() == BATTLEGROUND_BR && !m_IsTriggeredSpell)
+                            return SPELL_FAILED_NO_MOUNTS_ALLOWED;
+
                 if (m_casterUnit->IsInWater() && (!m_casterUnit->IsPlayer() || static_cast<Player*>(m_casterUnit)->IsInHighLiquid()))
                     return SPELL_FAILED_ONLY_ABOVEWATER;
 
