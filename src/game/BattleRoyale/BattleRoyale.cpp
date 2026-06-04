@@ -31,8 +31,8 @@ static uint32 const BR_CORPSE_LOOT_REF_ID = 9001;
 // 900214-900221 reserved for future items; not yet in DB, omitted here.
 static uint32 const BR_ITEM_ENTRIES[] =
 {
-    900200, 900210, 900211, 900212, 900213,
-    900222, 900223, 900224, 900225, 900226
+    900210, 900211, 900213,
+    900222, 900223, 900225, 900226
 };
 
 BattleRoyale::BattleRoyale(BattleRoyaleTemplate const* tmpl, BattleGroundBR* host)
@@ -300,6 +300,12 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
             }
 
             std::string error;
+            if (player->IsHovering())
+            {
+                player->SetHover(false);
+                player->SetHoverReal(false);
+            }
+
             if (sCustomTaxiMgr.Play(player, brPlayer.deploymentPathId, error))
             {
                 brPlayer.deploymentStarted = true;
@@ -335,6 +341,12 @@ void BattleRoyale::CompleteDeployment(Player* player, BattleRoyalePlayer& brPlay
 {
     if (brPlayer.landed)
         return;
+
+    if (player && player->IsHovering())
+    {
+        player->SetHover(false);
+        player->SetHoverReal(false);
+    }
 
     if (player && teleportToLandingPoint)
     {
@@ -521,23 +533,13 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
         if (Corpse* corpse = player->GetCorpse())
         {
             corpse->loot.FillLoot(BR_CORPSE_LOOT_REF_ID, LootTemplates_Reference, player, true);
+            corpse->loot.gold       = urand(100, 1000);  // 1–10 silver guaranteed
             corpse->loot.m_personal = true;  // anyone can loot, not just the killer
             corpse->lootForBody     = true;  // prevent AV-style lazy refill on first open
-            if (corpse->loot.unlootedCount > 0)
-            {
-                // BR is FFA and eliminated players are returned/restored immediately, so their
-                // corpse may look friendly to same-faction survivors. Keep only BR loot sparkle visible.
-                corpse->SetShowLootableToFriendly(true);
-                corpse->SetFlag(CORPSE_FIELD_DYNAMIC_FLAGS, CORPSE_DYNFLAG_LOOTABLE);
-                corpse->ForceValuesUpdateAtIndex(CORPSE_FIELD_DYNAMIC_FLAGS);
-            }
-            else
-            {
-                sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-                         "[BattleRoyale] FillLoot produced no items for BR corpse "
-                         "(ref=%u). Check reference_loot_template entry %u is loaded.",
-                         BR_CORPSE_LOOT_REF_ID, BR_CORPSE_LOOT_REF_ID);
-            }
+            // gold is always present; unlootedCount only tracks items
+            corpse->SetShowLootableToFriendly(true);
+            corpse->SetFlag(CORPSE_FIELD_DYNAMIC_FLAGS, CORPSE_DYNFLAG_LOOTABLE);
+            corpse->ForceValuesUpdateAtIndex(CORPSE_FIELD_DYNAMIC_FLAGS);
         }
     }
 
@@ -622,6 +624,12 @@ void BattleRoyale::ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlay
     {
         player->GetMotionMaster()->MovementExpired();
         player->GetTaxi().ClearTaxiDestinations();
+    }
+
+    if (player->IsHovering())
+    {
+        player->SetHover(false);
+        player->SetHoverReal(false);
     }
 
     CleanupBRItems(player);

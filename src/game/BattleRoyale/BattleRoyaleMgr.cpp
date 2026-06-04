@@ -107,6 +107,16 @@ void ApplyBattleRoyaleStagingMount(Player* player, uint32 deploymentPathId)
 
     player->Mount(mountDisplayId);
 }
+
+void ApplyBattleRoyaleDeploymentStagingState(Player* player, uint32 deploymentPathId)
+{
+    ApplyBattleRoyaleStagingMount(player, deploymentPathId);
+    // The launch countdown can last several seconds while bots finish entering
+    // the map. Keep participants hovering at the route start instead of letting
+    // gravity pull them away from the first taxi node.
+    player->SetHover(true);
+    player->SetHoverReal(true);
+}
 }
 
 BattleRoyaleMgr::BattleRoyaleMgr()
@@ -337,9 +347,17 @@ void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
     m_playerInstMap[bot->GetObjectGuid()] = instanceId;
 
     BRSpawnPoint const start = GetCompactDeploymentStart(tmpl.deploymentStart, spawnIndex);
-    ApplyBattleRoyaleStagingMount(bot, deploymentPathId);
-    if (!bot->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o) && bot->IsMounted())
-        bot->Unmount();
+    ApplyBattleRoyaleDeploymentStagingState(bot, deploymentPathId);
+    if (!bot->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o))
+    {
+        if (bot->IsHovering())
+        {
+            bot->SetHover(false);
+            bot->SetHoverReal(false);
+        }
+        if (bot->IsMounted())
+            bot->Unmount();
+    }
 
     sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyaleMgr] Bot %s ready for instance %u (spawn %u).",
              bot->GetName(), instanceId, spawnIndex);
@@ -481,10 +499,18 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
         m_playerInstMap[player->GetObjectGuid()] = instanceId;
 
         BRSpawnPoint const deploymentStart = GetCompactDeploymentStart(tmpl.deploymentStart, spawnIndex);
-        ApplyBattleRoyaleStagingMount(player, deploymentPathId);
+        ApplyBattleRoyaleDeploymentStagingState(player, deploymentPathId);
         if (!player->TeleportTo(tmpl.mapId, deploymentStart.x, deploymentStart.y,
-                                deploymentStart.z, deploymentStart.o) && player->IsMounted())
-            player->Unmount();
+                                deploymentStart.z, deploymentStart.o))
+        {
+            if (player->IsHovering())
+            {
+                player->SetHover(false);
+                player->SetHoverReal(false);
+            }
+            if (player->IsMounted())
+                player->Unmount();
+        }
     }
 
     // Fill remaining slots with bots
