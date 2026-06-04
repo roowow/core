@@ -4,6 +4,7 @@
 #include "BattleRoyaleTemplate.h"
 #include "ObjectGuid.h"
 #include "SharedDefines.h"
+#include <string>
 
 struct BattleRoyalePlayer
 {
@@ -20,6 +21,13 @@ struct BattleRoyalePlayer
     bool          deploymentStarted = false;
     bool          landed            = false;
     uint32        killCount         = 0;
+
+    // Captured just before ReturnPlayer() while the player is still in the BR map.
+    // Used for character_log_battle_royale at match end.
+    std::string   logName;
+    std::string   logIp;
+    uint32        logZone           = 0;
+    uint32        logMap            = 0;
 
     // Saved on enter, restored on leave
     WorldLocation savedPosition;

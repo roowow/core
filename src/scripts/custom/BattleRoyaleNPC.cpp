@@ -4,6 +4,7 @@
 
 // NPC entries — 900100 = Alliance (Ironforge, displayId 15728), 900102 = Horde (Orgrimmar, displayId 15731)
 static uint32 const NPC_BATTLE_ROYALE_QUEUE = 900100;
+static uint32 const BR_GOSSIP_TEXT_QUEUE = 65021;
 
 enum BRGossipAction
 {
@@ -18,13 +19,13 @@ bool GossipHello_BattleRoyaleNPC(Player* player, Creature* creature)
     bool inGame  = sBattleRoyaleMgr.IsPlayerInGame(player->GetObjectGuid());
 
     if (!inQueue && !inGame)
-        player->ADD_GOSSIP_ITEM(GOSSIP_ICON_BATTLE, "报名参加孤胆称雄", GOSSIP_SENDER_MAIN, BR_ACTION_JOIN);
+        player->ADD_GOSSIP_ITEM(GOSSIP_ICON_BATTLE, "接下论剑帖，报名入局", GOSSIP_SENDER_MAIN, BR_ACTION_JOIN);
     if (inQueue)
-        player->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT,   "离开队列",               GOSSIP_SENDER_MAIN, BR_ACTION_LEAVE);
+        player->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT,   "收起论剑帖，离开候战", GOSSIP_SENDER_MAIN, BR_ACTION_LEAVE);
 
-    player->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT, "查看当前队列人数", GOSSIP_SENDER_MAIN, BR_ACTION_STATUS);
+    player->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT, "查看候战席人数", GOSSIP_SENDER_MAIN, BR_ACTION_STATUS);
 
-    player->SEND_GOSSIP_MENU(DEFAULT_GOSSIP_MESSAGE, creature->GetGUID());
+    player->SEND_GOSSIP_MENU(BR_GOSSIP_TEXT_QUEUE, creature->GetGUID());
     return true;
 }
 

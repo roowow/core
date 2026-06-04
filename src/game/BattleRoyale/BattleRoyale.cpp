@@ -17,6 +17,7 @@
 #include "Corpse.h"
 #include "LootMgr.h"
 #include "ObjectAccessor.h"
+#include "Database/DatabaseEnv.h"
 
 #include <cstdio>
 
@@ -29,6 +30,12 @@ static float  const BR_DEPLOYMENT_TAXI_START_RESTORE_DISTANCE = 19.0f;
 
 // Reference loot table entry for BR corpse drops (reference_loot_template.entry).
 static uint32 const BR_CORPSE_LOOT_REF_ID = 9001;
+
+// Season score awarded per placement and per kill.
+static uint32 const BR_SCORE_RANK1    = 10;
+static uint32 const BR_SCORE_RANK2    = 5;
+static uint32 const BR_SCORE_RANK3    = 3;
+static uint32 const BR_SCORE_PER_KILL = 1;
 
 // BR item entries — must match what is actually in item_template (DB).
 // Used only for CleanupBRItems() when a player exits the match.
@@ -712,6 +719,15 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
         }
     }
 
+    // Capture log context while the player is still in the BR map.
+    if (player && player->GetSession())
+    {
+        it->second.logName = player->GetName();
+        it->second.logIp   = player->GetSession()->GetRemoteAddress();
+        it->second.logZone = player->GetZoneId();
+        it->second.logMap  = player->GetMapId();
+    }
+
     // MVP: return player immediately (no spectating)
     if (player)
     {
@@ -749,15 +765,52 @@ void BattleRoyale::Finish()
     if (m_status == BattleRoyaleStatus::FINISHED || m_status == BattleRoyaleStatus::CANCELLED)
         return;
 
-    // Assign rank 1 to the last survivor and send battle report
+    // Assign rank 1 to the last survivor, capture log context, and send battle report
     uint32 const finishSurvivalSec = m_runningTime / 1000;
+    Map* map = m_host ? m_host->GetBgMap() : nullptr;
     for (auto it = m_players.begin(); it != m_players.end(); ++it)
     {
         if (!it->second.alive)
             continue;
         it->second.placementRank = 1;
+        if (map)
+        {
+            if (Player* p = map->GetPlayer(it->first))
+            {
+                if (p->GetSession())
+                {
+                    it->second.logName = p->GetName();
+                    it->second.logIp   = p->GetSession()->GetRemoteAddress();
+                    it->second.logZone = p->GetZoneId();
+                    it->second.logMap  = p->GetMapId();
+                }
+            }
+        }
         if (!it->second.bot)
             SendBattleReport(it->first, it->second, finishSurvivalSec);
+    }
+
+    // Award season scores and write per-match logs for all real players.
+    // Build a guid->survivalSec map from m_ranks (eliminated players) plus the winner.
+    std::map<ObjectGuid, uint32> survivalMap;
+    for (auto const& r : m_ranks)
+        survivalMap[r.guid] = r.survivalSec;
+    // Winner survival time is finishSurvivalSec
+    for (auto const& kv : m_players)
+        if (kv.second.alive)
+            survivalMap[kv.first] = finishSurvivalSec;
+
+    for (auto const& kv : m_players)
+    {
+        if (!kv.second.bot)
+        {
+            auto survIt = survivalMap.find(kv.first);
+            uint32 const survSec = (survIt != survivalMap.end()) ? survIt->second : 0;
+            AwardSeasonScore(kv.first, kv.second.placementRank, kv.second.killCount,
+                             m_totalCount, survSec,
+                             kv.second.logName, kv.second.logIp,
+                             kv.second.logZone, kv.second.logMap);
+        }
     }
 
     m_status      = BattleRoyaleStatus::FINISHED;
@@ -852,6 +905,45 @@ void BattleRoyale::CleanupBRItems(Player* player)
         player->DestroyItemCount(entry, 200, true, false);
 }
 
+/*static*/ void BattleRoyale::AwardSeasonScore(ObjectGuid playerGuid, uint32 placementRank,
+                                                uint32 killCount, uint32 totalPlayers,
+                                                uint32 survivalSec,
+                                                std::string const& name, std::string const& ip,
+                                                uint32 zone, uint32 mapId)
+{
+    uint32 placementPts = 0;
+    if      (placementRank == 1) placementPts = BR_SCORE_RANK1;
+    else if (placementRank == 2) placementPts = BR_SCORE_RANK2;
+    else if (placementRank == 3) placementPts = BR_SCORE_RANK3;
+
+    uint32 const totalPts = placementPts + killCount * BR_SCORE_PER_KILL;
+    uint32 const isWin    = (placementRank == 1) ? 1u : 0u;
+    uint32 const guid     = playerGuid.GetCounter();
+
+    // Accumulate season score
+    CharacterDatabase.PExecute(
+        "INSERT INTO `battle_royale_season_score` "
+        "  (`guid`, `season_points`, `total_matches`, `total_wins`, `total_kills`) "
+        "VALUES (%u, %u, 1, %u, %u) "
+        "ON DUPLICATE KEY UPDATE "
+        "  `season_points` = `season_points` + %u, "
+        "  `total_matches` = `total_matches` + 1, "
+        "  `total_wins`    = `total_wins`    + %u, "
+        "  `total_kills`   = `total_kills`   + %u",
+        guid, totalPts, isWin, killCount,
+        totalPts, isWin, killCount);
+
+    // Append per-match log entry (mirrors character_log_pvpkill layout)
+    CharacterDatabase.PExecute(
+        "INSERT INTO `character_log_battle_royale` "
+        "  (`guid`, `name`, `placement`, `total_players`, `kill_count`, "
+        "   `survival_sec`, `score_earned`, `zone`, `map`, `ip`) "
+        "VALUES (%u, '%s', %u, %u, %u, %u, %u, %u, %u, '%s')",
+        guid, name.c_str(),
+        placementRank, totalPlayers, killCount, survivalSec, totalPts,
+        zone, mapId, ip.c_str());
+}
+
 void BattleRoyale::SendBattleReport(ObjectGuid playerGuid, BattleRoyalePlayer const& brPlayer, uint32 survivalSec) const
 {
     uint32 const rank  = brPlayer.placementRank;
@@ -859,6 +951,13 @@ void BattleRoyale::SendBattleReport(ObjectGuid playerGuid, BattleRoyalePlayer co
     uint32 const total = m_totalCount;
     uint32 const mm    = survivalSec / 60;
     uint32 const ss    = survivalSec % 60;
+
+    uint32 placementPts = 0;
+    if      (rank == 1) placementPts = BR_SCORE_RANK1;
+    else if (rank == 2) placementPts = BR_SCORE_RANK2;
+    else if (rank == 3) placementPts = BR_SCORE_RANK3;
+    uint32 const totalPts = placementPts + kills * BR_SCORE_PER_KILL;
+
     char const* closing = rank == 1
         ? "你是最后执剑而立之人。此战之后，江湖留名。"
         : "胜负一时，江湖尚远。下一次风起，仍可再赴此局。";
@@ -869,9 +968,12 @@ void BattleRoyale::SendBattleReport(ObjectGuid playerGuid, BattleRoyalePlayer co
              "此番论剑已经收场，你的名字已入战册。\n\n"
              "最终名次：第 %u 名 / 共 %u 人\n"
              "击倒对手：%u 人\n"
-             "存活时间：%02u:%02u\n\n"
+             "存活时间：%02u:%02u\n"
+             "本局积分：+%u 分（名次 +%u，击杀 +%u）\n\n"
              "%s",
-             rank, total, kills, mm, ss, closing);
+             rank, total, kills, mm, ss,
+             totalPts, placementPts, kills * BR_SCORE_PER_KILL,
+             closing);
 
     const char* subject = (rank == 1) ? "「孤胆称雄」魁首战报" : "「孤胆称雄」论剑战报";
 

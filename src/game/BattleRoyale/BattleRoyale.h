@@ -8,6 +8,7 @@
 #include "ObjectGuid.h"
 
 #include <map>
+#include <string>
 #include <vector>
 
 class Player;
@@ -75,6 +76,10 @@ private:
     void Eliminate(ObjectGuid guid, bool notify = true, ObjectGuid killerGuid = ObjectGuid());
     void ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlayer);
     void SendBattleReport(ObjectGuid playerGuid, BattleRoyalePlayer const& brPlayer, uint32 survivalSec) const;
+    static void AwardSeasonScore(ObjectGuid playerGuid, uint32 placementRank, uint32 killCount,
+                                 uint32 totalPlayers, uint32 survivalSec,
+                                 std::string const& name, std::string const& ip,
+                                 uint32 zone, uint32 mapId);
     static void CleanupBRItems(Player* player);
     void BroadcastToAll(std::string const& msg);
     void BroadcastPhaseChange(uint32 phase);
