@@ -201,7 +201,7 @@ void BattleRoyaleMgr::Update(uint32 diff)
         m_countdownTimer  = COUNTDOWN_SEC * 1000;
 
         WorldPacket data;
-        ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM, "[孤胆称雄] 猎场将启，60 秒后封场开局！想称雄者，速去令使处报名。");
+        ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM, "[孤胆称雄] 论剑帖已发，六十息后封场开局。欲赴此局者，速至令使处留名。");
         sWorld.SendGlobalMessage(&data);
     }
 
@@ -225,7 +225,7 @@ bool BattleRoyaleMgr::EnqueuePlayer(Player* player, std::string& outError)
 
     ObjectGuid guid = player->GetObjectGuid();
     m_queue.push_back(guid);
-    ChatHandler(player).PSendSysMessage("[孤胆称雄] 你已立下孤胆战约，当前候战 %u 人。", uint32(m_queue.size()));
+    ChatHandler(player).PSendSysMessage("[孤胆称雄] 你已接下论剑帖，当前候战 %u 人。", uint32(m_queue.size()));
     return true;
 }
 
@@ -244,7 +244,7 @@ bool BattleRoyaleMgr::DequeuePlayer(Player* player)
         m_countdownTimer  = 0;
     }
 
-    ChatHandler(player).PSendSysMessage("[孤胆称雄] 你已收起战约，离开候战队列。");
+    ChatHandler(player).PSendSysMessage("[孤胆称雄] 你收起论剑帖，暂离此番江湖局。");
     return true;
 }
 

@@ -274,7 +274,7 @@ void BattleRoyaleZone::SendZoneWarning(Player* player)
     float dist = std::sqrt(dx * dx + dy * dy) - m_currentRadius;
     if (dist < 0.0f) dist = 0.0f;
 
-    ChatHandler(player).PSendSysMessage("[安全区] 你在圈外！安全区在你的【%s】，距边界 %.0f 码。", dirs[idx], dist);
+    ChatHandler(player).PSendSysMessage("[险境] 你已身在圈外！生路在你的【%s】，距边界 %.0f 码。", dirs[idx], dist);
 }
 
 void BattleRoyaleZone::ForcePhase(uint32 phase)
