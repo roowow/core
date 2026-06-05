@@ -102,8 +102,8 @@ inline BattleRoyaleTemplate& GetAVTemplate()
     return tmpl;
 }
 
-// Azshara Crater template for GM spawn recording. Keep disabled until deployment
-// orbit/routes have been generated and verified.
+// Azshara Crater template. Its deployment orbit/routes are generated from
+// battle_royale_spawn_point rows by BattleRoyale.sql.
 inline BattleRoyaleTemplate& GetAzsharaCraterTemplate()
 {
     static BattleRoyaleTemplate tmpl = []() -> BattleRoyaleTemplate
@@ -115,16 +115,16 @@ inline BattleRoyaleTemplate& GetAzsharaCraterTemplate()
         t.centerX     = 157.216248f; // GM-verified Azshara Crater center
         t.centerY     = 74.673859f;
         t.maxPlayers  = 30;
-        t.enabled     = false;
+        t.enabled     = true;
         // First orbit node should be center + 60 yards east, high above the arena center.
         t.deploymentStart = { 217.216248f, 74.673859f, 430.783401f, 0.0f };
 
         BRZonePhase const phases[] = {
-            { 680.0f, 480.0f, 3 * 60 * 1000,  2.0f  }, // phase 1:  0:00,  2%/s (~50s to die)
-            { 480.0f, 300.0f, 3 * 60 * 1000,  4.0f  }, // phase 2:  3:00,  4%/s (~25s to die)
-            { 300.0f, 160.0f, 3 * 60 * 1000,  8.0f  }, // phase 3:  6:00,  8%/s (~12s to die)
-            { 160.0f,  60.0f, 3 * 60 * 1000, 15.0f  }, // phase 4:  9:00, 15%/s (~7s to die)
-            {  60.0f,   0.0f, 3 * 60 * 1000, 25.0f  }, // phase 5: 12:00, keeps shrinking to 0
+            { 460.0f, 320.0f, 3 * 60 * 1000,  2.0f  }, // phase 1:  0:00,  2%/s (~50s to die)
+            { 320.0f, 200.0f, 3 * 60 * 1000,  4.0f  }, // phase 2:  3:00,  4%/s (~25s to die)
+            { 200.0f,  90.0f, 3 * 60 * 1000,  8.0f  }, // phase 3:  6:00,  8%/s (~12s to die)
+            {  90.0f,  35.0f, 3 * 60 * 1000, 15.0f  }, // phase 4:  9:00, 15%/s (~7s to die)
+            {  35.0f,   0.0f, 3 * 60 * 1000, 25.0f  }, // phase 5: 12:00, keeps shrinking to 0
         }; // total: 15 min
         for (BRZonePhase const& ph : phases)
             t.phases.push_back(ph);

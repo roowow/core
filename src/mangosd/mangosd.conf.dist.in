@@ -2729,6 +2729,13 @@ BattleGround.GroupQueueLimit = 40
 Alterac.MinPlayersInQueue = 0
 Alterac.InitMaxPlayers = 0
 
+#    BattleRoyale.MinPlayers
+#        Real players needed in queue before a Battle Royale match can start.
+#        Remaining slots up to the template's maxPlayers are filled with bots.
+#        Default: 3
+#
+BattleRoyale.MinPlayers = 3
+
 ###################################################################################################################
 # OUTDOOR PVP CONFIG
 #

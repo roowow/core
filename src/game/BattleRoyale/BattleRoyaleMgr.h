@@ -34,7 +34,7 @@ public:
         sObjectMgr.SetSavedVariable(VAR_BATTLE_ROYALE_ENABLED, enabled ? 1u : 0u, true);
     }
     bool IsEnabled()        const { return m_enabled; }
-    void ForceStartNow();                  // bypasses MIN_PLAYERS for single-GM testing
+    bool ForceStartNow(uint32 templateId = 0, std::string* outError = nullptr); // bypasses MIN_PLAYERS for single-GM testing
     BattleRoyale* GetInstanceForPlayer(ObjectGuid guid);
 
     // Real players are restored to their pre-BR position on normal exit, relog,
@@ -59,7 +59,7 @@ public:
 
 private:
     bool CanEnqueue(Player* player, std::string& outError) const;
-    void TryCreateGame(bool ignoreMinPlayers = false);
+    bool TryCreateGame(bool ignoreMinPlayers = false, uint32 templateId = 0, std::string* outError = nullptr);
     BattleRoyale* CreateInstance(std::vector<Player*> const& players, BattleRoyaleTemplate const& tmpl);
 
     std::deque<ObjectGuid>                        m_queue;
@@ -72,7 +72,6 @@ private:
     bool    m_countdownActive   = false;
     bool    m_enabled           = true;
 
-    static uint32 const MIN_PLAYERS            = 3;    // bots fill remaining slots up to maxPlayers
     static uint32 const COUNTDOWN_SEC          = 300;
     static uint32 const REMINDER_INTERVAL_SEC  = 60;   // broadcast reminder every 60s
 };

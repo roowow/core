@@ -3567,7 +3567,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             float const targetY = cy - (dy / dist) * safeRadius;
             float const targetZ = me->GetMap()->GetHeight(targetX, targetY, MAX_HEIGHT, false, MAX_HEIGHT);
             if (targetZ > INVALID_HEIGHT)
-                me->GetMotionMaster()->MovePoint(0, targetX, targetY, targetZ);
+                me->GetMotionMaster()->MovePoint(0, targetX, targetY, targetZ, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
         }
         return;
     }
@@ -3601,7 +3601,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             float const py = cy + std::sin(angle) * (float(urand(20, 100)) * 0.01f * r);
             float const pz = me->GetMap()->GetHeight(px, py, MAX_HEIGHT, false, MAX_HEIGHT);
             if (pz > INVALID_HEIGHT)
-                me->GetMotionMaster()->MovePoint(0, px, py, pz);
+                me->GetMotionMaster()->MovePoint(0, px, py, pz, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
             return;
         }
         // Target is reachable: run the full class combat rotation.
@@ -3651,28 +3651,60 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     if (UseMount())
         return;
 
-    // Redirect toward center if too close to the boundary so waypoint patrol
-    // doesn't walk the bot into the damage zone.
+    // Patrol to a random spawn point inside the safe zone.
+    // Spawn points are GM-recorded at ground level, so Z values are always valid.
+    // If too close to the boundary, redirect toward the zone center first.
+    if (!me->IsMoving())
     {
-        float const safeMargin = 25.0f;
-        float const cx  = zone.GetCenterX();
-        float const cy  = zone.GetCenterY();
-        float const ddx = me->GetPositionX() - cx;
-        float const ddy = me->GetPositionY() - cy;
-        float const dist = std::sqrt(ddx * ddx + ddy * ddy);
-        if (dist > 0.5f && dist > zone.GetCurrentRadius() - safeMargin)
+        BattleRoyaleTemplate const* tmpl = br->GetTemplate();
+        if (tmpl && !tmpl->spawnPoints.empty())
         {
-            float const tx = cx + (ddx / dist) * (zone.GetCurrentRadius() * 0.65f);
-            float const ty = cy + (ddy / dist) * (zone.GetCurrentRadius() * 0.65f);
-            float const tz = me->GetMap()->GetHeight(tx, ty, MAX_HEIGHT, false, MAX_HEIGHT);
-            if (tz > INVALID_HEIGHT)
-                me->GetMotionMaster()->MovePoint(0, tx, ty, tz);
-            return;
+            float const safeR = zone.GetCurrentRadius() - 30.0f;
+            float const cx    = zone.GetCenterX();
+            float const cy    = zone.GetCenterY();
+            float const ddx   = me->GetPositionX() - cx;
+            float const ddy   = me->GetPositionY() - cy;
+            float const myDist = std::sqrt(ddx * ddx + ddy * ddy);
+
+            // Near the boundary — walk back toward center before picking a patrol target.
+            if (myDist > safeR && safeR > 0.0f)
+            {
+                float const tx = cx + (ddx / myDist) * (zone.GetCurrentRadius() * 0.65f);
+                float const ty = cy + (ddy / myDist) * (zone.GetCurrentRadius() * 0.65f);
+                float const tz = me->GetMap()->GetHeight(tx, ty, MAX_HEIGHT, false, MAX_HEIGHT);
+                if (tz > INVALID_HEIGHT)
+                    me->GetMotionMaster()->MovePoint(0, tx, ty, tz, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+                return;
+            }
+
+            // Collect spawn points that lie within the current safe radius.
+            std::vector<BRSpawnPoint const*> candidates;
+            for (BRSpawnPoint const& sp : tmpl->spawnPoints)
+            {
+                float const dx = sp.x - cx;
+                float const dy = sp.y - cy;
+                if (std::sqrt(dx * dx + dy * dy) < safeR)
+                    candidates.push_back(&sp);
+            }
+
+            if (!candidates.empty())
+            {
+                BRSpawnPoint const* dest = candidates[urand(0, uint32(candidates.size()) - 1)];
+                me->GetMotionMaster()->MovePoint(0, dest->x, dest->y, dest->z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+            }
+            else
+            {
+                // Late-game: zone too small for any spawn point — wander near center.
+                float const r     = std::max(zone.GetCurrentRadius() * 0.5f, 5.0f);
+                float const angle = frand(0.0f, 2.0f * static_cast<float>(M_PI));
+                float const tx    = cx + std::cos(angle) * r;
+                float const ty    = cy + std::sin(angle) * r;
+                float const tz    = me->GetMap()->GetHeight(tx, ty, MAX_HEIGHT, false, MAX_HEIGHT);
+                if (tz > INVALID_HEIGHT)
+                    me->GetMotionMaster()->MovePoint(0, tx, ty, tz, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+            }
         }
     }
-
-    // Patrol using recorded AB waypoints — guaranteed valid terrain Z values.
-    UpdateWaypointMovement();
 }
 
 bool BattleBotAI::TryUseBattleGroundFlag(uint32 entry)

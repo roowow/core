@@ -64,6 +64,12 @@ uint32 ResolveBattleRoyaleDeploymentPath(uint32 templateId, uint32 spawnIndex,
     return 0;
 }
 
+void SetBattleRoyaleStartError(std::string* outError, char const* message)
+{
+    if (outError)
+        *outError = message;
+}
+
 uint32 GetBattleRoyaleStagingMountDisplayId(Player* player, uint32 deploymentPathId)
 {
     if (!player)
@@ -199,7 +205,8 @@ void BattleRoyaleMgr::Update(uint32 diff)
     }
 
     // Start countdown when queue fills
-    if (!hasActiveInstance && !m_countdownActive && m_queue.size() >= MIN_PLAYERS)
+    uint32 const minPlayers = sWorld.getConfig(CONFIG_UINT32_BATTLE_ROYALE_MIN_PLAYERS);
+    if (!hasActiveInstance && !m_countdownActive && m_queue.size() >= minPlayers)
     {
         m_countdownActive = true;
         m_countdownTimer  = COUNTDOWN_SEC * 1000;
@@ -253,10 +260,11 @@ bool BattleRoyaleMgr::EnqueuePlayer(Player* player, std::string& outError)
     ObjectGuid guid = player->GetObjectGuid();
     m_queue.push_back(guid);
 
-    uint32 const queued = uint32(m_queue.size());
-    if (queued < MIN_PLAYERS)
+    uint32 const queued     = uint32(m_queue.size());
+    uint32 const minNeeded  = sWorld.getConfig(CONFIG_UINT32_BATTLE_ROYALE_MIN_PLAYERS);
+    if (queued < minNeeded)
     {
-        uint32 const needed = MIN_PLAYERS - queued;
+        uint32 const needed = minNeeded - queued;
         ChatHandler(player).PSendSysMessage(
             "[孤胆称雄] 你已接下论剑帖，当前候战 %u 人。还需 %u 人方可开局。",
             queued, needed);
@@ -299,7 +307,7 @@ bool BattleRoyaleMgr::DequeuePlayer(Player* player)
 
     m_queue.erase(it);
 
-    if (m_queue.size() < MIN_PLAYERS)
+    if (m_queue.size() < sWorld.getConfig(CONFIG_UINT32_BATTLE_ROYALE_MIN_PLAYERS))
     {
         m_countdownActive = false;
         m_countdownTimer  = 0;
@@ -319,11 +327,11 @@ bool BattleRoyaleMgr::IsPlayerInGame(ObjectGuid guid) const
     return m_playerInstMap.find(guid) != m_playerInstMap.end();
 }
 
-void BattleRoyaleMgr::ForceStartNow()
+bool BattleRoyaleMgr::ForceStartNow(uint32 templateId, std::string* outError)
 {
     m_countdownActive = false;
     m_countdownTimer  = 0;
-    TryCreateGame(true); // ignore MIN_PLAYERS for GM testing
+    return TryCreateGame(true, templateId, outError); // ignore MIN_PLAYERS for GM testing
 }
 
 BattleRoyale* BattleRoyaleMgr::GetInstanceForPlayer(ObjectGuid guid)
@@ -544,25 +552,59 @@ bool BattleRoyaleMgr::CanEnqueue(Player* player, std::string& outError) const
     return true;
 }
 
-void BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers)
+bool BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers, uint32 templateId, std::string* outError)
 {
     if (m_queue.empty())
-        return;
-
-    // Pick a random enabled template that has spawn points.
-    auto allTmpls = GetAllBRTemplates();
-    std::vector<BattleRoyaleTemplate*> eligible;
-    for (BattleRoyaleTemplate* t : allTmpls)
-        if (t->enabled && !t->spawnPoints.empty())
-            eligible.push_back(t);
-
-    if (eligible.empty())
     {
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleMgr] No enabled BR templates with spawn points.");
-        return;
+        SetBattleRoyaleStartError(outError, "候战席无人。");
+        return false;
     }
 
-    BattleRoyaleTemplate const& tmpl = *eligible[urand(0, uint32(eligible.size()) - 1)];
+    // Pick a random enabled template, unless a GM explicitly requested one.
+    auto allTmpls = GetAllBRTemplates();
+    BattleRoyaleTemplate const* selectedTemplate = nullptr;
+    if (templateId)
+    {
+        for (BattleRoyaleTemplate* t : allTmpls)
+        {
+            if (t->id == templateId)
+            {
+                selectedTemplate = t;
+                break;
+            }
+        }
+
+        if (!selectedTemplate)
+        {
+            SetBattleRoyaleStartError(outError, "指定模板不存在。");
+            return false;
+        }
+
+        if (selectedTemplate->spawnPoints.empty())
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleMgr] Template %u has no spawn points.", templateId);
+            SetBattleRoyaleStartError(outError, "指定模板没有出生点。");
+            return false;
+        }
+    }
+    else
+    {
+        std::vector<BattleRoyaleTemplate*> eligible;
+        for (BattleRoyaleTemplate* t : allTmpls)
+            if (t->enabled && !t->spawnPoints.empty())
+                eligible.push_back(t);
+
+        if (eligible.empty())
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleMgr] No enabled BR templates with spawn points.");
+            SetBattleRoyaleStartError(outError, "没有可用的已开放模板。");
+            return false;
+        }
+
+        selectedTemplate = eligible[urand(0, uint32(eligible.size()) - 1)];
+    }
+
+    BattleRoyaleTemplate const& tmpl = *selectedTemplate;
 
     // Collect online players up to maxPlayers. Offline entries are dropped so a
     // stale queued character cannot keep the counter alive or block the next game.
@@ -586,7 +628,8 @@ void BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers)
 
     m_queue = remaining;
 
-    if (!ignoreMinPlayers && uint32(players.size()) < MIN_PLAYERS)
+    uint32 const brMinPlayers = sWorld.getConfig(CONFIG_UINT32_BATTLE_ROYALE_MIN_PLAYERS);
+    if (!ignoreMinPlayers && uint32(players.size()) < brMinPlayers)
     {
         // Not enough online players - put them back in their original order and wait.
         std::deque<ObjectGuid> retryQueue;
@@ -594,23 +637,30 @@ void BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers)
             retryQueue.push_back(p->GetObjectGuid());
         retryQueue.insert(retryQueue.end(), remaining.begin(), remaining.end());
         m_queue = retryQueue;
-        if (m_queue.size() < MIN_PLAYERS)
+        if (m_queue.size() < brMinPlayers)
         {
             m_countdownActive = false;
             m_countdownTimer  = 0;
         }
-        return;
+        SetBattleRoyaleStartError(outError, "在线候战人数不足。");
+        return false;
     }
 
     if (players.empty())
-        return;
+    {
+        SetBattleRoyaleStartError(outError, "没有在线候战玩家。");
+        return false;
+    }
 
     BattleRoyale* br = CreateInstance(players, tmpl);
     if (!br)
     {
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleMgr] Failed to create BR instance.");
-        return;
+        SetBattleRoyaleStartError(outError, "创建对局失败。");
+        return false;
     }
+
+    return true;
 }
 
 BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& players,

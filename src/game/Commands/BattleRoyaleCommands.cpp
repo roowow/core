@@ -8,6 +8,46 @@
 #include "Battlegrounds/BattleGroundBR.h"
 #include "Database/DatabaseEnv.h"
 
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
+#include <string>
+
+namespace
+{
+BattleRoyaleTemplate const* ResolveBattleRoyaleTemplateArg(char const* arg)
+{
+    if (!arg || !*arg)
+        return nullptr;
+
+    std::string token(arg);
+    size_t const firstSpace = token.find_first_of(" \t\r\n");
+    if (firstSpace != std::string::npos)
+        token.resize(firstSpace);
+
+    std::transform(token.begin(), token.end(), token.begin(),
+                   [](unsigned char c) { return char(std::tolower(c)); });
+
+    if (token == "ab" || token == "arathi")
+        return &GetABTemplate();
+    if (token == "av" || token == "alterac")
+        return &GetAVTemplate();
+    if (token == "ac" || token == "azshara" || token == "crater")
+        return &GetAzsharaCraterTemplate();
+
+    char* end = nullptr;
+    uint32 const numeric = uint32(std::strtoul(token.c_str(), &end, 10));
+    if (!end || *end)
+        return nullptr;
+
+    for (BattleRoyaleTemplate* tmpl : GetAllBRTemplates())
+        if (tmpl->id == numeric || tmpl->mapId == numeric)
+            return tmpl;
+
+    return nullptr;
+}
+}
+
 // .br enable / .br disable  — open or close the BR queue
 bool ChatHandler::HandleBREnableCommand(char* /*args*/)
 {
@@ -23,16 +63,46 @@ bool ChatHandler::HandleBRDisableCommand(char* /*args*/)
     return true;
 }
 
-// .br start   — force start immediately with queued players
-bool ChatHandler::HandleBRStartCommand(char* /*args*/)
+// .br start [templateId|mapId|ab|av|ac] — force start immediately with queued players
+bool ChatHandler::HandleBRStartCommand(char* args)
 {
     if (sBattleRoyaleMgr.GetQueueSize() == 0)
     {
         SendSysMessage("[孤胆称雄] 候战席无人，猎场暂不能开启。");
         return true;
     }
-    sBattleRoyaleMgr.ForceStartNow();
-    SendSysMessage("[孤胆称雄] 已强制敲响开局号角。");
+
+    uint32 templateId = 0;
+    BattleRoyaleTemplate const* requestedTemplate = nullptr;
+    if (args)
+    {
+        while (*args == ' ')
+            ++args;
+
+        if (*args)
+        {
+            requestedTemplate = ResolveBattleRoyaleTemplateArg(args);
+            if (!requestedTemplate)
+            {
+                SendSysMessage("[孤胆称雄] 未识别的模板。可用：1/ab，2/av，3/ac/azshara，或 mapId 529/30/37。");
+                return true;
+            }
+            templateId = requestedTemplate->id;
+        }
+    }
+
+    std::string error;
+    if (!sBattleRoyaleMgr.ForceStartNow(templateId, &error))
+    {
+        PSendSysMessage("[孤胆称雄] 开局失败：%s", error.c_str());
+        return true;
+    }
+
+    if (requestedTemplate)
+        PSendSysMessage("[孤胆称雄] 已强制敲响开局号角，指定模板 %u（map %u）。",
+                        requestedTemplate->id, requestedTemplate->mapId);
+    else
+        SendSysMessage("[孤胆称雄] 已强制敲响开局号角。");
     return true;
 }
 
