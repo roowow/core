@@ -79,7 +79,7 @@ void SendDefaultMenu_HardcoreNPC2(Player *player, Creature *_Creature, uint32 ac
 {
     switch (action)
     {
-        case 2: 
+        case 2:
             if (strcmp(code, "舍生取义") != 0)
             {
                 _Creature->MonsterSay("你的签名不正确，希望你是故意的。");
@@ -92,6 +92,22 @@ void SendDefaultMenu_HardcoreNPC2(Player *player, Creature *_Creature, uint32 ac
             {
                 _Creature->MonsterSay("我只招募刚刚返回归地球不超过5级的人类。");
                 break;
+            }
+
+            // Require at least one level-60 character on the same account.
+            {
+                QueryResult* levelCheck = CharacterDatabase.PQuery(
+                    "SELECT 1 FROM `characters` WHERE `account` = %u AND `level` = 60 LIMIT 1",
+                    player->GetSession()->GetAccountId());
+                bool hasMaxLevelChar = (levelCheck != nullptr);
+                delete levelCheck;
+
+                if (!hasMaxLevelChar)
+                {
+                    _Creature->MonsterSay("勇敢者之路，非轻率之举。先将一位英雄带至巅峰，方可踏上这条不归路。");
+                    player->CLOSE_GOSSIP_MENU();
+                    break;
+                }
             }
 
             _Creature->CastSpell(player, 15851, true);
