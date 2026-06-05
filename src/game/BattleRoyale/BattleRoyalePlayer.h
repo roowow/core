@@ -20,6 +20,7 @@ struct BattleRoyalePlayer
     bool          deploymentStarted = false;  // currently riding the individual drop taxi
     bool          landed            = false;
     uint32        killCount         = 0;
+    bool          pendingReturn     = false;  // defer teleport out until Unit::Kill has finished
 
     // Captured just before ReturnPlayer() while the player is still in the BR map.
     // Used for character_log_battle_royale at match end.

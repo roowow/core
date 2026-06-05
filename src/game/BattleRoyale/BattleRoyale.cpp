@@ -152,6 +152,7 @@ void BattleRoyale::Update(uint32 diff)
             uint32 phaseAfter = m_zone.GetPhase();
             if (phaseAfter != phaseBefore)
                 BroadcastPhaseChange(phaseAfter);
+            ReturnPendingPlayers(map);
         }
 
         // Check for player deaths and re-enforce FFA.
@@ -177,12 +178,15 @@ void BattleRoyale::Update(uint32 diff)
             }
             for (ObjectGuid const& guid : toEliminate)
                 Eliminate(guid);
+            ReturnPendingPlayers(map);
         }
         return;
     }
 
     if (m_status == BattleRoyaleStatus::FINISHED)
     {
+        ReturnPendingPlayers(map);
+
         if (m_finishTimer <= diff)
         {
             if (map)
@@ -252,6 +256,30 @@ void BattleRoyale::ForceSetRadius(float radius)
 }
 
 // --- private ---
+
+void BattleRoyale::ReturnPendingPlayers(Map* map)
+{
+    if (!map)
+        return;
+
+    for (auto it = m_players.begin(); it != m_players.end(); ++it)
+    {
+        if (!it->second.pendingReturn)
+            continue;
+
+        Player* player = map->GetPlayer(it->first);
+        if (!player)
+        {
+            it->second.pendingReturn = false;
+            sBattleRoyaleMgr.RemovePlayerFromInstance(it->first);
+            continue;
+        }
+
+        it->second.pendingReturn = false;
+        ReturnPlayer(player, it->second);
+        it->second.outsideZone = false;
+    }
+}
 
 void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
 {
@@ -647,12 +675,11 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
         it->second.logMap  = player->GetMapId();
     }
 
-    // MVP: return player immediately (no spectating)
+    // Defer teleport/removal until the next BR update. BattleGroundBR::HandleKillPlayer()
+    // runs inside Unit::Kill(), and moving the victim before Unit::Kill finishes leaves
+    // core death cleanup operating on a unit that no longer has the BR map.
     if (player)
-    {
-        ReturnPlayer(player, it->second);
-        it->second.outsideZone = false;
-    }
+        it->second.pendingReturn = true;
 
     // Win condition: last survivor, or all real players eliminated (no point continuing bot-only)
     bool noRealPlayersAlive = true;

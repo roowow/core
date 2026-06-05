@@ -40,6 +40,7 @@
 #include "SpellAuras.h"
 #include "Chat.h"
 #include "TargetedMovementGenerator.h"
+#include "PathFinder.h"
 #include "GridNotifiersImpl.h"
 #include "CellImpl.h"
 
@@ -3687,14 +3688,30 @@ void BattleBotAI::UpdateBattleRoyaleAI()
                     candidates.push_back(&sp);
             }
 
-            if (!candidates.empty())
+            // Try up to 3 random candidates; skip any the MMAP cannot path to
+            // (spawn inside a building or on a ledge not covered by the navmesh
+            // would cause PathFinder to fall back to a straight-line shortcut,
+            // making the bot fly through geometry).
+            bool patrolMoved = false;
+            uint32 const maxTries = std::min<uint32>(3, uint32(candidates.size()));
+            for (uint32 i = 0; i < maxTries; ++i)
             {
                 BRSpawnPoint const* dest = candidates[urand(0, uint32(candidates.size()) - 1)];
-                me->GetMotionMaster()->MovePoint(0, dest->x, dest->y, dest->z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+                PathFinder pf(me);
+                pf.ExcludeSteepSlopes();
+                pf.calculate(dest->x, dest->y, dest->z);
+                PathType const pt = pf.getPathType();
+                if ((pt & PATHFIND_NORMAL) && !(pt & (PATHFIND_NOPATH | PATHFIND_NOT_USING_PATH)))
+                {
+                    me->GetMotionMaster()->MovePoint(0, dest->x, dest->y, dest->z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+                    patrolMoved = true;
+                    break;
+                }
             }
-            else
+
+            if (!patrolMoved)
             {
-                // Late-game: zone too small for any spawn point — wander near center.
+                // No reachable spawn point found (late-game shrink or navmesh gaps) — wander near center.
                 float const r     = std::max(zone.GetCurrentRadius() * 0.5f, 5.0f);
                 float const angle = frand(0.0f, 2.0f * static_cast<float>(M_PI));
                 float const tx    = cx + std::cos(angle) * r;

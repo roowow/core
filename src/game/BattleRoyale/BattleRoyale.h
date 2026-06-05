@@ -70,6 +70,7 @@ public:
 
 private:
     void UpdateDeploying(uint32 diff, Map* map);
+    void ReturnPendingPlayers(Map* map);
     void CompleteDeployment(Player* player, BattleRoyalePlayer& brPlayer, bool teleportToLandingPoint);
     void StartRunning();
     void Finish();
