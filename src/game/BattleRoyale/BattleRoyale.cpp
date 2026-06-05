@@ -25,10 +25,7 @@
 
 static uint32 const BR_FINISH_DELAY_MS           = 10000;
 static float  const BR_LANDING_CORRECTION_DISTANCE = 5.0f;
-// Shared orbit taxi path ID — one circle above AB center, radius 60, altitude 250.
-// Defined in BattleRoyale.sql as 'br_ab_orbit'. All players ride this together
-// before branching to their individual drop paths.
-static uint32 const BR_ORBIT_PATH_ID             = 909999;
+// Orbit path ID is now per-template (BattleRoyaleTemplate::orbitPathId).
 static float  const BR_TWO_PI                    = 6.2831853071795864769f;
 
 // Reference loot table entry for BR corpse drops (reference_loot_template.entry).
@@ -262,9 +259,9 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
     if (!m_orbitStarted)
         m_orbitStarted = true;
 
-    // Look up orbit nodes once per tick (shared by all players).
+    // Look up orbit nodes once per tick (shared by all players, per-template path).
     auto const& taxiPaths = sCustomTaxiMgr.GetPaths();
-    auto const orbitIt = taxiPaths.find(BR_ORBIT_PATH_ID);
+    auto const orbitIt = m_tmpl ? taxiPaths.find(m_tmpl->orbitPathId) : taxiPaths.end();
     std::vector<TaxiPathNodeEntry> const* orbitNodes =
         (orbitIt != taxiPaths.end() && !orbitIt->second.nodes.empty())
         ? &orbitIt->second.nodes : nullptr;
@@ -300,7 +297,7 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         {
             sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
                      "[BattleRoyale] Orbit path %u not loaded; teleporting %s to landing point.",
-                     BR_ORBIT_PATH_ID, player->GetName());
+                     m_tmpl ? m_tmpl->orbitPathId : 0u, player->GetName());
             player->SetHover(false);
             player->SetHoverReal(false);
             CompleteDeployment(player, brPlayer, true);

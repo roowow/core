@@ -22,6 +22,7 @@ struct BattleRoyaleTemplate
 {
     uint32 id;
     uint32 mapId;
+    uint32 orbitPathId; // shared orbit taxi path ridden by all players before branching
     float  centerX;
     float  centerY;
     uint32 maxPlayers;
@@ -39,10 +40,11 @@ inline BattleRoyaleTemplate& GetABTemplate()
     static BattleRoyaleTemplate tmpl = []() -> BattleRoyaleTemplate
     {
         BattleRoyaleTemplate t;
-        t.id         = 1;
-        t.mapId      = 529; // MAP_ARATHI_BASIN
-        t.centerX    = 990.0f;  // Gold Mine / geometric center of all 5 nodes
-        t.centerY    = 1008.0f;
+        t.id          = 1;
+        t.mapId       = 529; // MAP_ARATHI_BASIN
+        t.orbitPathId = 909999; // br_ab_orbit
+        t.centerX     = 990.0f;  // Gold Mine / geometric center of all 5 nodes
+        t.centerY     = 1008.0f;
         t.maxPlayers = 30;
         t.enabled    = true;
         // Teleport destination = first node of the shared orbit path (br_ab_orbit, ID 909999).
@@ -59,8 +61,8 @@ inline BattleRoyaleTemplate& GetABTemplate()
             { 380.0f, 230.0f, 3 * 60 * 1000,  4.0f  }, // phase 2:  3:00,  4%/s (~25s to die)
             { 230.0f, 120.0f, 3 * 60 * 1000,  8.0f  }, // phase 3:  6:00,  8%/s (~12s to die)
             { 120.0f,  50.0f, 3 * 60 * 1000, 15.0f  }, // phase 4:  9:00, 15%/s (~7s to die)
-            {  50.0f,  50.0f, 0,             25.0f  }, // final ring: 12:00, 25%/s (~4s to die)
-        }; // total: 12 min
+            {  50.0f,   0.0f, 3 * 60 * 1000, 25.0f  }, // phase 5: 12:00, keeps shrinking to 0
+        }; // total: 15 min
         for (BRZonePhase const& ph : phases)
             t.phases.push_back(ph);
 
@@ -75,10 +77,11 @@ inline BattleRoyaleTemplate& GetAVTemplate()
     static BattleRoyaleTemplate tmpl = []() -> BattleRoyaleTemplate
     {
         BattleRoyaleTemplate t;
-        t.id         = 2;
-        t.mapId      = 30; // MAP_ALTERAC_VALLEY
-        t.centerX    = -256.68f; // NPC 12159 (Korrak) — verified AV map center
-        t.centerY    = -301.7f;
+        t.id          = 2;
+        t.mapId       = 30; // MAP_ALTERAC_VALLEY
+        t.orbitPathId = 909998; // br_av_orbit
+        t.centerX     = -256.68f; // NPC 12159 (Korrak) — verified AV map center
+        t.centerY     = -301.7f;
         t.maxPlayers = 40;
         t.enabled    = true;
         // High staging point above AV center; first orbit node at angle 0° (east)
@@ -89,8 +92,8 @@ inline BattleRoyaleTemplate& GetAVTemplate()
             { 320.0f, 200.0f, 2 * 60 * 1000,  4.0f  }, // phase 2:  3:00,  4%/s (~25s to die)
             { 200.0f,  90.0f, 2 * 60 * 1000,  8.0f  }, // phase 3:  5:00,  8%/s (~12s to die)
             {  90.0f,  35.0f, 1 * 60 * 1000, 15.0f  }, // phase 4:  7:00, 15%/s (~7s to die)
-            {  35.0f,  35.0f, 0,             25.0f  }, // final ring:  8:00, 25%/s (~4s to die)
-        }; // total: 8 min
+            {  35.0f,   0.0f, 3 * 60 * 1000, 25.0f  }, // phase 5:  8:00, keeps shrinking to 0
+        }; // total: 11 min
         for (BRZonePhase const& ph : phases)
             t.phases.push_back(ph);
 
