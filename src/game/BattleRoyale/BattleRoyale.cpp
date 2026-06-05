@@ -1,6 +1,7 @@
 #include "BattleRoyale.h"
 #include "BattleGroundBR.h"
 
+#include "BattleRoyaleMgr.h"
 #include "Player.h"
 #include "Map.h"
 #include "MirrorTimer.h"
@@ -39,6 +40,30 @@ static uint32 const BR_SCORE_RANK2    = 5;
 static uint32 const BR_SCORE_RANK3    = 3;
 static uint32 const BR_SCORE_PER_KILL = 1;
 static uint32 const BR_WINNER_CELEBRATION_SPELL_ID = 27571;
+
+static uint32 const BR_KILL_REWARD_BUFFS[] =
+{
+    10938, // Power Word: Fortitude
+    14819, // Divine Spirit
+    10958, // Shadow Protection
+    10157, // Arcane Intellect
+    9885,  // Mark of the Wild
+    9910,  // Thorns
+    19838, // Blessing of Might
+    19979, // Blessing of Light
+    20217, // Blessing of Kings
+    19853, // Blessing of Wisdom
+};
+
+static void ApplyBattleRoyaleKillRewardBuff(Player* killer)
+{
+    if (!killer || !killer->IsAlive())
+        return;
+
+    uint32 const buffCount = sizeof(BR_KILL_REWARD_BUFFS) / sizeof(BR_KILL_REWARD_BUFFS[0]);
+    uint32 const spellId = BR_KILL_REWARD_BUFFS[urand(0, buffCount - 1)];
+    killer->CastSpell(killer, spellId, true);
+}
 
 static uint32 BattleRoyaleMixSeed(uint32 value)
 {
@@ -87,6 +112,9 @@ void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, u
                                               player->GetPositionZ(),
                                               player->GetOrientation());
     brPlayer.savedFFAPvP = player->IsFFAPvP();
+
+    if (!isBot)
+        sBattleRoyaleMgr.SavePendingRestore(player, m_host ? m_host->GetInstanceID() : 0);
 
     m_players[guid] = brPlayer;
     ++m_totalCount;
@@ -540,14 +568,15 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
     {
         auto killerIt = m_players.find(killerGuid);
         if (killerIt != m_players.end())
+        {
             ++killerIt->second.killCount;
+            if (Map* map = m_host ? m_host->GetBgMap() : nullptr)
+                ApplyBattleRoyaleKillRewardBuff(map->GetPlayer(killerGuid));
+        }
     }
 
     Map* map = m_host ? m_host->GetBgMap() : nullptr;
     Player* player = map ? map->GetPlayer(guid) : nullptr;
-
-    if (player)
-        player->SendMirrorTimerStop(MirrorTimer::FATIGUE);
 
     if (notify && player)
         ChatHandler(player).PSendSysMessage("[孤胆称雄] 此番江湖路止于此，最终名次第 %u。", it->second.placementRank);
@@ -728,7 +757,6 @@ void BattleRoyale::Cancel()
         Player* player = map ? map->GetPlayer(it->first) : nullptr;
         if (player)
         {
-            player->SendMirrorTimerStop(MirrorTimer::FATIGUE);
             player->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER | UNIT_FLAG_IMMUNE_TO_NPC);
             ReturnPlayer(player, it->second);
         }
@@ -737,6 +765,8 @@ void BattleRoyale::Cancel()
 
 void BattleRoyale::ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlayer)
 {
+    player->SendMirrorTimerStop(MirrorTimer::FATIGUE);
+
     if (player->IsTaxiFlying())
     {
         player->GetMotionMaster()->MovementExpired();
@@ -771,7 +801,10 @@ void BattleRoyale::ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlay
     }
 
     WorldLocation const& pos = brPlayer.savedPosition;
-    player->TeleportTo(pos.mapId, pos.x, pos.y, pos.z, pos.o);
+    if (player->TeleportTo(pos.mapId, pos.x, pos.y, pos.z, pos.o))
+        sBattleRoyaleMgr.ClearPendingRestore(player->GetObjectGuid());
+    // If TeleportTo fails the pending restore record is kept so the player can
+    // be recovered on next login.
 }
 
 void BattleRoyale::BroadcastPhaseChange(uint32 phase)
@@ -814,6 +847,10 @@ void BattleRoyale::CleanupBRItems(Player* player)
     uint32 const totalPts = placementPts + killCount * BR_SCORE_PER_KILL;
     uint32 const isWin    = (placementRank == 1) ? 1u : 0u;
     uint32 const guid     = playerGuid.GetCounter();
+    std::string safeName  = name;
+    std::string safeIp    = ip;
+    CharacterDatabase.escape_string(safeName);
+    CharacterDatabase.escape_string(safeIp);
 
     // Accumulate season score
     CharacterDatabase.PExecute(
@@ -834,9 +871,9 @@ void BattleRoyale::CleanupBRItems(Player* player)
         "  (`guid`, `name`, `placement`, `total_players`, `kill_count`, "
         "   `survival_sec`, `score_earned`, `zone`, `map`, `ip`) "
         "VALUES (%u, '%s', %u, %u, %u, %u, %u, %u, %u, '%s')",
-        guid, name.c_str(),
+        guid, safeName.c_str(),
         placementRank, totalPlayers, killCount, survivalSec, totalPts,
-        zone, mapId, ip.c_str());
+        zone, mapId, safeIp.c_str());
 }
 
 void BattleRoyale::SendBattleReport(ObjectGuid playerGuid, BattleRoyalePlayer const& brPlayer, uint32 survivalSec) const

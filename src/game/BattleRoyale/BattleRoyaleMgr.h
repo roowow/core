@@ -30,6 +30,12 @@ public:
     void ForceStartNow();                  // bypasses MIN_PLAYERS for single-GM testing
     BattleRoyale* GetInstanceForPlayer(ObjectGuid guid);
 
+    // Real players are restored to their pre-BR position on normal exit, relog,
+    // or after a server restart. Bots are not persisted.
+    void SavePendingRestore(Player const* player, uint32 instanceId) const;
+    void ClearPendingRestore(ObjectGuid guid) const;
+    bool RestorePendingPlayer(Player* player) const;
+
     // Called by BattleRoyale when it finishes
     void OnInstanceEnd(uint32 instanceId);
 

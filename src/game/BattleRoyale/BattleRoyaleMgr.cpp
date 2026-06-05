@@ -11,6 +11,8 @@
 #include "CustomTaxiMgr.h"
 #include "Database/DatabaseEnv.h"
 #include "Log.h"
+#include "MirrorTimer.h"
+#include "MotionMaster.h"
 #include "World.h"
 #include "WorldPacket.h"
 #include "PlayerBotMgr.h"
@@ -166,8 +168,21 @@ void BattleRoyaleMgr::Update(uint32 diff)
             ++it;
     }
 
+    // Only one BR instance runs at a time. Hold the countdown until the current game is
+    // fully torn down (CANCELLED). FINISHED still has players being returned and the map
+    // being cleaned up, so it also counts as active.
+    bool hasActiveInstance = false;
+    for (auto const& kv : m_instances)
+    {
+        if (kv.second->GetStatus() != BattleRoyaleStatus::CANCELLED)
+        {
+            hasActiveInstance = true;
+            break;
+        }
+    }
+
     // Start countdown when queue fills
-    if (!m_countdownActive && m_queue.size() >= MIN_PLAYERS)
+    if (!hasActiveInstance && !m_countdownActive && m_queue.size() >= MIN_PLAYERS)
     {
         m_countdownActive = true;
         m_countdownTimer  = COUNTDOWN_SEC * 1000;
@@ -179,7 +194,11 @@ void BattleRoyaleMgr::Update(uint32 diff)
 
     if (m_countdownActive)
     {
-        if (m_countdownTimer <= diff)
+        if (hasActiveInstance)
+        {
+            // Previous game still running — pause the countdown
+        }
+        else if (m_countdownTimer <= diff)
         {
             m_countdownActive = false;
             m_countdownTimer  = 0;
@@ -244,6 +263,103 @@ BattleRoyale* BattleRoyaleMgr::GetInstanceForPlayer(ObjectGuid guid)
         return nullptr;
     auto jt = m_instances.find(it->second);
     return jt != m_instances.end() ? jt->second : nullptr;
+}
+
+void BattleRoyaleMgr::SavePendingRestore(Player const* player, uint32 instanceId) const
+{
+    if (!player || player->IsSavingDisabled())
+        return;
+
+    CharacterDatabase.PExecute(
+        "REPLACE INTO `battle_royale_pending_restore` "
+        "  (`guid`, `instance_id`, `map`, `position_x`, `position_y`, `position_z`, `orientation`, `ffa_pvp`) "
+        "VALUES (%u, %u, %u, %f, %f, %f, %f, %u)",
+        player->GetGUIDLow(), instanceId, player->GetMapId(),
+        player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), player->GetOrientation(),
+        player->IsFFAPvP() ? 1u : 0u);
+}
+
+void BattleRoyaleMgr::ClearPendingRestore(ObjectGuid guid) const
+{
+    if (!guid.IsPlayer())
+        return;
+
+    CharacterDatabase.PExecute("DELETE FROM `battle_royale_pending_restore` WHERE `guid` = %u",
+                               guid.GetCounter());
+}
+
+bool BattleRoyaleMgr::RestorePendingPlayer(Player* player) const
+{
+    if (!player || player->IsInWorld())
+        return false;
+
+    uint32 const guid = player->GetGUIDLow();
+    std::unique_ptr<QueryResult> result(CharacterDatabase.PQuery(
+        "SELECT `instance_id`, `map`, `position_x`, `position_y`, `position_z`, `orientation`, `ffa_pvp` "
+        "FROM `battle_royale_pending_restore` WHERE `guid` = %u", guid));
+    if (!result)
+        return false;
+
+    Field* fields = result->Fetch();
+    uint32 const instanceId = fields[0].GetUInt32();
+    uint32 const mapId      = fields[1].GetUInt32();
+    float const x           = fields[2].GetFloat();
+    float const y           = fields[3].GetFloat();
+    float const z           = fields[4].GetFloat();
+    float const o           = fields[5].GetFloat();
+    bool const savedFfa     = fields[6].GetBool();
+
+    if (!MapManager::IsValidMapCoord(mapId, x, y, z, o))
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                 "[BattleRoyaleMgr] Invalid pending restore for player %u from instance %u: map %u %.2f %.2f %.2f %.2f.",
+                 guid, instanceId, mapId, x, y, z, o);
+        ClearPendingRestore(player->GetObjectGuid());
+        return false;
+    }
+
+    if (player->IsTaxiFlying())
+    {
+        player->GetMotionMaster()->MovementExpired();
+        player->GetTaxi().ClearTaxiDestinations();
+    }
+
+    if (player->IsHovering())
+    {
+        player->SetHover(false);
+        player->SetHoverReal(false);
+    }
+
+    player->SendMirrorTimerStop(MirrorTimer::FATIGUE);
+    player->SetFallInformation(0);
+    BattleRoyale::CleanupBRItems(player);
+    player->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+    player->SetFFAPvP(savedFfa);
+    player->SetBGTeam(TEAM_NONE);
+    player->SetBattleGroundId(0, BATTLEGROUND_TYPE_NONE);
+    player->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER | UNIT_FLAG_IMMUNE_TO_NPC);
+    player->_SaveBGData();
+
+    player->SetLocationMapId(mapId);
+    player->Relocate(x, y, z, o);
+    if (mapId <= MAX_CONTINENT_ID)
+        player->SetLocationInstanceId(sMapMgr.GetContinentInstanceId(mapId, x, y));
+    else
+        player->SetLocationInstanceId(0);
+    player->SetMap(sMapMgr.CreateMap(mapId, player));
+
+    CharacterDatabase.PExecute(
+        "UPDATE `characters` SET `map` = %u, `instance` = 0, "
+        "`position_x` = %f, `position_y` = %f, `position_z` = %f, `orientation` = %f, "
+        "`transport_guid` = 0, `transport_x` = 0, `transport_y` = 0, `transport_z` = 0, `transport_o` = 0, "
+        "`current_taxi_path` = '' WHERE `guid` = %u",
+        mapId, x, y, z, o, guid);
+    ClearPendingRestore(player->GetObjectGuid());
+
+    sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
+             "[BattleRoyaleMgr] Restored player %s (%u) from pending BR instance %u to map %u %.2f %.2f %.2f.",
+             player->GetName(), guid, instanceId, mapId, x, y, z);
+    return true;
 }
 
 void BattleRoyaleMgr::OnInstanceEnd(uint32 /*instanceId*/)
@@ -345,32 +461,44 @@ void BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers)
 
     BattleRoyaleTemplate const& tmpl = GetABTemplate();
 
-    // Collect online players up to maxPlayers
+    // Collect online players up to maxPlayers. Offline entries are dropped so a
+    // stale queued character cannot keep the counter alive or block the next game.
     std::vector<Player*> players;
     std::deque<ObjectGuid> remaining;
 
     for (auto it = m_queue.begin(); it != m_queue.end(); ++it)
     {
         ObjectGuid const& guid = *it;
-        if (uint32(players.size()) >= tmpl.maxPlayers)
+        Player* p = sObjectMgr.GetPlayer(guid);
+        if (!p || !p->IsInWorld())
         {
-            remaining.push_back(guid);
+            sLog.Out(LOG_BASIC, LOG_LVL_DETAIL,
+                     "[BattleRoyaleMgr] Dropped offline queued player %s.",
+                     guid.GetString().c_str());
             continue;
         }
-        Player* p = sObjectMgr.GetPlayer(guid);
-        if (p && p->IsInWorld())
+
+        if (uint32(players.size()) < tmpl.maxPlayers)
             players.push_back(p);
         else
-            remaining.push_back(guid); // offline, preserve in queue
+            remaining.push_back(guid);
     }
 
     m_queue = remaining;
 
     if (!ignoreMinPlayers && uint32(players.size()) < MIN_PLAYERS)
     {
-        // Not enough online players – put them back and wait
+        // Not enough online players - put them back in their original order and wait.
+        std::deque<ObjectGuid> retryQueue;
         for (Player* p : players)
-            m_queue.push_front(p->GetObjectGuid());
+            retryQueue.push_back(p->GetObjectGuid());
+        retryQueue.insert(retryQueue.end(), remaining.begin(), remaining.end());
+        m_queue = retryQueue;
+        if (m_queue.size() < MIN_PLAYERS)
+        {
+            m_countdownActive = false;
+            m_countdownTimer  = 0;
+        }
         return;
     }
 

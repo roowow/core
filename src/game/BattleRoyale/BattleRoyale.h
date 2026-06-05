@@ -65,6 +65,8 @@ public:
     void ForceSetRadius(float r);
     std::map<ObjectGuid, BattleRoyalePlayer> const& GetPlayers() const { return m_players; }
 
+    static void CleanupBRItems(Player* player);
+
 private:
     void UpdateDeploying(uint32 diff, Map* map);
     void CompleteDeployment(Player* player, BattleRoyalePlayer& brPlayer, bool teleportToLandingPoint);
@@ -77,7 +79,6 @@ private:
                                  uint32 totalPlayers, uint32 survivalSec,
                                  std::string const& name, std::string const& ip,
                                  uint32 zone, uint32 mapId);
-    static void CleanupBRItems(Player* player);
     void BroadcastToAll(std::string const& msg);
     void BroadcastPhaseChange(uint32 phase);
 

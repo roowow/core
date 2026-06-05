@@ -42,6 +42,7 @@
 #include "PlayerBroadcaster.h"
 #include "PlayerBotMgr.h"
 #include "MapManager.h"
+#include "BattleRoyaleMgr.h"
 #include "AccountMgr.h"
 
 class LoginQueryHolder : public SqlQueryHolder
@@ -526,6 +527,13 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
         m_playerLoading = false;
         return;
     }
+
+    // Recover players left in a BR instance after a server crash or clean restart.
+    // Only runs for fresh logins (!alreadyOnline); disconnect-reconnect while the
+    // old session is still active is not covered here — RestorePendingPlayer also
+    // guards against IsInWorld() to prevent double-restore.
+    if (!alreadyOnline)
+        sBattleRoyaleMgr.RestorePendingPlayer(pCurrChar);
 
     ASSERT(pCurrChar->GetSession() == this);
     SetPlayer(pCurrChar);

@@ -1793,7 +1793,8 @@ bool BattleBotAI::DrinkAndEat()
     bool const isGuard = BattleBotIsWSGHomeGuardCandidate(this) || BattleBotIsABGuardingOwnedNode(this);
     BattleGround* bg = me->GetBattleGround();
     bool const isWaiting = bg && bg->GetStatus() == STATUS_WAIT_JOIN;
-    float const recoveryThreshold = isWaiting ? 100.0f : (isGuard ? 90.0f : 60.0f);
+    bool const isBattleRoyale = bg && bg->GetTypeID() == BATTLEGROUND_BR;
+    float const recoveryThreshold = (isWaiting || isBattleRoyale) ? 100.0f : (isGuard ? 90.0f : 80.0f);
     float manaRecoveryThreshold = recoveryThreshold;
     if (me->GetClass() == CLASS_DRUID &&
         me->GetShapeshiftForm() == FORM_NONE &&
@@ -3635,16 +3636,26 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         }
     }
 
-    // In BR, visible enemies should interrupt travel setup immediately.
-    // Only recover or mount when there is no target worth attacking.
+    // In BR, do not start a new hunt until recovery is complete.
+    // Direct attackers are handled above, so bots still defend themselves.
+    if (DrinkAndEat())
+        return;
+
+    // Once recovered, visible enemies should interrupt travel setup immediately.
     if (Unit* pTarget = SelectAttackTarget())
     {
+        // Try out-of-combat openers before AttackStart puts the bot into combat.
+        // Charge requires being out of combat; the server-side CastSpell enforces
+        // this requirement, so it must be attempted before AttackStart() is called.
+        if (me->GetClass() == CLASS_WARRIOR &&
+            m_spells.warrior.pCharge &&
+            CanTryToCastSpell(pTarget, m_spells.warrior.pCharge))
+            DoCastSpell(pTarget, m_spells.warrior.pCharge);
         AttackStart(pTarget);
         return;
     }
 
-    if (DrinkAndEat())
-        return;
+    SummonPetIfNeeded();
 
     if (UseMount())
         return;
@@ -5321,13 +5332,40 @@ void BattleBotAI::UpdateOutOfCombatAI_Warrior()
         }
     }
 
-    if (Unit* pVictim = me->GetVictim())
+    // Charge is a proactive opener, so in AV it must respect the same
+    // active-engagement gate used by the main battleground target selection.
+    if (BattleGround* bgForAssault = me->GetBattleGround())
+    {
+        if (bgForAssault->GetTypeID() == BATTLEGROUND_AV)
+        {
+            bool const avNearGeneral = BattleBotIsNearAVGeneral(this, 40.0f);
+            bool const avTotalAssault = m_avEnableThreePhase &&
+                m_avAssignedGY == 0 && !BattleBotIsInAVGyCaptureHold(this) &&
+                ((me->GetTeam() == HORDE    && (bgForAssault->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_ASSAULTED)    || bgForAssault->IsActiveEvent(BG_AV_STORMPIKE_GY, HORDE_CONTROLLED)))    ||
+                 (me->GetTeam() == ALLIANCE && (bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED) || bgForAssault->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_CONTROLLED))));
+            bool const avPassiveTraveler = !m_avAggressiveTravelCombat &&
+                m_avAssignedGY == 0 && !BattleBotIsInAVGyCaptureHold(this) &&
+                !BattleBotIsNearAVFlag(this, AV_FLAG_DEFENSE_RADIUS) &&
+                !BattleBotIsNearAVCaptain(this, 40.0f) &&
+                !avNearGeneral;
+
+            if (!avNearGeneral && (avTotalAssault || avPassiveTraveler))
+                return;
+        }
+    }
+
+    // me->GetVictim() is always null here because UpdateOutOfCombatAI runs before
+    // AttackStart is called. Use SelectAttackTarget so Charge actually fires.
+    if (Unit* pVictim = SelectAttackTarget())
     {
         if (m_spells.warrior.pCharge &&
             CanTryToCastSpell(pVictim, m_spells.warrior.pCharge))
         {
             if (DoCastSpell(pVictim, m_spells.warrior.pCharge) == SPELL_CAST_OK)
+            {
+                AttackStart(pVictim);
                 return;
+            }
         }
     }
 }
