@@ -2757,15 +2757,6 @@ void BattleBotAI::InitAVStrategy()
     char const* const modeName = (m_avMode == AV_MODE_NATIVE) ? "Native" :
                                  (m_avMode == AV_MODE_PUSH)   ? "Push"   : "Random";
     char const* const teamName = (me->GetTeam() == ALLIANCE)  ? "Alliance" : "Horde";
-    sLog.Out(LOG_BG, LOG_LVL_MINIMAL,
-        "[AV_STRAT] instance=%u team=%s mode=%s openingPassive=%um guardGY=%s holdCapture=%s aggressiveTravel=%s mineBots=%u threePhase=%s",
-        bg->GetInstanceID(), teamName, modeName,
-        m_avOpeningPassiveMinutes,
-        m_avGuardGraveyards            ? "true" : "false",
-        m_avHoldCaptureUntilControlled ? "true" : "false",
-        m_avAggressiveTravelCombat     ? "true" : "false",
-        m_avMineMissionCount,
-        m_avEnableThreePhase           ? "true" : "false");
 
     // Send one GM notification per team per BG: only the bot with the lowest GUID on its team sends it.
     // This avoids 20 identical messages while still guaranteeing exactly one message per team.

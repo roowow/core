@@ -23,7 +23,6 @@
 #include "BattleGround.h"
 #include "BattleGroundAV.h"
 #include "ObjectAccessor.h"
-#include "PlayerBots/BattleBotAI.h"
 #include "BattleGroundMgr.h"
 #include "Creature.h"
 #include "GameObject.h"
@@ -238,10 +237,6 @@ void BattleGroundAV::BotContributeScraps(Team team, uint32 amount)
 
     setReinforcementLevelGroundUnit(idx, resources);
     CastSpellOnTeam((resources == 500) ? 28418 : (resources == 1000) ? 28419 : 28420, team);
-    char const* tier = (resources == 500) ? "Seasoned" : (resources == 1000) ? "Veteran" : "Champion";
-    sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_SCRAP] inst=%u t=%u team=%s scraps_upgrade=%s total=%u",
-        GetInstanceID(), GetStartTime() / 1000,
-        (team == ALLIANCE) ? "A" : "H", tier, m_teamQuestStatus[idx][0]);
     for (BG_AV_Nodes i = BG_AV_NODES_FIRSTAID_STATION; i <= BG_AV_NODES_FROSTWOLF_WTOWER; ++i)
         if (m_nodes[i].owner == idx && m_nodes[i].state == POINT_CONTROLLED)
             PopulateNode(i);
@@ -257,10 +252,6 @@ void BattleGroundAV::BotContributeGroundAssault(Team team, uint8 mineIdx, uint32
     {
         resetGroundChallengeInvocation(factionId);
         setPlayerGoStatus(factionId, BG_AV_GROUND_ASSAULT, true);
-        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_GND]  inst=%u t=%u team=%s ground_assault=triggered mine=%s",
-            GetInstanceID(), GetStartTime() / 1000,
-            (team == ALLIANCE) ? "A" : "H",
-            (mineIdx == BG_AV_NORTH_MINE) ? "Irondeep" : "Coldtooth");
     }
 }
 
@@ -272,10 +263,6 @@ void BattleGroundAV::BotContributeWorldBossItems(Team team, uint32 amount)
     {
         resetWorldBossChallengeInvocation(factionId);
         setPlayerGoStatus(factionId, BG_AV_WORLDBOSS_ASSAULT, true);
-        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_WB]   inst=%u t=%u team=%s worldboss=triggered boss=%s",
-            GetInstanceID(), GetStartTime() / 1000,
-            (team == ALLIANCE) ? "A" : "H",
-            (team == ALLIANCE) ? "Ivus" : "Lokholar");
     }
 }
 
@@ -285,7 +272,6 @@ void BattleGroundAV::BotContributeAirAssault(Team team, uint32 amount)
 
     // Contribute equally to all three tiers (soldier / lieutenant / commander).
     // Each tier has its own beacon go status; all three ready → global flyover triggers.
-    static char const* const airTierName[] = { "Soldier", "Lieutenant", "Commander" };
     for (uint32 rank = BG_AV_SOLDIER_AIR_ASSAULT; rank <= BG_AV_COMMANDER_AIR_ASSAULT; ++rank)
     {
         uint32 beaconType = BG_AV_AIR_ASSAULT_BEACON_SOLDIER + rank;
@@ -294,9 +280,6 @@ void BattleGroundAV::BotContributeAirAssault(Team team, uint32 amount)
         {
             resetAerialChallengeInvocation(factionId, beaconType);
             setPlayerGoStatus(factionId, beaconType, true);
-            sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_AIR]  inst=%u t=%u team=%s air_assault=beacon tier=%s",
-                GetInstanceID(), GetStartTime() / 1000,
-                (team == ALLIANCE) ? "A" : "H", airTierName[rank]);
         }
     }
 
@@ -308,9 +291,6 @@ void BattleGroundAV::BotContributeAirAssault(Team team, uint32 amount)
         setPlayerGoStatus(factionId, BG_AV_AIR_ASSAULT_GLOBAL_SOLDIER,    true);
         setPlayerGoStatus(factionId, BG_AV_AIR_ASSAULT_GLOBAL_LIEUTENANT, true);
         setPlayerGoStatus(factionId, BG_AV_AIR_ASSAULT_GLOBAL_COMMANDER,  true);
-        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_AIR]  inst=%u t=%u team=%s air_assault=global_triggered",
-            GetInstanceID(), GetStartTime() / 1000,
-            (team == ALLIANCE) ? "A" : "H");
     }
 }
 
@@ -324,10 +304,6 @@ void BattleGroundAV::BotContributeCavalryAssault(Team team, uint32 amount)
     {
         resetCavalryChallengeInvocation(factionId);
         setPlayerGoStatus(factionId, BG_AV_CAVALRY_ASSAULT, true);
-        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_CAV]  inst=%u t=%u team=%s cavalry=triggered riders=%s",
-            GetInstanceID(), GetStartTime() / 1000,
-            (team == ALLIANCE) ? "A" : "H",
-            (team == ALLIANCE) ? "Ramriders" : "Wolfriders");
     }
 }
 
@@ -418,9 +394,6 @@ void BattleGroundAV::HandleKillUnit(Creature* creature, Player* killer)
             (entry == SUPPLY_OFFICER_HORDE    && killer->GetTeam() == ALLIANCE))
         {
             BotContributeAirAssault(killer->GetTeam(), 5);
-            sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_AIR]  inst=%u t=%u team=%s supplyofficer=killed entry=%u air+5",
-                GetInstanceID(), GetStartTime() / 1000,
-                (killer->GetTeam() == ALLIANCE) ? "A" : "H", entry);
         }
 
         // Cavalry assault: Horde uses Frostwolf Wolves, Alliance uses Alterac Rams.
@@ -441,10 +414,6 @@ void BattleGroundAV::HandleKillUnit(Creature* creature, Player* killer)
             // This replaces the old carrier-return mechanic.
             Team const team     = killer->GetTeam();
             uint8 const mineIdx = (dIron <= dCold) ? BG_AV_NORTH_MINE : BG_AV_SOUTH_MINE;
-            sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_MINE] inst=%u t=%u team=%s boss_killed=true entry=%u mine=%s scraps+120 gnd+30 wb+20",
-                GetInstanceID(), GetStartTime() / 1000,
-                (team == ALLIANCE) ? "A" : "H", entry,
-                (mineIdx == BG_AV_NORTH_MINE) ? "Irondeep" : "Coldtooth");
             BotContributeScraps(team, 120);
             BotContributeGroundAssault(team, mineIdx, 30);
             BotContributeWorldBossItems(team, 20);
@@ -952,111 +921,6 @@ void BattleGroundAV::HandleQuestComplete(Unit* questGiver, uint32 questid, Playe
         RewardReputationToTeam((player->GetTeam() == ALLIANCE) ? BG_AV_FACTION_A : BG_AV_FACTION_H, reputation, player->GetTeam());
 }
 
-void BattleGroundAV::LogPeriodicStats()
-{
-    static char const* const mineTag[] = { "A", "H", "N" };
-    static char const* const modeTag[] = { "?", "Native", "Push", "Random" };
-
-    uint32 elapsed = GetStartTime();
-    uint32 t_s     = elapsed / 1000;
-
-    // BG resource status — one line per team
-    for (uint32 t = BG_TEAM_ALLIANCE; t <= BG_TEAM_HORDE; ++t)
-    {
-        uint32 ironCur  = m_challengeStatus[t][BG_AV_IRONDEEP_GROUND_ASSAULT];
-        uint32 ironGoal = m_challengeGoals[t][BG_AV_IRONDEEP_GROUND_ASSAULT];
-        uint32 coldCur  = m_challengeStatus[t][BG_AV_COLDTOOTH_GROUND_ASSAULT];
-        uint32 coldGoal = m_challengeGoals[t][BG_AV_COLDTOOTH_GROUND_ASSAULT];
-        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_STAT] inst=%u t=%u team=%s score=%d troops=%u scraps=%u iron=%u/%u cold=%u/%u gnd=%u",
-            GetInstanceID(), t_s,
-            (t == BG_TEAM_ALLIANCE) ? "A" : "H",
-            m_teamScores[t],
-            m_reinforcementLevel[t],
-            m_teamQuestStatus[t][0],
-            ironCur, ironGoal,
-            coldCur, coldGoal,
-            (uint32)isGroundChallengeInvocationReady(t));
-    }
-
-    // Event challenge progress — one line per team
-    for (uint32 t = BG_TEAM_ALLIANCE; t <= BG_TEAM_HORDE; ++t)
-    {
-        sLog.Out(LOG_BG, LOG_LVL_MINIMAL,
-            "[AV_EVT]  inst=%u t=%u team=%s"
-            " sol=%u/%u lt=%u/%u cmd=%u/%u"
-            " chide=%u/%u ctame=%u/%u"
-            " boss=%u/%u"
-            " go=%c%c%c%c%c%c",
-            GetInstanceID(), t_s,
-            (t == BG_TEAM_ALLIANCE) ? "A" : "H",
-            m_challengeStatus[t][BG_AV_SOLDIER_AIR_ASSAULT],
-            m_challengeGoals[t][BG_AV_SOLDIER_AIR_ASSAULT],
-            m_challengeStatus[t][BG_AV_LIEUTENANT_AIR_ASSAULT],
-            m_challengeGoals[t][BG_AV_LIEUTENANT_AIR_ASSAULT],
-            m_challengeStatus[t][BG_AV_COMMANDER_AIR_ASSAULT],
-            m_challengeGoals[t][BG_AV_COMMANDER_AIR_ASSAULT],
-            m_challengeStatus[t][BG_AV_HIDE_CAVALRY_ASSAULT],
-            m_challengeGoals[t][BG_AV_HIDE_CAVALRY_ASSAULT],
-            m_challengeStatus[t][BG_AV_TAMED_CAVALRY_ASSAULT],
-            m_challengeGoals[t][BG_AV_TAMED_CAVALRY_ASSAULT],
-            m_challengeStatus[t][BG_AV_BLOOD_WORLDBOSS_ASSAULT],
-            m_challengeGoals[t][BG_AV_BLOOD_WORLDBOSS_ASSAULT],
-            m_challengePlayerGoStatus[t][BG_AV_AIR_ASSAULT_GLOBAL_SOLDIER]    ? '1' : '0',
-            m_challengePlayerGoStatus[t][BG_AV_AIR_ASSAULT_GLOBAL_LIEUTENANT] ? '1' : '0',
-            m_challengePlayerGoStatus[t][BG_AV_AIR_ASSAULT_GLOBAL_COMMANDER]  ? '1' : '0',
-            m_challengePlayerGoStatus[t][BG_AV_CAVALRY_ASSAULT]               ? '1' : '0',
-            m_challengePlayerGoStatus[t][BG_AV_GROUND_ASSAULT]                ? '1' : '0',
-            m_challengePlayerGoStatus[t][BG_AV_WORLDBOSS_ASSAULT]             ? '1' : '0');
-    }
-
-    // Mine ownership
-    uint32 northOwner = m_mineOwner[0] < 3 ? m_mineOwner[0] : 2;
-    uint32 southOwner = m_mineOwner[1] < 3 ? m_mineOwner[1] : 2;
-    sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_MINE] inst=%u t=%u north=%s south=%s",
-        GetInstanceID(), t_s, mineTag[northOwner], mineTag[southOwner]);
-
-    // Bot summary — iterate BG players
-    struct BotStats
-    {
-        uint32 total = 0, mode = 0, slots = 0;
-        uint32 going = 0;
-        bool   guardPolicy = false;
-        uint32 gact = 0, hold = 0;
-    } bs[BG_TEAMS_COUNT];
-
-    for (auto const& itr : GetPlayers())
-    {
-        Player* p = ObjectAccessor::FindPlayer(itr.first);
-        if (!p || !p->IsBot()) continue;
-        BattleBotAI* ai = dynamic_cast<BattleBotAI*>(p->AI());
-        if (!ai) continue;
-
-        uint32 ti = (p->GetTeam() == ALLIANCE) ? BG_TEAM_ALLIANCE : BG_TEAM_HORDE;
-        ++bs[ti].total;
-        if (!ai->m_avStrategyDecided) continue;
-        if (bs[ti].mode == 0) { bs[ti].mode = ai->m_avMode; bs[ti].slots = ai->m_avMineMissionCount; }
-        if (ai->m_avIsMineBot)
-        {
-            if (ai->m_avMineState == AV_MINE_GOING) ++bs[ti].going;
-        }
-        if (ai->m_avAssignedGY != 0)            ++bs[ti].gact;
-        if (ai->m_avGuardGraveyards)            bs[ti].guardPolicy = true;
-        if (ai->m_avHoldCaptureUntilControlled) ++bs[ti].hold;
-    }
-
-    for (uint32 t = BG_TEAM_ALLIANCE; t <= BG_TEAM_HORDE; ++t)
-    {
-        BotStats const& s = bs[t];
-        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_BOT]  inst=%u t=%u team=%s bots=%u mode=%s slots=%u going=%u guard=%c gact=%u hold=%u",
-            GetInstanceID(), t_s,
-            (t == BG_TEAM_ALLIANCE) ? "A" : "H",
-            s.total,
-            (s.mode >= 1 && s.mode <= 3) ? modeTag[s.mode] : "?",
-            s.slots, s.going,
-            s.guardPolicy ? 'Y' : 'N', s.gact, s.hold);
-    }
-}
-
 void BattleGroundAV::UpdateScore(BattleGroundTeamIndex teamIdx, int32 points)
 {
     // note: to remove reinforcements points must be negative, for adding reinforcements points must be positive
@@ -1103,15 +967,6 @@ void BattleGroundAV::Update(uint32 diff)
 
     if (GetStatus() == STATUS_IN_PROGRESS)
     {
-        /** Periodic stat logging (every 60 s) */
-        if (m_statLogTimer <= diff)
-        {
-            LogPeriodicStats();
-            m_statLogTimer = 60000;
-        }
-        else
-            m_statLogTimer -= diff;
-
         /** Horde Captain buff during battle */
         if (m_buffTimerHorde < diff)
         {
@@ -1928,8 +1783,6 @@ void BattleGroundAV::Reset()
         m_activeEvents[BG_AV_MINE_EVENT + i] = BG_AV_TEAM_NEUTRAL;
         m_mineTimer[i] = BG_AV_MINE_TICK_TIMER;
     }
-
-    m_statLogTimer = 60000;
 
     m_botMineBotCount[BG_TEAM_ALLIANCE] = urand(0, 10);
     m_botMineBotCount[BG_TEAM_HORDE]    = urand(0, 10);

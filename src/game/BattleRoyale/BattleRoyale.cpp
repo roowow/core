@@ -425,9 +425,6 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         brPlayer.orbitStarted    = true;
         brPlayer.deploymentStarted = true;
         ChatHandler(player).PSendSysMessage("[孤胆称雄] 长风送客，御空而下。落地之后，刀剑无情，唯凭本事。");
-        sLog.Out(LOG_BASIC, LOG_LVL_DETAIL,
-                 "[BattleRoyale] Combined orbit+drop flight started for %s instance %u.",
-                 player->GetName(), m_host ? m_host->GetInstanceID() : 0u);
     }
 
     // m_pendingBotCount tracks bots requested but not yet arrived. A bot whose
@@ -743,9 +740,6 @@ void BattleRoyale::Finish()
     m_finishTimer = BR_FINISH_DELAY_MS;
     m_zone.Cleanup(m_host ? m_host->GetBgMap() : nullptr);
     BroadcastToAll("[孤胆称雄] 尘埃落定，论剑已终。十息之后，各归来处。");
-
-    sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyale] Instance %u finished. Total players: %u",
-             m_host ? m_host->GetInstanceID() : 0u, m_totalCount);
 }
 
 void BattleRoyale::Cancel()

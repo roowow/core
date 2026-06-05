@@ -516,9 +516,6 @@ void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
         if (bot->IsMounted())
             bot->Unmount();
     }
-
-    sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyaleMgr] Bot %s ready for instance %u (spawn %u).",
-             bot->GetName(), instanceId, spawnIndex);
 }
 
 // --- private ---
@@ -578,9 +575,6 @@ void BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers)
         Player* p = sObjectMgr.GetPlayer(guid);
         if (!p || !p->IsInWorld())
         {
-            sLog.Out(LOG_BASIC, LOG_LVL_DETAIL,
-                     "[BattleRoyaleMgr] Dropped offline queued player %s.",
-                     guid.GetString().c_str());
             continue;
         }
 
@@ -617,9 +611,6 @@ void BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers)
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleMgr] Failed to create BR instance.");
         return;
     }
-
-    sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyaleMgr] Created BR instance (template %u, map %u) with %u players.",
-             tmpl.id, tmpl.mapId, uint32(players.size()));
 }
 
 BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& players,
@@ -713,16 +704,11 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
         // ready callback can still arrive before this loop completes.
         br->SetPendingBotCount(botCount);
 
-        uint32 actualBotCount = 0;
         for (uint32 i = 0; i < botCount; ++i)
         {
-            if (sPlayerBotMgr.AddBattleRoyaleBot(instanceId))
-                ++actualBotCount;
-            else
+            if (!sPlayerBotMgr.AddBattleRoyaleBot(instanceId))
                 br->DecrementPendingBotCount();
         }
-
-        sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyaleMgr] Requested %u/%u bots for instance %u.", actualBotCount, botCount, instanceId);
     }
 
     return br;

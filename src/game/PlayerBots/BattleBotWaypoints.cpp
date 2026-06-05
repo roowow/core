@@ -2557,10 +2557,6 @@ bool BattleBotAI::StartNewPathToObjective()
                     m_avMineBotDecided = true;
                     m_avMineBotBgInstance = bg->GetInstanceID();
                     m_avIsMineBot = ShouldBeAVMineBot(this);
-                    if (m_avIsMineBot)
-                        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_MINE] inst=%u t=%u team=%s guid=%u minebot=assigned",
-                            bg->GetInstanceID(), bg->GetStartTime() / 1000,
-                            me->GetTeam() == ALLIANCE ? "A" : "H", me->GetGUIDLow());
                 }
             }
 
@@ -2619,9 +2615,6 @@ bool BattleBotAI::StartNewPathToObjective()
                 }
 
                 // Own key GY lost: release back to normal routing.
-                sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_MINE] inst=%u t=%u team=%s guid=%u minebot=released reason=ownGyLost",
-                    bg->GetInstanceID(), bg->GetStartTime() / 1000,
-                    myTeam == ALLIANCE ? "A" : "H", me->GetGUIDLow());
                 m_avIsMineBot = false;
                 m_avMineState = AV_MINE_NONE;
             }
@@ -2639,10 +2632,6 @@ bool BattleBotAI::StartNewPathToObjective()
                     m_avCavalryHunterDecided = true;
                     m_avCavalryHunterBgInstance = bg->GetInstanceID();
                     m_avIsCavalryHunter = ShouldBeAVCavalryHunter(this);
-                    if (m_avIsCavalryHunter)
-                        sLog.Out(LOG_BG, LOG_LVL_MINIMAL, "[AV_CAV] inst=%u t=%u team=%s guid=%u cavalryhunter=assigned",
-                            bg->GetInstanceID(), bg->GetStartTime() / 1000,
-                            me->GetTeam() == ALLIANCE ? "A" : "H", me->GetGUIDLow());
                 }
             }
 

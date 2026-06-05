@@ -495,7 +495,6 @@ class BattleGroundAV : public BattleGround
         uint32 GetActualArmorRessources(uint32 factionId);
         uint32 GetTeamScraps(uint32 teamIdx) const { return m_teamQuestStatus[teamIdx][0]; }
         BattleGroundAVTeamIndex GetMineOwner(uint8 mineIdx) const { return m_mineOwner[mineIdx]; }
-        void LogPeriodicStats();
         /*handle stuff*/ // these are functions which get called from extern scripts
         void EventPlayerClickedOnFlag(Player* source, GameObject* targetGo) override;
         void HandleKillPlayer(Player* pVictim, Player* pKiller) override;
@@ -590,8 +589,6 @@ class BattleGroundAV : public BattleGround
         uint32 m_mineReclaimTimer[BG_AV_MAX_MINES];
 
         bool m_isInformedNearLose[BG_TEAMS_COUNT];
-
-        uint32 m_statLogTimer;
 
         uint8 m_botMineBotCount[BG_TEAMS_COUNT];
 
