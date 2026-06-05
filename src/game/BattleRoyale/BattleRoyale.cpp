@@ -74,10 +74,11 @@ static uint32 BattleRoyaleMixSeed(uint32 value)
 
 // BR item entries — must match what is actually in item_template (DB).
 // Used only for CleanupBRItems() when a player exits the match.
-// 900214-900221 reserved for future items; not yet in DB, omitted here.
+// 900214-900216, 900219, 900221 reserved for future items; not yet in DB, omitted here.
 static uint32 const BR_ITEM_ENTRIES[] =
 {
     900210, 900211, 900213,
+    900217, 900218, 900220,
     900222, 900223, 900225, 900226
 };
 
