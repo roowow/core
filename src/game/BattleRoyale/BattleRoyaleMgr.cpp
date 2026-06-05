@@ -71,21 +71,6 @@ void SetBattleRoyaleStartError(std::string* outError, char const* message)
         *outError = message;
 }
 
-void BattleRoyaleMgr::SendMsgToParticipants(char const* msg) const
-{
-    WorldPacket data;
-    ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM, msg);
-
-    for (ObjectGuid const& guid : m_queue)
-        if (Player* p = sObjectMgr.GetPlayer(guid))
-            p->SendDirectMessage(&data);
-
-    for (auto const& kv : m_playerInstMap)
-        if (Player* p = sObjectMgr.GetPlayer(kv.first))
-            if (!p->IsBot())
-                p->SendDirectMessage(&data);
-}
-
 bool IsBattleRoyaleTemplateBattlegroundMap(BattleRoyaleTemplate const& tmpl)
 {
     MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(tmpl.mapId);
@@ -130,6 +115,21 @@ void ApplyBattleRoyaleStagingMount(Player* player, uint32 deploymentPathId)
     player->Mount(mountDisplayId);
 }
 
+} // anonymous namespace
+
+void BattleRoyaleMgr::SendMsgToParticipants(char const* msg) const
+{
+    WorldPacket data;
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM, msg);
+
+    for (ObjectGuid const& guid : m_queue)
+        if (Player* p = sObjectMgr.GetPlayer(guid))
+            p->SendDirectMessage(&data);
+
+    for (auto const& kv : m_playerInstMap)
+        if (Player* p = sObjectMgr.GetPlayer(kv.first))
+            if (!p->IsBot())
+                p->SendDirectMessage(&data);
 }
 
 BattleRoyaleMgr::BattleRoyaleMgr()
