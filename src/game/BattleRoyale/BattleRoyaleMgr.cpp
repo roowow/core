@@ -6,6 +6,7 @@
 #include "ObjectMgr.h"
 #include "ObjectAccessor.h"
 #include "MapManager.h"
+#include "Map.h"
 #include "BattleGroundMgr.h"
 #include "Chat.h"
 #include "CustomTaxiMgr.h"
@@ -68,6 +69,17 @@ void SetBattleRoyaleStartError(std::string* outError, char const* message)
 {
     if (outError)
         *outError = message;
+}
+
+bool IsBattleRoyaleTemplateBattlegroundMap(BattleRoyaleTemplate const& tmpl)
+{
+    MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(tmpl.mapId);
+    return mapEntry && mapEntry->IsBattleGround();
+}
+
+bool IsBattleRoyaleTemplateStartable(BattleRoyaleTemplate const& tmpl)
+{
+    return tmpl.enabled && !tmpl.spawnPoints.empty() && IsBattleRoyaleTemplateBattlegroundMap(tmpl);
 }
 
 uint32 GetBattleRoyaleStagingMountDisplayId(Player* player, uint32 deploymentPathId)
@@ -330,9 +342,14 @@ bool BattleRoyaleMgr::IsPlayerInGame(ObjectGuid guid) const
 
 bool BattleRoyaleMgr::ForceStartNow(uint32 templateId, std::string* outError)
 {
-    m_countdownActive = false;
-    m_countdownTimer  = 0;
-    return TryCreateGame(true, templateId, outError); // ignore MIN_PLAYERS for GM testing
+    bool const started = TryCreateGame(true, templateId, outError); // ignore MIN_PLAYERS for GM testing
+    if (started)
+    {
+        m_countdownActive = false;
+        m_countdownTimer  = 0;
+    }
+
+    return started;
 }
 
 BattleRoyale* BattleRoyaleMgr::GetInstanceForPlayer(ObjectGuid guid)
@@ -587,12 +604,21 @@ bool BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers, uint32 templateId, st
             SetBattleRoyaleStartError(outError, "指定模板没有出生点。");
             return false;
         }
+
+        if (!IsBattleRoyaleTemplateBattlegroundMap(*selectedTemplate))
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                     "[BattleRoyaleMgr] Template %u map %u is not a battleground map; current BR creation only supports battleground maps.",
+                     selectedTemplate->id, selectedTemplate->mapId);
+            SetBattleRoyaleStartError(outError, "指定模板地图不是战场类型，当前不能创建 BR 对局。");
+            return false;
+        }
     }
     else
     {
         std::vector<BattleRoyaleTemplate*> eligible;
         for (BattleRoyaleTemplate* t : allTmpls)
-            if (t->enabled && !t->spawnPoints.empty())
+            if (IsBattleRoyaleTemplateStartable(*t))
                 eligible.push_back(t);
 
         if (eligible.empty())
@@ -670,6 +696,14 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
     if (tmpl.spawnPoints.empty())
     {
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleMgr] Template %u has no spawn points.", tmpl.id);
+        return nullptr;
+    }
+
+    if (!IsBattleRoyaleTemplateBattlegroundMap(tmpl))
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                 "[BattleRoyaleMgr] Template %u map %u is not a battleground map; refusing to create BattleGroundMap.",
+                 tmpl.id, tmpl.mapId);
         return nullptr;
     }
 

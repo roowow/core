@@ -84,7 +84,7 @@ bool ChatHandler::HandleBRStartCommand(char* args)
             requestedTemplate = ResolveBattleRoyaleTemplateArg(args);
             if (!requestedTemplate)
             {
-                SendSysMessage("[孤胆称雄] 未识别的模板。可用：1/ab，2/av，3/ac/azshara，或 mapId 529/30/37。");
+                SendSysMessage("[孤胆称雄] 未识别的模板。可用：1/ab/529，2/av/30。3/ac/azshara/37 当前暂未开放。");
                 return true;
             }
             templateId = requestedTemplate->id;
