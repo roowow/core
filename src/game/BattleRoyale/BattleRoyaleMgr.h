@@ -61,6 +61,7 @@ private:
     bool CanEnqueue(Player* player, std::string& outError) const;
     bool TryCreateGame(bool ignoreMinPlayers = false, uint32 templateId = 0, std::string* outError = nullptr);
     BattleRoyale* CreateInstance(std::vector<Player*> const& players, BattleRoyaleTemplate const& tmpl);
+    void SendMsgToParticipants(char const* msg) const; // queue + active instances only, not world
 
     std::deque<ObjectGuid>                        m_queue;
     std::map<uint32, BattleRoyale*>               m_instances;       // instanceId -> BattleRoyale

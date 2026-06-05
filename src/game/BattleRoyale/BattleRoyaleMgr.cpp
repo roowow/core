@@ -71,6 +71,21 @@ void SetBattleRoyaleStartError(std::string* outError, char const* message)
         *outError = message;
 }
 
+void BattleRoyaleMgr::SendMsgToParticipants(char const* msg) const
+{
+    WorldPacket data;
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM, msg);
+
+    for (ObjectGuid const& guid : m_queue)
+        if (Player* p = sObjectMgr.GetPlayer(guid))
+            p->SendDirectMessage(&data);
+
+    for (auto const& kv : m_playerInstMap)
+        if (Player* p = sObjectMgr.GetPlayer(kv.first))
+            if (!p->IsBot())
+                p->SendDirectMessage(&data);
+}
+
 bool IsBattleRoyaleTemplateBattlegroundMap(BattleRoyaleTemplate const& tmpl)
 {
     MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(tmpl.mapId);
@@ -227,9 +242,7 @@ void BattleRoyaleMgr::Update(uint32 diff)
 
         char buf[128];
         snprintf(buf, sizeof(buf), "[孤胆称雄] 论剑帖已发，%u 秒后封场开局。欲赴此局者，速至令使处留名。", countdownSec);
-        WorldPacket data;
-        ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM, buf);
-        sWorld.SendGlobalMessage(&data);
+        SendMsgToParticipants(buf);
     }
 
     if (m_countdownActive)
@@ -254,9 +267,7 @@ void BattleRoyaleMgr::Update(uint32 diff)
             {
                 char buf[128];
                 snprintf(buf, sizeof(buf), "[孤胆称雄] 论剑帖将于 %u 秒后封场，尚未报名者速来。", remainSec);
-                WorldPacket data;
-                ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM, buf);
-                sWorld.SendGlobalMessage(&data);
+                SendMsgToParticipants(buf);
 
                 m_nextReminderSec = (m_nextReminderSec > REMINDER_INTERVAL_SEC)
                     ? m_nextReminderSec - REMINDER_INTERVAL_SEC : 0;

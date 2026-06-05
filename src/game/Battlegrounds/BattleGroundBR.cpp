@@ -41,5 +41,5 @@ void BattleGroundBR::HandleKillPlayer(Player* victim, Player* killer)
 {
     if (m_owner && victim)
         m_owner->OnPlayerDied(victim->GetObjectGuid(), killer ? killer->GetObjectGuid() : ObjectGuid());
-    // No honor reward in BR — kills are rewarded via season score instead.
+    // No honor reward in BR -- kills are rewarded via season score instead.
 }

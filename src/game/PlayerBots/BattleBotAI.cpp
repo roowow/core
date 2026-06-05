@@ -3528,13 +3528,49 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     }
 
     BattleRoyaleZone const& zone = br->GetZone();
+    auto hasReachableGroundPath = [this](float x, float y, float z) -> bool
+    {
+        if (z <= INVALID_HEIGHT)
+            return false;
+
+        PathFinder pf(me);
+        pf.ExcludeSteepSlopes();
+        pf.calculate(x, y, z);
+        PathType const pt = pf.getPathType();
+        if (!(pt & PATHFIND_NORMAL) ||
+            (pt & (PATHFIND_NOPATH | PATHFIND_NOT_USING_PATH | PATHFIND_SHORTCUT | PATHFIND_FLYPATH)))
+            return false;
+
+        return true;
+    };
+    auto moveToReachableGround = [&hasReachableGroundPath, this](float x, float y, float z) -> bool
+    {
+        if (!hasReachableGroundPath(x, y, z))
+            return false;
+
+        me->GetMotionMaster()->MovePoint(0, x, y, z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+        return true;
+    };
+    auto canReachBattleRoyaleTarget = [&hasReachableGroundPath, this](Unit* target) -> bool
+    {
+        if (!target)
+            return false;
+
+        float const targetGroundZ = me->GetMap()->GetHeight(
+            target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(), true, MAX_HEIGHT);
+        if (targetGroundZ > INVALID_HEIGHT && target->GetPositionZ() > targetGroundZ + 3.0f)
+            return false;
+
+        float const targetZ = targetGroundZ > INVALID_HEIGHT ? targetGroundZ : target->GetPositionZ();
+        return hasReachableGroundPath(target->GetPositionX(), target->GetPositionY(), targetZ);
+    };
 
     // Snap bots to ground if they fell off a cliff and are floating in mid-air.
     // Server movement doesn't apply gravity, so bots can hover after walking off edges.
     {
         float const groundZ = me->GetMap()->GetHeight(
             me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), true, MAX_HEIGHT);
-        if (groundZ > INVALID_HEIGHT && me->GetPositionZ() > groundZ + 5.0f)
+        if (groundZ > INVALID_HEIGHT && me->GetPositionZ() > groundZ + 2.0f)
         {
             if (me->GetVictim())
             {
@@ -3567,8 +3603,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             float const targetX = cx - (dx / dist) * safeRadius;
             float const targetY = cy - (dy / dist) * safeRadius;
             float const targetZ = me->GetMap()->GetHeight(targetX, targetY, MAX_HEIGHT, false, MAX_HEIGHT);
-            if (targetZ > INVALID_HEIGHT)
-                me->GetMotionMaster()->MovePoint(0, targetX, targetY, targetZ, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+            moveToReachableGround(targetX, targetY, targetZ);
         }
         return;
     }
@@ -3589,6 +3624,10 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         if (!stuck && me->GetVictim() && me->GetDistanceZ(me->GetVictim()) > 6.0f)
             stuck = true;
 
+        if (!stuck && me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE &&
+            !canReachBattleRoyaleTarget(me->GetVictim()))
+            stuck = true;
+
         if (stuck)
         {
             me->AttackStop();
@@ -3601,8 +3640,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             float const px = cx + std::cos(angle) * (float(urand(20, 100)) * 0.01f * r);
             float const py = cy + std::sin(angle) * (float(urand(20, 100)) * 0.01f * r);
             float const pz = me->GetMap()->GetHeight(px, py, MAX_HEIGHT, false, MAX_HEIGHT);
-            if (pz > INVALID_HEIGHT)
-                me->GetMotionMaster()->MovePoint(0, px, py, pz, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+            moveToReachableGround(px, py, pz);
             return;
         }
         // Target is reachable: run the full class combat rotation.
@@ -3621,7 +3659,8 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             IsValidHostileTarget(attacker) &&
             me->IsWithinDist(attacker, VISIBILITY_DISTANCE_NORMAL) &&
             me->GetDistanceZ(attacker) < 10.0f &&
-            me->IsWithinLOSInMap(attacker))
+            me->IsWithinLOSInMap(attacker) &&
+            canReachBattleRoyaleTarget(attacker))
         {
             AttackStart(attacker);
             return;
@@ -3636,21 +3675,23 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     // Once recovered, visible enemies should interrupt travel setup immediately.
     if (Unit* pTarget = SelectAttackTarget())
     {
-        // Try out-of-combat openers before AttackStart puts the bot into combat.
-        // Charge requires being out of combat; the server-side CastSpell enforces
-        // this requirement, so it must be attempted before AttackStart() is called.
-        if (me->GetClass() == CLASS_WARRIOR &&
-            m_spells.warrior.pCharge &&
-            CanTryToCastSpell(pTarget, m_spells.warrior.pCharge))
-            DoCastSpell(pTarget, m_spells.warrior.pCharge);
-        AttackStart(pTarget);
-        return;
+        if (canReachBattleRoyaleTarget(pTarget))
+        {
+            // Try out-of-combat openers before AttackStart puts the bot into combat.
+            // Charge requires being out of combat; the server-side CastSpell enforces
+            // this requirement, so it must be attempted before AttackStart() is called.
+            if (me->GetClass() == CLASS_WARRIOR &&
+                m_spells.warrior.pCharge &&
+                CanTryToCastSpell(pTarget, m_spells.warrior.pCharge))
+                DoCastSpell(pTarget, m_spells.warrior.pCharge);
+            AttackStart(pTarget);
+            return;
+        }
     }
 
     SummonPetIfNeeded();
 
-    if (UseMount())
-        return;
+    // BR is fought on foot; keep patrol movement unmounted.
 
     // Patrol to a random spawn point inside the safe zone.
     // Spawn points are GM-recorded at ground level, so Z values are always valid.
@@ -3673,8 +3714,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
                 float const tx = cx + (ddx / myDist) * (zone.GetCurrentRadius() * 0.65f);
                 float const ty = cy + (ddy / myDist) * (zone.GetCurrentRadius() * 0.65f);
                 float const tz = me->GetMap()->GetHeight(tx, ty, MAX_HEIGHT, false, MAX_HEIGHT);
-                if (tz > INVALID_HEIGHT)
-                    me->GetMotionMaster()->MovePoint(0, tx, ty, tz, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+                moveToReachableGround(tx, ty, tz);
                 return;
             }
 
@@ -3697,13 +3737,8 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             for (uint32 i = 0; i < maxTries; ++i)
             {
                 BRSpawnPoint const* dest = candidates[urand(0, uint32(candidates.size()) - 1)];
-                PathFinder pf(me);
-                pf.ExcludeSteepSlopes();
-                pf.calculate(dest->x, dest->y, dest->z);
-                PathType const pt = pf.getPathType();
-                if ((pt & PATHFIND_NORMAL) && !(pt & (PATHFIND_NOPATH | PATHFIND_NOT_USING_PATH)))
+                if (moveToReachableGround(dest->x, dest->y, dest->z))
                 {
-                    me->GetMotionMaster()->MovePoint(0, dest->x, dest->y, dest->z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
                     patrolMoved = true;
                     break;
                 }
@@ -3717,8 +3752,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
                 float const tx    = cx + std::cos(angle) * r;
                 float const ty    = cy + std::sin(angle) * r;
                 float const tz    = me->GetMap()->GetHeight(tx, ty, MAX_HEIGHT, false, MAX_HEIGHT);
-                if (tz > INVALID_HEIGHT)
-                    me->GetMotionMaster()->MovePoint(0, tx, ty, tz, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+                moveToReachableGround(tx, ty, tz);
             }
         }
     }
