@@ -338,7 +338,10 @@ bool BattleRoyaleMgr::RestorePendingPlayer(Player* player) const
     player->SetBGTeam(TEAM_NONE);
     player->SetBattleGroundId(0, BATTLEGROUND_TYPE_NONE);
     player->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER | UNIT_FLAG_IMMUNE_TO_NPC);
-    player->_SaveBGData();
+    // Clear stale BG entry so login flow doesn't try to send the player back to
+    // the now-gone BR instance. _SaveBGData() is private; replicate its DELETE.
+    CharacterDatabase.PExecute("DELETE FROM `character_battleground_data` WHERE `guid` = %u",
+                               player->GetGUIDLow());
 
     player->SetLocationMapId(mapId);
     player->Relocate(x, y, z, o);
