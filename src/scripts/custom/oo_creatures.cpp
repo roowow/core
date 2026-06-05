@@ -96,11 +96,10 @@ void SendDefaultMenu_HardcoreNPC2(Player *player, Creature *_Creature, uint32 ac
 
             // Require at least one level-60 character on the same account.
             {
-                QueryResult* levelCheck = CharacterDatabase.PQuery(
+                auto levelCheck = CharacterDatabase.PQuery(
                     "SELECT 1 FROM `characters` WHERE `account` = %u AND `level` = 60 LIMIT 1",
                     player->GetSession()->GetAccountId());
                 bool hasMaxLevelChar = (levelCheck != nullptr);
-                delete levelCheck;
 
                 if (!hasMaxLevelChar)
                 {
