@@ -72,7 +72,6 @@ private:
     bool    m_countdownActive   = false;
     bool    m_enabled           = true;
 
-    static uint32 const COUNTDOWN_SEC          = 300;
     static uint32 const REMINDER_INTERVAL_SEC  = 60;   // broadcast reminder every 60s
 };
 

@@ -2736,6 +2736,12 @@ Alterac.InitMaxPlayers = 0
 #
 BattleRoyale.MinPlayers = 3
 
+#    BattleRoyale.CountdownSec
+#        Seconds between "queue full" announcement and match start.
+#        Default: 300
+#
+BattleRoyale.CountdownSec = 300
+
 ###################################################################################################################
 # OUTDOOR PVP CONFIG
 #

@@ -208,12 +208,13 @@ void BattleRoyaleMgr::Update(uint32 diff)
     uint32 const minPlayers = sWorld.getConfig(CONFIG_UINT32_BATTLE_ROYALE_MIN_PLAYERS);
     if (!hasActiveInstance && !m_countdownActive && m_queue.size() >= minPlayers)
     {
+        uint32 const countdownSec = sWorld.getConfig(CONFIG_UINT32_BATTLE_ROYALE_COUNTDOWN_SEC);
         m_countdownActive = true;
-        m_countdownTimer  = COUNTDOWN_SEC * 1000;
-        m_nextReminderSec = COUNTDOWN_SEC - REMINDER_INTERVAL_SEC;
+        m_countdownTimer  = countdownSec * 1000;
+        m_nextReminderSec = countdownSec > REMINDER_INTERVAL_SEC ? countdownSec - REMINDER_INTERVAL_SEC : 0;
 
         char buf[128];
-        snprintf(buf, sizeof(buf), "[孤胆称雄] 论剑帖已发，%u 秒后封场开局。欲赴此局者，速至令使处留名。", COUNTDOWN_SEC);
+        snprintf(buf, sizeof(buf), "[孤胆称雄] 论剑帖已发，%u 秒后封场开局。欲赴此局者，速至令使处留名。", countdownSec);
         WorldPacket data;
         ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM, buf);
         sWorld.SendGlobalMessage(&data);
@@ -292,7 +293,7 @@ bool BattleRoyaleMgr::EnqueuePlayer(Player* player, std::string& outError)
         else
             ChatHandler(player).PSendSysMessage(
                 "[孤胆称雄] 你已接下论剑帖，当前候战 %u 人。%u 秒后开局。",
-                queued, COUNTDOWN_SEC);
+                queued, sWorld.getConfig(CONFIG_UINT32_BATTLE_ROYALE_COUNTDOWN_SEC));
     }
 
     return true;

@@ -783,7 +783,8 @@ void World::LoadConfigSettings(bool reload)
 
     setConfig(CONFIG_UINT32_AV_MIN_PLAYERS_IN_QUEUE, "Alterac.MinPlayersInQueue", 0);
     setConfig(CONFIG_UINT32_AV_INITIAL_MAX_PLAYERS,  "Alterac.InitMaxPlayers", 0);
-    setConfig(CONFIG_UINT32_BATTLE_ROYALE_MIN_PLAYERS, "BattleRoyale.MinPlayers", 3);
+    setConfig(CONFIG_UINT32_BATTLE_ROYALE_MIN_PLAYERS,    "BattleRoyale.MinPlayers",    3);
+    setConfig(CONFIG_UINT32_BATTLE_ROYALE_COUNTDOWN_SEC,  "BattleRoyale.CountdownSec",  300);
     setConfig(CONFIG_BOOL_BATTLEGROUND_CAST_DESERTER,                  "Battleground.CastDeserter", true);
     setConfigMinMax(CONFIG_UINT32_BATTLEGROUND_QUEUE_ANNOUNCER_JOIN,   "Battleground.QueueAnnouncer.Join", 0, 0, 2);
     setConfig(CONFIG_BOOL_BATTLEGROUND_QUEUE_ANNOUNCER_START,          "Battleground.QueueAnnouncer.Start", false);
