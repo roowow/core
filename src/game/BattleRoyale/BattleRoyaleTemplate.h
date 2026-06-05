@@ -80,7 +80,7 @@ inline BattleRoyaleTemplate& GetAVTemplate()
         t.centerX    = -256.68f; // NPC 12159 (Korrak) — verified AV map center
         t.centerY    = -301.7f;
         t.maxPlayers = 40;
-        t.enabled    = false; // disabled until spawn points are recorded by GM
+        t.enabled    = true;
         // High staging point above AV center; first orbit node at angle 0° (east)
         t.deploymentStart = { -196.68f, -301.7f, 500.0f, 0.0f }; // center + 60 east (orbit node 0)
 
