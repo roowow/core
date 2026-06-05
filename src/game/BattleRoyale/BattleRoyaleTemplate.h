@@ -3,6 +3,7 @@
 
 #include "Common.h"
 #include <vector>
+#include <array>
 
 struct BRSpawnPoint
 {
@@ -66,6 +67,43 @@ inline BattleRoyaleTemplate& GetABTemplate()
         return t;
     }();
     return tmpl;
+}
+
+// Alterac Valley template – spawn coordinates must be verified in-game by a GM.
+inline BattleRoyaleTemplate& GetAVTemplate()
+{
+    static BattleRoyaleTemplate tmpl = []() -> BattleRoyaleTemplate
+    {
+        BattleRoyaleTemplate t;
+        t.id         = 2;
+        t.mapId      = 30; // MAP_ALTERAC_VALLEY
+        t.centerX    = -256.68f; // NPC 12159 (Korrak) — verified AV map center
+        t.centerY    = -301.7f;
+        t.maxPlayers = 40;
+        t.enabled    = false; // disabled until spawn points are recorded by GM
+        // High staging point above AV center; first orbit node at angle 0° (east)
+        t.deploymentStart = { -196.68f, -301.7f, 500.0f, 0.0f }; // center + 60 east (orbit node 0)
+
+        BRZonePhase const phases[] = {
+            { 450.0f, 320.0f, 3 * 60 * 1000,  2.0f  }, // phase 1:  0:00,  2%/s (~50s to die)
+            { 320.0f, 200.0f, 2 * 60 * 1000,  4.0f  }, // phase 2:  3:00,  4%/s (~25s to die)
+            { 200.0f,  90.0f, 2 * 60 * 1000,  8.0f  }, // phase 3:  5:00,  8%/s (~12s to die)
+            {  90.0f,  35.0f, 1 * 60 * 1000, 15.0f  }, // phase 4:  7:00, 15%/s (~7s to die)
+            {  35.0f,  35.0f, 0,             25.0f  }, // final ring:  8:00, 25%/s (~4s to die)
+        }; // total: 8 min
+        for (BRZonePhase const& ph : phases)
+            t.phases.push_back(ph);
+
+        return t;
+    }();
+    return tmpl;
+}
+
+// All enabled templates in random-selection order.
+// Add new templates here when they are ready.
+inline std::array<BattleRoyaleTemplate*, 2> GetAllBRTemplates()
+{
+    return { &GetABTemplate(), &GetAVTemplate() };
 }
 
 #endif // MANGOS_BATTLEROYALETEMPLATE_H

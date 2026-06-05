@@ -49,7 +49,7 @@ public:
 private:
     bool CanEnqueue(Player* player, std::string& outError) const;
     void TryCreateGame(bool ignoreMinPlayers = false);
-    BattleRoyale* CreateInstance(std::vector<Player*> const& players);
+    BattleRoyale* CreateInstance(std::vector<Player*> const& players, BattleRoyaleTemplate const& tmpl);
 
     std::deque<ObjectGuid>                        m_queue;
     std::map<uint32, BattleRoyale*>               m_instances;       // instanceId -> BattleRoyale

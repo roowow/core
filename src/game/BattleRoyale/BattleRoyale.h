@@ -58,7 +58,8 @@ public:
     bool               HasDeploymentLaunchStarted() const { return m_orbitStarted; }
     bool               IsAlive(ObjectGuid guid) const;
     BattleRoyaleZone const& GetZone() const { return m_zone; }
-    BattleGroundBR*    GetHost()      const { return m_host; }
+    BattleGroundBR*         GetHost()     const { return m_host; }
+    BattleRoyaleTemplate const* GetTemplate() const { return m_tmpl; }
 
     // GM helpers
     void ForceSetPhase(uint32 phase);

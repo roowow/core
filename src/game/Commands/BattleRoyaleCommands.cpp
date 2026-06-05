@@ -129,10 +129,22 @@ bool ChatHandler::HandleBRPhaseCommand(char* args)
 bool ChatHandler::HandleBRSpawnAddCommand(char* /*args*/)
 {
     Player* player = m_session->GetPlayer();
+    uint32 const mapId = player->GetMapId();
 
-    if (player->GetMapId() != 529)
+    // Find the template that matches the GM's current map
+    BattleRoyaleTemplate* tmpl = nullptr;
+    for (BattleRoyaleTemplate* t : GetAllBRTemplates())
     {
-        SendSysMessage("[BR] 此命令只能在阿拉希盆地（地图 529）内使用。");
+        if (t->mapId == mapId)
+        {
+            tmpl = t;
+            break;
+        }
+    }
+
+    if (!tmpl)
+    {
+        PSendSysMessage("[BR] 当前地图（%u）没有对应的 BR 模板，无法录制出生点。", mapId);
         return true;
     }
 
@@ -145,26 +157,48 @@ bool ChatHandler::HandleBRSpawnAddCommand(char* /*args*/)
         "INSERT INTO `battle_royale_spawn_point` "
         "(`template_id`, `position_x`, `position_y`, `position_z`, `orientation`) "
         "VALUES (%u, %f, %f, %f, %f)",
-        1u, x, y, z, o);
+        tmpl->id, x, y, z, o);
 
     sBattleRoyaleMgr.LoadSpawnPoints();
 
-    PSendSysMessage("[BR] 已记录出生点 (%.2f, %.2f, %.2f)，当前共 %u / %u 个。",
-                    x, y, z,
-                    uint32(GetABTemplate().spawnPoints.size()),
-                    GetABTemplate().maxPlayers);
+    PSendSysMessage("[BR] 已记录出生点 (%.2f, %.2f, %.2f)（模板 %u），当前共 %u / %u 个。",
+                    x, y, z, tmpl->id,
+                    uint32(tmpl->spawnPoints.size()),
+                    tmpl->maxPlayers);
     return true;
 }
 
-// .br spawn list  — list all recorded spawn points
+// .br spawn list  — list recorded spawn points for the GM's current map template
 bool ChatHandler::HandleBRSpawnListCommand(char* /*args*/)
 {
-    BattleRoyaleTemplate const& tmpl = GetABTemplate();
-    uint32 count = uint32(tmpl.spawnPoints.size());
-    PSendSysMessage("[BR] 出生点共 %u 个（需要 %u 个）：", count, tmpl.maxPlayers);
+    Player* player = m_session->GetPlayer();
+    uint32 const mapId = player->GetMapId();
+
+    BattleRoyaleTemplate* tmpl = nullptr;
+    for (BattleRoyaleTemplate* t : GetAllBRTemplates())
+    {
+        if (t->mapId == mapId)
+        {
+            tmpl = t;
+            break;
+        }
+    }
+
+    if (!tmpl)
+    {
+        // Not on a BR map — show summary for all templates
+        for (BattleRoyaleTemplate* t : GetAllBRTemplates())
+            PSendSysMessage("[BR] 模板 %u (map %u): %u / %u 个出生点",
+                            t->id, t->mapId, uint32(t->spawnPoints.size()), t->maxPlayers);
+        return true;
+    }
+
+    uint32 count = uint32(tmpl->spawnPoints.size());
+    PSendSysMessage("[BR] 模板 %u 出生点共 %u 个（需要 %u 个）：",
+                    tmpl->id, count, tmpl->maxPlayers);
     for (uint32 i = 0; i < count; ++i)
     {
-        BRSpawnPoint const& pt = tmpl.spawnPoints[i];
+        BRSpawnPoint const& pt = tmpl->spawnPoints[i];
         PSendSysMessage("[BR]  #%-2u  (%.2f, %.2f, %.2f)", i + 1, pt.x, pt.y, pt.z);
     }
     if (count == 0)

@@ -23,7 +23,14 @@ INSTANTIATE_SINGLETON_1(BattleRoyaleMgr);
 
 namespace
 {
-uint32 const BR_DEFAULT_DEPLOYMENT_PATH_BASE = 910000;
+// Each template gets its own 10000-wide path ID block:
+//   template 1 (AB): 910000 + spawnIndex
+//   template 2 (AV): 920000 + spawnIndex
+//   template N:      (910000 + (N-1)*10000) + spawnIndex
+uint32 BRDefaultPathBase(uint32 templateId)
+{
+    return 910000u + (templateId - 1u) * 10000u;
+}
 
 bool IsBattleRoyaleDeploymentPathLoaded(uint32 pathId)
 {
@@ -35,21 +42,23 @@ bool IsBattleRoyaleDeploymentPathLoaded(uint32 pathId)
     return pathItr != paths.end() && !pathItr->second.nodes.empty();
 }
 
-uint32 ResolveBattleRoyaleDeploymentPath(uint32 spawnIndex, std::map<uint32, uint32> const& deploymentPaths)
+uint32 ResolveBattleRoyaleDeploymentPath(uint32 templateId, uint32 spawnIndex,
+                                         std::map<uint32, uint32> const& deploymentPaths)
 {
     auto pathItr = deploymentPaths.find(spawnIndex);
     if (pathItr != deploymentPaths.end() && IsBattleRoyaleDeploymentPathLoaded(pathItr->second))
         return pathItr->second;
 
-    uint32 const defaultPathId = BR_DEFAULT_DEPLOYMENT_PATH_BASE + spawnIndex;
+    uint32 const defaultPathId = BRDefaultPathBase(templateId) + spawnIndex;
     if (IsBattleRoyaleDeploymentPathLoaded(defaultPathId))
         return defaultPathId;
 
     if (pathItr != deploymentPaths.end() && pathItr->second)
     {
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-                 "[BattleRoyaleMgr] Deployment path %u for spawn %u is not loaded; default path %u is unavailable.",
-                 pathItr->second, spawnIndex, defaultPathId);
+                 "[BattleRoyaleMgr] Deployment path %u for spawn %u (template %u) is not loaded; "
+                 "default path %u is unavailable.",
+                 pathItr->second, spawnIndex, templateId, defaultPathId);
     }
 
     return 0;
@@ -97,37 +106,39 @@ BattleRoyaleMgr::BattleRoyaleMgr()
 
 void BattleRoyaleMgr::LoadSpawnPoints()
 {
-    BattleRoyaleTemplate& tmpl = GetABTemplate();
-    tmpl.spawnPoints.clear();
-
-    std::unique_ptr<QueryResult> result(WorldDatabase.PQuery(
-        "SELECT `position_x`, `position_y`, `position_z`, `orientation` "
-        "FROM `battle_royale_spawn_point` "
-        "WHERE `template_id` = %u ORDER BY `id`", tmpl.id));
-
-    if (!result)
+    for (BattleRoyaleTemplate* tmpl : GetAllBRTemplates())
     {
+        tmpl->spawnPoints.clear();
+
+        std::unique_ptr<QueryResult> result(WorldDatabase.PQuery(
+            "SELECT `position_x`, `position_y`, `position_z`, `orientation` "
+            "FROM `battle_royale_spawn_point` "
+            "WHERE `template_id` = %u ORDER BY `id`", tmpl->id));
+
+        if (!result)
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
+                     "[BattleRoyaleMgr] No spawn points in DB for template %u. "
+                     "Use '.br spawn add' in-game to record positions.", tmpl->id);
+            continue;
+        }
+
+        do
+        {
+            Field* fields = result->Fetch();
+            BRSpawnPoint pt;
+            pt.x = fields[0].GetFloat();
+            pt.y = fields[1].GetFloat();
+            pt.z = fields[2].GetFloat();
+            pt.o = fields[3].GetFloat();
+            tmpl->spawnPoints.push_back(pt);
+        }
+        while (result->NextRow());
+
         sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
-                 "[BattleRoyaleMgr] No spawn points in DB for template %u. "
-                 "Use '.br spawn add' in-game to record positions.", tmpl.id);
-        return;
+                 "[BattleRoyaleMgr] Loaded %u spawn points for template %u.",
+                 uint32(tmpl->spawnPoints.size()), tmpl->id);
     }
-
-    do
-    {
-        Field* fields = result->Fetch();
-        BRSpawnPoint pt;
-        pt.x = fields[0].GetFloat();
-        pt.y = fields[1].GetFloat();
-        pt.z = fields[2].GetFloat();
-        pt.o = fields[3].GetFloat();
-        tmpl.spawnPoints.push_back(pt);
-    }
-    while (result->NextRow());
-
-    sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
-             "[BattleRoyaleMgr] Loaded %u spawn points for template %u.",
-             uint32(tmpl.spawnPoints.size()), tmpl.id);
 }
 
 void BattleRoyaleMgr::Update(uint32 diff)
@@ -438,7 +449,16 @@ void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
         return;
     }
 
-    BattleRoyaleTemplate const& tmpl = GetABTemplate();
+    BattleRoyaleTemplate const* tmplPtr = br->GetTemplate();
+    if (!tmplPtr)
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleMgr] OnBotReady: instance %u has no template.", instanceId);
+        br->DecrementPendingBotCount();
+        if (PlayerBotEntry* e = bot->GetSession() ? bot->GetSession()->GetBot() : nullptr)
+            e->requestRemoval = true;
+        return;
+    }
+    BattleRoyaleTemplate const& tmpl = *tmplPtr;
     uint32 spawnIndex = idxIt->second.back();
     idxIt->second.pop_back();
 
@@ -453,7 +473,7 @@ void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
         Field* fields = pathResult->Fetch();
         deploymentPaths[fields[0].GetUInt32()] = fields[1].GetUInt32();
     }
-    uint32 deploymentPathId = ResolveBattleRoyaleDeploymentPath(spawnIndex, deploymentPaths);
+    uint32 deploymentPathId = ResolveBattleRoyaleDeploymentPath(tmpl.id, spawnIndex, deploymentPaths);
 
     BRSpawnPoint const& start = tmpl.deploymentStart;
     bot->SetBattleGroundEntryPoint();
@@ -496,7 +516,20 @@ void BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers)
     if (m_queue.empty())
         return;
 
-    BattleRoyaleTemplate const& tmpl = GetABTemplate();
+    // Pick a random enabled template that has spawn points.
+    auto allTmpls = GetAllBRTemplates();
+    std::vector<BattleRoyaleTemplate*> eligible;
+    for (BattleRoyaleTemplate* t : allTmpls)
+        if (t->enabled && !t->spawnPoints.empty())
+            eligible.push_back(t);
+
+    if (eligible.empty())
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleMgr] No enabled BR templates with spawn points.");
+        return;
+    }
+
+    BattleRoyaleTemplate const& tmpl = *eligible[urand(0, uint32(eligible.size()) - 1)];
 
     // Collect online players up to maxPlayers. Offline entries are dropped so a
     // stale queued character cannot keep the counter alive or block the next game.
@@ -542,19 +575,20 @@ void BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers)
     if (players.empty())
         return;
 
-    BattleRoyale* br = CreateInstance(players);
+    BattleRoyale* br = CreateInstance(players, tmpl);
     if (!br)
     {
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleMgr] Failed to create BR instance.");
         return;
     }
 
-    sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyaleMgr] Created BR instance with %u players.", uint32(players.size()));
+    sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "[BattleRoyaleMgr] Created BR instance (template %u, map %u) with %u players.",
+             tmpl.id, tmpl.mapId, uint32(players.size()));
 }
 
-BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& players)
+BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& players,
+                                               BattleRoyaleTemplate const& tmpl)
 {
-    BattleRoyaleTemplate const& tmpl = GetABTemplate();
     if (tmpl.spawnPoints.empty())
     {
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleMgr] Template %u has no spawn points.", tmpl.id);
@@ -610,7 +644,7 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
         Player* player = players[i];
         uint32 spawnIndex = spawnIndexes[i % spawnIndexes.size()];
         BRSpawnPoint const& sp = spawns[spawnIndex];
-        uint32 deploymentPathId = ResolveBattleRoyaleDeploymentPath(spawnIndex, deploymentPaths);
+        uint32 deploymentPathId = ResolveBattleRoyaleDeploymentPath(tmpl.id, spawnIndex, deploymentPaths);
 
         BRSpawnPoint const& start = tmpl.deploymentStart;
 
