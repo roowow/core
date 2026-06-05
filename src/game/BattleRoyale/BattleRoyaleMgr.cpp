@@ -216,7 +216,41 @@ bool BattleRoyaleMgr::EnqueuePlayer(Player* player, std::string& outError)
 
     ObjectGuid guid = player->GetObjectGuid();
     m_queue.push_back(guid);
-    ChatHandler(player).PSendSysMessage("[孤胆称雄] 你已接下论剑帖，当前候战 %u 人。", uint32(m_queue.size()));
+
+    uint32 const queued = uint32(m_queue.size());
+    if (queued < MIN_PLAYERS)
+    {
+        uint32 const needed = MIN_PLAYERS - queued;
+        ChatHandler(player).PSendSysMessage(
+            "[孤胆称雄] 你已接下论剑帖，当前候战 %u 人。还需 %u 人方可开局。",
+            queued, needed);
+    }
+    else
+    {
+        bool hasActiveInstance = false;
+        for (auto const& kv : m_instances)
+        {
+            if (kv.second->GetStatus() != BattleRoyaleStatus::CANCELLED)
+            {
+                hasActiveInstance = true;
+                break;
+            }
+        }
+
+        if (hasActiveInstance)
+            ChatHandler(player).PSendSysMessage(
+                "[孤胆称雄] 你已接下论剑帖，当前候战 %u 人。等待上一局结束后开局。",
+                queued);
+        else if (m_countdownActive)
+            ChatHandler(player).PSendSysMessage(
+                "[孤胆称雄] 你已接下论剑帖，当前候战 %u 人。%u 秒后开局。",
+                queued, m_countdownTimer / 1000);
+        else
+            ChatHandler(player).PSendSysMessage(
+                "[孤胆称雄] 你已接下论剑帖，当前候战 %u 人。%u 秒后开局。",
+                queued, COUNTDOWN_SEC);
+    }
+
     return true;
 }
 

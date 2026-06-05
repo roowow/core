@@ -59,8 +59,8 @@ private:
     uint32  m_countdownTimer  = 0;
     bool    m_countdownActive = false;
 
-    static uint32 const MIN_PLAYERS   = 1;    // single player is enough; bots fill remaining slots
-    static uint32 const COUNTDOWN_SEC = 60;
+    static uint32 const MIN_PLAYERS   = 3;    // bots fill remaining slots up to maxPlayers
+    static uint32 const COUNTDOWN_SEC = 300;
 };
 
 #define sBattleRoyaleMgr MaNGOS::Singleton<BattleRoyaleMgr>::Instance()
