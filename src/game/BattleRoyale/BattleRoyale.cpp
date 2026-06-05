@@ -62,6 +62,11 @@ static void ApplyBattleRoyaleKillRewardBuff(Player* killer)
     killer->CastSpell(killer, spellId, true);
 }
 
+static char const* PickBattleRoyaleLine(char const* const* lines, uint32 count)
+{
+    return lines[urand(0, count - 1)];
+}
+
 static uint32 BattleRoyaleMixSeed(uint32 value)
 {
     value ^= value >> 16;
@@ -589,12 +594,14 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
     m_ranks.push_back(entry);
 
     // Credit kill to the killer (works for both real players and bots)
+    uint32 killerKillCount = 0;
     if (killerGuid && killerGuid != guid)
     {
         auto killerIt = m_players.find(killerGuid);
         if (killerIt != m_players.end())
         {
             ++killerIt->second.killCount;
+            killerKillCount = killerIt->second.killCount;
             if (Map* map = m_host ? m_host->GetBgMap() : nullptr)
                 ApplyBattleRoyaleKillRewardBuff(map->GetPlayer(killerGuid));
         }
@@ -608,24 +615,83 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
 
     // Broadcast to survivors
     {
-        char buf[192];
+        char buf[384];
         std::string victimName = player ? player->GetName() : "一名试炼者";
 
         if (killerGuid && killerGuid != guid)
         {
             Player* killer = map ? map->GetPlayer(killerGuid) : nullptr;
             std::string killerName = killer ? killer->GetName() : "未知猎手";
-            snprintf(buf, sizeof(buf), "[孤胆称雄] %s 败于 %s 之手，场中尚余 %u 人。",
-                     victimName.c_str(), killerName.c_str(), m_aliveCount);
+
+            if (m_aliveCount <= 3)
+            {
+                static char const* const finalLines[] =
+                {
+                    "[孤胆称雄] %s 被 %s 斩落，最后几人已入生死局。场中尚余 %u 人。",
+                    "[孤胆称雄] %s 止步于 %s 手下，江湖风声忽然安静。场中尚余 %u 人。",
+                    "[孤胆称雄] %s 出局，%s 离魁首又近了一步。场中尚余 %u 人。"
+                };
+                snprintf(buf, sizeof(buf), PickBattleRoyaleLine(finalLines, sizeof(finalLines) / sizeof(finalLines[0])),
+                         victimName.c_str(), killerName.c_str(), m_aliveCount);
+            }
+            else if (killerKillCount >= 3)
+            {
+                static char const* const streakLines[] =
+                {
+                    "[孤胆称雄] %s 被 %s 收作第 %u 个战果，场上众人该留神了。尚余 %u 人。",
+                    "[孤胆称雄] %s 一败，%s 的剑上已记下 %u 道名姓。尚余 %u 人。",
+                    "[孤胆称雄] %s 没能挡住 %s 的连胜势头，第 %u 人就此出局。尚余 %u 人。",
+                    "[孤胆称雄] %s 倒下，%s 气势正盛，已连取 %u 人。尚余 %u 人。"
+                };
+                snprintf(buf, sizeof(buf), PickBattleRoyaleLine(streakLines, sizeof(streakLines) / sizeof(streakLines[0])),
+                         victimName.c_str(), killerName.c_str(), killerKillCount, m_aliveCount);
+            }
+            else if (killerKillCount == 2)
+            {
+                static char const* const doubleLines[] =
+                {
+                    "[孤胆称雄] %s 倒在 %s 手下，%s 已连下两城。场中尚余 %u 人。",
+                    "[孤胆称雄] %s 败走，%s 再添一胜，%s 手感正热。场中尚余 %u 人。",
+                    "[孤胆称雄] %s 被 %s 请出论剑场，%s 的第二笔战绩落定。场中尚余 %u 人。"
+                };
+                snprintf(buf, sizeof(buf), PickBattleRoyaleLine(doubleLines, sizeof(doubleLines) / sizeof(doubleLines[0])),
+                         victimName.c_str(), killerName.c_str(), killerName.c_str(), m_aliveCount);
+            }
+            else
+            {
+                static char const* const killLines[] =
+                {
+                    "[孤胆称雄] %s 与 %s 刀光一闪，胜负已分。场中尚余 %u 人。",
+                    "[孤胆称雄] %s 被 %s 请出了江湖局，行囊可别忘了摸。场中尚余 %u 人。",
+                    "[孤胆称雄] %s 方才露头，便被 %s 收了这一局。场中尚余 %u 人。",
+                    "[孤胆称雄] %s 棋差一招，%s 再添一笔战绩。场中尚余 %u 人。",
+                    "[孤胆称雄] %s 没能躲过 %s 的锋芒，江湖路暂告一段。场中尚余 %u 人。",
+                    "[孤胆称雄] %s 与 %s 狭路相逢，今日笑到最后的是后者。场中尚余 %u 人。"
+                };
+                snprintf(buf, sizeof(buf), PickBattleRoyaleLine(killLines, sizeof(killLines) / sizeof(killLines[0])),
+                         victimName.c_str(), killerName.c_str(), m_aliveCount);
+            }
         }
         else if (!notify)
         {
-            snprintf(buf, sizeof(buf), "[孤胆称雄] %s 抽身离局，场中尚余 %u 人。",
+            static char const* const leaveLines[] =
+            {
+                "[孤胆称雄] %s 收剑离席，此番江湖不再相见。场中尚余 %u 人。",
+                "[孤胆称雄] %s 抽身离局，山高水远，下回再战。场中尚余 %u 人。",
+                "[孤胆称雄] %s 忽然退场，众人只听见衣袂一响。场中尚余 %u 人。"
+            };
+            snprintf(buf, sizeof(buf), PickBattleRoyaleLine(leaveLines, sizeof(leaveLines) / sizeof(leaveLines[0])),
                      victimName.c_str(), m_aliveCount);
         }
         else
         {
-            snprintf(buf, sizeof(buf), "[孤胆称雄] %s 未能脱出险境，场中尚余 %u 人。",
+            static char const* const hazardLines[] =
+            {
+                "[孤胆称雄] %s 未能脱出险境，被天地收了这一局。场中尚余 %u 人。",
+                "[孤胆称雄] %s 走慢半步，圈外风雪已至。场中尚余 %u 人。",
+                "[孤胆称雄] %s 误入死地，江湖册上又少一名。场中尚余 %u 人。"
+            };
+            snprintf(buf, sizeof(buf), PickBattleRoyaleLine(hazardLines, sizeof(hazardLines) / sizeof(hazardLines[0])),
                      victimName.c_str(), m_aliveCount);
         }
         BroadcastToAll(buf);

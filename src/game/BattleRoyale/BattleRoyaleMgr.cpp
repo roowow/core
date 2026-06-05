@@ -238,7 +238,15 @@ void BattleRoyaleMgr::Update(uint32 diff)
         uint32 const countdownSec = sWorld.getConfig(CONFIG_UINT32_BATTLE_ROYALE_COUNTDOWN_SEC);
         m_countdownActive = true;
         m_countdownTimer  = countdownSec * 1000;
-        m_nextReminderSec = countdownSec > REMINDER_INTERVAL_SEC ? countdownSec - REMINDER_INTERVAL_SEC : 0;
+        // First reminder threshold: depends on which frequency zone the countdown starts in.
+        if (countdownSec > REMINDER_INTERVAL_SEC)
+            m_nextReminderSec = countdownSec - REMINDER_INTERVAL_SEC; // 60s interval zone
+        else if (countdownSec > 10)
+            m_nextReminderSec = countdownSec - 10;                    // 10s interval zone
+        else if (countdownSec > 1)
+            m_nextReminderSec = countdownSec - 1;                     // 1s interval zone
+        else
+            m_nextReminderSec = 0;
 
         char buf[128];
         snprintf(buf, sizeof(buf), "[孤胆称雄] 论剑帖已发，%u 秒后封场开局。欲赴此局者，速至令使处留名。", countdownSec);
@@ -261,16 +269,31 @@ void BattleRoyaleMgr::Update(uint32 diff)
         {
             m_countdownTimer -= diff;
 
-            // Periodic reminders every REMINDER_INTERVAL_SEC seconds
+            // Variable-frequency reminders:
+            //   > 60s remaining  → every 60s
+            //   10–60s remaining → every 10s
+            //   1–10s remaining  → every 1s
             uint32 const remainSec = m_countdownTimer / 1000;
             if (remainSec <= m_nextReminderSec && m_nextReminderSec > 0)
             {
                 char buf[128];
-                snprintf(buf, sizeof(buf), "[孤胆称雄] 论剑帖将于 %u 秒后封场，尚未报名者速来。", remainSec);
+                if (remainSec <= 10)
+                    snprintf(buf, sizeof(buf), "[孤胆称雄] %u！", remainSec);
+                else if (remainSec <= 60)
+                    snprintf(buf, sizeof(buf), "[孤胆称雄] 封场倒计时 %u 秒！", remainSec);
+                else
+                    snprintf(buf, sizeof(buf), "[孤胆称雄] 论剑帖将于 %u 秒后封场，尚未报名者速来。", remainSec);
                 SendMsgToParticipants(buf);
 
-                m_nextReminderSec = (m_nextReminderSec > REMINDER_INTERVAL_SEC)
-                    ? m_nextReminderSec - REMINDER_INTERVAL_SEC : 0;
+                // Schedule next reminder at the appropriate interval for the next zone.
+                if (remainSec <= 1)
+                    m_nextReminderSec = 0;
+                else if (remainSec <= 10)
+                    m_nextReminderSec = remainSec - 1;
+                else if (remainSec <= 60)
+                    m_nextReminderSec = remainSec - 10;
+                else
+                    m_nextReminderSec = remainSec - REMINDER_INTERVAL_SEC;
             }
         }
     }
