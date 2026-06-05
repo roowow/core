@@ -43,6 +43,10 @@ public:
     void ClearPendingRestore(ObjectGuid guid) const;
     bool RestorePendingPlayer(Player* player) const;
 
+    // Called by BattleRoyale when a player is returned to the world (eliminated or game over).
+    // Removes the player from m_playerInstMap so they can re-queue immediately.
+    void RemovePlayerFromInstance(ObjectGuid guid);
+
     // Called by BattleRoyale when it finishes
     void OnInstanceEnd(uint32 instanceId);
 

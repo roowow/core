@@ -767,6 +767,10 @@ void BattleRoyale::Cancel()
 
 void BattleRoyale::ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlayer)
 {
+    // Remove from instance map immediately so the player can re-queue via NPC
+    // without waiting for the instance to fully cancel.
+    sBattleRoyaleMgr.RemovePlayerFromInstance(player->GetObjectGuid());
+
     player->SendMirrorTimerStop(MirrorTimer::FATIGUE);
 
     if (player->IsTaxiFlying())

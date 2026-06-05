@@ -435,6 +435,11 @@ bool BattleRoyaleMgr::RestorePendingPlayer(Player* player) const
     return true;
 }
 
+void BattleRoyaleMgr::RemovePlayerFromInstance(ObjectGuid guid)
+{
+    m_playerInstMap.erase(guid);
+}
+
 void BattleRoyaleMgr::OnInstanceEnd(uint32 /*instanceId*/)
 {
     // Cleanup handled in Update when status == CANCELLED
