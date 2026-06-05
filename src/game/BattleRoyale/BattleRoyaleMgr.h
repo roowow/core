@@ -3,6 +3,7 @@
 
 #include "BattleRoyale.h"
 #include "ObjectGuid.h"
+#include "ObjectMgr.h"
 #include "Policies/Singleton.h"
 
 #include <deque>
@@ -27,6 +28,12 @@ public:
     uint32 GetQueueSize() const { return uint32(m_queue.size()); }
 
     // GM commands
+    void SetEnabled(bool enabled)
+    {
+        m_enabled = enabled;
+        sObjectMgr.SetSavedVariable(VAR_BATTLE_ROYALE_ENABLED, enabled ? 1u : 0u, true);
+    }
+    bool IsEnabled()        const { return m_enabled; }
     void ForceStartNow();                  // bypasses MIN_PLAYERS for single-GM testing
     BattleRoyale* GetInstanceForPlayer(ObjectGuid guid);
 
@@ -56,11 +63,14 @@ private:
     std::map<ObjectGuid, uint32>                  m_playerInstMap;   // playerGuid -> instanceId
     std::map<uint32, std::vector<uint32>>          m_botSpawnIndexes; // instanceId -> remaining shuffled spawn indexes for bots
 
-    uint32  m_countdownTimer  = 0;
-    bool    m_countdownActive = false;
+    uint32  m_countdownTimer    = 0;
+    uint32  m_nextReminderSec   = 0;
+    bool    m_countdownActive   = false;
+    bool    m_enabled           = true;
 
-    static uint32 const MIN_PLAYERS   = 3;    // bots fill remaining slots up to maxPlayers
-    static uint32 const COUNTDOWN_SEC = 300;
+    static uint32 const MIN_PLAYERS            = 3;    // bots fill remaining slots up to maxPlayers
+    static uint32 const COUNTDOWN_SEC          = 300;
+    static uint32 const REMINDER_INTERVAL_SEC  = 60;   // broadcast reminder every 60s
 };
 
 #define sBattleRoyaleMgr MaNGOS::Singleton<BattleRoyaleMgr>::Instance()

@@ -547,6 +547,9 @@ enum PermVariables
     VAR_BATTLEBOT_AUTOJOIN_AV       = 30057,
     VAR_BATTLEBOT_AUTOJOIN_WSG      = 30058,
     VAR_BATTLEBOT_AUTOJOIN_AB       = 30059,
+
+    // Battle Royale persistent state
+    VAR_BATTLE_ROYALE_ENABLED       = 30060,
 };
 
 class GameObjectUseRequirement

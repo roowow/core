@@ -1226,6 +1226,8 @@ ChatCommand * ChatHandler::getCommandTable()
 
     static ChatCommand brCommandTable[] =
     {
+        { "enable",  SEC_DEVELOPER, false, &ChatHandler::HandleBREnableCommand,  "", nullptr },
+        { "disable", SEC_DEVELOPER, false, &ChatHandler::HandleBRDisableCommand, "", nullptr },
         { "start",  SEC_DEVELOPER, false, &ChatHandler::HandleBRStartCommand,  "", nullptr },
         { "join",   SEC_DEVELOPER, false, &ChatHandler::HandleBRJoinCommand,   "", nullptr },
         { "status", SEC_DEVELOPER, true,  &ChatHandler::HandleBRStatusCommand, "", nullptr },

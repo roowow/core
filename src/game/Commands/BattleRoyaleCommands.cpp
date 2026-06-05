@@ -8,6 +8,21 @@
 #include "Battlegrounds/BattleGroundBR.h"
 #include "Database/DatabaseEnv.h"
 
+// .br enable / .br disable  — open or close the BR queue
+bool ChatHandler::HandleBREnableCommand(char* /*args*/)
+{
+    sBattleRoyaleMgr.SetEnabled(true);
+    SendSysMessage("[孤胆称雄] 已开放，玩家可以排队报名。");
+    return true;
+}
+
+bool ChatHandler::HandleBRDisableCommand(char* /*args*/)
+{
+    sBattleRoyaleMgr.SetEnabled(false);
+    SendSysMessage("[孤胆称雄] 已关闭，玩家无法新加入队列。");
+    return true;
+}
+
 // .br start   — force start immediately with queued players
 bool ChatHandler::HandleBRStartCommand(char* /*args*/)
 {

@@ -101,6 +101,12 @@ void ApplyBattleRoyaleStagingMount(Player* player, uint32 deploymentPathId)
 
 BattleRoyaleMgr::BattleRoyaleMgr()
 {
+    // Load persisted enabled state; default true if no DB entry yet.
+    bool exists = false;
+    uint32 val = sObjectMgr.GetSavedVariable(VAR_BATTLE_ROYALE_ENABLED, 1, &exists);
+    if (exists)
+        m_enabled = val != 0;
+
     LoadSpawnPoints();
 }
 
@@ -197,9 +203,12 @@ void BattleRoyaleMgr::Update(uint32 diff)
     {
         m_countdownActive = true;
         m_countdownTimer  = COUNTDOWN_SEC * 1000;
+        m_nextReminderSec = COUNTDOWN_SEC - REMINDER_INTERVAL_SEC;
 
+        char buf[128];
+        snprintf(buf, sizeof(buf), "[孤胆称雄] 论剑帖已发，%u 秒后封场开局。欲赴此局者，速至令使处留名。", COUNTDOWN_SEC);
         WorldPacket data;
-        ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM, "[孤胆称雄] 论剑帖已发，六十息后封场开局。欲赴此局者，速至令使处留名。");
+        ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM, buf);
         sWorld.SendGlobalMessage(&data);
     }
 
@@ -216,7 +225,23 @@ void BattleRoyaleMgr::Update(uint32 diff)
             TryCreateGame();
         }
         else
+        {
             m_countdownTimer -= diff;
+
+            // Periodic reminders every REMINDER_INTERVAL_SEC seconds
+            uint32 const remainSec = m_countdownTimer / 1000;
+            if (remainSec <= m_nextReminderSec && m_nextReminderSec > 0)
+            {
+                char buf[128];
+                snprintf(buf, sizeof(buf), "[孤胆称雄] 论剑帖将于 %u 秒后封场，尚未报名者速来。", remainSec);
+                WorldPacket data;
+                ChatHandler::BuildChatPacket(data, CHAT_MSG_SYSTEM, buf);
+                sWorld.SendGlobalMessage(&data);
+
+                m_nextReminderSec = (m_nextReminderSec > REMINDER_INTERVAL_SEC)
+                    ? m_nextReminderSec - REMINDER_INTERVAL_SEC : 0;
+            }
+        }
     }
 }
 
@@ -495,6 +520,12 @@ void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
 
 bool BattleRoyaleMgr::CanEnqueue(Player* player, std::string& outError) const
 {
+    if (!m_enabled)
+    {
+        outError = "孤胆称雄暂未开放。";
+        return false;
+    }
+
     ObjectGuid guid = player->GetObjectGuid();
 
     if (IsPlayerInQueue(guid))    { outError = "你已在队列中。";       return false; }
