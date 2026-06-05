@@ -658,23 +658,28 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
         it->second.outsideZone = false;
     }
 
-    // Win condition
-    if (m_aliveCount <= 1)
+    // Win condition: last survivor, or all real players eliminated (no point continuing bot-only)
+    bool noRealPlayersAlive = true;
+    ObjectGuid winnerGuid;
+    bool winnerIsBot = false;
+    for (auto const& jt : m_players)
     {
-        ObjectGuid winnerGuid;
-        for (auto jt = m_players.begin(); jt != m_players.end(); ++jt)
+        if (!jt.second.alive)
+            continue;
+        if (!jt.second.bot)
+            noRealPlayersAlive = false;
+        if (!winnerGuid)
         {
-            if (jt->second.alive)
-            {
-                winnerGuid = jt->first;
-                break;
-            }
+            winnerGuid = jt.first;
+            winnerIsBot = jt.second.bot;
         }
+    }
 
-        if (map && winnerGuid)
+    if (m_aliveCount <= 1 || noRealPlayersAlive)
+    {
+        if (m_aliveCount == 1 && winnerGuid && !winnerIsBot)
         {
-            Player* winner = map->GetPlayer(winnerGuid);
-            if (winner)
+            if (Player* winner = map ? map->GetPlayer(winnerGuid) : nullptr)
                 ChatHandler(winner).PSendSysMessage("[孤胆称雄] 群雄皆寂，唯你执剑而立。此局魁首，江湖记名。");
         }
 
