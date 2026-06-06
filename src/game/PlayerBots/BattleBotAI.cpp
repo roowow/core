@@ -3763,9 +3763,9 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         m_brChaseLastY = 0.0f;
     };
     // Add a GUID to the multi-slot ignore list, evicting the oldest entry when full.
-    auto addToBrIgnoreList = [this](ObjectGuid guid)
+    auto addToBrIgnoreList = [this](ObjectGuid guid, uint32 durationSecs = BR_BOT_CHASE_IGNORE_TIME)
     {
-        time_t const expire = sWorld.GetGameTime() + BR_BOT_CHASE_IGNORE_TIME;
+        time_t const expire = sWorld.GetGameTime() + durationSecs;
         size_t oldestIdx = 0;
         time_t oldestExpire = std::numeric_limits<time_t>::max();
         for (size_t i = 0; i < m_brIgnoredTargets.size(); ++i)
@@ -3805,10 +3805,10 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             m_brChaseLastY = me->GetPositionY();
         }
     };
-    auto abandonBattleRoyaleTarget = [this, &resetBattleRoyaleChase, &addToBrIgnoreList](Unit* target)
+    auto abandonBattleRoyaleTarget = [this, &resetBattleRoyaleChase, &addToBrIgnoreList](Unit* target, uint32 ignoreSecs = BR_BOT_CHASE_IGNORE_TIME)
     {
         if (target)
-            addToBrIgnoreList(target->GetObjectGuid());
+            addToBrIgnoreList(target->GetObjectGuid(), ignoreSecs);
 
         resetBattleRoyaleChase();
         me->AttackStop(false);
@@ -4041,6 +4041,12 @@ void BattleBotAI::UpdateBattleRoyaleAI()
 
         if (dropChase)
         {
+            // chase-timeout and progress-timeout both require combatDist > 10 yards, meaning the
+            // bot spent seconds trying but never closed the gap (steep slope or navmesh cliff).
+            // Use a longer ignore so the two bots drift apart before re-selecting each other.
+            bool const longIgnore = dropReason &&
+                (strcmp(dropReason, "progress-timeout") == 0 || strcmp(dropReason, "chase-timeout") == 0);
+            uint32 const ignoreSecs = longIgnore ? BR_BOT_CHASE_IGNORE_TIME * 3 : BR_BOT_CHASE_IGNORE_TIME;
             if (sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
                 sLog.Out(LOG_BG, LOG_LVL_BASIC,
                          "[BattleRoyaleMovement] drop chase bot %s guid %u instance %u reason %s dist %.1f combatDist %.1f los %u bot %.2f %.2f %.2f target %.2f %.2f %.2f.",
@@ -4048,7 +4054,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
                          victimDistance, me->GetCombatDistance(victim), hasLineOfSight ? 1 : 0,
                          me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
                          victim->GetPositionX(), victim->GetPositionY(), victim->GetPositionZ());
-            abandonBattleRoyaleTarget(victim);
+            abandonBattleRoyaleTarget(victim, ignoreSecs);
             return;
         }
 

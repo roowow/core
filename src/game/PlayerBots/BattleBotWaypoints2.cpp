@@ -1630,6 +1630,56 @@ BattleBotPath vPath_AB_LumberMill_to_Blacksmith =
     { 976.7523f, 1043.1355f, -44.4748f, &AB_AtFlag },
 };
 
+// Horde central GY to Blacksmith
+BattleBotPath vPath_AB_HordeGY_to_Blacksmith =
+{
+    { 1016.0000f, 955.0000f, -43.0000f, nullptr },
+    { 1015.1665f, 961.9457f, -43.1131f, nullptr },
+    { 1015.3206f, 968.9413f, -43.6918f, nullptr },
+    { 1013.4579f, 976.4611f, -43.9023f, nullptr },
+    { 1011.5610f, 983.1973f, -43.8936f, nullptr },
+    { 1010.8018f, 989.0358f, -44.0713f, nullptr },
+    { 1012.1433f, 994.9338f, -44.4553f, nullptr },
+    { 1015.8508f, 1000.8707f, -44.5165f, nullptr },
+    { 1019.6274f, 1006.7645f, -44.6318f, nullptr },
+    { 1022.8658f, 1012.9299f, -44.8824f, nullptr },
+    { 1022.7216f, 1018.4158f, -45.0546f, nullptr },
+    { 1018.9384f, 1024.4022f, -44.5235f, nullptr },
+    { 1013.8049f, 1029.5848f, -43.9398f, nullptr },
+    { 1008.6189f, 1034.2860f, -43.5381f, nullptr },
+    { 1003.8159f, 1036.5104f, -43.1339f, nullptr },
+    { 998.1559f, 1037.7864f, -42.8235f, nullptr },
+    { 991.1607f, 1037.9363f, -42.8306f, nullptr },
+    { 985.4360f, 1038.8873f, -43.4215f, nullptr },
+    { 981.0193f, 1042.7747f, -44.1746f, &AB_AtFlag },
+};
+
+// Alliance NW GY (near LumberMill) to LumberMill
+BattleBotPath vPath_AB_AllianceNWGY_to_LumberMill =
+{
+    { 772.0000f, 1213.0000f, 15.7974f, nullptr },
+    { 773.9371f, 1206.2734f, 15.7974f, nullptr },
+    { 775.8870f, 1199.5505f, 15.6212f, nullptr },
+    { 777.8370f, 1192.8275f, 14.7980f, nullptr },
+    { 779.6102f, 1186.0590f, 13.7765f, nullptr },
+    { 781.0338f, 1179.2056f, 13.0062f, nullptr },
+    { 783.3770f, 1172.7410f, 12.7134f, nullptr },
+    { 786.0655f, 1167.9785f, 12.6439f, nullptr },
+    { 790.1926f, 1163.3259f, 12.4911f, nullptr },
+    { 795.1788f, 1158.4128f, 12.1032f, nullptr },
+    { 800.0654f, 1153.4014f, 11.8117f, nullptr },
+    { 804.4689f, 1149.6541f, 11.5540f, nullptr },
+    { 808.9541f, 1147.1547f, 11.4720f, nullptr },
+    { 816.4813f, 1145.3860f, 10.8988f, nullptr },
+    { 822.8158f, 1145.4310f, 10.7236f, nullptr },
+    { 827.8175f, 1146.5604f, 10.7703f, nullptr },
+    { 833.0098f, 1149.9618f, 10.9759f, nullptr },
+    { 838.2422f, 1153.1292f, 11.1878f, nullptr },
+    { 843.6024f, 1154.4913f, 11.2567f, nullptr },
+    { 850.0904f, 1152.7222f, 11.5520f, nullptr },
+    { 855.9973f, 1150.1223f, 11.5296f, &AB_AtFlag },
+};
+
 std::vector<BattleBotPath*> const vPaths_AB =
 {
     &vPath_AB_AllianceBase_to_Stables,
@@ -1647,6 +1697,8 @@ std::vector<BattleBotPath*> const vPaths_AB =
     &vPath_AB_Blacksmith_to_Stables,
     &vPath_AB_Blacksmith_to_Farm,
     &vPath_AB_LumberMill_to_Blacksmith,
+    &vPath_AB_HordeGY_to_Blacksmith,
+    &vPath_AB_AllianceNWGY_to_LumberMill,
 };
 
 static bool BattleBotNeedsRecovery(BattleBotAI* pAI)
