@@ -1231,8 +1231,6 @@ ChatCommand * ChatHandler::getCommandTable()
         { "start",  SEC_DEVELOPER, false, &ChatHandler::HandleBRStartCommand,  "", nullptr },
         { "join",   SEC_DEVELOPER, false, &ChatHandler::HandleBRJoinCommand,   "", nullptr },
         { "status", SEC_DEVELOPER, true,  &ChatHandler::HandleBRStatusCommand, "", nullptr },
-        { "zone",   SEC_DEVELOPER, false, &ChatHandler::HandleBRZoneCommand,   "", nullptr },
-        { "phase",  SEC_DEVELOPER, false, &ChatHandler::HandleBRPhaseCommand,  "", nullptr },
         { "cancel", SEC_DEVELOPER, false, &ChatHandler::HandleBRCancelCommand, "", nullptr },
         { "info",   SEC_DEVELOPER, false, &ChatHandler::HandleBRInfoCommand,   "", nullptr },
         { "spawn",  SEC_DEVELOPER, false, nullptr,                              "", brSpawnCommandTable },

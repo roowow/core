@@ -77,6 +77,24 @@ static uint32 BattleRoyaleMixSeed(uint32 value)
     return value;
 }
 
+static float GetBattleRoyaleLandingZ(Map* map, BRSpawnPoint const& landing)
+{
+    if (!map)
+        return landing.z;
+
+    // Spawn points are GM-recorded on the intended floor. Searching from MAX_HEIGHT
+    // can pick a higher outdoor/roof surface on layered maps, making bots float.
+    float groundZ = map->GetHeight(landing.x, landing.y, landing.z + 2.0f, true, 8.0f);
+    if (groundZ > INVALID_HEIGHT)
+        return groundZ;
+
+    groundZ = map->GetHeight(landing.x, landing.y, landing.z + 2.0f, false, 8.0f);
+    if (groundZ > INVALID_HEIGHT)
+        return groundZ;
+
+    return landing.z;
+}
+
 // BR item entries — must match what is actually in item_template (DB).
 // Used only for CleanupBRItems() when a player exits the match.
 // 900214-900216, 900219, 900221 reserved for future items; not yet in DB, omitted here.
@@ -491,12 +509,7 @@ void BattleRoyale::CompleteDeployment(Player* player, BattleRoyalePlayer& brPlay
         if (brPlayer.bot)
         {
             Map* bgMap = m_host ? m_host->GetBgMap() : nullptr;
-            if (bgMap)
-            {
-                float groundZ = bgMap->GetHeight(landing.x, landing.y, MAX_HEIGHT, false, MAX_HEIGHT);
-                if (groundZ > INVALID_HEIGHT)
-                    landZ = groundZ;
-            }
+            landZ = GetBattleRoyaleLandingZ(bgMap, landing);
         }
         player->TeleportTo(m_tmpl->mapId, landing.x, landing.y, landZ, landing.o);
     }
@@ -509,11 +522,7 @@ void BattleRoyale::CompleteDeployment(Player* player, BattleRoyalePlayer& brPlay
         float landZ = landing.z;
         Map* bgMap = m_host ? m_host->GetBgMap() : nullptr;
         if (brPlayer.bot && bgMap)
-        {
-            float groundZ = bgMap->GetHeight(landing.x, landing.y, MAX_HEIGHT, false, MAX_HEIGHT);
-            if (groundZ > INVALID_HEIGHT)
-                landZ = groundZ;
-        }
+            landZ = GetBattleRoyaleLandingZ(bgMap, landing);
 
         bool const farFromLanding = player->GetDistance(landing.x, landing.y, landZ) > BR_LANDING_CORRECTION_DISTANCE;
         bool const botFloating = brPlayer.bot && player->GetPositionZ() > landZ + 0.5f;

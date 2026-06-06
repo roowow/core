@@ -2742,6 +2742,12 @@ BattleRoyale.MinPlayers = 3
 #
 BattleRoyale.CountdownSec = 300
 
+#    BattleRoyale.MovementDebug
+#        Log BR bot movement corrections and rejected shortcut chases.
+#        Default: 0
+#
+BattleRoyale.MovementDebug = 0
+
 ###################################################################################################################
 # OUTDOOR PVP CONFIG
 #

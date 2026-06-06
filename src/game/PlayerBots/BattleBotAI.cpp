@@ -44,6 +44,7 @@
 #include "GridNotifiersImpl.h"
 #include "CellImpl.h"
 
+#include <algorithm>
 #include <cfloat>
 #include <cmath>
 #include <list>
@@ -91,6 +92,11 @@ enum BattleBotSpells
 #define BR_BOT_CHASE_LOS_TIMEOUT 6
 #define BR_BOT_CHASE_PROGRESS_TIMEOUT 8
 #define BR_BOT_CHASE_IGNORE_TIME 18
+#define BR_BOT_CHASE_SOFT_DISTANCE 35.0f
+#define BR_BOT_CHASE_HARD_DISTANCE 45.0f
+#define BR_BOT_AIRBORNE_SOFT_HEIGHT 1.0f
+#define BR_BOT_AIRBORNE_HARD_HEIGHT 5.0f
+#define BR_BOT_AIRBORNE_TELEPORT_TICKS 2
 
 #define GO_WSG_DROPPED_SILVERWING_FLAG 179785
 #define GO_WSG_DROPPED_WARSONG_FLAG 179786
@@ -2660,6 +2666,7 @@ void BattleBotAI::OnJustDied()
     m_brChaseProgressTime = 0;
     m_brChaseLosLostTime = 0;
     m_brIgnoredTargetExpireTime = 0;
+    m_brAirborneTicks = 0;
 }
 
 void BattleBotAI::OnJustRevived()
@@ -2787,6 +2794,7 @@ void BattleBotAI::OnLeaveBattleGround()
     m_brChaseProgressTime = 0;
     m_brChaseLosLostTime = 0;
     m_brIgnoredTargetExpireTime = 0;
+    m_brAirborneTicks = 0;
 
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
         StopMoving();
@@ -3626,6 +3634,32 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     }
 
     BattleRoyaleZone const& zone = br->GetZone();
+    auto getBattleRoyaleGroundZ = [this](float x, float y, float referenceZ) -> float
+    {
+        // BR spawn points are recorded on the intended floor. Prefer a small search
+        // around that reference height; MAX_HEIGHT searches can select a higher layer
+        // on maps with roofs or stacked terrain and make bots appear to fly.
+        if (referenceZ > INVALID_HEIGHT)
+        {
+            float groundZ = me->GetMap()->GetHeight(x, y, referenceZ + 2.0f, true, 12.0f);
+            if (groundZ > INVALID_HEIGHT)
+                return groundZ;
+
+            groundZ = me->GetMap()->GetHeight(x, y, referenceZ + 2.0f, false, 12.0f);
+            if (groundZ > INVALID_HEIGHT)
+                return groundZ;
+        }
+
+        float groundZ = me->GetMap()->GetHeight(x, y, me->GetPositionZ() + 2.0f, true, 30.0f);
+        if (groundZ > INVALID_HEIGHT)
+            return groundZ;
+
+        groundZ = me->GetMap()->GetHeight(x, y, me->GetPositionZ() + 2.0f, false, 30.0f);
+        if (groundZ > INVALID_HEIGHT)
+            return groundZ;
+
+        return INVALID_HEIGHT;
+    };
     auto hasReachableGroundPath = [this](float x, float y, float z) -> bool
     {
         if (z <= INVALID_HEIGHT)
@@ -3641,9 +3675,10 @@ void BattleBotAI::UpdateBattleRoyaleAI()
 
         return true;
     };
-    auto moveToReachableGround = [&hasReachableGroundPath, this](float x, float y, float z) -> bool
+    auto moveToReachableGround = [&getBattleRoyaleGroundZ, &hasReachableGroundPath, this](float x, float y, float referenceZ) -> bool
     {
-        if (!hasReachableGroundPath(x, y, z))
+        float const z = getBattleRoyaleGroundZ(x, y, referenceZ);
+        if (z <= INVALID_HEIGHT || !hasReachableGroundPath(x, y, z))
             return false;
 
         me->GetMotionMaster()->MovePoint(0, x, y, z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
@@ -3726,19 +3761,41 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     // Snap bots to ground if they fell off a cliff and are floating in mid-air.
     // Server movement doesn't apply gravity, so bots can hover after walking off edges.
     {
-        float const groundZ = me->GetMap()->GetHeight(
-            me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), true, MAX_HEIGHT);
-        if (groundZ > INVALID_HEIGHT && me->GetPositionZ() > groundZ + 0.5f)
+        float groundZ = getBattleRoyaleGroundZ(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ());
+        if (groundZ <= INVALID_HEIGHT)
+            groundZ = me->GetMap()->GetHeight(
+                me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), true, MAX_HEIGHT);
+        if (groundZ > INVALID_HEIGHT && me->GetPositionZ() > groundZ + BR_BOT_AIRBORNE_SOFT_HEIGHT)
         {
-            if (me->GetVictim())
+            float const heightDiff = me->GetPositionZ() - groundZ;
+            ++m_brAirborneTicks;
+            if (heightDiff > BR_BOT_AIRBORNE_HARD_HEIGHT || m_brAirborneTicks >= BR_BOT_AIRBORNE_TELEPORT_TICKS)
             {
-                me->AttackStop();
-                me->ClearTarget();
+                if (sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
+                    sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                             "[BattleRoyaleMovement] snap bot %s guid %u instance %u pos %.2f %.2f %.2f ground %.2f diff %.2f ticks %u.",
+                             me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(),
+                             me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
+                             groundZ, heightDiff, uint32(m_brAirborneTicks));
+
+                if (me->GetVictim())
+                {
+                    me->AttackStop();
+                    me->ClearTarget();
+                }
+                me->StopMoving();
+                me->NearTeleportTo(me->GetPositionX(), me->GetPositionY(), groundZ + 0.25f, me->GetOrientation());
+                m_brAirborneTicks = 0;
+                return;
             }
+
+            // Do not issue fresh chase/patrol movement while waiting to confirm
+            // a real airborne state; otherwise the bot can keep extending a bad path.
             me->StopMoving();
-            me->NearTeleportTo(me->GetPositionX(), me->GetPositionY(), groundZ + 0.25f, me->GetOrientation());
             return;
         }
+        else
+            m_brAirborneTicks = 0;
     }
 
     bool const inZone = zone.IsInsideZone(me->GetPositionX(), me->GetPositionY());
@@ -3761,8 +3818,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             float const safeRadius = zone.GetCurrentRadius() * 0.75f;
             float const targetX = cx - (dx / dist) * safeRadius;
             float const targetY = cy - (dy / dist) * safeRadius;
-            float const targetZ = me->GetMap()->GetHeight(targetX, targetY, MAX_HEIGHT, false, MAX_HEIGHT);
-            moveToReachableGround(targetX, targetY, targetZ);
+            moveToReachableGround(targetX, targetY, me->GetPositionZ());
         }
         return;
     }
@@ -3783,52 +3839,101 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             m_brChaseLosLostTime = now;
 
         bool dropChase = false;
+        char const* dropReason = nullptr;
+        float const victimDistance = me->GetDistance(victim);
+        bool const victimAttackingMe = victim->GetVictim() == me;
         if (!zone.IsInsideZone(victim->GetPositionX(), victim->GetPositionY()) && victim->GetVictim() != me)
+        {
             dropChase = true;
-        if (!dropChase && me->GetDistance(victim) > 55.0f && victim->GetVictim() != me)
+            dropReason = "outside-zone";
+        }
+        if (!dropChase && victimDistance > BR_BOT_CHASE_HARD_DISTANCE)
+        {
             dropChase = true;
+            dropReason = "far";
+        }
+        if (!dropChase && !victimAttackingMe && victimDistance > BR_BOT_CHASE_SOFT_DISTANCE)
+        {
+            dropChase = true;
+            dropReason = "soft-far";
+        }
         if (!dropChase && m_brChaseLosLostTime && now >= m_brChaseLosLostTime + BR_BOT_CHASE_LOS_TIMEOUT)
+        {
             dropChase = true;
+            dropReason = "los-timeout";
+        }
         if (!dropChase && m_brChaseStartTime && now >= m_brChaseStartTime + BR_BOT_CHASE_TIMEOUT &&
             me->GetCombatDistance(victim) > 10.0f)
+        {
             dropChase = true;
+            dropReason = "chase-timeout";
+        }
         if (!dropChase && m_brChaseProgressTime && now >= m_brChaseProgressTime + BR_BOT_CHASE_PROGRESS_TIMEOUT &&
             me->GetCombatDistance(victim) > 10.0f)
+        {
             dropChase = true;
+            dropReason = "progress-timeout";
+        }
 
         if (dropChase)
         {
+            if (sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
+                sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                         "[BattleRoyaleMovement] drop chase bot %s guid %u instance %u reason %s dist %.1f combatDist %.1f los %u bot %.2f %.2f %.2f target %.2f %.2f %.2f.",
+                         me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(), dropReason ? dropReason : "unknown",
+                         victimDistance, me->GetCombatDistance(victim), hasLineOfSight ? 1 : 0,
+                         me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
+                         victim->GetPositionX(), victim->GetPositionY(), victim->GetPositionZ());
             abandonBattleRoyaleTarget(victim);
             return;
         }
 
         bool stuck = false;
+        char const* stuckReason = nullptr;
 
         // Aerial check: if the bot is above ground during a chase the movement generator
         // has fallen back to a straight-line (fly-through) path. Abort immediately so the
         // next tick's snap-to-ground triggers before any new movement is issued.
         {
-            float const myGZ = me->GetMap()->GetHeight(
-                me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), true, MAX_HEIGHT);
+            float const myGZ = getBattleRoyaleGroundZ(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ());
             if (myGZ > INVALID_HEIGHT && me->GetPositionZ() > myGZ + 0.5f)
+            {
                 stuck = true;
+                stuckReason = "airborne";
+            }
         }
 
         // Primary check: pathfinder already says the target cannot be reached
         if (!stuck && me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE &&
             !me->GetMotionMaster()->GetCurrent()->IsReachable())
+        {
             stuck = true;
+            stuckReason = "unreachable";
+        }
 
         // Secondary check: target is significantly above or below us (roof / pit)
         if (!stuck && victim && me->GetDistanceZ(victim) > 6.0f)
+        {
             stuck = true;
+            stuckReason = "z-gap";
+        }
 
         if (!stuck && me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE &&
             !canReachBattleRoyaleTarget(victim))
+        {
             stuck = true;
+            stuckReason = "target-path";
+        }
 
         if (stuck)
         {
+            if (sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
+                sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                         "[BattleRoyaleMovement] stuck chase bot %s guid %u instance %u reason %s dist %.1f combatDist %.1f bot %.2f %.2f %.2f target %.2f %.2f %.2f.",
+                         me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(), stuckReason ? stuckReason : "unknown",
+                         me->GetDistance(victim), me->GetCombatDistance(victim),
+                         me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
+                         victim->GetPositionX(), victim->GetPositionY(), victim->GetPositionZ());
             m_brIgnoredTargetGuid = victim->GetObjectGuid();
             m_brIgnoredTargetExpireTime = now + BR_BOT_CHASE_IGNORE_TIME;
             resetBattleRoyaleChase();
@@ -3841,8 +3946,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             float const angle = float(urand(0, 628)) * 0.01f;
             float const px = cx + std::cos(angle) * (float(urand(20, 100)) * 0.01f * r);
             float const py = cy + std::sin(angle) * (float(urand(20, 100)) * 0.01f * r);
-            float const pz = me->GetMap()->GetHeight(px, py, MAX_HEIGHT, false, MAX_HEIGHT);
-            moveToReachableGround(px, py, pz);
+            moveToReachableGround(px, py, me->GetPositionZ());
             return;
         }
         // Target is reachable: run the full class combat rotation.
@@ -3918,7 +4022,8 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         BattleRoyaleTemplate const* tmpl = br->GetTemplate();
         if (tmpl && !tmpl->spawnPoints.empty())
         {
-            float const safeR = zone.GetCurrentRadius() - 30.0f;
+            float const currentRadius = zone.GetCurrentRadius();
+            float const safeR = currentRadius > 35.0f ? currentRadius - 30.0f : std::max(currentRadius * 0.5f, 2.0f);
             float const cx    = zone.GetCenterX();
             float const cy    = zone.GetCenterY();
             float const ddx   = me->GetPositionX() - cx;
@@ -3930,46 +4035,83 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             {
                 float const tx = cx + (ddx / myDist) * (zone.GetCurrentRadius() * 0.65f);
                 float const ty = cy + (ddy / myDist) * (zone.GetCurrentRadius() * 0.65f);
-                float const tz = me->GetMap()->GetHeight(tx, ty, MAX_HEIGHT, false, MAX_HEIGHT);
-                moveToReachableGround(tx, ty, tz);
+                moveToReachableGround(tx, ty, me->GetPositionZ());
                 return;
             }
 
-            // Collect spawn points that lie within the current safe radius.
-            std::vector<BRSpawnPoint const*> candidates;
-            for (BRSpawnPoint const& sp : tmpl->spawnPoints)
+            // Prefer short patrol hops. Short paths are much more likely to stay on
+            // valid MMAP ground and avoid shortcut/fly-through movement.
+            float const myX = me->GetPositionX();
+            float const myY = me->GetPositionY();
+            auto tryPatrolSpawnRange = [&](float minDist, float maxDist, uint32 maxTries) -> bool
             {
-                float const dx = sp.x - cx;
-                float const dy = sp.y - cy;
-                if (std::sqrt(dx * dx + dy * dy) < safeR)
-                    candidates.push_back(&sp);
-            }
-
-            // Try up to 3 random candidates; skip any the MMAP cannot path to
-            // (spawn inside a building or on a ledge not covered by the navmesh
-            // would cause PathFinder to fall back to a straight-line shortcut,
-            // making the bot fly through geometry).
-            bool patrolMoved = false;
-            uint32 const maxTries = std::min<uint32>(3, uint32(candidates.size()));
-            for (uint32 i = 0; i < maxTries; ++i)
-            {
-                BRSpawnPoint const* dest = candidates[urand(0, uint32(candidates.size()) - 1)];
-                if (moveToReachableGround(dest->x, dest->y, dest->z))
+                std::vector<BRSpawnPoint const*> candidates;
+                for (BRSpawnPoint const& sp : tmpl->spawnPoints)
                 {
-                    patrolMoved = true;
-                    break;
+                    float const dxc = sp.x - cx;
+                    float const dyc = sp.y - cy;
+                    if (std::sqrt(dxc * dxc + dyc * dyc) >= safeR)
+                        continue;
+
+                    float const dxme = sp.x - myX;
+                    float const dyme = sp.y - myY;
+                    float const distToMe = std::sqrt(dxme * dxme + dyme * dyme);
+                    if (distToMe < minDist || distToMe > maxDist)
+                        continue;
+
+                    candidates.push_back(&sp);
                 }
-            }
+
+                uint32 const tries = std::min<uint32>(maxTries, uint32(candidates.size()));
+                for (uint32 i = 0; i < tries; ++i)
+                {
+                    BRSpawnPoint const* dest = candidates[urand(0, uint32(candidates.size()) - 1)];
+                    if (moveToReachableGround(dest->x, dest->y, dest->z))
+                        return true;
+                }
+
+                return false;
+            };
+            auto tryLocalPatrolStep = [&]() -> bool
+            {
+                for (uint32 i = 0; i < 6; ++i)
+                {
+                    float const dist = frand(15.0f, 45.0f);
+                    float const angle = frand(0.0f, 2.0f * M_PI_F);
+                    float const tx = myX + std::cos(angle) * dist;
+                    float const ty = myY + std::sin(angle) * dist;
+
+                    float const dcx = tx - cx;
+                    float const dcy = ty - cy;
+                    if (currentRadius <= 20.0f ||
+                        (currentRadius > 15.0f &&
+                        std::sqrt(dcx * dcx + dcy * dcy) >= currentRadius - 10.0f))
+                        continue;
+
+                    if (moveToReachableGround(tx, ty, me->GetPositionZ()))
+                        return true;
+                }
+
+                return false;
+            };
+
+            bool patrolMoved = false;
+            patrolMoved = tryPatrolSpawnRange(30.0f, 60.0f, 5);
+            if (!patrolMoved)
+                patrolMoved = tryPatrolSpawnRange(10.0f, 90.0f, 5);
+            if (!patrolMoved)
+                patrolMoved = tryPatrolSpawnRange(0.0f, 120.0f, 5);
+            if (!patrolMoved)
+                patrolMoved = tryLocalPatrolStep();
 
             if (!patrolMoved)
             {
-                // No reachable spawn point found (late-game shrink or navmesh gaps) — wander near center.
-                float const r     = std::max(zone.GetCurrentRadius() * 0.5f, 5.0f);
-                float const angle = frand(0.0f, 2.0f * static_cast<float>(M_PI));
-                float const tx    = cx + std::cos(angle) * r;
-                float const ty    = cy + std::sin(angle) * r;
-                float const tz    = me->GetMap()->GetHeight(tx, ty, MAX_HEIGHT, false, MAX_HEIGHT);
-                moveToReachableGround(tx, ty, tz);
+                // Last resort: take a short step toward the center instead of a long
+                // cross-map path, which is exactly what tends to create shortcut motion.
+                float const step = std::min(myDist, 35.0f);
+                float const tx = myDist > 0.5f ? myX - (ddx / myDist) * step : cx;
+                float const ty = myDist > 0.5f ? myY - (ddy / myDist) * step : cy;
+                moveToReachableGround(tx, ty, me->GetPositionZ());
             }
         }
     }

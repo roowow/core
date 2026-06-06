@@ -18,8 +18,10 @@
 
 #include "ByteBuffer.h"
 #include "TargetedMovementGenerator.h"
+#include "BattleGround.h"
 #include "Creature.h"
 #include "CreatureAI.h"
+#include "Log.h"
 #include "Player.h"
 #include "Map.h"
 #include "World.h"
@@ -187,6 +189,32 @@ void ChaseMovementGenerator<T>::_setTargetLocation(T &owner)
 
     if (pathType == PATHFIND_NOPATH)
         return;
+
+    // BR bots/players must not chase through pure shortcut paths. When mmap cannot
+    // build a ground path, PathFinder may fall back to a straight line through air or
+    // geometry; in BR this shows up as bots flying across the AB map.
+    if ((pathType & PATHFIND_SHORTCUT) && !(pathType & PATHFIND_NORMAL))
+    {
+        if (Player* player = owner.ToPlayer())
+        {
+            if (BattleGround* bg = player->GetBattleGround())
+            {
+                if (bg->GetTypeID() == BATTLEGROUND_BR)
+                {
+                    if (sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
+                        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                                 "[BattleRoyaleMovement] reject shortcut chase player %s guid %u instance %u pathType %u pos %.2f %.2f %.2f target %.2f %.2f %.2f.",
+                                 player->GetName(), player->GetGUIDLow(), bg->GetInstanceID(), uint32(pathType),
+                                 owner.GetPositionX(), owner.GetPositionY(), owner.GetPositionZ(),
+                                 i_target->GetPositionX(), i_target->GetPositionY(), i_target->GetPositionZ());
+                    m_bReachable = false;
+                    if (!owner.movespline->Finalized())
+                        owner.StopMoving();
+                    return;
+                }
+            }
+        }
+    }
 
     if (owner.IsPet())
     {

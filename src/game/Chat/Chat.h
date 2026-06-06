@@ -479,8 +479,6 @@ class ChatHandler
         bool HandleBRStartCommand(char* args);
         bool HandleBRJoinCommand(char* args);
         bool HandleBRStatusCommand(char* args);
-        bool HandleBRZoneCommand(char* args);
-        bool HandleBRPhaseCommand(char* args);
         bool HandleBRCancelCommand(char* args);
         bool HandleBRInfoCommand(char* args);
         bool HandleBRSpawnAddCommand(char* args);
