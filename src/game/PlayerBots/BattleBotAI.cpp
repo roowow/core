@@ -45,6 +45,7 @@
 #include "CellImpl.h"
 
 #include <cfloat>
+#include <cmath>
 #include <list>
 
 enum BattleBotSpells
@@ -83,6 +84,13 @@ enum BattleBotSpells
 };
 
 #define BB_UPDATE_INTERVAL 1000
+
+#define BR_BOT_HUNT_RANGE 45.0f
+#define BR_BOT_URGENT_THREAT_RANGE 24.0f
+#define BR_BOT_CHASE_TIMEOUT 15
+#define BR_BOT_CHASE_LOS_TIMEOUT 6
+#define BR_BOT_CHASE_PROGRESS_TIMEOUT 8
+#define BR_BOT_CHASE_IGNORE_TIME 18
 
 #define GO_WSG_DROPPED_SILVERWING_FLAG 179785
 #define GO_WSG_DROPPED_WARSONG_FLAG 179786
@@ -2376,6 +2384,84 @@ Unit* BattleBotAI::SelectAttackTarget(Unit* pExcept) const
     return nullptr;
 }
 
+Unit* BattleBotAI::SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* pExcept, bool urgentOnly) const
+{
+    float const maxRange = urgentOnly ? BR_BOT_URGENT_THREAT_RANGE : BR_BOT_HUNT_RANGE;
+    time_t const now = sWorld.GetGameTime();
+
+    std::list<Player*> players;
+    me->GetAlivePlayerListInRange(me, players, maxRange);
+
+    Player* bestTarget = nullptr;
+    float bestScore = urgentOnly ? 40.0f : 0.0f;
+
+    for (Player* pTarget : players)
+    {
+        if (!pTarget || pTarget == me || pTarget == pExcept)
+            continue;
+
+        if (!IsValidHostileTarget(pTarget) || IsBadPlayer(pTarget))
+            continue;
+
+        if (pTarget->GetObjectGuid() == m_brIgnoredTargetGuid &&
+            now < m_brIgnoredTargetExpireTime)
+            continue;
+
+        if (BattleBotIsHardControlled(pTarget))
+            continue;
+
+        if (!pTarget->IsVisibleForOrDetect(me, me, false) ||
+            !me->IsWithinLOSInMap(pTarget) ||
+            me->GetDistanceZ(pTarget) > 8.0f)
+            continue;
+
+        bool const attackingMe = pTarget->GetVictim() == me;
+        bool const targetInZone = zone.IsInsideZone(pTarget->GetPositionX(), pTarget->GetPositionY());
+        if (!targetInZone && !attackingMe)
+            continue;
+
+        float const distance = me->GetDistance(pTarget);
+        if (distance > maxRange)
+            continue;
+
+        if (urgentOnly && !attackingMe && distance > 18.0f)
+            continue;
+
+        float score = 100.0f - distance * 1.3f;
+        score += (100.0f - pTarget->GetHealthPercent()) * 1.1f;
+
+        if (attackingMe)
+            score += 120.0f;
+        if (pTarget->HasAura(BB_SPELL_FOOD) || pTarget->HasAura(BB_SPELL_DRINK))
+            score += 55.0f;
+        if (pTarget->IsNonMeleeSpellCasted(false, false, true))
+            score += 35.0f;
+        if (pTarget->GetVictim() && pTarget->GetVictim() != me)
+            score += 20.0f;
+        if (!targetInZone)
+            score -= 40.0f;
+
+        // A wounded bot should not eagerly open on a healthy melee target at point blank range.
+        if (!urgentOnly &&
+            me->GetHealthPercent() < 50.0f &&
+            pTarget->GetHealthPercent() > 70.0f &&
+            IsMeleeDamageClass(pTarget->GetClass()) &&
+            distance < 14.0f)
+            score -= 80.0f;
+
+        // Small randomness keeps BR from feeling like every bot has perfect target selection.
+        score += float(urand(0, 10));
+
+        if (!bestTarget || score > bestScore)
+        {
+            bestTarget = pTarget;
+            bestScore = score;
+        }
+    }
+
+    return bestTarget;
+}
+
 Unit* BattleBotAI::SelectFollowTarget() const
 {
     if (me->HasAura(AURA_WARSONG_FLAG) ||
@@ -2568,6 +2654,12 @@ void BattleBotAI::OnJustDied()
     m_avSkipObjective = 0;
     m_avSkipObjectiveExpiry = 0;
     m_bgProgressTicks = 0;
+    m_brChaseTargetGuid.Clear();
+    m_brIgnoredTargetGuid.Clear();
+    m_brChaseStartTime = 0;
+    m_brChaseProgressTime = 0;
+    m_brChaseLosLostTime = 0;
+    m_brIgnoredTargetExpireTime = 0;
 }
 
 void BattleBotAI::OnJustRevived()
@@ -2689,6 +2781,12 @@ void BattleBotAI::OnLeaveBattleGround()
     m_avEnableThreePhase = false;         // three-phase off until re-derived
     m_avStayGuardAfterCapture = false;
     m_bgProgressTicks = 0;
+    m_brChaseTargetGuid.Clear();
+    m_brIgnoredTargetGuid.Clear();
+    m_brChaseStartTime = 0;
+    m_brChaseProgressTime = 0;
+    m_brChaseLosLostTime = 0;
+    m_brIgnoredTargetExpireTime = 0;
 
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
         StopMoving();
@@ -3564,20 +3662,81 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         float const targetZ = targetGroundZ > INVALID_HEIGHT ? targetGroundZ : target->GetPositionZ();
         return hasReachableGroundPath(target->GetPositionX(), target->GetPositionY(), targetZ);
     };
+    auto resetBattleRoyaleChase = [this]()
+    {
+        m_brChaseTargetGuid.Clear();
+        m_brChaseStartTime = 0;
+        m_brChaseProgressTime = 0;
+        m_brChaseLosLostTime = 0;
+        m_brChaseLastX = 0.0f;
+        m_brChaseLastY = 0.0f;
+    };
+    auto rememberBattleRoyaleChase = [this](Unit* target)
+    {
+        if (!target)
+            return;
+
+        time_t const now = sWorld.GetGameTime();
+        ObjectGuid const targetGuid = target->GetObjectGuid();
+        if (m_brChaseTargetGuid != targetGuid)
+        {
+            m_brChaseTargetGuid = targetGuid;
+            m_brChaseStartTime = now;
+            m_brChaseProgressTime = now;
+            m_brChaseLosLostTime = 0;
+            m_brChaseLastX = me->GetPositionX();
+            m_brChaseLastY = me->GetPositionY();
+            return;
+        }
+
+        float const dx = me->GetPositionX() - m_brChaseLastX;
+        float const dy = me->GetPositionY() - m_brChaseLastY;
+        if (std::sqrt(dx * dx + dy * dy) > 4.0f || me->GetCombatDistance(target) < 10.0f)
+        {
+            m_brChaseProgressTime = now;
+            m_brChaseLastX = me->GetPositionX();
+            m_brChaseLastY = me->GetPositionY();
+        }
+    };
+    auto abandonBattleRoyaleTarget = [this, &resetBattleRoyaleChase](Unit* target)
+    {
+        if (target)
+        {
+            m_brIgnoredTargetGuid = target->GetObjectGuid();
+            m_brIgnoredTargetExpireTime = sWorld.GetGameTime() + BR_BOT_CHASE_IGNORE_TIME;
+        }
+
+        resetBattleRoyaleChase();
+        me->AttackStop(false);
+        me->ClearTarget();
+        StopMoving();
+    };
+    auto startBattleRoyaleAttack = [&rememberBattleRoyaleChase, this](Unit* target) -> bool
+    {
+        if (!target)
+            return false;
+
+        if (!AttackStart(target))
+            return false;
+
+        rememberBattleRoyaleChase(target);
+        return true;
+    };
 
     // Snap bots to ground if they fell off a cliff and are floating in mid-air.
     // Server movement doesn't apply gravity, so bots can hover after walking off edges.
     {
         float const groundZ = me->GetMap()->GetHeight(
             me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), true, MAX_HEIGHT);
-        if (groundZ > INVALID_HEIGHT && me->GetPositionZ() > groundZ + 2.0f)
+        if (groundZ > INVALID_HEIGHT && me->GetPositionZ() > groundZ + 0.5f)
         {
             if (me->GetVictim())
             {
                 me->AttackStop();
                 me->ClearTarget();
             }
-            me->NearTeleportTo(me->GetPositionX(), me->GetPositionY(), groundZ + 0.5f, me->GetOrientation());
+            me->StopMoving();
+            me->NearTeleportTo(me->GetPositionX(), me->GetPositionY(), groundZ + 0.25f, me->GetOrientation());
             return;
         }
     }
@@ -3588,10 +3747,10 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     {
         // Stop combat and run back to center
         if (me->GetVictim())
-        {
-            me->AttackStop();
-            me->ClearTarget();
-        }
+            abandonBattleRoyaleTarget(me->GetVictim());
+        else
+            resetBattleRoyaleChase();
+
         float const cx = zone.GetCenterX();
         float const cy = zone.GetCenterY();
         float const dx = cx - me->GetPositionX();
@@ -3613,23 +3772,66 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     // because UpdateInCombatAI keeps chasing forever without reaching them.
     if (me->GetVictim())
     {
+        Unit* victim = me->GetVictim();
+        time_t const now = sWorld.GetGameTime();
+        rememberBattleRoyaleChase(victim);
+
+        bool const hasLineOfSight = victim->IsVisibleForOrDetect(me, me, false) && me->IsWithinLOSInMap(victim);
+        if (hasLineOfSight)
+            m_brChaseLosLostTime = 0;
+        else if (!m_brChaseLosLostTime)
+            m_brChaseLosLostTime = now;
+
+        bool dropChase = false;
+        if (!zone.IsInsideZone(victim->GetPositionX(), victim->GetPositionY()) && victim->GetVictim() != me)
+            dropChase = true;
+        if (!dropChase && me->GetDistance(victim) > 55.0f && victim->GetVictim() != me)
+            dropChase = true;
+        if (!dropChase && m_brChaseLosLostTime && now >= m_brChaseLosLostTime + BR_BOT_CHASE_LOS_TIMEOUT)
+            dropChase = true;
+        if (!dropChase && m_brChaseStartTime && now >= m_brChaseStartTime + BR_BOT_CHASE_TIMEOUT &&
+            me->GetCombatDistance(victim) > 10.0f)
+            dropChase = true;
+        if (!dropChase && m_brChaseProgressTime && now >= m_brChaseProgressTime + BR_BOT_CHASE_PROGRESS_TIMEOUT &&
+            me->GetCombatDistance(victim) > 10.0f)
+            dropChase = true;
+
+        if (dropChase)
+        {
+            abandonBattleRoyaleTarget(victim);
+            return;
+        }
+
         bool stuck = false;
 
+        // Aerial check: if the bot is above ground during a chase the movement generator
+        // has fallen back to a straight-line (fly-through) path. Abort immediately so the
+        // next tick's snap-to-ground triggers before any new movement is issued.
+        {
+            float const myGZ = me->GetMap()->GetHeight(
+                me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(), true, MAX_HEIGHT);
+            if (myGZ > INVALID_HEIGHT && me->GetPositionZ() > myGZ + 0.5f)
+                stuck = true;
+        }
+
         // Primary check: pathfinder already says the target cannot be reached
-        if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE &&
+        if (!stuck && me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE &&
             !me->GetMotionMaster()->GetCurrent()->IsReachable())
             stuck = true;
 
         // Secondary check: target is significantly above or below us (roof / pit)
-        if (!stuck && me->GetVictim() && me->GetDistanceZ(me->GetVictim()) > 6.0f)
+        if (!stuck && victim && me->GetDistanceZ(victim) > 6.0f)
             stuck = true;
 
         if (!stuck && me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE &&
-            !canReachBattleRoyaleTarget(me->GetVictim()))
+            !canReachBattleRoyaleTarget(victim))
             stuck = true;
 
         if (stuck)
         {
+            m_brIgnoredTargetGuid = victim->GetObjectGuid();
+            m_brIgnoredTargetExpireTime = now + BR_BOT_CHASE_IGNORE_TIME;
+            resetBattleRoyaleChase();
             me->AttackStop();
             me->ClearTarget();
             // Force a patrol step so the bot doesn't immediately re-pick the same target
@@ -3650,6 +3852,8 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         return;
     }
 
+    resetBattleRoyaleChase();
+
     // Retaliate against anyone currently attacking us.
     for (Unit* attacker : me->GetAttackers())
     {
@@ -3662,8 +3866,21 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             me->IsWithinLOSInMap(attacker) &&
             canReachBattleRoyaleTarget(attacker))
         {
-            AttackStart(attacker);
-            return;
+            if (startBattleRoyaleAttack(attacker))
+                return;
+        }
+    }
+
+    // If an enemy walks in while the bot is eating/drinking, stand up instead of
+    // giving away a free opener. Distant passers-by still let the bot finish recovery.
+    if (Unit* recoveryThreat = SelectBattleRoyaleTarget(zone, nullptr, true))
+    {
+        if (canReachBattleRoyaleTarget(recoveryThreat))
+        {
+            me->RemoveAurasDueToSpellByCancel(BB_SPELL_FOOD);
+            me->RemoveAurasDueToSpellByCancel(BB_SPELL_DRINK);
+            if (startBattleRoyaleAttack(recoveryThreat))
+                return;
         }
     }
 
@@ -3673,7 +3890,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         return;
 
     // Once recovered, visible enemies should interrupt travel setup immediately.
-    if (Unit* pTarget = SelectAttackTarget())
+    if (Unit* pTarget = SelectBattleRoyaleTarget(zone))
     {
         if (canReachBattleRoyaleTarget(pTarget))
         {
@@ -3684,8 +3901,8 @@ void BattleBotAI::UpdateBattleRoyaleAI()
                 m_spells.warrior.pCharge &&
                 CanTryToCastSpell(pTarget, m_spells.warrior.pCharge))
                 DoCastSpell(pTarget, m_spells.warrior.pCharge);
-            AttackStart(pTarget);
-            return;
+            if (startBattleRoyaleAttack(pTarget))
+                return;
         }
     }
 

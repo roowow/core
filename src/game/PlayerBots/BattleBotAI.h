@@ -19,6 +19,7 @@
 
 #include "CombatBotBaseAI.h"
 #include "BattleBotWaypoints.h"
+#include "ObjectGuid.h"
 
 #include <ctime>
 
@@ -47,6 +48,8 @@ enum AVMineState : uint8
     AV_MINE_NONE  = 0,  // not a mine bot (or mine mission complete)
     AV_MINE_GOING = 1,  // travelling to mine / fighting boss
 };
+
+class BattleRoyaleZone;
 
 class BattleBotAI : public CombatBotBaseAI
 {
@@ -84,6 +87,7 @@ public:
     bool UpdateAVPhase1WaitingAI();
     bool AttackStart(Unit* pVictim);
     Unit* SelectAttackTarget(Unit* pExcept = nullptr) const;
+    Unit* SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* pExcept = nullptr, bool urgentOnly = false) const;
     Unit* SelectHealerOffensiveTarget() const;
     Unit* SelectFollowTarget() const;
 
@@ -121,6 +125,14 @@ public:
     bool   m_isBattleRoyaleBot  = false;
     uint32 m_brInstanceId       = 0;
     bool   m_brReadyNotified    = false;
+    ObjectGuid m_brChaseTargetGuid;
+    ObjectGuid m_brIgnoredTargetGuid;
+    time_t m_brChaseStartTime = 0;
+    time_t m_brChaseProgressTime = 0;
+    time_t m_brChaseLosLostTime = 0;
+    time_t m_brIgnoredTargetExpireTime = 0;
+    float m_brChaseLastX = 0.0f;
+    float m_brChaseLastY = 0.0f;
     ShortTimeTracker m_updateTimer;
     uint8 m_race = 0;
     uint8 m_class = 0;
