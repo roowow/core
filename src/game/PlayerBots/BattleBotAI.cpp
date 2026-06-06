@@ -1809,7 +1809,7 @@ bool BattleBotAI::DrinkAndEat()
     BattleGround* bg = me->GetBattleGround();
     bool const isWaiting = bg && bg->GetStatus() == STATUS_WAIT_JOIN;
     bool const isBattleRoyale = bg && bg->GetTypeID() == BATTLEGROUND_BR;
-    float const recoveryThreshold = (isWaiting || isBattleRoyale) ? 100.0f : (isGuard ? 90.0f : 80.0f);
+    float const recoveryThreshold = isWaiting ? 100.0f : (isBattleRoyale ? 95.0f : (isGuard ? 90.0f : 80.0f));
     float manaRecoveryThreshold = recoveryThreshold;
     if (me->GetClass() == CLASS_DRUID &&
         me->GetShapeshiftForm() == FORM_NONE &&
@@ -2422,8 +2422,7 @@ Unit* BattleBotAI::SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* 
             continue;
 
         bool const attackingMe = pTarget->GetVictim() == me;
-        bool const targetInZone = zone.IsInsideZone(pTarget->GetPositionX(), pTarget->GetPositionY());
-        if (!targetInZone && !attackingMe)
+        if (!zone.IsInsideZone(pTarget->GetPositionX(), pTarget->GetPositionY()))
             continue;
 
         float const distance = me->GetDistance(pTarget);
@@ -2444,8 +2443,6 @@ Unit* BattleBotAI::SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* 
             score += 35.0f;
         if (pTarget->GetVictim() && pTarget->GetVictim() != me)
             score += 20.0f;
-        if (!targetInZone)
-            score -= 40.0f;
 
         // A wounded bot should not eagerly open on a healthy melee target at point blank range.
         if (!urgentOnly &&
@@ -3235,8 +3232,13 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         if (BattleBotReturnToGuardPositionBeforeRecovery(this))
             return;
 
-        if (DrinkAndEat())
-            return;
+        BattleGround* currentBg = me->GetBattleGround();
+        bool const isBattleRoyale = currentBg && currentBg->GetTypeID() == BATTLEGROUND_BR;
+        if (!isBattleRoyale)
+        {
+            if (DrinkAndEat())
+                return;
+        }
     }
 
     if (me->GetStandState() != UNIT_STAND_STATE_STAND)
@@ -3681,7 +3683,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         if (z <= INVALID_HEIGHT || !hasReachableGroundPath(x, y, z))
             return false;
 
-        me->GetMotionMaster()->MovePoint(0, x, y, z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES);
+        me->GetMotionMaster()->MovePoint(0, x, y, z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
         return true;
     };
     auto canReachBattleRoyaleTarget = [&hasReachableGroundPath, this](Unit* target) -> bool
@@ -3757,6 +3759,67 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         rememberBattleRoyaleChase(target);
         return true;
     };
+    auto cancelBattleRoyaleRecovery = [this]()
+    {
+        me->RemoveAurasDueToSpellByCancel(BB_SPELL_FOOD);
+        me->RemoveAurasDueToSpellByCancel(BB_SPELL_DRINK);
+        if (me->GetStandState() != UNIT_STAND_STATE_STAND)
+            me->SetStandState(UNIT_STAND_STATE_STAND);
+    };
+    auto moveTowardBattleRoyaleSafeZone = [&moveToReachableGround, &zone, this](float radiusFactor) -> bool
+    {
+        float const cx = zone.GetCenterX();
+        float const cy = zone.GetCenterY();
+        float const dx = cx - me->GetPositionX();
+        float const dy = cy - me->GetPositionY();
+        float const dist = std::sqrt(dx * dx + dy * dy);
+        if (dist <= 0.5f)
+            return false;
+
+        float const safeRadius = zone.GetCurrentRadius() * radiusFactor;
+        float const targetDelta = dist - safeRadius;
+        if (targetDelta <= 0.5f)
+            return false;
+
+        float const dirX = dx / dist;
+        float const dirY = dy / dist;
+        float const myX  = me->GetPositionX();
+        float const myY  = me->GetPositionY();
+        float const myZ  = me->GetPositionZ();
+
+        // Try full direct path first.
+        if (moveToReachableGround(myX + dirX * targetDelta, myY + dirY * targetDelta, myZ))
+            return true;
+
+        // Try shorter steps along the direct axis.
+        float const steps[] = { 25.0f, 45.0f, 70.0f };
+        for (float step : steps)
+        {
+            float const useStep = std::min(step, targetDelta);
+            if (useStep <= 0.5f)
+                continue;
+            if (moveToReachableGround(myX + dirX * useStep, myY + dirY * useStep, myZ))
+                return true;
+        }
+
+        // Direct axis is blocked by terrain — fan out at increasing angles to find a
+        // path around the obstacle. This handles walls or cliffs perpendicular to the
+        // center direction that the single-axis steps above cannot navigate around.
+        float const fanStep = std::min(35.0f, targetDelta);
+        // radians: ±15°, ±30°, ±45°, ±60°, ±90°
+        static float const fanAngles[] = { 0.26f, -0.26f, 0.52f, -0.52f, 0.79f, -0.79f, 1.05f, -1.05f, 1.57f, -1.57f };
+        for (float angle : fanAngles)
+        {
+            float const cosA   = std::cos(angle);
+            float const sinA   = std::sin(angle);
+            float const fanDirX = dirX * cosA - dirY * sinA;
+            float const fanDirY = dirX * sinA + dirY * cosA;
+            if (moveToReachableGround(myX + fanDirX * fanStep, myY + fanDirY * fanStep, myZ))
+                return true;
+        }
+
+        return false;
+    };
 
     // Snap bots to ground if they fell off a cliff and are floating in mid-air.
     // Server movement doesn't apply gravity, so bots can hover after walking off edges.
@@ -3802,23 +3865,22 @@ void BattleBotAI::UpdateBattleRoyaleAI()
 
     if (!inZone)
     {
+        cancelBattleRoyaleRecovery();
+
         // Stop combat and run back to center
         if (me->GetVictim())
             abandonBattleRoyaleTarget(me->GetVictim());
         else
             resetBattleRoyaleChase();
 
-        float const cx = zone.GetCenterX();
-        float const cy = zone.GetCenterY();
-        float const dx = cx - me->GetPositionX();
-        float const dy = cy - me->GetPositionY();
-        float const dist = std::sqrt(dx * dx + dy * dy);
-        if (dist > 0.5f)
+        if (!moveTowardBattleRoyaleSafeZone(0.75f) &&
+            sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
         {
-            float const safeRadius = zone.GetCurrentRadius() * 0.75f;
-            float const targetX = cx - (dx / dist) * safeRadius;
-            float const targetY = cy - (dy / dist) * safeRadius;
-            moveToReachableGround(targetX, targetY, me->GetPositionZ());
+            sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                     "[BattleRoyaleMovement] failed zone escape bot %s guid %u instance %u pos %.2f %.2f %.2f center %.2f %.2f radius %.1f.",
+                     me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(),
+                     me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
+                     zone.GetCenterX(), zone.GetCenterY(), zone.GetCurrentRadius());
         }
         return;
     }
@@ -3842,7 +3904,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         char const* dropReason = nullptr;
         float const victimDistance = me->GetDistance(victim);
         bool const victimAttackingMe = victim->GetVictim() == me;
-        if (!zone.IsInsideZone(victim->GetPositionX(), victim->GetPositionY()) && victim->GetVictim() != me)
+        if (!zone.IsInsideZone(victim->GetPositionX(), victim->GetPositionY()))
         {
             dropChase = true;
             dropReason = "outside-zone";
@@ -3965,6 +4027,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             !IsBadPlayer(attacker) &&
             !BattleBotHasBlind(attacker) &&
             IsValidHostileTarget(attacker) &&
+            zone.IsInsideZone(attacker->GetPositionX(), attacker->GetPositionY()) &&
             me->IsWithinDist(attacker, VISIBILITY_DISTANCE_NORMAL) &&
             me->GetDistanceZ(attacker) < 10.0f &&
             me->IsWithinLOSInMap(attacker) &&
@@ -3981,16 +4044,45 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     {
         if (canReachBattleRoyaleTarget(recoveryThreat))
         {
-            me->RemoveAurasDueToSpellByCancel(BB_SPELL_FOOD);
-            me->RemoveAurasDueToSpellByCancel(BB_SPELL_DRINK);
+            cancelBattleRoyaleRecovery();
             if (startBattleRoyaleAttack(recoveryThreat))
                 return;
         }
     }
 
+    bool skipBattleRoyaleRecovery = false;
+
+    // Do not sit down near the boundary. The zone shrinks continuously and can
+    // move over a recovering bot before the next patrol decision.
+    {
+        float const cx = zone.GetCenterX();
+        float const cy = zone.GetCenterY();
+        float const dx = me->GetPositionX() - cx;
+        float const dy = me->GetPositionY() - cy;
+        float const distFromCenter = std::sqrt(dx * dx + dy * dy);
+        float const safeRecoveryRadius = zone.GetCurrentRadius() > 45.0f ? zone.GetCurrentRadius() - 25.0f
+                                                                         : zone.GetCurrentRadius() * 0.60f;
+        if (distFromCenter > safeRecoveryRadius)
+        {
+            cancelBattleRoyaleRecovery();
+            skipBattleRoyaleRecovery = true;
+            if (moveTowardBattleRoyaleSafeZone(0.60f))
+                return;
+
+            if (sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
+            {
+                sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                         "[BattleRoyaleMovement] failed safe recovery move bot %s guid %u instance %u pos %.2f %.2f %.2f center %.2f %.2f radius %.1f safe %.1f.",
+                         me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(),
+                         me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
+                         zone.GetCenterX(), zone.GetCenterY(), zone.GetCurrentRadius(), safeRecoveryRadius);
+            }
+        }
+    }
+
     // In BR, do not start a new hunt until recovery is complete.
     // Direct attackers are handled above, so bots still defend themselves.
-    if (DrinkAndEat())
+    if (!skipBattleRoyaleRecovery && DrinkAndEat())
         return;
 
     // Once recovered, visible enemies should interrupt travel setup immediately.
@@ -4867,9 +4959,14 @@ void BattleBotAI::UpdateInCombatAI_Shaman()
 
 void BattleBotAI::UpdateOutOfCombatAI_Hunter()
 {
+    // Allow Aspect of the Cheetah in BR: it is removed when the hunter takes a
+    // hit (see UpdateInCombatAI_Hunter), so applying it out-of-combat is safe.
+    BattleGround* bg = me->GetBattleGround();
+    bool const allowCheetah = !me->IsMounted() &&
+                              (!me->InBattleGround() ||
+                               (bg && bg->GetTypeID() == BATTLEGROUND_BR));
     if (m_spells.hunter.pAspectOfTheCheetah &&
-       !me->InBattleGround() &&
-       !me->IsMounted() &&
+        allowCheetah &&
         CanTryToCastSpell(me, m_spells.hunter.pAspectOfTheCheetah))
     {
         if (DoCastSpell(me, m_spells.hunter.pAspectOfTheCheetah) == SPELL_CAST_OK)
