@@ -2748,6 +2748,13 @@ BattleRoyale.CountdownSec = 300
 #
 BattleRoyale.MovementDebug = 0
 
+#    BattleGround.MovementDebug
+#        Log BG bot movement corrections: combat drops (stuck/progress-timeout),
+#        indoor-stuck detection, and path-selection fallback to StartNewPathFromAnywhere.
+#        Default: 0
+#
+BattleGround.MovementDebug = 0
+
 ###################################################################################################################
 # OUTDOOR PVP CONFIG
 #

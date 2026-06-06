@@ -2648,6 +2648,15 @@ void BattleBotAI::UpdateWaypointMovement()
     if (StartNewPathFromBeginning())
         return;
 
+    if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+    {
+        BattleGround* dbgBg = me->GetBattleGround();
+        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                 "[BattleGroundMovement] path-anywhere bot %s guid %u bg %u pos %.2f %.2f %.2f.",
+                 me->GetName(), me->GetGUIDLow(),
+                 dbgBg ? dbgBg->GetInstanceID() : 0u,
+                 me->GetPositionX(), me->GetPositionY(), me->GetPositionZ());
+    }
     StartNewPathFromAnywhere();
 }
 
@@ -3263,6 +3272,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             float const curY = me->GetPositionY();
             bool const inCombat = me->IsInCombat();
             bool dropCombat = false;
+            char const* dropCombatReason = nullptr;
 
             if (inCombat)
             {
@@ -3271,7 +3281,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                 {
                     Position const& flagPos = (me->GetTeam() == ALLIANCE) ? WS_FLAG_POS_ALLIANCE : WS_FLAG_POS_HORDE;
                     if (me->GetDistance2d(flagPos.x, flagPos.y) > 80.0f)
-                        dropCombat = true;
+                    { dropCombat = true; dropCombatReason = "ws-guard-range"; }
                 }
 
                 // Stuck while chasing: can't reach victim. Stationary 10s or oscillating 30s.
@@ -3285,7 +3295,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                         m_bgStuckCounter = 0;
                     uint8 const stuckThreshold = notMoved ? 5 : 15;
                     if (m_bgStuckCounter >= stuckThreshold)
-                        dropCombat = true;
+                    { dropCombat = true; dropCombatReason = "chase-stuck"; }
                 }
                 else
                 {
@@ -3297,7 +3307,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                     {
                         ++m_bgStuckCounter;
                         if (m_bgStuckCounter >= 3) // 3 * 2s = 6 seconds
-                            dropCombat = true;
+                        { dropCombat = true; dropCombatReason = "cc-stuck"; }
                     }
                     else
                         m_bgStuckCounter = 0;
@@ -3317,6 +3327,15 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                         if (me->GetDistance2d(ownFlag.x, ownFlag.y) > 25.0f &&
                             me->GetDistance2d(enemyFlag.x, enemyFlag.y) > 25.0f)
                         {
+                            if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                            {
+                                BattleGround* dbgBg = me->GetBattleGround();
+                                sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                                         "[BattleGroundMovement] indoor-stuck bot %s guid %u bg %u pos %.2f %.2f %.2f.",
+                                         me->GetName(), me->GetGUIDLow(),
+                                         dbgBg ? dbgBg->GetInstanceID() : 0u,
+                                         curX, curY, me->GetPositionZ());
+                            }
                             ClearPath();
                             StartNewPathToObjective();
                         }
@@ -3326,6 +3345,21 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
             if (dropCombat)
             {
+                if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                {
+                    BattleGround* dbgBg = me->GetBattleGround();
+                    Unit* victim = me->GetVictim();
+                    sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                             "[BattleGroundMovement] drop-combat bot %s guid %u bg %u reason %s counter %u pos %.2f %.2f %.2f victim %.2f %.2f %.2f.",
+                             me->GetName(), me->GetGUIDLow(),
+                             dbgBg ? dbgBg->GetInstanceID() : 0u,
+                             dropCombatReason ? dropCombatReason : "unknown",
+                             uint32(m_bgStuckCounter),
+                             curX, curY, me->GetPositionZ(),
+                             victim ? victim->GetPositionX() : 0.0f,
+                             victim ? victim->GetPositionY() : 0.0f,
+                             victim ? victim->GetPositionZ() : 0.0f);
+                }
                 me->AttackStop(false);
                 StopMoving();
                 ClearPath();
@@ -3343,6 +3377,17 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                 {
                     if (me->GetDistance2d(m_bgProgressX, m_bgProgressY) < 15.0f)
                     {
+                        if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                        {
+                            BattleGround* dbgBg = me->GetBattleGround();
+                            sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                                     "[BattleGroundMovement] progress-timeout bot %s guid %u bg %u inCombat %u pos %.2f %.2f %.2f checkpoint %.2f %.2f.",
+                                     me->GetName(), me->GetGUIDLow(),
+                                     dbgBg ? dbgBg->GetInstanceID() : 0u,
+                                     inCombat ? 1u : 0u,
+                                     curX, curY, me->GetPositionZ(),
+                                     m_bgProgressX, m_bgProgressY);
+                        }
                         if (inCombat)
                         {
                             me->AttackStop(false);
