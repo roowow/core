@@ -115,10 +115,10 @@ inline BattleRoyaleTemplate& GetAzsharaCraterTemplate()
         t.centerX     = 157.216248f; // GM-verified Azshara Crater center
         t.centerY     = 74.673859f;
         t.maxPlayers  = 30;
-        // Map 37 is not marked as MAP_BATTLEGROUND in Map.dbc. Keep the
-        // template data for recording/testing, but do not auto-start it until
-        // BR supports non-battleground map hosting.
-        t.enabled     = false;
+        // BattleRoyale.sql sets map_template.map_type = 3 (MAP_BATTLEGROUND)
+        // for map 37 so CreateBgMap() and IsBattleRoyaleTemplateBattlegroundMap()
+        // accept it.  Re-run BattleRoyale.sql if map 37 still shows a wrong type.
+        t.enabled     = true;
         // First orbit node should be center + 60 yards east, high above the arena center.
         t.deploymentStart = { 217.216248f, 74.673859f, 430.783401f, 0.0f };
 

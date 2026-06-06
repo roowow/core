@@ -2409,7 +2409,11 @@ Unit* BattleBotAI::SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* 
         if (!IsValidHostileTarget(pTarget) || IsBadPlayer(pTarget))
             continue;
 
-        if (pTarget->GetObjectGuid() == m_brIgnoredTargetGuid &&
+        // During recovery the ignore list is bypassed: a previously-stuck target that is
+        // now standing right next to the bot must not be allowed to eat freely.
+        // canReachBattleRoyaleTarget() still filters targets that are truly unreachable.
+        if (!urgentOnly &&
+            pTarget->GetObjectGuid() == m_brIgnoredTargetGuid &&
             now < m_brIgnoredTargetExpireTime)
             continue;
 
@@ -3965,22 +3969,27 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             }
         }
 
-        // Primary check: pathfinder already says the target cannot be reached
-        if (!stuck && me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE &&
+        // Primary check: pathfinder already says the target cannot be reached.
+        // Skip when already in melee range: pathfinder returns unreachable for trivial
+        // start==end cases (two bots stacked at the same position), causing false positives.
+        if (!stuck && me->GetCombatDistance(victim) > 3.0f &&
+            me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE &&
             !me->GetMotionMaster()->GetCurrent()->IsReachable())
         {
             stuck = true;
             stuckReason = "unreachable";
         }
 
-        // Secondary check: target is significantly above or below us (roof / pit)
-        if (!stuck && victim && me->GetDistanceZ(victim) > 6.0f)
+        // Secondary check: target is significantly above or below us (roof / pit).
+        // 8 yards allows for natural terrain slopes without false-positiving on gentle hills.
+        if (!stuck && victim && me->GetDistanceZ(victim) > 8.0f)
         {
             stuck = true;
             stuckReason = "z-gap";
         }
 
-        if (!stuck && me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE &&
+        if (!stuck && me->GetCombatDistance(victim) > 3.0f &&
+            me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE &&
             !canReachBattleRoyaleTarget(victim))
         {
             stuck = true;
@@ -4001,14 +4010,26 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             resetBattleRoyaleChase();
             me->AttackStop();
             me->ClearTarget();
-            // Force a patrol step so the bot doesn't immediately re-pick the same target
-            float const cx = zone.GetCenterX();
-            float const cy = zone.GetCenterY();
-            float const r  = zone.GetCurrentRadius() * 0.5f;
-            float const angle = float(urand(0, 628)) * 0.01f;
-            float const px = cx + std::cos(angle) * (float(urand(20, 100)) * 0.01f * r);
-            float const py = cy + std::sin(angle) * (float(urand(20, 100)) * 0.01f * r);
-            moveToReachableGround(px, py, me->GetPositionZ());
+            // If our pet is actively fighting, stay near it so we can re-engage the same
+            // target once urgentOnly detection fires next tick (ignore list is bypassed for
+            // urgentOnly). A random zone-wide patrol would take us out of casting range
+            // and leave the pet to fight alone while we sit down to recover.
+            Pet* myPet = me->GetPet();
+            if (myPet && myPet->IsAlive() && myPet->IsInCombat() && myPet->GetVictim())
+            {
+                moveToReachableGround(myPet->GetPositionX(), myPet->GetPositionY(), myPet->GetPositionZ());
+            }
+            else
+            {
+                // Force a patrol step so the bot doesn't immediately re-pick the same target.
+                float const cx = zone.GetCenterX();
+                float const cy = zone.GetCenterY();
+                float const r  = zone.GetCurrentRadius() * 0.5f;
+                float const angle = float(urand(0, 628)) * 0.01f;
+                float const px = cx + std::cos(angle) * (float(urand(20, 100)) * 0.01f * r);
+                float const py = cy + std::sin(angle) * (float(urand(20, 100)) * 0.01f * r);
+                moveToReachableGround(px, py, me->GetPositionZ());
+            }
             return;
         }
         // Target is reachable: run the full class combat rotation.
