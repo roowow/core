@@ -2410,18 +2410,6 @@ Unit* BattleBotAI::SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* 
         if (!IsValidHostileTarget(pTarget) || IsBadPlayer(pTarget))
             continue;
 
-        // During recovery the ignore list is bypassed: a previously-stuck target that is
-        // now standing right next to the bot must not be allowed to eat freely.
-        // canReachBattleRoyaleTarget() still filters targets that are truly unreachable.
-        if (!urgentOnly)
-        {
-            ObjectGuid const tg = pTarget->GetObjectGuid();
-            bool ignored = false;
-            for (auto const& entry : m_brIgnoredTargets)
-                if (entry.guid == tg && now < entry.expireTime) { ignored = true; break; }
-            if (ignored) continue;
-        }
-
         if (BattleBotIsHardControlled(pTarget))
             continue;
 
@@ -2431,6 +2419,18 @@ Unit* BattleBotAI::SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* 
             continue;
 
         bool const attackingMe = pTarget->GetVictim() == me;
+
+        // Ignore list is always respected, even during urgentOnly recovery scans.
+        // The sole exception: a target that is actively hitting us must be engaged
+        // regardless — a bot cannot refuse to defend itself against a live attacker.
+        if (!attackingMe)
+        {
+            ObjectGuid const tg = pTarget->GetObjectGuid();
+            bool ignored = false;
+            for (auto const& entry : m_brIgnoredTargets)
+                if (entry.guid == tg && now < entry.expireTime) { ignored = true; break; }
+            if (ignored) continue;
+        }
         if (!zone.IsInsideZone(pTarget->GetPositionX(), pTarget->GetPositionY()))
             continue;
 
@@ -2682,6 +2682,7 @@ void BattleBotAI::OnJustDied()
     m_brChaseLosLostTime = 0;
     m_brAirborneTicks = 0;
     m_brZoneEscapeFailTicks = 0;
+    m_brSafeRecoveryFailTicks = 0;
 }
 
 void BattleBotAI::OnJustRevived()
@@ -2810,6 +2811,7 @@ void BattleBotAI::OnLeaveBattleGround()
     m_brChaseLosLostTime = 0;
     m_brAirborneTicks = 0;
     m_brZoneEscapeFailTicks = 0;
+    m_brSafeRecoveryFailTicks = 0;
 
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
         StopMoving();
@@ -4191,16 +4193,57 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             cancelBattleRoyaleRecovery();
             skipBattleRoyaleRecovery = true;
             if (moveTowardBattleRoyaleSafeZone(0.60f))
+            {
+                m_brSafeRecoveryFailTicks = 0;
                 return;
+            }
 
+            ++m_brSafeRecoveryFailTicks;
             if (sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
             {
                 sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                         "[BattleRoyaleMovement] failed safe recovery move bot %s guid %u instance %u pos %.2f %.2f %.2f center %.2f %.2f radius %.1f safe %.1f.",
+                         "[BattleRoyaleMovement] failed safe recovery move bot %s guid %u instance %u pos %.2f %.2f %.2f center %.2f %.2f radius %.1f safe %.1f fail %u.",
                          me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(),
                          me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
-                         zone.GetCenterX(), zone.GetCenterY(), zone.GetCurrentRadius(), safeRecoveryRadius);
+                         zone.GetCenterX(), zone.GetCenterY(), zone.GetCurrentRadius(), safeRecoveryRadius,
+                         uint32(m_brSafeRecoveryFailTicks));
             }
+            // After 15 consecutive failures (~15 s) teleport to the nearest in-zone spawn point.
+            if (m_brSafeRecoveryFailTicks >= 15)
+            {
+                BattleRoyaleTemplate const* tmpl = br->GetTemplate();
+                if (tmpl && !tmpl->spawnPoints.empty())
+                {
+                    BRSpawnPoint const* bestSP = nullptr;
+                    float bestDist = FLT_MAX;
+                    for (BRSpawnPoint const& sp : tmpl->spawnPoints)
+                    {
+                        if (!zone.IsInsideZone(sp.x, sp.y))
+                            continue;
+                        float const dxsp = sp.x - cx;
+                        float const dysp = sp.y - cy;
+                        if (std::sqrt(dxsp * dxsp + dysp * dysp) > zone.GetCurrentRadius() - 30.0f)
+                            continue; // must be at least 30 yards inside the zone
+                        float const d = std::hypot(sp.x - me->GetPositionX(), sp.y - me->GetPositionY());
+                        if (d < bestDist) { bestDist = d; bestSP = &sp; }
+                    }
+                    if (bestSP)
+                    {
+                        if (sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
+                            sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                                     "[BattleRoyaleMovement] safe recovery teleport bot %s guid %u instance %u from %.2f %.2f %.2f to %.2f %.2f %.2f.",
+                                     me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(),
+                                     me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
+                                     bestSP->x, bestSP->y, bestSP->z);
+                        me->NearTeleportTo(bestSP->x, bestSP->y, bestSP->z, me->GetOrientation());
+                        m_brSafeRecoveryFailTicks = 0;
+                    }
+                }
+            }
+        }
+        else
+        {
+            m_brSafeRecoveryFailTicks = 0;
         }
     }
 
