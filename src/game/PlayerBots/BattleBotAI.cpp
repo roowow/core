@@ -47,6 +47,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <limits>
 #include <list>
 
 enum BattleBotSpells
@@ -2412,10 +2413,14 @@ Unit* BattleBotAI::SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* 
         // During recovery the ignore list is bypassed: a previously-stuck target that is
         // now standing right next to the bot must not be allowed to eat freely.
         // canReachBattleRoyaleTarget() still filters targets that are truly unreachable.
-        if (!urgentOnly &&
-            pTarget->GetObjectGuid() == m_brIgnoredTargetGuid &&
-            now < m_brIgnoredTargetExpireTime)
-            continue;
+        if (!urgentOnly)
+        {
+            ObjectGuid const tg = pTarget->GetObjectGuid();
+            bool ignored = false;
+            for (auto const& entry : m_brIgnoredTargets)
+                if (entry.guid == tg && now < entry.expireTime) { ignored = true; break; }
+            if (ignored) continue;
+        }
 
         if (BattleBotIsHardControlled(pTarget))
             continue;
@@ -2671,12 +2676,12 @@ void BattleBotAI::OnJustDied()
     m_avSkipObjectiveExpiry = 0;
     m_bgProgressTicks = 0;
     m_brChaseTargetGuid.Clear();
-    m_brIgnoredTargetGuid.Clear();
+    for (auto& entry : m_brIgnoredTargets) { entry.guid.Clear(); entry.expireTime = 0; }
     m_brChaseStartTime = 0;
     m_brChaseProgressTime = 0;
     m_brChaseLosLostTime = 0;
-    m_brIgnoredTargetExpireTime = 0;
     m_brAirborneTicks = 0;
+    m_brZoneEscapeFailTicks = 0;
 }
 
 void BattleBotAI::OnJustRevived()
@@ -2799,12 +2804,12 @@ void BattleBotAI::OnLeaveBattleGround()
     m_avStayGuardAfterCapture = false;
     m_bgProgressTicks = 0;
     m_brChaseTargetGuid.Clear();
-    m_brIgnoredTargetGuid.Clear();
+    for (auto& entry : m_brIgnoredTargets) { entry.guid.Clear(); entry.expireTime = 0; }
     m_brChaseStartTime = 0;
     m_brChaseProgressTime = 0;
     m_brChaseLosLostTime = 0;
-    m_brIgnoredTargetExpireTime = 0;
     m_brAirborneTicks = 0;
+    m_brZoneEscapeFailTicks = 0;
 
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
         StopMoving();
@@ -3757,6 +3762,22 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         m_brChaseLastX = 0.0f;
         m_brChaseLastY = 0.0f;
     };
+    // Add a GUID to the multi-slot ignore list, evicting the oldest entry when full.
+    auto addToBrIgnoreList = [this](ObjectGuid guid)
+    {
+        time_t const expire = sWorld.GetGameTime() + BR_BOT_CHASE_IGNORE_TIME;
+        size_t oldestIdx = 0;
+        time_t oldestExpire = std::numeric_limits<time_t>::max();
+        for (size_t i = 0; i < m_brIgnoredTargets.size(); ++i)
+        {
+            if (m_brIgnoredTargets[i].guid == guid)
+                { m_brIgnoredTargets[i].expireTime = expire; return; }
+            if (m_brIgnoredTargets[i].expireTime < oldestExpire)
+                { oldestExpire = m_brIgnoredTargets[i].expireTime; oldestIdx = i; }
+        }
+        m_brIgnoredTargets[oldestIdx].guid = guid;
+        m_brIgnoredTargets[oldestIdx].expireTime = expire;
+    };
     auto rememberBattleRoyaleChase = [this](Unit* target)
     {
         if (!target)
@@ -3784,13 +3805,10 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             m_brChaseLastY = me->GetPositionY();
         }
     };
-    auto abandonBattleRoyaleTarget = [this, &resetBattleRoyaleChase](Unit* target)
+    auto abandonBattleRoyaleTarget = [this, &resetBattleRoyaleChase, &addToBrIgnoreList](Unit* target)
     {
         if (target)
-        {
-            m_brIgnoredTargetGuid = target->GetObjectGuid();
-            m_brIgnoredTargetExpireTime = sWorld.GetGameTime() + BR_BOT_CHASE_IGNORE_TIME;
-        }
+            addToBrIgnoreList(target->GetObjectGuid());
 
         resetBattleRoyaleChase();
         me->AttackStop(false);
@@ -3922,14 +3940,49 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         else
             resetBattleRoyaleChase();
 
-        if (!moveTowardBattleRoyaleSafeZone(0.75f) &&
-            sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
+        if (moveTowardBattleRoyaleSafeZone(0.75f))
         {
-            sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                     "[BattleRoyaleMovement] failed zone escape bot %s guid %u instance %u pos %.2f %.2f %.2f center %.2f %.2f radius %.1f.",
-                     me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(),
-                     me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
-                     zone.GetCenterX(), zone.GetCenterY(), zone.GetCurrentRadius());
+            m_brZoneEscapeFailTicks = 0;
+        }
+        else
+        {
+            ++m_brZoneEscapeFailTicks;
+            if (sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
+                sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                         "[BattleRoyaleMovement] failed zone escape bot %s guid %u instance %u pos %.2f %.2f %.2f center %.2f %.2f radius %.1f fail %u.",
+                         me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(),
+                         me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
+                         zone.GetCenterX(), zone.GetCenterY(), zone.GetCurrentRadius(),
+                         uint32(m_brZoneEscapeFailTicks));
+            // After 15 consecutive failures (~30 s) teleport to the nearest in-zone spawn point.
+            // Spawn points are GM-recorded at ground level so their Z values are navmesh-safe.
+            if (m_brZoneEscapeFailTicks >= 15)
+            {
+                BattleRoyaleTemplate const* tmpl = br->GetTemplate();
+                if (tmpl && !tmpl->spawnPoints.empty())
+                {
+                    BRSpawnPoint const* bestSP = nullptr;
+                    float bestDist = FLT_MAX;
+                    for (BRSpawnPoint const& sp : tmpl->spawnPoints)
+                    {
+                        if (!zone.IsInsideZone(sp.x, sp.y))
+                            continue;
+                        float const d = std::hypot(sp.x - me->GetPositionX(), sp.y - me->GetPositionY());
+                        if (d < bestDist) { bestDist = d; bestSP = &sp; }
+                    }
+                    if (bestSP)
+                    {
+                        if (sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
+                            sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                                     "[BattleRoyaleMovement] zone escape teleport bot %s guid %u instance %u from %.2f %.2f %.2f to %.2f %.2f %.2f.",
+                                     me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(),
+                                     me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
+                                     bestSP->x, bestSP->y, bestSP->z);
+                        me->NearTeleportTo(bestSP->x, bestSP->y, bestSP->z, me->GetOrientation());
+                        m_brZoneEscapeFailTicks = 0;
+                    }
+                }
+            }
         }
         return;
     }
@@ -4050,8 +4103,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
                          me->GetDistance(victim), me->GetCombatDistance(victim),
                          me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
                          victim->GetPositionX(), victim->GetPositionY(), victim->GetPositionZ());
-            m_brIgnoredTargetGuid = victim->GetObjectGuid();
-            m_brIgnoredTargetExpireTime = now + BR_BOT_CHASE_IGNORE_TIME;
+            addToBrIgnoreList(victim->GetObjectGuid());
             resetBattleRoyaleChase();
             me->AttackStop();
             me->ClearTarget();

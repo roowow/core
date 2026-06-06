@@ -18,6 +18,7 @@
 #define MANGOS_BattleBotAI_H
 
 #include "CombatBotBaseAI.h"
+#include <array>
 #include "BattleBotWaypoints.h"
 #include "ObjectGuid.h"
 
@@ -126,14 +127,15 @@ public:
     uint32 m_brInstanceId       = 0;
     bool   m_brReadyNotified    = false;
     ObjectGuid m_brChaseTargetGuid;
-    ObjectGuid m_brIgnoredTargetGuid;
+    struct BrIgnoreEntry { ObjectGuid guid; time_t expireTime = 0; };
+    std::array<BrIgnoreEntry, 4> m_brIgnoredTargets{};
     time_t m_brChaseStartTime = 0;
     time_t m_brChaseProgressTime = 0;
     time_t m_brChaseLosLostTime = 0;
-    time_t m_brIgnoredTargetExpireTime = 0;
     float m_brChaseLastX = 0.0f;
     float m_brChaseLastY = 0.0f;
     uint8 m_brAirborneTicks = 0;
+    uint8 m_brZoneEscapeFailTicks = 0;
     ShortTimeTracker m_updateTimer;
     uint8 m_race = 0;
     uint8 m_class = 0;
