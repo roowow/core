@@ -3954,9 +3954,9 @@ void BattleBotAI::UpdateBattleRoyaleAI()
                          me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
                          zone.GetCenterX(), zone.GetCenterY(), zone.GetCurrentRadius(),
                          uint32(m_brZoneEscapeFailTicks));
-            // After 15 consecutive failures (~30 s) teleport to the nearest in-zone spawn point.
+            // After 5 consecutive failures (~5 s) teleport to the nearest in-zone spawn point.
             // Spawn points are GM-recorded at ground level so their Z values are navmesh-safe.
-            if (m_brZoneEscapeFailTicks >= 15)
+            if (m_brZoneEscapeFailTicks >= 5)
             {
                 BattleRoyaleTemplate const* tmpl = br->GetTemplate();
                 if (tmpl && !tmpl->spawnPoints.empty())
@@ -6333,7 +6333,16 @@ void BattleBotAI::UpdateOutOfCombatAI_Rogue()
     }
 
     if (me->GetVictim())
+    {
+        // After vanishing with low HP, eat/drink before re-engaging from stealth.
+        // Only skip recovery if no food is available (don't stall indefinitely).
+        if (me->HasAuraType(SPELL_AURA_MOD_STEALTH) && me->GetHealthPercent() < 70.0f)
+        {
+            if (DrinkAndEat())
+                return;
+        }
         UpdateInCombatAI_Rogue();
+    }
 }
 
 void BattleBotAI::UpdateInCombatAI_Rogue()

@@ -2707,7 +2707,16 @@ void PartyBotAI::UpdateOutOfCombatAI_Rogue()
         return;
 
     if (me->GetVictim())
+    {
+        // After vanishing with low HP, eat/drink before re-engaging from stealth.
+        // Only skip recovery if no food is available (don't stall indefinitely).
+        if (me->HasAuraType(SPELL_AURA_MOD_STEALTH) && me->GetHealthPercent() < 70.0f)
+        {
+            if (DrinkAndEat())
+                return;
+        }
         UpdateInCombatAI_Rogue();
+    }
 }
 
 void PartyBotAI::UpdateInCombatAI_Rogue()
