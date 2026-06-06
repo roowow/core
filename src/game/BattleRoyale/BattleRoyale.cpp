@@ -100,7 +100,7 @@ static float GetBattleRoyaleLandingZ(Map* map, BRSpawnPoint const& landing)
 // 900214-900216, 900219, 900221 reserved for future items; not yet in DB, omitted here.
 static uint32 const BR_ITEM_ENTRIES[] =
 {
-    900210, 900211, 900213,
+    900210, 900211, 900213, 900233, 900234,
     900217, 900218, 900220,
     900222, 900223, 900225, 900226,
     900227,
