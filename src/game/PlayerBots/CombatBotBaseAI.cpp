@@ -3177,6 +3177,20 @@ SpellCastResult CombatBotBaseAI::DoCastSpell(Unit* pTarget, SpellEntry const* pS
     me->SetTargetGuid(pTarget->GetObjectGuid());
     auto result = me->CastSpell(pTarget, pSpellEntry, false);
 
+    if (result == SPELL_CAST_OK &&
+        me->GetBattleGroundTypeId() == BATTLEGROUND_BR &&
+        sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
+    {
+        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                 "[BRSkill] bot %s guid %u instance %u cast %s on %s (bot hp=%.0f%% mana=%.0f%%, target hp=%.0f%%).",
+                 me->GetName(), me->GetGUIDLow(), me->GetBattleGroundId(),
+                 pSpellEntry->SpellName[0].c_str(),
+                 pTarget->GetName(),
+                 me->GetHealthPercent(),
+                 me->GetPowerType() == POWER_MANA ? me->GetPowerPercent(POWER_MANA) : 0.0f,
+                 pTarget->GetHealthPercent());
+    }
+
     //printf("cast %s result %u\n", pSpellEntry->SpellName[0].c_str(), result);
 
     if ((result == SPELL_FAILED_MOVING ||
