@@ -933,8 +933,14 @@ void Map::UpdatePlayers()
             continue;
         }
         WorldObject::UpdateHelper helper(plr);
+        uint32 playerUpdateStart = WorldTimer::getMSTime();
         helper.UpdateRealTime(now, diff + plr->GetSkippedUpdateTime());
         plr->ResetSkippedUpdateTime();
+        uint32 playerUpdateTime = WorldTimer::getMSTimeDiffToNow(playerUpdateStart);
+        if (playerUpdateTime >= 20)
+            sLog.Out(LOG_PERFORMANCE, LOG_LVL_BASIC, "Slow player update: %ums. Player '%s' (GUID: %u) map %u, zone %u, area %u, inCombat %u, auras %u",
+                playerUpdateTime, plr->GetName(), plr->GetGUIDLow(), GetId(), plr->GetZoneId(), plr->GetAreaId(),
+                plr->IsInCombat() ? 1 : 0, plr->GetAuras().size());
     }
     if (updateInactivePlayers)
         m_inactivePlayersSkippedUpdates = 0;

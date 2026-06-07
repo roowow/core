@@ -1318,8 +1318,8 @@ void Player::Update(uint32 update_diff, uint32 p_time)
         {
             // m_nextSave reseted in SaveToDB call
             SaveToDB();
-            if (!IsSavingDisabled())
-                sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "Player '%s' (GUID: %u) saved", GetName(), GetGUIDLow());
+            //if (!IsSavingDisabled())
+            //    sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "Player '%s' (GUID: %u) saved", GetName(), GetGUIDLow());
         }
         else
             m_nextSave -= update_diff;
