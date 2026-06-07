@@ -32,9 +32,9 @@ static float  const BR_TWO_PI                    = 6.2831853071795864769f;
 static uint32 const BR_CORPSE_LOOT_REF_ID = 9001;
 
 // Season score awarded per placement and per kill.
-static uint32 const BR_SCORE_RANK1    = 10;
-static uint32 const BR_SCORE_RANK2    = 5;
-static uint32 const BR_SCORE_RANK3    = 3;
+static uint32 const BR_SCORE_RANK1    = 5;
+static uint32 const BR_SCORE_RANK2    = 3;
+static uint32 const BR_SCORE_RANK3    = 1;
 static uint32 const BR_SCORE_PER_KILL = 1;
 static uint32 const BR_WINNER_CELEBRATION_SPELL_ID = 27571;
 

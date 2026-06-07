@@ -2422,9 +2422,9 @@ Unit* BattleBotAI::SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* 
         bool const attackingMe = pTarget->GetVictim() == me;
 
         // Ignore list is always respected, even during urgentOnly recovery scans.
-        // The sole exception: a target that is actively hitting us must be engaged
-        // regardless — a bot cannot refuse to defend itself against a live attacker.
-        if (!attackingMe)
+        // Normally a target actively hitting us bypasses the ignore list — but when the
+        // bot is critically low on HP and fleeing, survival takes priority over retaliation.
+        if (!attackingMe || me->GetHealthPercent() < 20.0f)
         {
             ObjectGuid const tg = pTarget->GetObjectGuid();
             bool ignored = false;
@@ -4218,20 +4218,35 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     resetBattleRoyaleChase();
 
     // Retaliate against anyone currently attacking us.
-    for (Unit* attacker : me->GetAttackers())
+    // When critically low on HP, honor the ignore list even for active attackers so
+    // the flee mechanic has a chance to actually create distance before re-engaging.
     {
-        if (attacker &&
-            !IsBadPlayer(attacker) &&
-            !BattleBotHasBlind(attacker) &&
-            IsValidHostileTarget(attacker) &&
-            zone.IsInsideZone(attacker->GetPositionX(), attacker->GetPositionY()) &&
-            me->IsWithinDist(attacker, VISIBILITY_DISTANCE_NORMAL) &&
-            me->GetDistanceZ(attacker) < 10.0f &&
-            me->IsWithinLOSInMap(attacker) &&
-            canReachBattleRoyaleTarget(attacker))
+        time_t const retNow = sWorld.GetGameTime();
+        bool const lowHp = me->GetHealthPercent() < 20.0f;
+        for (Unit* attacker : me->GetAttackers())
         {
-            if (startBattleRoyaleAttack(attacker))
-                return;
+            if (!attacker)
+                continue;
+            if (lowHp)
+            {
+                ObjectGuid const ag = attacker->GetObjectGuid();
+                bool ignored = false;
+                for (auto const& entry : m_brIgnoredTargets)
+                    if (entry.guid == ag && retNow < entry.expireTime) { ignored = true; break; }
+                if (ignored) continue;
+            }
+            if (!IsBadPlayer(attacker) &&
+                !BattleBotHasBlind(attacker) &&
+                IsValidHostileTarget(attacker) &&
+                zone.IsInsideZone(attacker->GetPositionX(), attacker->GetPositionY()) &&
+                me->IsWithinDist(attacker, VISIBILITY_DISTANCE_NORMAL) &&
+                me->GetDistanceZ(attacker) < 10.0f &&
+                me->IsWithinLOSInMap(attacker) &&
+                canReachBattleRoyaleTarget(attacker))
+            {
+                if (startBattleRoyaleAttack(attacker))
+                    return;
+            }
         }
     }
 
