@@ -4,14 +4,10 @@
 
 static bool BRPlayerHasWon(Player* player)
 {
-    QueryResult* res = CharacterDatabase.PQuery(
+    auto res = CharacterDatabase.PQuery(
         "SELECT `total_wins` FROM `battle_royale_season_score` WHERE `guid` = %u",
         player->GetGUIDLow());
-    if (!res)
-        return false;
-    bool won = res->Fetch()[0].GetUInt32() >= 1;
-    delete res;
-    return won;
+    return res && res->Fetch()[0].GetUInt32() >= 1;
 }
 
 // NPC entries — 900100 = Alliance (Ironforge, displayId 15728), 900102 = Horde (Orgrimmar, displayId 15731)
