@@ -32,6 +32,7 @@
 #include "Map.h"
 #include "Chat.h"
 #include "ScriptedGossip.h"
+#include "BattleRoyale/BattleRoyaleMgr.h"
 
 using namespace Spells;
 
@@ -310,6 +311,24 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
 
         pMenu->SendGossipMenu(22030, pItem->GetGUID());
 
+        cancelCast = true;
+    }
+
+    // BR 报名令牌 — 任意地点远程加入/离开候战席
+    if (pItem->GetEntry() == 900105)
+    {
+        bool inQueue = sBattleRoyaleMgr.IsPlayerInQueue(pUser->GetObjectGuid());
+        bool inGame  = sBattleRoyaleMgr.IsPlayerInGame(pUser->GetObjectGuid());
+        if (inGame)
+            ChatHandler(pUser).PSendSysMessage("[孤胆称雄] 对局进行中，无法报名。");
+        else if (inQueue)
+            sBattleRoyaleMgr.DequeuePlayer(pUser);
+        else
+        {
+            std::string err;
+            if (!sBattleRoyaleMgr.EnqueuePlayer(pUser, err))
+                ChatHandler(pUser).PSendSysMessage("[孤胆称雄] %s", err.c_str());
+        }
         cancelCast = true;
     }
 
