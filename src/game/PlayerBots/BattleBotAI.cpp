@@ -95,6 +95,7 @@ enum BattleBotSpells
 #define BR_BOT_CHASE_IGNORE_TIME 18
 #define BR_BOT_CHASE_SOFT_DISTANCE 35.0f
 #define BR_BOT_CHASE_HARD_DISTANCE 45.0f
+#define BR_BOT_PLAYER_INTERCEPT_RANGE 30.0f
 #define BR_BOT_AIRBORNE_SOFT_HEIGHT 1.0f
 #define BR_BOT_AIRBORNE_HARD_HEIGHT 5.0f
 #define BR_BOT_AIRBORNE_TELEPORT_TICKS 2
@@ -2453,6 +2454,10 @@ Unit* BattleBotAI::SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* 
         if (pTarget->GetVictim() && pTarget->GetVictim() != me)
             score += 20.0f;
 
+        // Real players are smarter and more dangerous than bots; always prioritize them.
+        if (!pTarget->IsBot())
+            score += 80.0f;
+
         // A wounded bot should not eagerly open on a healthy melee target at point blank range.
         if (!urgentOnly &&
             me->GetHealthPercent() < 50.0f &&
@@ -3817,7 +3822,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         me->ClearTarget();
         StopMoving();
     };
-    auto startBattleRoyaleAttack = [&rememberBattleRoyaleChase, this](Unit* target) -> bool
+    auto startBattleRoyaleAttack = [&rememberBattleRoyaleChase, bg, this](Unit* target) -> bool
     {
         if (!target)
             return false;
@@ -3826,6 +3831,13 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             return false;
 
         rememberBattleRoyaleChase(target);
+        if (sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
+            sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                     "[BRCombat] engage bot %s guid %u instance %u (hp=%.0f%%) vs %s (%s hp=%.0f%%) dist=%.1f.",
+                     me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(),
+                     me->GetHealthPercent(),
+                     target->GetName(), target->IsBot() ? "bot" : "player",
+                     target->GetHealthPercent(), me->GetDistance(target));
         return true;
     };
     auto cancelBattleRoyaleRecovery = [this]()
@@ -4039,6 +4051,65 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         {
             dropChase = true;
             dropReason = "progress-timeout";
+        }
+
+        // Disengage when critically low on HP and the enemy isn't retaliating.
+        // If they're already hitting back, fleeing is futile — they'll follow.
+        if (!dropChase && me->GetHealthPercent() < 20.0f && !victimAttackingMe && victim->GetHealthPercent() > 20.0f)
+        {
+            dropChase = true;
+            dropReason = "low-hp-flee";
+        }
+
+        // If we are fighting a bot and a real player enters nearby range, switch immediately.
+        // Two bots wearing each other down while a player watches is a free-kill setup.
+        // Exception: if the bot is nearly dead (<15% HP), finish the kill first.
+        if (!dropChase && victim->IsBot() && victim->GetHealthPercent() > 15.0f)
+        {
+            Player* pRealPlayer = nullptr;
+            float bestPlayerDist = BR_BOT_PLAYER_INTERCEPT_RANGE;
+            std::list<Player*> nearbyPlayers;
+            me->GetAlivePlayerListInRange(me, nearbyPlayers, BR_BOT_PLAYER_INTERCEPT_RANGE);
+            for (Player* pCandidate : nearbyPlayers)
+            {
+                if (pCandidate->IsBot() || pCandidate == me)
+                    continue;
+                if (!IsValidHostileTarget(pCandidate) || IsBadPlayer(pCandidate))
+                    continue;
+                ObjectGuid const tg = pCandidate->GetObjectGuid();
+                bool ignored = false;
+                for (auto const& entry : m_brIgnoredTargets)
+                    if (entry.guid == tg && now < entry.expireTime) { ignored = true; break; }
+                if (ignored)
+                    continue;
+                if (!zone.IsInsideZone(pCandidate->GetPositionX(), pCandidate->GetPositionY()))
+                    continue;
+                if (!pCandidate->IsVisibleForOrDetect(me, me, false) || !me->IsWithinLOSInMap(pCandidate))
+                    continue;
+                if (me->GetDistanceZ(pCandidate) > 8.0f)
+                    continue;
+                float const d = me->GetDistance(pCandidate);
+                if (d < bestPlayerDist)
+                {
+                    bestPlayerDist = d;
+                    pRealPlayer = pCandidate;
+                }
+            }
+            if (pRealPlayer)
+            {
+                if (sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
+                    sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                             "[BRCombat] mid-combat switch bot %s guid %u instance %u: bot-target %s(hp=%.0f%%) -> player %s(hp=%.0f%%) dist=%.1f.",
+                             me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(),
+                             victim->GetName(), victim->GetHealthPercent(),
+                             pRealPlayer->GetName(), pRealPlayer->GetHealthPercent(),
+                             me->GetDistance(pRealPlayer));
+                resetBattleRoyaleChase();
+                me->AttackStop();
+                me->ClearTarget();
+                if (startBattleRoyaleAttack(pRealPlayer))
+                    return;
+            }
         }
 
         if (dropChase)
@@ -4257,13 +4328,35 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     {
         if (canReachBattleRoyaleTarget(pTarget))
         {
-            // Try out-of-combat openers before AttackStart puts the bot into combat.
-            // Charge requires being out of combat; the server-side CastSpell enforces
-            // this requirement, so it must be attempted before AttackStart() is called.
-            if (me->GetClass() == CLASS_WARRIOR &&
-                m_spells.warrior.pCharge &&
-                CanTryToCastSpell(pTarget, m_spells.warrior.pCharge))
-                DoCastSpell(pTarget, m_spells.warrior.pCharge);
+            // Out-of-combat openers before AttackStart; each class gets one setup action.
+            switch (me->GetClass())
+            {
+                case CLASS_WARRIOR:
+                    // Charge requires being out of combat — must go before AttackStart.
+                    if (m_spells.warrior.pCharge &&
+                        CanTryToCastSpell(pTarget, m_spells.warrior.pCharge))
+                        DoCastSpell(pTarget, m_spells.warrior.pCharge);
+                    break;
+                case CLASS_HUNTER:
+                    // Switch from Cheetah (patrol speed) to Hawk (damage) before engaging,
+                    // then mark the target so the damage bonus applies from the first shot.
+                    if (m_spells.hunter.pAspectOfTheHawk &&
+                        CanTryToCastSpell(me, m_spells.hunter.pAspectOfTheHawk))
+                        DoCastSpell(me, m_spells.hunter.pAspectOfTheHawk);
+                    if (m_spells.hunter.pHuntersMark &&
+                        CanTryToCastSpell(pTarget, m_spells.hunter.pHuntersMark))
+                        DoCastSpell(pTarget, m_spells.hunter.pHuntersMark);
+                    break;
+                case CLASS_MAGE:
+                    // Presence of Mind makes the next cast instant. Activating it here
+                    // lets UpdateInCombatAI_Mage fire an instant Pyroblast on tick 1.
+                    if (m_spells.mage.pPresenceOfMind &&
+                        CanTryToCastSpell(me, m_spells.mage.pPresenceOfMind))
+                        DoCastSpell(me, m_spells.mage.pPresenceOfMind);
+                    break;
+                default:
+                    break;
+            }
             if (startBattleRoyaleAttack(pTarget))
                 return;
         }
