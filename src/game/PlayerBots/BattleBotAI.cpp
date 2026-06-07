@@ -3836,7 +3836,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
                      "[BRCombat] engage bot %s guid %u instance %u (hp=%.0f%%) vs %s (%s hp=%.0f%%) dist=%.1f.",
                      me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(),
                      me->GetHealthPercent(),
-                     target->GetName(), target->IsBot() ? "bot" : "player",
+                     target->GetName(), (target->GetTypeId() == TYPEID_PLAYER && static_cast<Player const*>(target)->IsBot()) ? "bot" : "player",
                      target->GetHealthPercent(), me->GetDistance(target));
         return true;
     };
@@ -4064,7 +4064,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         // If we are fighting a bot and a real player enters nearby range, switch immediately.
         // Two bots wearing each other down while a player watches is a free-kill setup.
         // Exception: if the bot is nearly dead (<15% HP), finish the kill first.
-        if (!dropChase && victim->IsBot() && victim->GetHealthPercent() > 15.0f)
+        if (!dropChase && victim->GetTypeId() == TYPEID_PLAYER && static_cast<Player const*>(victim)->IsBot() && victim->GetHealthPercent() > 15.0f)
         {
             Player* pRealPlayer = nullptr;
             float bestPlayerDist = BR_BOT_PLAYER_INTERCEPT_RANGE;
