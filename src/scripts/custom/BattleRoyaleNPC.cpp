@@ -36,7 +36,7 @@ bool GossipHello_BattleRoyaleNPC(Player* player, Creature* creature)
     player->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT, "查看候战席人数", GOSSIP_SENDER_MAIN, BR_ACTION_STATUS);
 
     if (!player->HasItemCount(ITEM_BR_TOKEN, 1) && BRPlayerHasWon(player))
-        player->ADD_GOSSIP_ITEM(GOSSIP_ICON_INTERACT_1, "领取论剑帖（可随身远程报名）", GOSSIP_SENDER_MAIN, BR_ACTION_GET_TOKEN);
+        player->ADD_GOSSIP_ITEM(GOSSIP_ICON_INTERACT_1, "领取论剑令", GOSSIP_SENDER_MAIN, BR_ACTION_GET_TOKEN);
 
     player->SEND_GOSSIP_MENU(BR_GOSSIP_TEXT_QUEUE, creature->GetGUID());
     return true;

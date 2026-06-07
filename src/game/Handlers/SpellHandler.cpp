@@ -314,20 +314,24 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
         cancelCast = true;
     }
 
-    // BR 报名令牌 — 任意地点远程加入/离开候战席
+    // BR 报名令牌 — 世界地图远程加入/离开候战席（副本/战场/BR/战斗中不可用）
     if (pItem->GetEntry() == 900105)
     {
-        bool inQueue = sBattleRoyaleMgr.IsPlayerInQueue(pUser->GetObjectGuid());
-        bool inGame  = sBattleRoyaleMgr.IsPlayerInGame(pUser->GetObjectGuid());
-        if (inGame)
-            ChatHandler(pUser).PSendSysMessage("[孤胆称雄] 对局进行中，无法报名。");
-        else if (inQueue)
-            sBattleRoyaleMgr.DequeuePlayer(pUser);
+        if (pUser->GetMap()->Instanceable())
+            ChatHandler(pUser).PSendSysMessage("[孤胆称雄] 此地无法使用论剑令，请前往野外。");
+        else if (pUser->IsInCombat())
+            ChatHandler(pUser).PSendSysMessage("[孤胆称雄] 战斗中无法使用论剑令。");
         else
         {
-            std::string err;
-            if (!sBattleRoyaleMgr.EnqueuePlayer(pUser, err))
-                ChatHandler(pUser).PSendSysMessage("[孤胆称雄] %s", err.c_str());
+            bool inQueue = sBattleRoyaleMgr.IsPlayerInQueue(pUser->GetObjectGuid());
+            if (inQueue)
+                sBattleRoyaleMgr.DequeuePlayer(pUser);
+            else
+            {
+                std::string err;
+                if (!sBattleRoyaleMgr.EnqueuePlayer(pUser, err))
+                    ChatHandler(pUser).PSendSysMessage("[孤胆称雄] %s", err.c_str());
+            }
         }
         cancelCast = true;
     }
