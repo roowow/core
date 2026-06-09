@@ -342,6 +342,17 @@ bool BattleRoyaleMgr::EnqueuePlayer(Player* player, std::string& outError)
                 queued, sWorld.getConfig(CONFIG_UINT32_BATTLE_ROYALE_COUNTDOWN_SEC));
     }
 
+    // 通知队列中其他等待的玩家
+    for (ObjectGuid const& other : m_queue)
+    {
+        if (other == guid)
+            continue;
+        if (Player* p = sObjectMgr.GetPlayer(other))
+            ChatHandler(p).PSendSysMessage(
+                "[孤胆称雄] %s 接下论剑帖，当前候战 %u 人。",
+                player->GetName(), queued);
+    }
+
     return true;
 }
 
@@ -446,6 +457,22 @@ bool BattleRoyaleMgr::RestorePendingPlayer(Player* player) const
                  guid, instanceId, mapId, x, y, z, o);
         ClearPendingRestore(player->GetObjectGuid());
         return false;
+    }
+
+    // Saved map must be a continent (map 0 or 1). If it is an instance or
+    // battleground map (e.g. player was in a BG when BR launched), CreateMap
+    // would call CreateInstance which ASSERTs on a zero BattleGroundId and
+    // crashes. Discard the stale record and let normal login flow handle it.
+    {
+        MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(mapId);
+        if (!mapEntry || mapEntry->Instanceable())
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                     "[BattleRoyaleMgr] Pending restore for player %u has non-continent map %u — discarding.",
+                     guid, mapId);
+            ClearPendingRestore(player->GetObjectGuid());
+            return false;
+        }
     }
 
     if (player->IsTaxiFlying())
@@ -678,6 +705,23 @@ bool BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers, uint32 templateId, st
         Player* p = sObjectMgr.GetPlayer(guid);
         if (!p || !p->IsInWorld())
         {
+            continue;
+        }
+
+        // Re-validate: player state may have changed since they joined the queue.
+        // Skip (and drop from queue) anyone now in a BG, instance, combat, or dead.
+        if (p->InBattleGround() || p->GetMap()->Instanceable() ||
+            p->IsInCombat() || p->IsDead() || p->IsTaxiFlying())
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
+                     "[BattleRoyaleMgr] Dropping player %s (%u) from BR queue: state changed (bg=%u inst=%u combat=%u dead=%u taxi=%u).",
+                     p->GetName(), p->GetGUIDLow(),
+                     p->InBattleGround() ? 1 : 0,
+                     p->GetMap()->Instanceable() ? 1 : 0,
+                     p->IsInCombat() ? 1 : 0,
+                     p->IsDead() ? 1 : 0,
+                     p->IsTaxiFlying() ? 1 : 0);
+            ChatHandler(p).PSendSysMessage("[孤胆称雄] 你的状态已不符合入局条件，已从候战席中移除。");
             continue;
         }
 
