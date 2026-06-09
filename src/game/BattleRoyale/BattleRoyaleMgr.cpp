@@ -267,6 +267,21 @@ void BattleRoyaleMgr::Update(uint32 diff)
         }
         else
         {
+            // Cancel countdown if online queue drops below minimum mid-tick.
+            uint32 const minPlayers = sWorld.getConfig(CONFIG_UINT32_BATTLE_ROYALE_MIN_PLAYERS);
+            uint32 onlineCount = 0;
+            for (ObjectGuid const& g : m_queue)
+                if (Player* p = sObjectMgr.GetPlayer(g))
+                    if (p->IsInWorld())
+                        ++onlineCount;
+            if (onlineCount < minPlayers)
+            {
+                m_countdownActive = false;
+                m_countdownTimer  = 0;
+                SendMsgToParticipants("[孤胆称雄] 候战人数不足，本局取消，重新等待。");
+                return;
+            }
+
             m_countdownTimer -= diff;
 
             // Variable-frequency reminders:
