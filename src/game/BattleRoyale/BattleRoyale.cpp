@@ -336,7 +336,9 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         if (brPlayer.deploymentStarted)
         {
             // Combined flight ended — land.
-            CompleteDeployment(player, brPlayer, false);
+            // Always teleport to the landing point so 1.14 clients (via proxy)
+            // receive an explicit position anchor packet after the taxi ends.
+            CompleteDeployment(player, brPlayer, !brPlayer.bot);
             continue;
         }
 
