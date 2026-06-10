@@ -127,6 +127,20 @@ void WorldSession::HandleGroupInviteOpcode(WorldPackets::Group::GroupInvite cons
         return;
     }
 
+    // BR: block group invites from/to players in a Battle Royale instance
+    if (GetPlayer()->GetBattleGroundTypeId() == BATTLEGROUND_BR)
+    {
+        ChatHandler(GetPlayer()).PSendSysMessage("[孤胆称雄] 论剑局中不可组队。");
+        SendPartyResult(PARTY_OP_INVITE, packet.memberName, ERR_INTERNAL_BATTLEGROUND);
+        return;
+    }
+    if (player->GetBattleGroundTypeId() == BATTLEGROUND_BR)
+    {
+        ChatHandler(GetPlayer()).PSendSysMessage("[孤胆称雄] 对方正身处论剑局中，无法组队。");
+        SendPartyResult(PARTY_OP_INVITE, packet.memberName, ERR_INTERNAL_BATTLEGROUND);
+        return;
+    }
+
     // Can't group with
     if (!GetPlayer()->IsGameMaster() && !sWorld.getConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_INTERACTION_GROUP) && GetPlayer()->GetTeam() != player->GetTeam())
     {
@@ -222,6 +236,14 @@ void WorldSession::HandleGroupAcceptOpcode(NullClientPacket const& /*packet*/)
 
     /** error handling **/
     /********************/
+
+    // BR: block accepting a group invite while in a Battle Royale instance
+    if (GetPlayer()->GetBattleGroundTypeId() == BATTLEGROUND_BR)
+    {
+        ChatHandler(GetPlayer()).PSendSysMessage("[孤胆称雄] 论剑局中不可组队。");
+        SendPartyResult(PARTY_OP_INVITE, "", ERR_INTERNAL_BATTLEGROUND);
+        return;
+    }
 
     // not have place
     if (group->IsFull())
