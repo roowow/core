@@ -196,11 +196,7 @@ void SendDefaultMenu_TianxuanNPC2(Player* player, Creature* creature, uint32 act
 
             player->SetTianxuan(true);
 
-            {
-                char buf[256];
-                snprintf(buf, sizeof(buf), "【天选】%s 承天命，踏孤途。天选者之路，由此而始。", player->GetName());
-                ChatHandler(player->GetSession()).SendGlobalSysMessage(buf);
-            }
+            ChatHandler(player->GetSession()).PSendSysMessage("【天选】承天命，踏孤途。天选者之路，由此而始。");
 
             player->CLOSE_GOSSIP_MENU();
             break;
