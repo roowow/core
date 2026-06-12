@@ -778,7 +778,14 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
 
         // 天选者印记（天选者模式标识）
         if (GetPlayer()->IsTianxuan() && !GetPlayer()->HasAura(21969))
-            GetPlayer()->AddAura(21969, 0, GetPlayer());
+        {
+            if (SpellAuraHolder* holder = GetPlayer()->AddAura(21969, 0, GetPlayer()))
+            {
+                holder->SetPermanent(true);
+                holder->SetAuraMaxDuration(-1);
+                holder->SetAuraDuration(-1);
+            }
+        }
     }
 }
 

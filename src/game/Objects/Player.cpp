@@ -3060,11 +3060,18 @@ void Player::SetTianxuan(bool on)
     if (on)
     {
         m_ExtraFlags |= PLAYER_EXTRA_TIANXUAN_ON;
-        AddAura(21969, 0, this);
+        CharacterDatabase.PExecute("UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
+        if (SpellAuraHolder* holder = AddAura(21969, 0, this))
+        {
+            holder->SetPermanent(true);
+            holder->SetAuraMaxDuration(-1);
+            holder->SetAuraDuration(-1);
+        }
     }
     else
     {
         m_ExtraFlags &= ~PLAYER_EXTRA_TIANXUAN_ON;
+        CharacterDatabase.PExecute("UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
         RemoveAurasDueToSpell(21969);
     }
 }
