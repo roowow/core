@@ -39,6 +39,7 @@
 #include "Language.h"
 #include "Anticheat.h"
 #include "MasterPlayer.h"
+#include "Spells/SpellAuras.h"
 #include "PlayerBroadcaster.h"
 #include "PlayerBotMgr.h"
 #include "MapManager.h"
