@@ -112,6 +112,37 @@ void WorldSession::HandleGroupInviteOpcode(WorldPackets::Group::GroupInvite cons
         }
     }
 
+    // 天选者：不能与 Hardcore 玩家组队
+    if (leader->IsTianxuan() && player->IsHardcore() && !player->IsHardcoreRetired())
+    {
+        ChatHandler(leader).SendSysMessage("[天选者] 天选之路不与勇敢者同行。");
+        ChatHandler(player).SendSysMessage("[天选者] 对方为天选者，无法与勇敢者同行。");
+        SendPartyResult(PARTY_OP_INVITE, packet.memberName, ERR_IGNORING_YOU_S);
+        return;
+    }
+    if (player->IsTianxuan() && leader->IsHardcore() && !leader->IsHardcoreRetired())
+    {
+        ChatHandler(leader).SendSysMessage("[天选者] 对方为天选者，无法与勇敢者同行。");
+        ChatHandler(player).SendSysMessage("[天选者] 天选之路不与勇敢者同行。");
+        SendPartyResult(PARTY_OP_INVITE, packet.memberName, ERR_IGNORING_YOU_S);
+        return;
+    }
+
+    // 天选者：组队等级差不能超过 5 级
+    if (leader->IsTianxuan() || player->IsTianxuan())
+    {
+        uint32 leaderLevel = leader->GetLevel();
+        uint32 playerLevel = player->GetLevel();
+        uint32 diff = leaderLevel > playerLevel ? leaderLevel - playerLevel : playerLevel - leaderLevel;
+        if (diff > 5)
+        {
+            ChatHandler(leader).SendSysMessage("[天选者] 天选者组队等级差不能超过 5 级。");
+            ChatHandler(player).SendSysMessage("[天选者] 天选者组队等级差不能超过 5 级。");
+            SendPartyResult(PARTY_OP_INVITE, packet.memberName, ERR_IGNORING_YOU_S);
+            return;
+        }
+    }
+
     if (leader->IsActiveQuest(32003) && ! leader->GetQuestRewardStatus(32003))
     {
         ChatHandler(leader).SendSysMessage("真的猛士需要独自面对深邃的大海。");

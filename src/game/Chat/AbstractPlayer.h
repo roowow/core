@@ -27,7 +27,10 @@ enum PlayerExtraFlags
     PLAYER_EXTRA_HARDCORE_ON        = 0x1000,
     PLAYER_EXTRA_HARDCORE_RETIRED   = 0x2000,
     PLAYER_EXTRA_HARDCORE_DEAD      = 0x4000,
-    PLAYER_EXTRA_HARDCORE_PVP       = 0x8000
+    PLAYER_EXTRA_HARDCORE_PVP       = 0x8000,
+
+    /// Tianxuan (Chosen One Mode)
+    PLAYER_EXTRA_TIANXUAN_ON        = 0x00010000
 };
 
 class MasterPlayer;

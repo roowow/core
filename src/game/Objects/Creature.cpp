@@ -1553,7 +1553,8 @@ void Creature::CountHardcoreGrayAssistDamage(Unit const* attacker, uint32 damage
             tapPlayer = recipientUnit->GetCharmerOrOwnerPlayerOrPlayerItself();
     }
 
-    if (!tapPlayer || !tapPlayer->IsHardcore())
+    // 仅对勇敢者和天选者生效：灰色等级玩家协助击杀会降低 tap 玩家所获经验（禁止染色）
+    if (!tapPlayer || (!tapPlayer->IsHardcore() && !tapPlayer->IsTianxuan()))
         return;
 
     Player* attackerPlayer = attacker->GetCharmerOrOwnerPlayerOrPlayerItself();

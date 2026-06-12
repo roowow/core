@@ -47,6 +47,13 @@ void WorldSession::HandleAuctionHelloOpcode(WorldPackets::AuctionHouse::AuctionH
         return;
     }
 
+    // 天选者模式禁止使用拍卖行
+    if (GetPlayer()->IsTianxuan())
+    {
+        ChatHandler(GetPlayer()).PSendSysMessage("[天选者] 天选之路，不借外力。");
+        return;
+    }
+
     // remove fake death
     if (GetPlayer()->HasUnitState(UNIT_STATE_FEIGN_DEATH))
         GetPlayer()->RemoveSpellsCausingAura(SPELL_AURA_FEIGN_DEATH);

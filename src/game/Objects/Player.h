@@ -876,6 +876,10 @@ class Player final: public Unit
         void SetHardcorePVP(bool on = true);
         void SetHardcoreRetired();
 
+        bool IsTianxuan() const { return m_ExtraFlags & PLAYER_EXTRA_TIANXUAN_ON; }
+        void SetTianxuan(bool on);
+
+
         /*********************************************************/
         /***                    STORAGE SYSTEM                 ***/
         /*********************************************************/

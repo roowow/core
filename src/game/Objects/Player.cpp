@@ -3055,6 +3055,20 @@ bool Player::SetHardcore(bool on)
     return true;
 }
 
+void Player::SetTianxuan(bool on)
+{
+    if (on)
+    {
+        m_ExtraFlags |= PLAYER_EXTRA_TIANXUAN_ON;
+        AddAura(21969, 0, this);
+    }
+    else
+    {
+        m_ExtraFlags &= ~PLAYER_EXTRA_TIANXUAN_ON;
+        RemoveAurasDueToSpell(21969);
+    }
+}
+
 void Player::SetHardcoreRetired()
 {
     m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_RETIRED;

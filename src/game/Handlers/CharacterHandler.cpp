@@ -775,6 +775,10 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
         // 正义火焰
         if (GetPlayer()->IsHardcore() && GetPlayer()->IsHardcoreRetired() && ! GetPlayer()->HasAura(461))
             GetPlayer()->AddAura(461, 0, GetPlayer());
+
+        // 天选者印记（天选者模式标识）
+        if (GetPlayer()->IsTianxuan() && !GetPlayer()->HasAura(21969))
+            GetPlayer()->AddAura(21969, 0, GetPlayer());
     }
 }
 

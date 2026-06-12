@@ -27,8 +27,15 @@
 // .npc summon 7292
 // 14337 914337 修理机器人
 
-bool GossipHello_GuildBank(Player *player, Creature *_Creature)   
+bool GossipHello_GuildBank(Player *player, Creature *_Creature)
 {
+    if (player->IsTianxuan())
+    {
+        ChatHandler(player).PSendSysMessage("[天选者] 所获皆凭己力，不受馈赠。");
+        player->CLOSE_GOSSIP_MENU();
+        return true;
+    }
+
     // 欢迎来到自助仓库服务
     if (player->GetGuildId())
     {

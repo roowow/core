@@ -23,8 +23,15 @@
 // .npc summon 7292
 // 14337 修理机器人
 
-bool GossipHello_GuildBank_Bot(Player *player, Creature *_Creature)   
+bool GossipHello_GuildBank_Bot(Player *player, Creature *_Creature)
 {
+    if (player->IsTianxuan())
+    {
+        ChatHandler(player).PSendSysMessage("[天选者] 所获皆凭己力，不受馈赠。");
+        player->CLOSE_GOSSIP_MENU();
+        return true;
+    }
+
     std::map< uint32, OOGuildBank >::iterator OObank = sOOMgr.OOGuildBankVendors.find(_Creature->GetEntry());
     OOGuildBank OOGuildBank;
     if (OObank != sOOMgr.OOGuildBanks.end())

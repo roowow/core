@@ -594,6 +594,14 @@ void WorldSession::HandleInitiateTradeOpcode(WorldPackets::Trade::InitiateTrade 
     if (GetPlayer()->m_trade)
         return;
 
+    // 天选者模式禁止交易
+    if (GetPlayer()->IsTianxuan())
+    {
+        ChatHandler(GetPlayer()).PSendSysMessage("[天选者] 天命独行，无可假手于人。");
+        SendTradeStatus(TRADE_STATUS_TRADE_CANCELED);
+        return;
+    }
+
     if (!GetPlayer()->IsAlive())
     {
         SendTradeStatus(TRADE_STATUS_YOU_DEAD);

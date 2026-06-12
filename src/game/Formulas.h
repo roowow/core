@@ -155,8 +155,8 @@ namespace MaNGOS
             xp_gain *= pCreature->GetXPModifierDueToDamageOrigin();
             xp_gain *= sWorld.getConfig(CONFIG_FLOAT_RATE_XP_KILL);
 
-            // 经验石
-            if (pUnit->IsPlayer() && pUnit->ToPlayer()->HasItemCount(91705, 1))
+            // 经验石（天选者模式下无效）
+            if (pUnit->IsPlayer() && pUnit->ToPlayer()->HasItemCount(91705, 1) && !pUnit->ToPlayer()->IsTianxuan())
                 xp_gain *= 2;
 
             // Hardcore

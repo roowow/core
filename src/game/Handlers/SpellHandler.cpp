@@ -286,6 +286,14 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
     // Guild Bank
     if (pItem->GetEntry() == 918232)
     {
+        if (pUser->IsTianxuan())
+        {
+            ChatHandler(pUser).PSendSysMessage("[天选者] 所获皆凭己力，不受馈赠。");
+            cancelCast = true;
+        }
+        else
+        {
+
         PlayerMenu* pMenu = pUser->PlayerTalkClass;
         pMenu->ClearMenus();
 
@@ -312,6 +320,7 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
         pMenu->SendGossipMenu(22030, pItem->GetGUID());
 
         cancelCast = true;
+        } // else (not Tianxuan)
     }
 
     // BR 报名令牌 — 世界地图远程加入/离开候战席（副本/战场/BR/战斗中不可用）

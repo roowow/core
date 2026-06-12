@@ -1208,6 +1208,13 @@ SpellAuraProcResult Unit::HandleProcTriggerSpellAuraProc(Unit* pVictim, uint32 a
                         return SPELL_AURA_PROC_FAILED;
                     break;
                 }
+                case 21969:                                 // Mark of the Chosen
+                {
+                    // 天选者模式下，未佩戴天选者印记饰品则不触发特效
+                    if (IsPlayer() && ToPlayer()->IsTianxuan() && !ToPlayer()->HasItemWithIdEquipped(17774))
+                        return SPELL_AURA_PROC_FAILED;
+                    break;
+                }
             }
             break;
         case SPELLFAMILY_MAGE:

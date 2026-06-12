@@ -138,6 +138,14 @@ void WorldSession::HandleSendMail(WorldPackets::Mail::SendMail const& packet)
         return;
     }
 
+    // 天选者模式禁止发送邮件
+    if (GetPlayer()->IsTianxuan())
+    {
+        ChatHandler(GetPlayer()).PSendSysMessage("[天选者] 所获皆凭己力，不受馈赠。");
+        SendMailResult(0, MAIL_SEND, MAIL_ERR_INTERNAL_ERROR);
+        return;
+    }
+
     if (HasTrialRestrictions())
     {
         SendMailResult(0, MAIL_SEND, MAIL_ERR_DISABLED_FOR_TRIAL_ACC);
@@ -559,6 +567,14 @@ void WorldSession::HandleMailTakeItem(WorldPackets::Mail::MailTakeItem const& pa
     if (!CheckMailBox(packet.mailboxGuid))
         return;
 
+    // 天选者模式禁止从邮箱取物品
+    if (GetPlayer()->IsTianxuan())
+    {
+        ChatHandler(GetPlayer()).PSendSysMessage("[天选者] 所获皆凭己力，不受馈赠。");
+        SendMailResult(packet.mailId, MAIL_ITEM_TAKEN, MAIL_ERR_INTERNAL_ERROR);
+        return;
+    }
+
     MasterPlayer* pl = GetMasterPlayer();
     Player* loadedPlayer = GetPlayer();
     ASSERT(pl);
@@ -704,6 +720,14 @@ void WorldSession::HandleMailTakeMoney(WorldPackets::Mail::MailTakeMoney const& 
 {
     if (!CheckMailBox(packet.mailboxGuid))
         return;
+
+    // 天选者模式禁止从邮箱取金币
+    if (GetPlayer()->IsTianxuan())
+    {
+        ChatHandler(GetPlayer()).PSendSysMessage("[天选者] 所获皆凭己力，不受馈赠。");
+        SendMailResult(packet.mailId, MAIL_MONEY_TAKEN, MAIL_ERR_INTERNAL_ERROR);
+        return;
+    }
 
     MasterPlayer* pl = GetMasterPlayer();
     Player* loadedPlayer = GetPlayer();

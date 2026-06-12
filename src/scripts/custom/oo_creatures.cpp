@@ -152,6 +152,97 @@ bool GossipSelect_HardcoreNPC2(Player *player, Creature *_Creature, uint32 sende
     return true;
 }
 
+// ── 天选者 NPC ────────────────────────────────────────────────
+
+void SendDefaultMenu_TianxuanNPC(Player* player, Creature* creature, uint32 action)
+{
+    switch (action)
+    {
+        case 1:
+            player->ADD_GOSSIP_ITEM_EXTENDED(0, "踏上天选者之路，输入：|cFFFF8C00天命所归|r。", 2, 2, "", true);
+            player->SEND_GOSSIP_MENU(22041, creature->GetGUID());
+            break;
+    }
+}
+
+void SendDefaultMenu_TianxuanNPC2(Player* player, Creature* creature, uint32 action, char const* code)
+{
+    switch (action)
+    {
+        case 2:
+            if (strcmp(code, "天命所归") != 0)
+            {
+                creature->MonsterSay("天命之人，自有天定。你的答案不对。", 0, 0);
+                player->CLOSE_GOSSIP_MENU();
+                break;
+            }
+
+            if (player->GetLevel() > 5)
+            {
+                creature->MonsterSay("天选者之路，须于踏出新手村之前立誓，方得天命眷顾。", 0, 0);
+                player->CLOSE_GOSSIP_MENU();
+                break;
+            }
+
+            if (player->IsTianxuan())
+            {
+                creature->MonsterSay("天命已降，印记已刻，无需重誓。", 0, 0);
+                player->CLOSE_GOSSIP_MENU();
+                break;
+            }
+
+            creature->CastSpell(player, 15851, true);
+            creature->MonsterSay("天命所归，此路唯你独行。愿你不负天选，功成名就。", 0, 0);
+
+            player->SetTianxuan(true);
+
+            {
+                char buf[256];
+                snprintf(buf, sizeof(buf), "【天选】%s 承天命，踏孤途。天选者之路，由此而始。", player->GetName());
+                ChatHandler(player->GetSession()).SendGlobalSysMessage(buf);
+            }
+
+            player->CLOSE_GOSSIP_MENU();
+            break;
+    }
+}
+
+bool GossipHello_TianxuanNPC(Player* player, Creature* creature)
+{
+    if (player->IsTianxuan())
+    {
+        player->PrepareQuestMenu(creature->GetGUID());
+        player->SEND_GOSSIP_MENU(22042, creature->GetGUID());
+        return true;
+    }
+
+    if (player->GetLevel() > 5)
+    {
+        creature->MonsterSay("天选者之路，须于踏出新手村之前立誓。", 0, 0);
+        player->CLOSE_GOSSIP_MENU();
+        return true;
+    }
+
+    player->ADD_GOSSIP_ITEM(0, "《天选者征集令》", GOSSIP_SENDER_MAIN, 1);
+    player->PrepareQuestMenu(creature->GetGUID());
+    player->SEND_GOSSIP_MENU(22040, creature->GetGUID());
+    return true;
+}
+
+bool GossipSelect_TianxuanNPC(Player* player, Creature* creature, uint32 sender, uint32 action)
+{
+    SendDefaultMenu_TianxuanNPC(player, creature, action);
+    return true;
+}
+
+bool GossipSelect_TianxuanNPC2(Player* player, Creature* creature, uint32 sender, uint32 action, char const* code)
+{
+    SendDefaultMenu_TianxuanNPC2(player, creature, action, code);
+    return true;
+}
+
+// ─────────────────────────────────────────────────────────────
+
 void AddSC_OO_creatures()
 {
     Script* newscript;
@@ -161,5 +252,12 @@ void AddSC_OO_creatures()
     newscript->pGossipHello = &GossipHello_HardcoreNPC;
     newscript->pGossipSelect = &GossipSelect_HardcoreNPC;
     newscript->pGossipSelectWithCode = &GossipSelect_HardcoreNPC2;
+    newscript->RegisterSelf(false);
+
+    newscript = new Script;
+    newscript->Name = "custom_oo_npc_tianxuan";
+    newscript->pGossipHello = &GossipHello_TianxuanNPC;
+    newscript->pGossipSelect = &GossipSelect_TianxuanNPC;
+    newscript->pGossipSelectWithCode = &GossipSelect_TianxuanNPC2;
     newscript->RegisterSelf(false);
 }
