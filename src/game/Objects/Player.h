@@ -878,6 +878,7 @@ class Player final: public Unit
 
         bool IsTianxuan() const { return m_ExtraFlags & PLAYER_EXTRA_TIANXUAN_ON; }
         void SetTianxuan(bool on);
+        void ClearInventoryForTianxuan();
 
 
         /*********************************************************/

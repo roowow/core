@@ -19,6 +19,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+#include <set>
 #include <unordered_map>
 #include <cmath>
 #include <sstream>
@@ -3061,6 +3062,7 @@ void Player::SetTianxuan(bool on)
     {
         m_ExtraFlags |= PLAYER_EXTRA_TIANXUAN_ON;
         CharacterDatabase.PExecute("UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
+        ClearInventoryForTianxuan();
         // 佩戴 item 17774 时不加永久 buff，让 proc 机制正常触发 spell 21970 并加属性
         if (!HasItemWithIdEquipped(17774))
         {
@@ -3081,6 +3083,48 @@ void Player::SetTianxuan(bool on)
         m_ExtraFlags &= ~PLAYER_EXTRA_TIANXUAN_ON;
         CharacterDatabase.PExecute("UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
         RemoveAurasDueToSpell(21970);
+    }
+}
+
+void Player::ClearInventoryForTianxuan()
+{
+    // 收集出生装备 ID，保留这些物品
+    std::set<uint32> startingItemIds;
+    if (PlayerInfo const* info = sObjectMgr.GetPlayerInfo(getRace(), getClass()))
+        for (auto const& ci : info->item)
+            startingItemIds.insert(ci.item_id);
+
+    // 背包直格（23-38），保留出生装备
+    for (uint8 i = INVENTORY_SLOT_ITEM_START; i < INVENTORY_SLOT_ITEM_END; ++i)
+        if (Item* pItem = GetItemByPos(INVENTORY_SLOT_BAG_0, i))
+            if (!startingItemIds.count(pItem->GetEntry()))
+                DestroyItem(INVENTORY_SLOT_BAG_0, i, true);
+
+    // 背包袋格（19-22）：先清内容，再删袋子本身
+    for (uint8 i = INVENTORY_SLOT_BAG_START; i < INVENTORY_SLOT_BAG_END; ++i)
+    {
+        if (Bag* pBag = (Bag*)GetItemByPos(INVENTORY_SLOT_BAG_0, i))
+            for (uint32 j = 0; j < pBag->GetBagSize(); ++j)
+                if (GetItemByPos(i, j))
+                    DestroyItem(i, j, true);
+        if (GetItemByPos(INVENTORY_SLOT_BAG_0, i))
+            DestroyItem(INVENTORY_SLOT_BAG_0, i, true);
+    }
+
+    // 银行直格（39-62）
+    for (uint8 i = BANK_SLOT_ITEM_START; i < BANK_SLOT_ITEM_END; ++i)
+        if (GetItemByPos(INVENTORY_SLOT_BAG_0, i))
+            DestroyItem(INVENTORY_SLOT_BAG_0, i, true);
+
+    // 银行袋格（63-68）：先清内容，再删袋子本身
+    for (uint8 i = BANK_SLOT_BAG_START; i < BANK_SLOT_BAG_END; ++i)
+    {
+        if (Bag* pBag = (Bag*)GetItemByPos(INVENTORY_SLOT_BAG_0, i))
+            for (uint32 j = 0; j < pBag->GetBagSize(); ++j)
+                if (GetItemByPos(i, j))
+                    DestroyItem(i, j, true);
+        if (GetItemByPos(INVENTORY_SLOT_BAG_0, i))
+            DestroyItem(INVENTORY_SLOT_BAG_0, i, true);
     }
 }
 
