@@ -782,8 +782,9 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
         if (GetPlayer()->IsTianxuan() && !GetPlayer()->HasAura(21970)
             && !GetPlayer()->HasItemWithIdEquipped(17774))
         {
-            if (SpellAuraHolder* holder = GetPlayer()->AddAura(21970, 0, GetPlayer()))
+            if (SpellAuraHolder* holder = GetPlayer()->AddAura(21970, ADD_AURA_PERMANENT, GetPlayer()))
             {
+                holder->SetPermanent(false);
                 holder->SetAuraDuration(-1);
                 holder->SetAuraMaxDuration(-1);
                 holder->UpdateAuraDuration();

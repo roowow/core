@@ -3064,11 +3064,14 @@ void Player::SetTianxuan(bool on)
         // 佩戴 item 17774 时不加永久 buff，让 proc 机制正常触发 spell 21970 并加属性
         if (!HasItemWithIdEquipped(17774))
         {
-            if (SpellAuraHolder* holder = AddAura(21970, 0, this))
+            // ADD_AURA_PERMANENT 在 effects 应用前设 m_permanent=true，
+            // HandleAuraModStat 检查 IsPermanent() 可正确跳过属性加成
+            if (SpellAuraHolder* holder = AddAura(21970, ADD_AURA_PERMANENT, this))
             {
+                holder->SetPermanent(false);      // 暂时解锁，允许 UpdateAuraDuration 发包
                 holder->SetAuraDuration(-1);
                 holder->SetAuraMaxDuration(-1);
-                holder->UpdateAuraDuration();
+                holder->UpdateAuraDuration();     // 通知客户端：无计时
                 holder->SetPermanent(true);
             }
         }
@@ -11016,8 +11019,9 @@ void Player::RemoveItem(uint8 bag, uint8 slot, bool update)
             if (pItem->GetEntry() == 17774 && IsTianxuan())
             {
                 RemoveAurasDueToSpell(21970); // 清除可能残留的 proc 触发版本
-                if (SpellAuraHolder* holder = AddAura(21970, 0, this))
+                if (SpellAuraHolder* holder = AddAura(21970, ADD_AURA_PERMANENT, this))
                 {
+                    holder->SetPermanent(false);
                     holder->SetAuraDuration(-1);
                     holder->SetAuraMaxDuration(-1);
                     holder->UpdateAuraDuration();
