@@ -159,14 +159,9 @@ void SendDefaultMenu_TianxuanNPC(Player* player, Creature* creature, uint32 acti
     switch (action)
     {
         case 1:
-            // 描述页：npc_text 22041 存放天选者规则介绍文案
-            player->ADD_GOSSIP_ITEM(0, "我已明白，立誓踏上天选者之路。", GOSSIP_SENDER_MAIN, 2);
-            player->SEND_GOSSIP_MENU(22041, creature->GetGUID());
-            break;
-        case 2:
-            // 输入口令页：npc_text 22043
+            // 描述页：npc_text 22041 存放天选者规则介绍文案，直接弹出口令输入框
             player->ADD_GOSSIP_ITEM_EXTENDED(0, "踏上天选者之路，输入：|cFFFF8C00天命所归|r。", 2, 3, "", true);
-            player->SEND_GOSSIP_MENU(22043, creature->GetGUID());
+            player->SEND_GOSSIP_MENU(22041, creature->GetGUID());
             break;
     }
 }
@@ -197,7 +192,7 @@ void SendDefaultMenu_TianxuanNPC2(Player* player, Creature* creature, uint32 act
                 break;
             }
 
-            creature->CastSpell(player, 15851, true);
+            creature->CastSpell(player, 26550, true); // 闪电
             creature->MonsterSay("天命所归，此路唯你独行。愿你不负天选，功成名就。", 0, 0);
 
             player->SetTianxuan(true);

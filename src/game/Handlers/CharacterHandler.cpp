@@ -778,7 +778,9 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
             GetPlayer()->AddAura(461, 0, GetPlayer());
 
         // 天选者印记（天选者模式标识）
-        if (GetPlayer()->IsTianxuan() && !GetPlayer()->HasAura(21970))
+        // 佩戴 item 17774 时不加永久 buff，由 proc 机制自然触发 spell 21970
+        if (GetPlayer()->IsTianxuan() && !GetPlayer()->HasAura(21970)
+            && !GetPlayer()->HasItemWithIdEquipped(17774))
         {
             if (SpellAuraHolder* holder = GetPlayer()->AddAura(21970, 0, GetPlayer()))
             {

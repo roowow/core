@@ -3061,12 +3061,16 @@ void Player::SetTianxuan(bool on)
     {
         m_ExtraFlags |= PLAYER_EXTRA_TIANXUAN_ON;
         CharacterDatabase.PExecute("UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
-        if (SpellAuraHolder* holder = AddAura(21970, 0, this))
+        // 佩戴 item 17774 时不加永久 buff，让 proc 机制正常触发 spell 21970 并加属性
+        if (!HasItemWithIdEquipped(17774))
         {
-            holder->SetAuraDuration(-1);
-            holder->SetAuraMaxDuration(-1);
-            holder->UpdateAuraDuration();   // 先通知客户端 duration=-1，再设 permanent
-            holder->SetPermanent(true);
+            if (SpellAuraHolder* holder = AddAura(21970, 0, this))
+            {
+                holder->SetAuraDuration(-1);
+                holder->SetAuraMaxDuration(-1);
+                holder->UpdateAuraDuration();
+                holder->SetPermanent(true);
+            }
         }
     }
     else
@@ -10815,6 +10819,10 @@ Item* Player::EquipItem(uint16 pos, Item* pItem, bool update)
 
             _ApplyItemMods(pItem, slot, true);
 
+            // 天选者：装备 item 17774 时移除永久 buff，让 proc 机制自然触发 spell 21970
+            if (pItem->GetEntry() == 17774 && IsTianxuan())
+                RemoveAurasDueToSpell(21970);
+
             // World of Warcraft Client Patch 1.7.0 (2005-09-13)
             // - Switching weapons in combat triggers a 1 second global cooldown for
             //   all abilities for rogues and a 1.5 second global cooldown for
@@ -11003,6 +11011,19 @@ void Player::RemoveItem(uint8 bag, uint8 slot, bool update)
 
             m_items[slot] = nullptr;
             SetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + (slot * 2), ObjectGuid());
+
+            // 天选者：卸下 item 17774 后恢复永久 buff（item 已从 slot 移除）
+            if (pItem->GetEntry() == 17774 && IsTianxuan())
+            {
+                RemoveAurasDueToSpell(21970); // 清除可能残留的 proc 触发版本
+                if (SpellAuraHolder* holder = AddAura(21970, 0, this))
+                {
+                    holder->SetAuraDuration(-1);
+                    holder->SetAuraMaxDuration(-1);
+                    holder->UpdateAuraDuration();
+                    holder->SetPermanent(true);
+                }
+            }
 
             if (slot < EQUIPMENT_SLOT_END)
                 SetVisibleItemSlot(slot, nullptr);
