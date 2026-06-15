@@ -3061,18 +3061,19 @@ void Player::SetTianxuan(bool on)
     {
         m_ExtraFlags |= PLAYER_EXTRA_TIANXUAN_ON;
         CharacterDatabase.PExecute("UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
-        if (SpellAuraHolder* holder = AddAura(21969, 0, this))
+        if (SpellAuraHolder* holder = AddAura(21970, 0, this))
         {
-            holder->SetPermanent(true);
-            holder->SetAuraMaxDuration(-1);
             holder->SetAuraDuration(-1);
+            holder->SetAuraMaxDuration(-1);
+            holder->UpdateAuraDuration();   // 先通知客户端 duration=-1，再设 permanent
+            holder->SetPermanent(true);
         }
     }
     else
     {
         m_ExtraFlags &= ~PLAYER_EXTRA_TIANXUAN_ON;
         CharacterDatabase.PExecute("UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
-        RemoveAurasDueToSpell(21969);
+        RemoveAurasDueToSpell(21970);
     }
 }
 
@@ -15724,6 +15725,9 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
 
     if ((extraflags & PLAYER_EXTRA_CITY_PROTECTOR) && sWorld.getConfig(CONFIG_BOOL_ENABLE_CITY_PROTECTOR))
         SetCityTitle();
+
+    if (extraflags & PLAYER_EXTRA_TIANXUAN_ON)
+        m_ExtraFlags |= PLAYER_EXTRA_TIANXUAN_ON;
 
     sBattleGroundMgr.PlayerLoggedIn(this); // Add to BG queue if needed
     CreatePacketBroadcaster();
