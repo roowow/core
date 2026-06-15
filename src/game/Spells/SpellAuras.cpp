@@ -4635,6 +4635,13 @@ void Aura::HandleAuraModStat(bool apply, bool /*Real*/)
 
     Unit* target = GetTarget();
 
+    // 天选者永久 spell 21970 仅作视觉标识，不加属性；proc 触发的 60s 版本正常加属性
+    if (GetId() == 21970 && target->GetTypeId() == TYPEID_PLAYER)
+    {
+        if (((Player*)target)->IsTianxuan() && GetHolder()->IsPermanent())
+            return;
+    }
+
     // Improved Scorpid Sting
     if (GetSpellProto()->IsFitToFamilyMask<CF_HUNTER_SCORPID_STING>() && (m_modifier.m_miscvalue == STAT_STRENGTH))
     {
