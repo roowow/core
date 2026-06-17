@@ -182,7 +182,7 @@ void SendDefaultMenu_TianxuanNPC(Player* player, Creature* creature, uint32 acti
 
         case 10:
             // 乌龟模式描述页：npc_text 22043 存放乌龟模式规则介绍文案
-            player->ADD_GOSSIP_ITEM_EXTENDED(0, "踏上乌龟之路，输入：|cFF00FF00不积跬步|r。", 2, 13, "", true);
+            player->ADD_GOSSIP_ITEM_EXTENDED(0, "踏上乌龟之路，输入：|cFF00FF00抱朴守拙|r。", 2, 13, "", true);
             player->SEND_GOSSIP_MENU(22043, creature->GetGUID());
             break;
     }
@@ -195,7 +195,7 @@ void SendDefaultMenu_TianxuanNPC2(Player* player, Creature* creature, uint32 act
         case 3:
             if (strcmp(code, "天命所归") != 0)
             {
-                creature->MonsterSay("天命之人，自有天定。你的答案不对。", 0, 0);
+                creature->MonsterSay("大任未降，心志未定。你的答案不对。", 0, 0);
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
@@ -209,32 +209,32 @@ void SendDefaultMenu_TianxuanNPC2(Player* player, Creature* creature, uint32 act
 
             if (player->GetLevel() > 5)
             {
-                creature->MonsterSay("天选者之路，须于踏出新手村之前立誓，方得天命眷顾。", 0, 0);
+                creature->MonsterSay("天选者之路，须于踏出新手村之前立誓，方得大任降临。", 0, 0);
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
 
             if (player->IsTianxuan())
             {
-                creature->MonsterSay("天命已降，印记已刻，无需重誓。", 0, 0);
+                creature->MonsterSay("大任已临，印记已刻，无需重誓。", 0, 0);
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
 
             player->SendSpellGo(player, 24240); // 闪电视觉
-            creature->MonsterSay("天命所归，此路唯你独行。愿你不负天选，功成名就。", 0, 0);
+            creature->MonsterSay("天将降大任，此路唯你独行。愿你动心忍性，曾益其所不能。", 0, 0);
 
             player->SetTianxuan(true);
 
-            ChatHandler(player->GetSession()).PSendSysMessage("【天选】承天命，踏孤途。天选者之路，由此而始。");
+            ChatHandler(player->GetSession()).PSendSysMessage("【天选】苦其心志，劳其筋骨。天选者之路，由此而始。");
 
             player->CLOSE_GOSSIP_MENU();
             break;
 
         case 13:
-            if (strcmp(code, "不积跬步") != 0)
+            if (strcmp(code, "抱朴守拙") != 0)
             {
-                creature->MonsterSay("慢行者，须明心中誓言。你的答案不对。", 0, 0);
+                creature->MonsterSay("守拙者，须明心中誓言。你的答案不对。", 0, 0);
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
@@ -261,11 +261,11 @@ void SendDefaultMenu_TianxuanNPC2(Player* player, Creature* creature, uint32 act
             }
 
             player->SendSpellGo(player, 26064); // Shell Shield 视觉
-            creature->MonsterSay("不积跬步，无以至千里。愿你稳步前行，终抵彼岸。", 0, 0);
+            creature->MonsterSay("见素抱朴，少私寡欲。此路归于本真，愿你守拙不辍，终抵自然之境。", 0, 0);
 
             player->SetTurtle(true);
 
-            ChatHandler(player->GetSession()).PSendSysMessage("【乌龟】缩壳而行，稳中求进。乌龟之路，由此而始。");
+            ChatHandler(player->GetSession()).PSendSysMessage("【乌龟】见素抱朴，少私寡欲。乌龟之路，由此而始。");
 
             player->CLOSE_GOSSIP_MENU();
             break;
@@ -284,7 +284,7 @@ bool GossipHello_TianxuanNPC(Player* player, Creature* creature)
 
     if (player->IsTianxuan())
     {
-        player->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT, "天命已降，印记在身。愿不负天选。", GOSSIP_SENDER_MAIN, 0);
+        player->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT, "大任已临，独善其身。愿不负誓言。", GOSSIP_SENDER_MAIN, 0);
         player->PrepareQuestMenu(creature->GetGUID());
         player->SEND_GOSSIP_MENU(22042, creature->GetGUID());
         return true;
@@ -292,7 +292,7 @@ bool GossipHello_TianxuanNPC(Player* player, Creature* creature)
 
     if (player->IsTurtle())
     {
-        player->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT, "龟甲已佩，稳步前行。愿不负誓言。", GOSSIP_SENDER_MAIN, 0);
+        player->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT, "龟甲已佩，归朴守真。愿不负誓言。", GOSSIP_SENDER_MAIN, 0);
         player->PrepareQuestMenu(creature->GetGUID());
         player->SEND_GOSSIP_MENU(22044, creature->GetGUID());
         return true;
@@ -306,8 +306,8 @@ bool GossipHello_TianxuanNPC(Player* player, Creature* creature)
         return true;
     }
 
-    player->ADD_GOSSIP_ITEM(0, "《天命独行令》（天选者模式）", GOSSIP_SENDER_MAIN, 1);
-    player->ADD_GOSSIP_ITEM(0, "《缓步踏途》（乌龟模式）", GOSSIP_SENDER_MAIN, 10);
+    player->ADD_GOSSIP_ITEM(0, "《独善令》", GOSSIP_SENDER_MAIN, 1);
+    player->ADD_GOSSIP_ITEM(0, "《归朴令》", GOSSIP_SENDER_MAIN, 10);
     player->PrepareQuestMenu(creature->GetGUID());
     player->SEND_GOSSIP_MENU(22040, creature->GetGUID());
     return true;
