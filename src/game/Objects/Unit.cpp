@@ -3411,6 +3411,11 @@ float Unit::GetTotalAuraMultiplierByMiscMask(AuraType auratype, uint32 misc_mask
     AuraList const& mTotalAuraList = GetAurasByType(auratype);
     for (const auto& i : mTotalAuraList)
     {
+        // 乌龟模式永久 Shell Shield (26064) 仅作视觉标识，跳过伤害减免
+        if (i->GetId() == 26064 && GetTypeId() == TYPEID_PLAYER &&
+            static_cast<Player const*>(this)->IsTurtle() && i->GetHolder()->IsPermanent())
+            continue;
+
         Modifier* mod = i->GetModifier();
         if (mod->m_miscvalue & misc_mask)
             multiplier *= (100.0f + mod->m_amount) / 100.0f;

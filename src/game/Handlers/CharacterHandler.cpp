@@ -791,6 +791,19 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
                 holder->SetPermanent(true);
             }
         }
+
+        // 乌龟模式：Shell Shield (26064) 永久视觉 buff
+        if (GetPlayer()->IsTurtle() && !GetPlayer()->HasAura(26064))
+        {
+            if (SpellAuraHolder* holder = GetPlayer()->AddAura(26064, ADD_AURA_PERMANENT, GetPlayer()))
+            {
+                holder->SetPermanent(false);
+                holder->SetAuraDuration(-1);
+                holder->SetAuraMaxDuration(-1);
+                holder->UpdateAuraDuration();
+                holder->SetPermanent(true);
+            }
+        }
     }
 }
 

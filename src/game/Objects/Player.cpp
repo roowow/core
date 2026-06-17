@@ -3032,6 +3032,9 @@ bool Player::SetHardcore(bool on)
 {
     if (on)
     {
+        if (IsTianxuan() || IsTurtle())
+            return false;
+
         m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_ON;
         CharacterDatabase.PExecute("INSERT INTO character_hardcore (guid, created, status) VALUES (%u, UNIX_TIMESTAMP(), 1)", GetGUIDLow());
 
@@ -3060,6 +3063,9 @@ void Player::SetTianxuan(bool on)
 {
     if (on)
     {
+        if ((IsHardcore() && !IsHardcoreRetired()) || IsTurtle())
+            return;
+
         m_ExtraFlags |= PLAYER_EXTRA_TIANXUAN_ON;
         CharacterDatabase.PExecute("UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
         ClearInventoryForTianxuan();
@@ -3125,6 +3131,35 @@ void Player::ClearInventoryForTianxuan()
                     DestroyItem(i, j, true);
         if (GetItemByPos(INVENTORY_SLOT_BAG_0, i))
             DestroyItem(INVENTORY_SLOT_BAG_0, i, true);
+    }
+}
+
+void Player::SetTurtle(bool on)
+{
+    if (on)
+    {
+        if ((IsHardcore() && !IsHardcoreRetired()) || IsTianxuan())
+            return;
+
+        m_ExtraFlags |= PLAYER_EXTRA_TURTLE_ON;
+        CharacterDatabase.PExecute("UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
+        // 赠送乌龟宠物礼盒
+        StoreNewItemInBestSlots(23002, 1);
+        // 加永久 Shell Shield 视觉 buff
+        if (SpellAuraHolder* holder = AddAura(26064, ADD_AURA_PERMANENT, this))
+        {
+            holder->SetPermanent(false);
+            holder->SetAuraDuration(-1);
+            holder->SetAuraMaxDuration(-1);
+            holder->UpdateAuraDuration();
+            holder->SetPermanent(true);
+        }
+    }
+    else
+    {
+        m_ExtraFlags &= ~PLAYER_EXTRA_TURTLE_ON;
+        CharacterDatabase.PExecute("UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
+        RemoveAurasDueToSpell(26064);
     }
 }
 
@@ -3423,6 +3458,10 @@ void Player::GiveXP(uint32 xp, Unit const* victim)
 
     if (GetPersonalXpRate() >= 0.0f)
         xp *= GetPersonalXpRate();
+
+    // 乌龟模式：打怪经验减半（任务经验在 RewardQuest 处理）
+    if (victim && IsTurtle())
+        xp /= 2;
 
     if (xp < 1)
         return;
@@ -13676,6 +13715,9 @@ void Player::RewardQuest(Quest const* pQuest, uint32 reward, WorldObject* questE
 
     // Used for client inform but rewarded only in case not max level
     uint32 xp = uint32(pQuest->XPValue(GetLevel()) * sWorld.getConfig(CONFIG_FLOAT_RATE_XP_QUEST));
+    // 乌龟模式：任务经验减半
+    if (IsTurtle())
+        xp /= 2;
 
     if (GetLevel() < sWorld.getConfig(CONFIG_UINT32_MAX_PLAYER_LEVEL))
         GiveXP(xp , nullptr);

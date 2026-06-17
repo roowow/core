@@ -33,11 +33,18 @@ bool GossipHello_HardcoreNPC(Player *player, Creature *_Creature)
     }
     else
     {
+        if (player->IsTianxuan() || player->IsTurtle())
+        {
+            _Creature->MonsterSay("勇敢者之路只属于纯粹的灵魂，你已踏上另一条路，无法兼行。", 0, 0);
+            player->PrepareQuestMenu(_Creature->GetGUID());
+            player->SEND_GOSSIP_MENU(22003, _Creature->GetGUID());
+            return true;
+        }
+
         player->ADD_GOSSIP_ITEM(0, "《勇敢者小队征集令》", GOSSIP_SENDER_MAIN, 1);
 
         player->PrepareQuestMenu(_Creature->GetGUID());
         player->SEND_GOSSIP_MENU(22003, _Creature->GetGUID());
-        
     }
 
     // ALLIANCE
@@ -84,6 +91,13 @@ void SendDefaultMenu_HardcoreNPC2(Player *player, Creature *_Creature, uint32 ac
             {
                 _Creature->MonsterSay("你的签名不正确，希望你是故意的。");
 
+                player->CLOSE_GOSSIP_MENU();
+                break;
+            }
+
+            if (player->IsTianxuan() || player->IsTurtle())
+            {
+                _Creature->MonsterSay("勇敢者之路只属于纯粹的灵魂，你已踏上另一条路，无法兼行。", 0, 0);
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
@@ -152,7 +166,9 @@ bool GossipSelect_HardcoreNPC2(Player *player, Creature *_Creature, uint32 sende
     return true;
 }
 
-// ── 天选者 NPC ────────────────────────────────────────────────
+// ── 天选者 / 乌龟模式 NPC ─────────────────────────────────────
+// action 1/3 : 天选者流程
+// action 10/13: 乌龟模式流程
 
 void SendDefaultMenu_TianxuanNPC(Player* player, Creature* creature, uint32 action)
 {
@@ -162,6 +178,12 @@ void SendDefaultMenu_TianxuanNPC(Player* player, Creature* creature, uint32 acti
             // 描述页：npc_text 22041 存放天选者规则介绍文案，直接弹出口令输入框
             player->ADD_GOSSIP_ITEM_EXTENDED(0, "踏上天选者之路，输入：|cFFFF0000天命所归|r。", 2, 3, "", true);
             player->SEND_GOSSIP_MENU(22041, creature->GetGUID());
+            break;
+
+        case 10:
+            // 乌龟模式描述页：npc_text 22043 存放乌龟模式规则介绍文案
+            player->ADD_GOSSIP_ITEM_EXTENDED(0, "踏上乌龟之路，输入：|cFF00FF00不积跬步|r。", 2, 13, "", true);
+            player->SEND_GOSSIP_MENU(22043, creature->GetGUID());
             break;
     }
 }
@@ -174,6 +196,13 @@ void SendDefaultMenu_TianxuanNPC2(Player* player, Creature* creature, uint32 act
             if (strcmp(code, "天命所归") != 0)
             {
                 creature->MonsterSay("天命之人，自有天定。你的答案不对。", 0, 0);
+                player->CLOSE_GOSSIP_MENU();
+                break;
+            }
+
+            if ((player->IsHardcore() && !player->IsHardcoreRetired()) || player->IsTurtle())
+            {
+                creature->MonsterSay("天选之路只属于纯粹的灵魂，你已踏上另一条路，无法兼行。", 0, 0);
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
@@ -201,11 +230,58 @@ void SendDefaultMenu_TianxuanNPC2(Player* player, Creature* creature, uint32 act
 
             player->CLOSE_GOSSIP_MENU();
             break;
+
+        case 13:
+            if (strcmp(code, "不积跬步") != 0)
+            {
+                creature->MonsterSay("慢行者，须明心中誓言。你的答案不对。", 0, 0);
+                player->CLOSE_GOSSIP_MENU();
+                break;
+            }
+
+            if ((player->IsHardcore() && !player->IsHardcoreRetired()) || player->IsTianxuan())
+            {
+                creature->MonsterSay("乌龟之路只属于纯粹的灵魂，你已踏上另一条路，无法兼行。", 0, 0);
+                player->CLOSE_GOSSIP_MENU();
+                break;
+            }
+
+            if (player->GetLevel() > 5)
+            {
+                creature->MonsterSay("乌龟之誓，须于踏出新手村之前立下，方得龟甲庇护。", 0, 0);
+                player->CLOSE_GOSSIP_MENU();
+                break;
+            }
+
+            if (player->IsTurtle())
+            {
+                creature->MonsterSay("龟甲已佩，誓言已立，无需重誓。", 0, 0);
+                player->CLOSE_GOSSIP_MENU();
+                break;
+            }
+
+            player->SendSpellGo(player, 26064); // Shell Shield 视觉
+            creature->MonsterSay("不积跬步，无以至千里。愿你稳步前行，终抵彼岸。", 0, 0);
+
+            player->SetTurtle(true);
+
+            ChatHandler(player->GetSession()).PSendSysMessage("【乌龟】缩壳而行，稳中求进。乌龟之路，由此而始。");
+
+            player->CLOSE_GOSSIP_MENU();
+            break;
     }
 }
 
 bool GossipHello_TianxuanNPC(Player* player, Creature* creature)
 {
+    if (player->IsHardcore() && !player->IsHardcoreRetired())
+    {
+        creature->MonsterSay("勇敢者已立生死状，天选与乌龟之路皆不可兼行。", 0, 0);
+        player->PrepareQuestMenu(creature->GetGUID());
+        player->SEND_GOSSIP_MENU(22040, creature->GetGUID());
+        return true;
+    }
+
     if (player->IsTianxuan())
     {
         player->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT, "天命已降，印记在身。愿不负天选。", GOSSIP_SENDER_MAIN, 0);
@@ -214,15 +290,24 @@ bool GossipHello_TianxuanNPC(Player* player, Creature* creature)
         return true;
     }
 
+    if (player->IsTurtle())
+    {
+        player->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT, "龟甲已佩，稳步前行。愿不负誓言。", GOSSIP_SENDER_MAIN, 0);
+        player->PrepareQuestMenu(creature->GetGUID());
+        player->SEND_GOSSIP_MENU(22044, creature->GetGUID());
+        return true;
+    }
+
     if (player->GetLevel() > 5)
     {
-        creature->MonsterSay("天选者之路，须于踏出新手村之前立誓。", 0, 0);
+        creature->MonsterSay("天选者与乌龟之誓，须于踏出新手村之前立下。", 0, 0);
         player->PrepareQuestMenu(creature->GetGUID());
         player->SEND_GOSSIP_MENU(22040, creature->GetGUID());
         return true;
     }
 
-    player->ADD_GOSSIP_ITEM(0, "《天命独行令》", GOSSIP_SENDER_MAIN, 1);
+    player->ADD_GOSSIP_ITEM(0, "《天命独行令》（天选者模式）", GOSSIP_SENDER_MAIN, 1);
+    player->ADD_GOSSIP_ITEM(0, "《缓步踏途》（乌龟模式）", GOSSIP_SENDER_MAIN, 10);
     player->PrepareQuestMenu(creature->GetGUID());
     player->SEND_GOSSIP_MENU(22040, creature->GetGUID());
     return true;

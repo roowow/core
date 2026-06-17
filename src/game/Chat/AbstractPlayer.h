@@ -30,7 +30,10 @@ enum PlayerExtraFlags
     PLAYER_EXTRA_HARDCORE_PVP       = 0x8000,
 
     /// Tianxuan (Chosen One Mode)
-    PLAYER_EXTRA_TIANXUAN_ON        = 0x00010000
+    PLAYER_EXTRA_TIANXUAN_ON        = 0x00010000,
+
+    /// Turtle Mode
+    PLAYER_EXTRA_TURTLE_ON          = 0x00020000
 };
 
 class MasterPlayer;

@@ -143,6 +143,21 @@ void WorldSession::HandleGroupInviteOpcode(WorldPackets::Group::GroupInvite cons
         }
     }
 
+    // 乌龟模式：组队等级差不能超过 5 级
+    if (leader->IsTurtle() || player->IsTurtle())
+    {
+        uint32 leaderLevel = leader->GetLevel();
+        uint32 playerLevel = player->GetLevel();
+        uint32 diff = leaderLevel > playerLevel ? leaderLevel - playerLevel : playerLevel - leaderLevel;
+        if (diff > 5)
+        {
+            ChatHandler(leader).SendSysMessage("[乌龟模式] 乌龟模式组队等级差不能超过 5 级。");
+            ChatHandler(player).SendSysMessage("[乌龟模式] 乌龟模式组队等级差不能超过 5 级。");
+            SendPartyResult(PARTY_OP_INVITE, packet.memberName, ERR_IGNORING_YOU_S);
+            return;
+        }
+    }
+
     if (leader->IsActiveQuest(32003) && ! leader->GetQuestRewardStatus(32003))
     {
         ChatHandler(leader).SendSysMessage("真的猛士需要独自面对深邃的大海。");

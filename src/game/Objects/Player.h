@@ -880,6 +880,9 @@ class Player final: public Unit
         void SetTianxuan(bool on);
         void ClearInventoryForTianxuan();
 
+        bool IsTurtle() const { return m_ExtraFlags & PLAYER_EXTRA_TURTLE_ON; }
+        void SetTurtle(bool on);
+
 
         /*********************************************************/
         /***                    STORAGE SYSTEM                 ***/

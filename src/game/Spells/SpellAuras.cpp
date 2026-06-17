@@ -5069,6 +5069,13 @@ void Aura::HandleModCastingSpeed(bool apply, bool /*Real*/)
 
 void Aura::HandleModAttackSpeed(bool apply, bool /*Real*/)
 {
+    Unit* target = GetTarget();
+
+    // 乌龟模式永久 Shell Shield (26064) 仅作视觉标识，跳过攻速降低
+    if (GetId() == 26064 && target->GetTypeId() == TYPEID_PLAYER &&
+        static_cast<Player*>(target)->IsTurtle() && GetHolder()->IsPermanent())
+        return;
+
     if (apply)
     {
         if (Unit* caster = GetCaster())
@@ -5076,7 +5083,6 @@ void Aura::HandleModAttackSpeed(bool apply, bool /*Real*/)
                 modOwner->ApplySpellMod(GetSpellProto()->Id, SPELLMOD_HASTE, m_modifier.m_amount);
     }
 
-    Unit* target = GetTarget();
     target->ApplyAttackTimePercentMod(BASE_ATTACK, m_modifier.m_amount, apply);
     target->ApplyAttackTimePercentMod(OFF_ATTACK, m_modifier.m_amount, apply);
     target->ApplyAttackTimePercentMod(RANGED_ATTACK, m_modifier.m_amount, apply);
