@@ -3096,7 +3096,7 @@ void Player::ClearInventoryForTianxuan()
 {
     // 收集出生装备 ID，保留这些物品
     std::set<uint32> startingItemIds;
-    if (PlayerInfo const* info = sObjectMgr.GetPlayerInfo(getRace(), getClass()))
+    if (PlayerInfo const* info = sObjectMgr.GetPlayerInfo(GetRace(), GetClass()))
         for (auto const& ci : info->item)
             startingItemIds.insert(ci.item_id);
 
