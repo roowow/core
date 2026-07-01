@@ -39,7 +39,6 @@ class Quest;
 class Player;
 class WorldSession;
 class CreatureGroup;
-
 struct GameEventCreatureData;
 
 struct CreatureCreatePos
@@ -234,7 +233,7 @@ class Creature : public Unit
         bool HasSpell(uint32 spellId) const override;
 
         void LockOutSpells(SpellSchoolMask schoolMask, uint32 duration) final;
-        void AddCooldown(SpellEntry const& spellEntry, ItemPrototype const* itemProto = nullptr, bool permanent = false, uint32 forcedDuration = 0) final;
+        void AddCooldown(SpellEntry const* spellEntry, ItemPrototype const* itemProto = nullptr, bool permanent = false, uint32 forcedDuration = 0) final;
         void StartCooldownForSummoner();
         void CancelSummonPossessedCharm();
         bool UpdateEntry(uint32 entry, GameEventCreatureData const* eventData = nullptr, bool preserveHPAndPower = true);
@@ -312,7 +311,8 @@ class Creature : public Unit
         bool IsTappedBy(Player const* player) const;
         bool IsSkinnableBy(Player const* player) const { return !skinningForOthersTimer || IsTappedBy(player); }
 
-        uint32 m_spells[CREATURE_MAX_SPELLS];
+        bool GetCharmSpellCooldown(uint32 spellId, uint32& cooldown);
+        nonstd::optional<CreatureCharmSpellEntry> m_spells[CREATURE_MAX_SPELLS];
 
         float GetAttackDistance(Unit const* pl) const;
         float GetDetectionRange() const { return m_detectionDistance; }
@@ -328,7 +328,7 @@ class Creature : public Unit
         void CallForHelp(float radius);
         void CallAssistance();
         void SetNoCallAssistance(bool val)
-        { 
+        {
             if (val)
                 AddCreatureState(CSTATE_ALREADY_CALL_ASSIST);
             else
@@ -458,7 +458,7 @@ class Creature : public Unit
         void ProcessThreatList(ThreatListProcesser* f);
 
         // Spell Launch :
-        // Return true if target found. 
+        // Return true if target found.
         bool CastSpellOnFarthestVictim (uint32 spellId, float min = 0.0f, float max = 100.0f, bool triggered = false);
         bool CastSpellOnNearestVictim(uint32 spellId, float min = 0.0f, float max = 100.0f, bool triggered = false);
         bool CastSpellOnHostileCasterInRange(uint32 spellId, float min = 0.0f, float max = 100.0f, bool triggered = false);
@@ -608,7 +608,7 @@ class Creature : public Unit
             if (escortable)
                 AddCreatureState(CSTATE_ESCORTABLE);
             else
-                ClearCreatureState(CSTATE_ESCORTABLE); 
+                ClearCreatureState(CSTATE_ESCORTABLE);
         }
         bool IsEscortable() const { return HasCreatureState(CSTATE_ESCORTABLE); }
         bool CanAssistPlayers() const { return HasFactionTemplateFlag(FACTION_TEMPLATE_FLAG_ASSIST_PLAYERS) || HasExtraFlag(CREATURE_FLAG_EXTRA_CAN_ASSIST); }

@@ -12,6 +12,7 @@
 #include "CharacterDatabaseCache.h"
 #include "Totem.h"
 #include <list>
+#include "Utilities/Random.h"
 #include <random>
 
 enum CombatBotSpells
@@ -2752,8 +2753,10 @@ void CombatBotBaseAI::LearnPremadeSpecForClass()
     {
         // Use gm command to learn spells on trainers and items.
         LearnRandomTalents();
-        ChatHandler(me).HandleLearnAllTrainerCommand("");
-        ChatHandler(me).HandleLearnAllItemsCommand("");
+        char trainerArgs[] = "";
+        char itemArgs[] = "";
+        ChatHandler(me).HandleLearnAllTrainerCommand(trainerArgs);
+        ChatHandler(me).HandleLearnAllItemsCommand(itemArgs);
     }
 }
 
@@ -3113,7 +3116,7 @@ bool CombatBotBaseAI::CanTryToCastSpell(Unit const* pTarget, SpellEntry const* p
     if (m_preventCasting)
         return false;
 
-    if (!me->IsSpellReady(pSpellEntry->Id))
+    if (!me->IsSpellReady(pSpellEntry))
         return false;
 
     if (me->HasGCD(pSpellEntry))
@@ -3338,6 +3341,20 @@ void CombatBotBaseAI::UpdateVisualHonorRankBasedOnItems()
     me->SetByteValue(PLAYER_FIELD_BYTES, PLAYER_FIELD_BYTES_OFFSET_HIGHEST_HONOR_RANK, m_visualHonorRank);
 }
 
+void CombatBotBaseAI::BeginChasing(Unit* pVictim) const
+{
+    if ((m_role == ROLE_RANGE_DPS || m_role == ROLE_HEALER) &&
+        IsRangedDamageClass(me->GetClass()) &&
+       !IsAttackSpeedOverridenForm(me->GetShapeshiftForm()) &&
+       (me->GetPowerPercent(POWER_MANA) > 10.0f || me->GetWeaponForAttack(RANGED_ATTACK, true, true)))
+        me->SetCasterChaseDistance(25.0f);
+    else if (me->HasDistanceCasterMovement())
+        me->SetCasterChaseDistance(0.0f);
+
+    // we use dist = 1 always so we can specify angle, instead of spreading around target like mobs
+    me->GetMotionMaster()->MoveChase(pVictim, 1.0f, m_role == ROLE_MELEE_DPS ? M_PI_F : 0.0f);
+}
+
 bool CombatBotBaseAI::SummonShamanTotems()
 {
     auto hasNearbyEnemyCaster = [this]() -> bool
@@ -3516,7 +3533,7 @@ bool CombatBotBaseAI::UseItemEffect(Item* pItem, bool onlyToBreakCC)
         {
             if (SpellEntry const* pSpellEntry = sSpellMgr.GetSpellEntry(itr.SpellId))
             {
-                if (me->IsSpellReady(*pSpellEntry, pProto))
+                if (me->IsSpellReady(pSpellEntry, pProto))
                 {
                     if (onlyToBreakCC && !pSpellEntry->HasAttribute(SPELL_ATTR_EX_IMMUNITY_PURGES_EFFECT))
                         continue;

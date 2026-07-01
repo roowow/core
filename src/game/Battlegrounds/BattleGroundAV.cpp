@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (C) 2005-2011 MaNGOS <http://getmangos.com/>
  * Copyright (C) 2009-2011 MaNGOSZero <https://github.com/mangos/zero>
  * Copyright (C) 2011-2016 Nostalrius <https://nostalrius.org>
@@ -29,6 +29,7 @@
 #include "Language.h"
 #include "WorldPacket.h"
 #include "Chat.h"
+#include "Utilities/Random.h"
 #include "World.h"
 
 
@@ -130,7 +131,7 @@ void BattleGroundAV::initializeChallengeInvocationGoals(void)
         m_challengeMinReputationNeeded[i] = REP_NEUTRAL; /** Real value REP_REVERED */
 
     // World of Warcraft Client Patch 1.6.0 (2005-07-12)
-    // The minimum reputation needed to send a cavalry charge has been 
+    // The minimum reputation needed to send a cavalry charge has been
     // reduced to Honored.
     m_challengeMinReputationNeeded[BG_AV_CAVALRY_ASSAULT]               = sWorld.GetWowPatch() < WOW_PATCH_106 ? REP_REVERED : REP_HONORED;
     m_challengeMinReputationNeeded[BG_AV_GROUND_ASSAULT]                = REP_HONORED;
@@ -552,12 +553,12 @@ void BattleGroundAV::HandleKillUnit(Creature* creature, Player* killer)
             {
                 ChangeMineOwner(BG_AV_SOUTH_MINE, GetAVTeamIndexByTeamId(killer->GetTeam()));
                 CompleteQuestForAll(7122);
-            }   
+            }
             else if (killer->GetTeam() == HORDE)
             {
                 ChangeMineOwner(BG_AV_SOUTH_MINE, GetAVTeamIndexByTeamId(killer->GetTeam()));
                 CompleteQuestForAll(7124);
-            }   
+            }
             else // Never happens, this function HandleKillUnit is only called if a player kill a unit
                 ChangeMineOwner(BG_AV_SOUTH_MINE, BG_AV_TEAM_NEUTRAL);
             break;
@@ -604,7 +605,7 @@ void BattleGroundAV::UpgradeArmor(Object* questGiver, Player* player)
 
     if (resources%500 == 0 && m_teamQuestStatus[teamIdx][0] != 0 && questGiver->GetTypeId() == TYPEID_UNIT)
     {
-        sprintf(sMessageRemaining,"感谢您的物资，%s",player->GetName());
+        snprintf(sMessageRemaining, sizeof(sMessageRemaining),"感谢您的物资，%s",player->GetName());
         ((Creature*)questGiver)->MonsterSay(sMessageRemaining, 0, 0);
 
         if (resources == 500)
@@ -614,7 +615,7 @@ void BattleGroundAV::UpgradeArmor(Object* questGiver, Player* player)
             else
                 CastSpellOnTeam(28418, HORDE);
 
-            sprintf(sMessageRemaining,"经验丰富的部队正在投入战斗！");
+            snprintf(sMessageRemaining, sizeof(sMessageRemaining),"经验丰富的部队正在投入战斗！");
             ((Creature*)questGiver)->MonsterYell(sMessageRemaining, 0, 0);
         }
         else if (resources == 1000)
@@ -624,7 +625,7 @@ void BattleGroundAV::UpgradeArmor(Object* questGiver, Player* player)
             else
                 CastSpellOnTeam(28419, HORDE);
 
-            sprintf(sMessageRemaining,"老兵部队正在投入战斗");
+            snprintf(sMessageRemaining, sizeof(sMessageRemaining),"老兵部队正在投入战斗");
             ((Creature*)questGiver)->MonsterYell(sMessageRemaining, 0, 0);
         }
         else if (resources == 1500)
@@ -634,7 +635,7 @@ void BattleGroundAV::UpgradeArmor(Object* questGiver, Player* player)
             else
                 CastSpellOnTeam(28420, HORDE);
 
-            sprintf(sMessageRemaining,"冠军单位即将投入战斗！");
+            snprintf(sMessageRemaining, sizeof(sMessageRemaining),"冠军单位即将投入战斗！");
             ((Creature*)questGiver)->MonsterYell(sMessageRemaining, 0, 0);
         }
     }
@@ -675,37 +676,37 @@ void BattleGroundAV::HandleQuestComplete(Unit* questGiver, uint32 questid, Playe
 
 /*            if (m_teamQuestStatus[teamIdx][0]%500 == 0 && m_teamQuestStatus[teamIdx][0] != 0 && questGiver->GetTypeId() == TYPEID_UNIT)
             {
-                sprintf(sMessageRemaining,"Thanks for the supplies, %s",player->GetName());
+                snprintf(sMessageRemaining, sizeof(sMessageRemaining),"Thanks for the supplies, %s",player->GetName());
                 ((Creature*)questGiver)->MonsterSay(sMessageRemaining, 0, 0);
 
-                if (m_teamQuestStatus[teamIdx][0] == 500)                    
+                if (m_teamQuestStatus[teamIdx][0] == 500)
                 {
                     if (teamIdx == 0)
                         CastSpellOnTeam(28418, ALLIANCE);
                     else
                         CastSpellOnTeam(28418, HORDE);
 
-                   sprintf(sMessageRemaining,"Seasoned units are entering the battle!");
+                   snprintf(sMessageRemaining, sizeof(sMessageRemaining),"Seasoned units are entering the battle!");
                    ((Creature*)questGiver)->MonsterYell(sMessageRemaining, 0, 0);
                 }
-                else if (m_teamQuestStatus[teamIdx][0] == 1000)                    
+                else if (m_teamQuestStatus[teamIdx][0] == 1000)
                 {
                     if (teamIdx == 0)
                         CastSpellOnTeam(28419, ALLIANCE);
                     else
                         CastSpellOnTeam(28419, HORDE);
 
-                    sprintf(sMessageRemaining,"Veteran units are entering the battle!");
+                    snprintf(sMessageRemaining, sizeof(sMessageRemaining),"Veteran units are entering the battle!");
                     ((Creature*)questGiver)->MonsterYell(sMessageRemaining, 0, 0);
                 }
-                else if (m_teamQuestStatus[teamIdx][0] == 1500)                    
+                else if (m_teamQuestStatus[teamIdx][0] == 1500)
                 {
                     if (teamIdx == 0)
                         CastSpellOnTeam(28420, ALLIANCE);
                     else
                         CastSpellOnTeam(28420, HORDE);
 
-                    sprintf(sMessageRemaining,"Champion units are entering the battle!");
+                    snprintf(sMessageRemaining, sizeof(sMessageRemaining),"Champion units are entering the battle!");
                     ((Creature*)questGiver)->MonsterYell(sMessageRemaining, 0, 0);
                 }
 
@@ -751,7 +752,7 @@ void BattleGroundAV::HandleQuestComplete(Unit* questGiver, uint32 questid, Playe
                     if (m_nodes[i].owner == teamIdx && m_nodes[i].state == POINT_CONTROLLED)
                         PopulateNode(i);
             }
-*/ 
+*/
            break;
         case BG_AV_QUEST_A_COMMANDER1:
         case BG_AV_QUEST_H_COMMANDER1:
@@ -760,9 +761,9 @@ void BattleGroundAV::HandleQuestComplete(Unit* questGiver, uint32 questid, Playe
             if (m_teamQuestStatus[teamIdx][1] == 90)
             {
                 if (teamIdx == 0)
-                    sprintf(sMessageRemaining,"雷矛的士兵们，来帮助我吧！信标必须树起来。");
+                    snprintf(sMessageRemaining, sizeof(sMessageRemaining),"雷矛的士兵们，来帮助我吧！信标必须树起来。");
                 else
-                    sprintf(sMessageRemaining,"霜狼的士兵们，来帮助我吧！信标必须树起来。");
+                    snprintf(sMessageRemaining, sizeof(sMessageRemaining),"霜狼的士兵们，来帮助我吧！信标必须树起来。");
 
                 questGiver->MonsterYell(sMessageRemaining, 0, 0);
             }
@@ -774,9 +775,9 @@ void BattleGroundAV::HandleQuestComplete(Unit* questGiver, uint32 questid, Playe
             if (m_teamQuestStatus[teamIdx][2] == 60)
             {
                 if (teamIdx == 0)
-                    sprintf(sMessageRemaining,"雷矛的士兵们，来帮助我吧！信标必须树起来。");
+                    snprintf(sMessageRemaining, sizeof(sMessageRemaining),"雷矛的士兵们，来帮助我吧！信标必须树起来。");
                 else
-                    sprintf(sMessageRemaining,"霜狼的士兵们，来帮助我吧！信标必须树起来。");
+                    snprintf(sMessageRemaining, sizeof(sMessageRemaining),"霜狼的士兵们，来帮助我吧！信标必须树起来。");
 
                 questGiver->MonsterYell(sMessageRemaining, 0, 0);
             }
@@ -788,9 +789,9 @@ void BattleGroundAV::HandleQuestComplete(Unit* questGiver, uint32 questid, Playe
             if (m_teamQuestStatus[teamIdx][3] == 30)
             {
                 if (teamIdx == 0)
-                    sprintf(sMessageRemaining,"雷矛的士兵们，来帮助我吧！信标必须树起来。");
+                    snprintf(sMessageRemaining, sizeof(sMessageRemaining),"雷矛的士兵们，来帮助我吧！信标必须树起来。");
                 else
-                    sprintf(sMessageRemaining,"霜狼的士兵们，来帮助我吧！信标必须树起来。");
+                    snprintf(sMessageRemaining, sizeof(sMessageRemaining),"霜狼的士兵们，来帮助我吧！信标必须树起来。");
 
                 questGiver->MonsterYell(sMessageRemaining, 0, 0);
             }
@@ -807,9 +808,9 @@ void BattleGroundAV::HandleQuestComplete(Unit* questGiver, uint32 questid, Playe
             if (m_teamQuestStatus[teamIdx][4] == 200)
             {
                 if (teamIdx == 0)
-                    sprintf(sMessageRemaining,"雷矛的士兵们，援助并保护我们！森林领主给予了我们他的保护。现在必须打开门户！");
+                    snprintf(sMessageRemaining, sizeof(sMessageRemaining),"雷矛的士兵们，援助并保护我们！森林领主给予了我们他的保护。现在必须打开门户！");
                 else
-                    sprintf(sMessageRemaining,"霜狼的士兵们，来帮助我吧！冰雪领主给予了我们他的保护。他接受了这个提议！是时候让他攻击雷矛军队了！");
+                    snprintf(sMessageRemaining, sizeof(sMessageRemaining),"霜狼的士兵们，来帮助我吧！冰雪领主给予了我们他的保护。他接受了这个提议！是时候让他攻击雷矛军队了！");
 
                 questGiver->MonsterYell(sMessageRemaining, 0, 0);
             }
@@ -1115,7 +1116,7 @@ void BattleGroundAV::EndBattleGround(Team winner)
             RewardHonorToTeam(uint32(GetBonusHonorFromKill(towersSurvived[i] * BG_AV_KILL_SURVIVING_TOWER) * GetHonorModifier()), team[i]);
         }
         sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "BattleGroundAV: EndbattleGround: bgteam: %u towers:%u honor:%u rep:%u", i, towersSurvived[i], GetBonusHonorFromKill(towersSurvived[i] * BG_AV_KILL_SURVIVING_TOWER), towersSurvived[i] * BG_AV_REP_SURVIVING_TOWER);
-        
+
         // World of Warcraft Client Patch 1.7.0 (2005-09-13)
         // - Alterac Valley now correctly rewards honor for owning graveyards at
         //   the end of the game.
@@ -1352,9 +1353,9 @@ void BattleGroundAV::PopulateMineNode(uint8 mine, BattleGroundAVTeamIndex teamId
 
     if (actualFactionUpgrade == actualMineOwner)
     {
-        // En cas de defense : l event est déjà spawn -> juste set le mode.
+        // In case of defense: the event is already spawned -> just set the mode.
         SetSpawnEventMode(BG_AV_MINE_EVENT + mine, actualMineOwner + mineDefender * 3, RESPAWN_FORCED);
-        // En cas de prise du flag (destroy node)
+        // In case of flag capture (destroy node)
         SpawnEvent(BG_AV_MINE_EVENT + mine, actualMineOwner + mineDefender * 3, true, true);
     }
     else
@@ -1402,9 +1403,9 @@ void BattleGroundAV::PopulateNode(BG_AV_Nodes node)
     {
         if (m_nodes[node].state == POINT_CONTROLLED)
         {
-            // En cas de defense : l event est déjà spawn -> juste set le mode.
+            // In case of defense: the event is already spawned -> just set the mode.
             SetSpawnEventMode(BG_AV_NODES_MAX + node, newteamIdx * BG_AV_MAX_GRAVETYPES + defenderTypeNew, RESPAWN_FORCED);
-            // En cas de prise du flag (destroy node)
+            // In case of flag capture (destroy node)
             SpawnEvent(BG_AV_NODES_MAX + node, newteamIdx * BG_AV_MAX_GRAVETYPES + defenderTypeNew, true, true);
             delay = 5;
         }
@@ -1825,10 +1826,10 @@ void BattleGroundAV::Reset()
 
 /* Reap <Nostalrius> */
 /*
-Valide une quête de type alterac:
-SetQuestSlotCounter-> Visuel "Complete Quest" dans le journal de quête. (Deco reco disparais il faut donc modifier la fonction pour que sa le modifie dans `character_queststatus`)
-SetQuestStatus-> Validation dans la bdd.
-SendQuestCompleteEvent -> Affiche au joueur que une quête est validée.
+Validates an Alterac-type quest:
+SetQuestSlotCounter -> Visual "Complete Quest" in the quest log. (On disconnect/reconnect it disappears, so the function must be modified to update it in `character_queststatus`)
+SetQuestStatus -> Validation in the DB.
+SendQuestCompleteEvent -> Shows the player that a quest is validated.
 */
 void BattleGroundAV::CompleteQuestForAll(uint32 questId)
 {

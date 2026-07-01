@@ -29,6 +29,7 @@
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "Group.h"
+#include "Utilities/Random.h"
 #include "SocialMgr.h"
 #include "Util.h"
 #include "Chat.h"
@@ -697,7 +698,7 @@ void WorldSession::HandleGroupAssistantLeaderOpcode(WorldPackets::Group::GroupAs
 }
 
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_10_2
-void WorldSession::HandleRaidReadyCheckOpcode(WorldPackets::Group::RaidReadyCheck const& packet)
+void WorldSession::HandleRaidReadyCheckOpcode(WorldPackets::Group::RaidReadyCheckFromClient const& packet)
 {
     if (!packet.state.has_value()) // request
     {
@@ -712,8 +713,7 @@ void WorldSession::HandleRaidReadyCheckOpcode(WorldPackets::Group::RaidReadyChec
         /********************/
 
         // everything is fine, do it
-        WorldPacket data(MSG_RAID_READY_CHECK, 0);
-        group->BroadcastPacket(&data, false, -1);
+        group->BroadcastPacket(std::make_unique<WorldPackets::Group::RaidReadyCheckFromServer_Request>(), false, -1);
 
         group->OfflineReadyCheck();
     }
@@ -726,7 +726,7 @@ void WorldSession::HandleRaidReadyCheckOpcode(WorldPackets::Group::RaidReadyChec
         // Forward to the raid leader
         if (Player* gleader = sObjectMgr.GetPlayer(group->GetLeaderGuid()))
         {
-            auto response = std::make_unique<WorldPackets::Group::RaidReadyCheckResponse>();
+            auto response = std::make_unique<WorldPackets::Group::RaidReadyCheckFromServer_Response>();
             response->senderGuid = GetPlayer()->GetObjectGuid();
             response->state = packet.state.value();
             gleader->GetSession()->SendPacket(std::move(response));

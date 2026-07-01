@@ -27,6 +27,7 @@
 #include "WorldPacket.h"
 #include "BattleGroundMgr.h"
 #include "OO/OOMgr.h"
+#include "Utilities/Random.h"
 
 bool PlayerBotAI::OnSessionLoaded(PlayerBotEntry* entry, WorldSession* sess)
 {
@@ -215,7 +216,7 @@ void MageOrgrimmarAttackerAI::UpdateAI(uint32 const diff)
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
         me->GetMotionMaster()->MovementExpired();
     bool nearTarget = target && target->CanReachWithMeleeAutoAttack(me);
-    if (me->IsSpellReady(SPELL_FROST_NOVA) && me->GetPower(POWER_MANA) > 50)
+    if (me->IsSpellReady(sSpellMgr.GetSpellEntry(SPELL_FROST_NOVA)) && me->GetPower(POWER_MANA) > 50)
         if (nearTarget)
             me->CastSpell(me, SPELL_FROST_NOVA, false);
     if (nearTarget && target->HasUnitState(UNIT_STATE_CAN_NOT_MOVE))
@@ -261,7 +262,12 @@ void MageOrgrimmarAttackerAI::UpdateAI(uint32 const diff)
         return;
     }
     // MOVEMENT AI
-    float x, y, z = 0; // Where to go
+
+    // Target pos (where to go)
+    float x = 0;
+    float y = 0;
+    float z = 0;
+
     float r = 10;
     if (me->movespline->Finalized())
     {

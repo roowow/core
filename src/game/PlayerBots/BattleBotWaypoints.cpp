@@ -29,6 +29,7 @@
 #include "BattleBotWaypoints2.h"
 #include "Geometry.h"
 #include <cstddef>
+#include "Utilities/Random.h"
 
 using namespace Geometry;
 

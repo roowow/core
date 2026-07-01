@@ -18,6 +18,7 @@
 #include "BattleGroundMgr.h"
 #include "MapManager.h"
 #include "Language.h"
+#include "Utilities/Random.h"
 #include "Spell.h"
 
 INSTANTIATE_SINGLETON_1(PlayerBotMgr);
@@ -2478,10 +2479,10 @@ bool ChatHandler::HandleBattleBotAddCommand(char* args, uint8 bg)
             return false;
         }
 
-        
+
         ExtractUInt32(&args, botLevel);
 
-        
+
         if (char* tempStr = ExtractArg(&args))
         {
             if (strcmp(tempStr, "temp") == 0)
@@ -2639,7 +2640,7 @@ bool ChatHandler::HandleBattleBotShowAllPathsCommand(char* args)
             break;
         }
         default:
-            break;
+            return false;
     }
 
     uint32 id = 1;

@@ -292,7 +292,7 @@ bool Corpse::IsExpired(time_t t) const
         return m_time < t - 3 * DAY;
 }
 
-uint32 Corpse::GetFactionTemplateId() const 
+uint32 Corpse::GetFactionTemplateId() const
 {
     // Player corpses do not always carry a cached faction template.
     // Treat unset corpse faction as neutral/unknown instead of dereferencing null.
