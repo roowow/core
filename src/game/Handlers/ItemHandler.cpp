@@ -712,22 +712,23 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem const& pack
             return;
         }
 
+        uint32 itemEntry = pItem->GetEntry(); // save before DestroyItemCount may free pItem
         if (actualCount)
-            _player->DestroyItemCount(pItem->GetEntry(), actualCount, true);
+            _player->DestroyItemCount(itemEntry, actualCount, true);
 
         std::string msg = _player->GetName();
         msg += "，已收到您的货物，正在存入...";
         pCreature->MonsterSay(msg.c_str(), 0, 0);
 
         CharacterDatabase.PExecute("INSERT INTO `character_log_guildbank` (`guid`, `name`, `vendor`, `item`, `count`, `type`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Deposit', '%u', '%u', '%f', '%f', '%f', '%s')",
-            _player->GetGUIDLow(), _player->GetName(), oobank.vendor_id, pItem->GetEntry(), actualCount, _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
+            _player->GetGUIDLow(), _player->GetName(), oobank.vendor_id, itemEntry, actualCount, _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
 
         sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] = time(nullptr); // vendor lock
-        sOOMgr.OOPlayerGuildBankDepositItem[_player->GetGUIDLow()][pItem->GetEntry()] = 1; // item withdraw lock
+        sOOMgr.OOPlayerGuildBankDepositItem[_player->GetGUIDLow()][itemEntry] = 1; // item withdraw lock
 
-        sObjectMgr.AddVendorItem(pCreature->GetEntry(), pItem->GetEntry(), latestCount, 999999, 0); // add item
-        sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][pItem->GetEntry()] = latestCount; // update latest count
-        pCreature->UpdateVendorItemCurrentCount(pItem->GetEntry(), latestCount - pCreature->GetVendorItemCurrentCountofGuildBank(pItem->GetEntry())); // update current vendor item
+        sObjectMgr.AddVendorItem(pCreature->GetEntry(), itemEntry, latestCount, 999999, 0); // add item
+        sOOMgr.OOGuildBankVendorItems[pCreature->GetEntry()][itemEntry] = latestCount; // update latest count
+        pCreature->UpdateVendorItemCurrentCount(itemEntry, latestCount - pCreature->GetVendorItemCurrentCountofGuildBank(itemEntry)); // update current vendor item
     
         return;
     }
