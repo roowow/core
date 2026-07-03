@@ -85,6 +85,7 @@
 #include "world/world_event_wareffort.h"
 #include "CustomTaxiMgr.h"
 
+#include "Utilities/Random.h"
 #include <climits>
 
 #define ZONE_UPDATE_INTERVAL (1*IN_MILLISECONDS)

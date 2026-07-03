@@ -33,6 +33,7 @@
 #include "Chat.h"
 #include "ScriptedGossip.h"
 #include "BattleRoyale/BattleRoyaleMgr.h"
+#include "Utilities/Random.h"
 
 using namespace Spells;
 

@@ -31,6 +31,7 @@
 #include "Chat.h"
 #include "Conditions.h"
 #include "Anticheat.h"
+#include "Utilities/Random.h"
 
 void WorldSession::HandleSplitItemOpcode(WorldPackets::Item::SplitItem const& packet)
 {

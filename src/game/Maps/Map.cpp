@@ -56,6 +56,7 @@
 #include "world/world_event_wareffort.h"
 #include "CreatureGroups.h"
 #include "Geometry.h"
+#include "Utilities/Random.h"
 
 Map::~Map()
 {
