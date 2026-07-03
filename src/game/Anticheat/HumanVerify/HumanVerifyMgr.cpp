@@ -16,6 +16,7 @@
 #include "ObjectMgr.h"
 #include "Player.h"
 
+#include "Utilities/Random.h"
 #include <algorithm>
 #include <vector>
 

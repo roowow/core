@@ -20,6 +20,7 @@
 #include "ObjectAccessor.h"
 #include "Database/DatabaseEnv.h"
 
+#include "Utilities/Random.h"
 #include <cmath>
 #include <cstdio>
 

@@ -18,6 +18,7 @@
 #include "WorldPacket.h"
 #include "PlayerBotMgr.h"
 
+#include "Utilities/Random.h"
 #include <algorithm>
 
 INSTANTIATE_SINGLETON_1(BattleRoyaleMgr);

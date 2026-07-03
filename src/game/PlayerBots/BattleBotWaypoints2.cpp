@@ -29,6 +29,7 @@
 #include "BattleGroundWS.h"
 #include "DBCStores.h"
 #include "Geometry.h"
+#include "Utilities/Random.h"
 #include <cstddef>
 
 using namespace Geometry;
