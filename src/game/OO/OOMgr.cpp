@@ -13,6 +13,7 @@
 #include "WorldPacket.h"
 
 #include "Config/Config.h"
+#include "Utilities/Random.h"
 #include <fstream>
 #include <iomanip>
 #include <sstream>
