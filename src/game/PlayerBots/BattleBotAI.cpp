@@ -6891,7 +6891,7 @@ void BattleBotAI::UpdateInCombatAI_Druid()
         {
             if (DoCastSpell(pRootTarget, m_spells.druid.pEntanglingRoots) == SPELL_CAST_OK)
             {
-                me->AddCooldown(*m_spells.druid.pEntanglingRoots, nullptr, false, 15000);
+                me->AddCooldown(m_spells.druid.pEntanglingRoots, nullptr, false, 15000);
                 return;
             }
         }
@@ -6966,7 +6966,7 @@ void BattleBotAI::UpdateInCombatAI_Druid()
             {
                 if (DoCastSpell(pRootTarget, m_spells.druid.pEntanglingRoots) == SPELL_CAST_OK)
                 {
-                    me->AddCooldown(*m_spells.druid.pEntanglingRoots, nullptr, false, 15000);
+                    me->AddCooldown(m_spells.druid.pEntanglingRoots, nullptr, false, 15000);
                     return;
                 }
             }
@@ -7249,7 +7249,7 @@ void BattleBotAI::UpdateInCombatAI_Druid()
                     {
                         if (DoCastSpell(pRootTarget, m_spells.druid.pEntanglingRoots) == SPELL_CAST_OK)
                         {
-                            me->AddCooldown(*m_spells.druid.pEntanglingRoots, nullptr, false, 15000);
+                            me->AddCooldown(m_spells.druid.pEntanglingRoots, nullptr, false, 15000);
                             return;
                         }
                     }
