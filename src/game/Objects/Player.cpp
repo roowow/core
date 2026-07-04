@@ -3314,6 +3314,7 @@ bool Player::DeleteTalent(uint32 talent)
 
     AddAura(6537, 0, this); // 森林的召唤
     oowowInfo.DualTalent_DeleteTalent_Delay = time(nullptr) + 5;
+    return true;
 }
 
 void Player::DeleteTalentDelay()
