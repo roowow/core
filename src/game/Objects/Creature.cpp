@@ -3552,6 +3552,7 @@ uint32 Creature::UpdateVendorItemCurrentCount(VendorItem const* vItem, uint32 us
     return vCount->count;
 }
 
+// 公会银行：按 item entry 查找并更新该 NPC 的商品当前数量
 uint32 Creature::UpdateVendorItemCurrentCount(uint32 item, uint32 used_count)
 {
     VendorItemData const* vItems = GetVendorItems();
@@ -3564,9 +3565,10 @@ uint32 Creature::UpdateVendorItemCurrentCount(uint32 item, uint32 used_count)
         VendorItem const* crItem = vItems->GetItem(vendorslot);
         if (crItem && crItem->item == item)
         {
-            UpdateVendorItemCurrentCount(crItem, used_count);
+            return UpdateVendorItemCurrentCount(crItem, used_count);
         }
     }
+    return 0;
 }
 
 bool Creature::IsGuildBank()
