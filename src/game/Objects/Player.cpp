@@ -15879,8 +15879,12 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
     if ((extraflags & PLAYER_EXTRA_CITY_PROTECTOR) && sWorld.getConfig(CONFIG_BOOL_ENABLE_CITY_PROTECTOR))
         SetCityTitle();
 
-    if (extraflags & PLAYER_EXTRA_TIANXUAN_ON)
+    // 自定义模式标记从 extra_flags 恢复（aura 为 permanent，不写入 DB，每次登录重新施加）
+    if (extraflags & PLAYER_EXTRA_TIANXUAN_ON)  // 天选者模式
         m_ExtraFlags |= PLAYER_EXTRA_TIANXUAN_ON;
+
+    if (extraflags & PLAYER_EXTRA_TURTLE_ON)    // 乌龟模式
+        m_ExtraFlags |= PLAYER_EXTRA_TURTLE_ON;
 
     sBattleGroundMgr.PlayerLoggedIn(this); // Add to BG queue if needed
     CreatePacketBroadcaster();
@@ -17353,6 +17357,10 @@ bool Player::SaveAura(SpellAuraHolder const* holder, AuraSaveStruct& saveStruct)
 {
     // Do not save these auras to database.
     if (holder->GetSpellProto()->HasAuraInterruptFlag(SpellAuraInterruptFlags(AURA_INTERRUPT_LEAVE_WORLD_CANCELS | AURA_INTERRUPT_ENTER_WORLD_CANCELS)))
+        return false;
+
+    // Permanent auras (mode identification buffs) are re-applied on every login; no need to persist.
+    if (holder->IsPermanent())
         return false;
 
     //skip all holders from spells that are passive or channeled
