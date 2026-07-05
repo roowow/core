@@ -350,27 +350,6 @@ void WorldSession::HandleCharDeleteOpcode(WorldPackets::Character::CharDelete co
         return;
     }
 
-    // > 59
-    std::unique_ptr<QueryResult> hresult0 = CharacterDatabase.PQuery("SELECT guid FROM characters where level > 59 and guid = %u", packet.guid);
-    if (hresult0)
-    {
-        WorldPacket data(SMSG_CHAR_DELETE, 1);
-        data << (uint8)CHAR_DELETE_FAILED;
-        SendPacket(&data);
-        return;
-    }
-
-    //// Hardcore check
-    std::unique_ptr<QueryResult> hresult = CharacterDatabase.PQuery("SELECT ch.guid FROM character_hardcore ch join characters c on ch.guid = c.guid where c.level >20 and ch.guid = %u", packet.guid);
-    if (hresult)
-    {
-        WorldPacket data(SMSG_CHAR_DELETE, 1);
-        data << (uint8)CHAR_DELETE_FAILED;
-        SendPacket(&data);
-        return;
-    }
-    //// Hardcore check
-
     uint32 lowguid = packet.guid.GetCounter();
 
     PlayerCacheData* cacheData = sObjectMgr.GetPlayerDataByGUID(lowguid);
@@ -383,6 +362,33 @@ void WorldSession::HandleCharDeleteOpcode(WorldPackets::Character::CharDelete co
     // prevent deleting other players' characters using cheating tools
     if (accountId != GetAccountId())
         return;
+
+    // 所有角色：60 级不可删除
+    std::unique_ptr<QueryResult> hresult0 = CharacterDatabase.PQuery("SELECT guid FROM characters where level > 59 and guid = %u", packet.guid);
+    if (hresult0)
+    {
+        WorldPacket data(SMSG_CHAR_DELETE, 1);
+        data << (uint8)CHAR_DELETE_FAILED;
+        SendPacket(&data);
+        return;
+    }
+
+    // 一命角色：软删除——仅解除账号绑定，保留角色名占用，防止名字被重用
+    {
+        std::unique_ptr<QueryResult> hcResult = CharacterDatabase.PQuery(
+            "SELECT guid FROM character_hardcore WHERE guid = %u", lowguid);
+        if (hcResult)
+        {
+            sLog.Player(this, LOG_CHAR, "Delete", LOG_LVL_BASIC,
+                "Hardcore character %s guid %u unbound from account (soft delete)", name.c_str(), packet.guid);
+            // 仅将 account 设为 0，名字留在数据库中继续占用
+            CharacterDatabase.PExecute("UPDATE characters SET account = 0 WHERE guid = %u", lowguid);
+            // 更新内存缓存 account，但不移除 name→guid 映射（名字仍被占用）
+            cacheData->uiAccount = 0;
+            sendResponse(CHAR_DELETE_SUCCESS);
+            return;
+        }
+    }
 
     sLog.Player(this, LOG_CHAR, "Delete", LOG_LVL_BASIC, "Character %s guid %u", name.c_str(), packet.guid);
 
