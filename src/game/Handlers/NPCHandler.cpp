@@ -423,8 +423,14 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::Npc::GossipSelec
             return;
         }
 
+        // Cache the entry before any branch below: some branches destroy `item` via
+        // DestroyItemCount(), which frees the underlying Item object (see
+        // Player::DestroyItem, ITEM_REMOVED state). Re-dereferencing `item` afterwards
+        // (eg. calling item->GetEntry() again for the next branch) is a use-after-free.
+        uint32 const itemEntry = item->GetEntry();
+
         // Party 派对入场券 920413
-        if (item->GetEntry() == 920413)
+        if (itemEntry == 920413)
         {
             PlayerMenu* pMenu = _player->PlayerTalkClass;
             pMenu->ClearMenus();
@@ -470,7 +476,7 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::Npc::GossipSelec
 
         // DualTalent 魂器 922001
         std::string tname;
-        if (item->GetEntry() == 922001)
+        if (itemEntry == 922001)
         {
             PlayerMenu* pMenu = _player->PlayerTalkClass;
             pMenu->ClearMenus();
@@ -515,7 +521,7 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::Npc::GossipSelec
         }
 
         // Guild Bank
-        if (item->GetEntry() == 918232)
+        if (itemEntry == 918232)
         {
             PlayerMenu* pMenu = _player->PlayerTalkClass;
             pMenu->ClearMenus();
