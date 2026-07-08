@@ -1622,19 +1622,27 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
                                 return;
                             }
 
-                            while (true)
+                            // creature_display_info_addon 是个稀疏表（很多entry是空的，
+                            // 参见 ObjectMgr::LoadCreatureDisplayInfoAddon 自己那段跳过null的遍历逻辑），
+                            // 所以之前那种"随机撞不中就一直转"的写法可能会转很久甚至死循环。
+                            // 这里改成限定尝试次数，撞不中就跳过这次随机变身。
+                            uint32 maxEntry = sCreatureDisplayInfoAddonStorage.GetMaxEntry();
+                            if (maxEntry >= 1)
                             {
-                                uint32 displayIdIndex = urand(1, sCreatureDisplayInfoAddonStorage.GetMaxEntry());
-                                CreatureDisplayInfoAddon const* minfo = sCreatureDisplayInfoAddonStorage.LookupEntry<CreatureDisplayInfoAddon>(displayIdIndex);
-                                if (minfo)
+                                for (uint32 attempt = 0; attempt < 100; ++attempt)
                                 {
-                                    pPlayer->SetDisplayId(minfo->display_id);
-                                    std::string msg = std::string("派对时间！(") + std::to_string(minfo->display_id) + std::string("）");
-                                    pPlayer->TextEmote(msg.c_str());
-                                    pPlayer->oowowInfo.displayID = minfo->display_id;
-                                    CharacterDatabase.PExecute("REPLACE INTO `character_displayid` (`Guid`, `DisplayID`) VALUES ('%u', '%u')", pPlayer->GetGUIDLow(), minfo->display_id);
+                                    uint32 displayIdIndex = urand(1, maxEntry);
+                                    CreatureDisplayInfoAddon const* minfo = sCreatureDisplayInfoAddonStorage.LookupEntry<CreatureDisplayInfoAddon>(displayIdIndex);
+                                    if (minfo)
+                                    {
+                                        pPlayer->SetDisplayId(minfo->display_id);
+                                        std::string msg = std::string("派对时间！(") + std::to_string(minfo->display_id) + std::string("）");
+                                        pPlayer->TextEmote(msg.c_str());
+                                        pPlayer->oowowInfo.displayID = minfo->display_id;
+                                        CharacterDatabase.PExecute("REPLACE INTO `character_displayid` (`Guid`, `DisplayID`) VALUES ('%u', '%u')", pPlayer->GetGUIDLow(), minfo->display_id);
 
-                                    break;
+                                        break;
+                                    }
                                 }
                             }
                         }

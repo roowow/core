@@ -617,6 +617,9 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
         score -= int32(std::min(state.recentPlayerKills, 2u)) * AFK_PLAYER_KILL_SCORE_REDUCE;
 
     bool const activeContribution = inCombat || effectiveDamageDone || effectiveDamageTaken || effectiveHealingDone || objectiveEvent || crowdControlEvent || botKill || playerKill || wsgFlagCarrier;
+    // Initiated contribution: player-originated actions only (excludes passive inCombat / damage taken).
+    // Used at kick threshold so AFK players being hit by enemies cannot indefinitely avoid removal.
+    bool const initiatedContribution = effectiveDamageDone || effectiveHealingDone || objectiveEvent || crowdControlEvent || botKill || playerKill || wsgFlagCarrier;
 
     if (bg->GetTypeID() == BATTLEGROUND_AB)
     {
@@ -703,9 +706,12 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     // AV has a large map where players legitimately spend long periods moving or defending
     // objectives without immediate combat. AB/WSG are small enough that real combat should
     // always be available, so proximity alone does not count as recovery at kick threshold.
+    // At the kick threshold we use initiatedContribution (not activeContribution) so that
+    // passive behavior — being attacked, standing near an AV objective without acting —
+    // cannot indefinitely block removal.
     bool const kickThresholdRecovery = (bg->GetTypeID() == BATTLEGROUND_AV)
-        ? (activeContribution || nearObjective)
-        : activeContribution;
+        ? (initiatedContribution || (nearObjective && moved))
+        : initiatedContribution;
     ApplyStage(bg, guid, state, rule, previousScore, kickThresholdRecovery, activeContribution);
     MaybeSendActivityNotice(bg, guid, state, rule);
 }
@@ -729,6 +735,14 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
 
     bool const recoveredNormal = state.score + AFK_RECOVERY_NORMAL_MARGIN < rule.warning1Score;
 
+    // sustainedKickChecks accumulates every tick the score stays at kick threshold.
+    // It resets only when the score genuinely drops below warning2 (real recovery),
+    // so minor fluctuations while sitting at the kick ceiling cannot prevent removal.
+    if (state.score >= rule.kickScore)
+        ++state.sustainedKickChecks;
+    else if (state.score < rule.warning2Score)
+        state.sustainedKickChecks = 0;
+
     if (recoveredNormal)
     {
         if (state.stage > 0)
@@ -740,12 +754,14 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
             state.lastActivityNoticeTime = m_elapsedTime;
             state.lastActivityNoticeLevel = 0;
             state.noObjectiveContributionChecks = 0;
+            state.sustainedKickChecks = 0;
             SendRecoveryNotice(bg, guid, state, true, false, false);
             return;
         }
 
         state.stage = 0;
         state.noObjectiveContributionChecks = 0;
+        state.sustainedKickChecks = 0;
     }
     else if (state.score < rule.warning1Score)
         targetStage = 0;
@@ -779,7 +795,13 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
 
     if (state.score >= rule.kickScore && state.stage >= 3)
     {
-        if (scoreDecreasing && kickThresholdRecovery)
+        // forcedKick fires when the player has spent 3+ minutes at the kick threshold
+        // without a genuine recovery (score dropping below warning2). It bypasses the
+        // scoreDecreasing+kickThresholdRecovery grace so passive activity (being hit,
+        // standing near an objective) cannot perpetually stall removal.
+        bool const forcedKick = (state.sustainedKickChecks >= 6);
+
+        if (!forcedKick && scoreDecreasing && kickThresholdRecovery)
         {
             state.maxScoreChecks = 0;
             if (recoveryNoticeReady)
@@ -792,7 +814,7 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
         }
 
         ++state.maxScoreChecks;
-        if (state.maxScoreChecks >= 3 || cooldownReady)
+        if (state.maxScoreChecks >= 3 || cooldownReady || forcedKick)
         {
             if (Player* player = sObjectMgr.GetPlayer(guid))
             {
@@ -802,11 +824,12 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
                 std::string const reasons = FormatAfkReasons(state.lastReasonMask);
                 int32 const delta = int32(state.score) - int32(state.lastPreviousScore);
                 uint32 const bgType = bg ? uint32(bg->GetTypeID()) : state.trackBgType;
-                sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] kick player %s (%s) bgType %u bgName %s instance %u elapsed %u stage %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u maxScoreChecks %u.",
+                sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] kick player %s (%s) bgType %u bgName %s instance %u elapsed %u stage %u score %u previousScore %u delta %+d reason %s moved %s moveDist %.1f combat %s nearObjective %s damage %u taken %u heal %u objective %u maxScoreChecks %u sustainedKickChecks %u forcedKick %s.",
                     player->GetName(), guid.GetString().c_str(), bgType, GetAfkBattleGroundName(bgType), bg ? bg->GetInstanceID() : state.trackInstanceId,
                     m_elapsedTime, uint32(state.stage), state.score, state.lastPreviousScore, delta, reasons.c_str(),
                     BoolText(state.lastMoved), state.lastMoveDistance, BoolText(state.lastInCombat), BoolText(state.lastNearObjective),
-                    state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents, state.maxScoreChecks);
+                    state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents,
+                    state.maxScoreChecks, state.sustainedKickChecks, BoolText(forcedKick));
                 state.kicked = true;
                 player->SendSysMessage("您因长时间未有效参与战场，已被移出战场。");
                 NotifyTeamAfkKick(bg, guid, player->GetName());

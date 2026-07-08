@@ -208,13 +208,15 @@ void WorldSession::SendPacketImpl(WorldPacket const* packet)
 
 void WorldSession::VerifyPacketWasCorrectlyRead(WorldPacket const& recvPacket, ClientPacket const& clientPacket)
 {
+    // 仅作诊断用：部分opcode（比如CMSG_JOIN_CHANNEL）客户端本身就会带一些
+    // 这里没解析的尾部字节，属于正常情况，不代表功能出了问题，所以用DETAIL级别而不是ERROR。
     if (clientPacket.GetOpcode() != recvPacket.GetOpcode())
     {
-        sLog.Out(LOG_NETWORK, LOG_LVL_ERROR, "[NicePacket Conversion] Received %d (%s) but after parse it was %d", recvPacket.GetOpcode(), LookupOpcodeName(recvPacket.GetOpcode()), clientPacket.GetOpcode());
+        sLog.Out(LOG_NETWORK, LOG_LVL_DETAIL, "[NicePacket Conversion] Received %d (%s) but after parse it was %d", recvPacket.GetOpcode(), LookupOpcodeName(recvPacket.GetOpcode()), clientPacket.GetOpcode());
     }
     if (recvPacket.rpos() != recvPacket.size())
     {
-        sLog.Out(LOG_NETWORK, LOG_LVL_ERROR, "[NicePacket Conversion] Packet is size %d but only parsed %d (opcode %d %s)", recvPacket.size(), recvPacket.rpos(), recvPacket.GetOpcode(), LookupOpcodeName(recvPacket.GetOpcode()));
+        sLog.Out(LOG_NETWORK, LOG_LVL_DETAIL, "[NicePacket Conversion] Packet is size %d but only parsed %d (opcode %d %s)", recvPacket.size(), recvPacket.rpos(), recvPacket.GetOpcode(), LookupOpcodeName(recvPacket.GetOpcode()));
     }
 }
 

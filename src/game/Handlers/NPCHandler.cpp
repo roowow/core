@@ -423,10 +423,9 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::Npc::GossipSelec
             return;
         }
 
-        // Cache the entry before any branch below: some branches destroy `item` via
-        // DestroyItemCount(), which frees the underlying Item object (see
-        // Player::DestroyItem, ITEM_REMOVED state). Re-dereferencing `item` afterwards
-        // (eg. calling item->GetEntry() again for the next branch) is a use-after-free.
+        // 在下面任何分支执行前先把entry缓存下来：有些分支会通过 DestroyItemCount()
+        // 销毁 item，这会释放底层的 Item 对象（见 Player::DestroyItem 里 ITEM_REMOVED 状态的处理）。
+        // 销毁之后再解引用 item（比如后面分支又调用 item->GetEntry()）就是 use-after-free。
         uint32 const itemEntry = item->GetEntry();
 
         // Party 派对入场券 920413

@@ -3278,6 +3278,11 @@ bool Player::AddTalent(std::string name)
         return false;
     }
 
+    // name comes straight from player-entered chat/gossip text; must be escaped
+    // before going into a hand-built query string, otherwise it's a SQL injection.
+    std::string escapedName = name;
+    CharacterDatabase.escape_string(escapedName);
+
     for (int i = 1; i < 20; i++) {
         if (oowowInfo.DualTalents.count(i))
             continue;
@@ -3285,7 +3290,7 @@ bool Player::AddTalent(std::string name)
         std::string q1 = "INSERT INTO `character_spell_talent` (`Flag`, `Guid`, `name`) VALUES ('";
         q1 = q1 + std::to_string(i) + std::string("', '");
         q1 = q1 + std::to_string(GetGUIDLow()) + std::string("', '");
-        q1 = q1 + name + std::string("');");
+        q1 = q1 + escapedName + std::string("');");
 
         const char *query = q1.c_str();
         CharacterDatabase.PExecute(query);
@@ -23172,7 +23177,8 @@ void Player::AddCooldown(SpellEntry const* spellEntry, ItemPrototype const* item
         auto& cdData = cdDataItr->second;
         if (!cdData->IsPermanent() && (!cdData->IsSpellCDExpired(sWorld.GetCurrentClockTime()) || !cdData->IsCatCDExpired(sWorld.GetCurrentClockTime())))
         {
-            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Player::AddCooldown> Spell(%u) try to add and already existing cooldown?", spellEntry->Id);
+            // 无害的已处理情况（下面直接return，不会重复添加），不值得用ERROR级别刷屏。
+            sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "Player::AddCooldown> Spell(%u) try to add and already existing cooldown?", spellEntry->Id);
             return;
         }
         wasPermanent = cdData->IsPermanent();

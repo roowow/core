@@ -244,7 +244,7 @@ void WorldSession::HandleAutostoreLootItemOpcode(WorldPackets::Loot::AutoStoreLo
         // #endif
         // }
 
-        if (itemProto->Quality >= 2 || itemProto->FoodType == 2) {
+        if (itemProto && (itemProto->Quality >= 2 || itemProto->FoodType == 2)) {
             CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `lootguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Auto', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
                 _player->GetGUIDLow(), _player->GetName(), item->itemid, newitem->GetGUIDLow(), item->count, lguid.GetCounter(), _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
         }

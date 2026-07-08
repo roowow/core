@@ -3584,6 +3584,9 @@ bool Creature::IsGuildBank()
 OOGuildBank Creature::GetGuildBank() const
 {
     std::map< uint32, OOGuildBank >::iterator OObank = sOOMgr.OOGuildBankVendors.find(GetEntry());
+    if (OObank == sOOMgr.OOGuildBankVendors.end())
+        return OOGuildBank();
+
     return OObank->second;
 }
 

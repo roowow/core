@@ -734,7 +734,9 @@ void Warden::LogPositiveToDB(std::shared_ptr<Scan const> scan)
     if (!scan)
         return;
 
-    sLog.OutWarden(this, LOG_LVL_MINIMAL, "Check %u penalty %u", scan->checkId, scan->penalty);
+    // 每个在线玩家每次扫描周期都会走到这里，绝大多数都是 penalty=0（正常，没查到问题）。
+    // 只有真正命中惩罚的才值得用 MINIMAL 级别刷出来，正常通过的降到 DETAIL，减少控制台刷屏。
+    sLog.OutWarden(this, scan->penalty > 0 ? LOG_LVL_MINIMAL : LOG_LVL_DETAIL, "Check %u penalty %u", scan->checkId, scan->penalty);
 }
 
 #endif

@@ -364,30 +364,25 @@ void WorldSession::HandleCharDeleteOpcode(WorldPackets::Character::CharDelete co
         return;
 
     // 所有角色：60 级不可删除
-    std::unique_ptr<QueryResult> hresult0 = CharacterDatabase.PQuery("SELECT guid FROM characters where level > 59 and guid = %u", packet.guid);
-    if (hresult0)
+    if (cacheData->uiLevel > 59)
     {
-        WorldPacket data(SMSG_CHAR_DELETE, 1);
-        data << (uint8)CHAR_DELETE_FAILED;
-        SendPacket(&data);
+        sendResponse(CHAR_DELETE_FAILED);
         return;
     }
 
     // 一命角色：软删除——仅解除账号绑定，保留角色名占用，防止名字被重用
+    std::unique_ptr<QueryResult> hcResult = CharacterDatabase.PQuery(
+        "SELECT guid FROM character_hardcore WHERE guid = %u", lowguid);
+    if (hcResult)
     {
-        std::unique_ptr<QueryResult> hcResult = CharacterDatabase.PQuery(
-            "SELECT guid FROM character_hardcore WHERE guid = %u", lowguid);
-        if (hcResult)
-        {
-            sLog.Player(this, LOG_CHAR, "Delete", LOG_LVL_BASIC,
-                "Hardcore character %s guid %u unbound from account (soft delete)", name.c_str(), packet.guid);
-            // 仅将 account 设为 0，名字留在数据库中继续占用
-            CharacterDatabase.PExecute("UPDATE characters SET account = 0 WHERE guid = %u", lowguid);
-            // 更新内存缓存 account，但不移除 name→guid 映射（名字仍被占用）
-            cacheData->uiAccount = 0;
-            sendResponse(CHAR_DELETE_SUCCESS);
-            return;
-        }
+        sLog.Player(this, LOG_CHAR, "Delete", LOG_LVL_BASIC,
+            "Hardcore character %s guid %u unbound from account (soft delete)", name.c_str(), packet.guid);
+        // 仅将 account 设为 0，名字留在数据库中继续占用
+        CharacterDatabase.PExecute("UPDATE characters SET account = 0 WHERE guid = %u", lowguid);
+        // 更新内存缓存 account，但不移除 name→guid 映射（名字仍被占用）
+        cacheData->uiAccount = 0;
+        sendResponse(CHAR_DELETE_SUCCESS);
+        return;
     }
 
     sLog.Player(this, LOG_CHAR, "Delete", LOG_LVL_BASIC, "Character %s guid %u", name.c_str(), packet.guid);
@@ -399,14 +394,17 @@ void WorldSession::HandleCharDeleteOpcode(WorldPackets::Character::CharDelete co
     Player::DeleteFromDB(packet.guid, GetAccountId());
 
     /// character deletion
-    CharacterDatabase.PExecute("DELETE FROM character_hardcore WHERE guid=%u", packet.guid);
-    CharacterDatabase.PExecute("DELETE FROM character_spell_extra WHERE guid=%u", packet.guid);
-    CharacterDatabase.PExecute("DELETE FROM character_spell_talent WHERE guid=%u", packet.guid);
-    CharacterDatabase.PExecute("DELETE FROM character_log_levelup WHERE guid=%u", packet.guid);
-    CharacterDatabase.PExecute("DELETE FROM character_log_wareffort WHERE guid=%u", packet.guid);
-    CharacterDatabase.PExecute("DELETE FROM character_log_money WHERE guid=%u", packet.guid);
-    CharacterDatabase.PExecute("DELETE FROM character_log_guildbank WHERE guid=%u", packet.guid);
-    CharacterDatabase.PExecute("DELETE FROM character_displayid WHERE guid=%u", packet.guid);
+    // 注意：packet.guid 是 ObjectGuid（8字节的类），不是普通整数；
+    // 直接当可变参数传给 "%u"（期望4字节 unsigned int）是未定义行为。
+    // 改用前面已经算好的 lowguid（uint32），跟本函数前面的写法保持一致。
+    CharacterDatabase.PExecute("DELETE FROM character_hardcore WHERE guid=%u", lowguid);
+    CharacterDatabase.PExecute("DELETE FROM character_spell_extra WHERE guid=%u", lowguid);
+    CharacterDatabase.PExecute("DELETE FROM character_spell_talent WHERE guid=%u", lowguid);
+    CharacterDatabase.PExecute("DELETE FROM character_log_levelup WHERE guid=%u", lowguid);
+    CharacterDatabase.PExecute("DELETE FROM character_log_wareffort WHERE guid=%u", lowguid);
+    CharacterDatabase.PExecute("DELETE FROM character_log_money WHERE guid=%u", lowguid);
+    CharacterDatabase.PExecute("DELETE FROM character_log_guildbank WHERE guid=%u", lowguid);
+    CharacterDatabase.PExecute("DELETE FROM character_displayid WHERE guid=%u", lowguid);
 
     sendResponse(CHAR_DELETE_SUCCESS);
 }

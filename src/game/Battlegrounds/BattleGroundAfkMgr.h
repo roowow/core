@@ -68,6 +68,7 @@ struct BattleGroundAfkPlayerState
     uint32 noObjectiveContributionChecks = 0;
     uint32 deadChecks = 0;
     uint32 maxScoreChecks = 0;
+    uint32 sustainedKickChecks = 0;
     bool lastMoved = false;
     bool lastInCombat = false;
     bool lastNearObjective = false;
