@@ -170,6 +170,10 @@ bool GossipSelect_HardcoreNPC2(Player *player, Creature *_Creature, uint32 sende
 // action 1/3 : 天选者流程
 // action 10/13: 乌龟模式流程
 
+// 功能开关：改为 true 并重新编译即可开放对应模式
+static constexpr bool TIANXUAN_ENABLED = false;
+static constexpr bool TURTLE_ENABLED   = false;
+
 void SendDefaultMenu_TianxuanNPC(Player* player, Creature* creature, uint32 action)
 {
     switch (action)
@@ -306,8 +310,10 @@ bool GossipHello_TianxuanNPC(Player* player, Creature* creature)
         return true;
     }
 
-    player->ADD_GOSSIP_ITEM(0, "《独善令》", GOSSIP_SENDER_MAIN, 1);
-    player->ADD_GOSSIP_ITEM(0, "《归朴令》", GOSSIP_SENDER_MAIN, 10);
+    if (TIANXUAN_ENABLED)
+        player->ADD_GOSSIP_ITEM(0, "《独善令》", GOSSIP_SENDER_MAIN, 1);
+    if (TURTLE_ENABLED)
+        player->ADD_GOSSIP_ITEM(0, "《归朴令》", GOSSIP_SENDER_MAIN, 10);
     player->PrepareQuestMenu(creature->GetGUID());
     player->SEND_GOSSIP_MENU(22040, creature->GetGUID());
     return true;
