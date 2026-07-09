@@ -37,7 +37,7 @@ log = logging.getLogger(__name__)
 
 # ── defaults ───────────────────────────────────────────────────────────────────
 
-REDIS_HOST   = "127.0.0.1"
+REDIS_HOST   = "192.168.1.231"
 REDIS_PORT   = 6379
 REALM_ID     = 1
 OLLAMA_URL   = "http://192.168.1.231:11434/api/chat"
