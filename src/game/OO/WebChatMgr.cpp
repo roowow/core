@@ -148,10 +148,14 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
     PlayerCacheData const* cache = sObjectMgr.GetPlayerDataByName(charName);
     ObjectGuid senderGuid = cache ? ObjectGuid(HIGHGUID_PLAYER, cache->uiGuid) : ObjectGuid();
 
+    // Prefix with [Web] if the sender is not currently logged into the game
+    bool isInGame = !charName.empty() && (ObjectAccessor::FindMasterPlayer(charName.c_str()) != nullptr);
+    std::string dispMsg = isInGame ? msg : "[Web] " + msg;
+
     if (channel == "world")
     {
         WorldPacket data;
-        ChatHandler::BuildChatPacket(data, CHAT_MSG_CHANNEL, msg.c_str(),
+        ChatHandler::BuildChatPacket(data, CHAT_MSG_CHANNEL, dispMsg.c_str(),
             LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, charName.c_str(),
             ObjectGuid(), nullptr, "世界频道");
 
@@ -169,7 +173,7 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
         if (MasterPlayer* rcp = ObjectAccessor::FindMasterPlayer(recipient.c_str()))
         {
             WorldPacket data;
-            ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER, msg.c_str(),
+            ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER, dispMsg.c_str(),
                 LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, charName.c_str());
             rcp->GetSession()->SendPacket(&data);
         }
@@ -183,7 +187,7 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
         if (channel == "guild")
         {
             if (Guild* guild = sGuildMgr.GetGuildById(sender->GetGuildId()))
-                guild->BroadcastToGuild(sender->GetSession(), msg.c_str(), LANG_UNIVERSAL);
+                guild->BroadcastToGuild(sender->GetSession(), dispMsg.c_str(), LANG_UNIVERSAL);
         }
         else
         {
@@ -191,7 +195,7 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
             if (!group) return;
             WorldPacket data;
             ChatMsg type = (channel == "raid") ? CHAT_MSG_RAID : CHAT_MSG_PARTY;
-            ChatHandler::BuildChatPacket(data, type, msg.c_str(),
+            ChatHandler::BuildChatPacket(data, type, dispMsg.c_str(),
                 LANG_UNIVERSAL, CHAT_TAG_NONE, sender->GetObjectGuid(), sender->GetName());
             group->BroadcastPacket(&data, false);
         }
