@@ -292,6 +292,8 @@ void WebChatMgr::WhisperAsJianJia(std::string const& targetName, std::string con
     if (targetName.empty() || message.empty()) return;
 
     MasterPlayer* target = ObjectAccessor::FindMasterPlayer(targetName.c_str());
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "JianJia DEBUG: WhisperAsJianJia target='%s' found=%s",
+        targetName.c_str(), target ? "yes" : "no");
     if (!target) return;
 
     // Get 蒹葭's guid so the client can click-to-reply

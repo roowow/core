@@ -418,9 +418,11 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
             {
                 sWebChatMgr.ForwardWhisperToJianJia(masterPlr->GetName(), packet.message);
                 WorldPacket informData;
+                PlayerCacheData const* botCache = sObjectMgr.GetPlayerDataByName(packet.whisperTargetOrChannel.c_str());
+                ObjectGuid botGuid = botCache ? ObjectGuid(HIGHGUID_PLAYER, botCache->uiGuid) : ObjectGuid();
                 ChatHandler::BuildChatPacket(informData, CHAT_MSG_WHISPER_INFORM, packet.message.c_str(),
                     LANG_UNIVERSAL, masterPlr->GetChatTag(),
-                    ObjectGuid(), packet.whisperTargetOrChannel.c_str());
+                    botGuid, packet.whisperTargetOrChannel.c_str());
                 SendPacket(&informData);
                 break;
             }
