@@ -148,19 +148,15 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
     PlayerCacheData const* cache = sObjectMgr.GetPlayerDataByName(charName);
     ObjectGuid senderGuid = cache ? ObjectGuid(HIGHGUID_PLAYER, cache->uiGuid) : ObjectGuid();
 
-    // For web-only senders (not logged into the game client):
-    // - Append "(Web)" to the display name
-    // - Use an empty GUID so the client is forced to use the name string from the packet
-    //   (non-empty GUID causes the client to resolve the name from its unit cache, ignoring the packet name field)
+    // For web-only senders: append " [W]" to the message as a suffix indicator
     bool isInGame = !charName.empty() && (ObjectAccessor::FindMasterPlayer(charName.c_str()) != nullptr);
-    std::string dispName = isInGame ? charName : charName + "(Web)";
-    ObjectGuid  dispGuid = isInGame ? senderGuid : ObjectGuid();
+    std::string dispMsg = isInGame ? msg : msg + " \xe2\x93\x8c"; // Ⓦ
 
     if (channel == "world")
     {
         WorldPacket data;
-        ChatHandler::BuildChatPacket(data, CHAT_MSG_CHANNEL, msg.c_str(),
-            LANG_UNIVERSAL, CHAT_TAG_NONE, dispGuid, dispName.c_str(),
+        ChatHandler::BuildChatPacket(data, CHAT_MSG_CHANNEL, dispMsg.c_str(),
+            LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, charName.c_str(),
             ObjectGuid(), nullptr, "世界频道");
 
         Channel* chanA = nullptr;
@@ -177,8 +173,8 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
         if (MasterPlayer* rcp = ObjectAccessor::FindMasterPlayer(recipient.c_str()))
         {
             WorldPacket data;
-            ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER, msg.c_str(),
-                LANG_UNIVERSAL, CHAT_TAG_NONE, dispGuid, dispName.c_str());
+            ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER, dispMsg.c_str(),
+                LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, charName.c_str());
             rcp->GetSession()->SendPacket(&data);
         }
     }
@@ -191,7 +187,7 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
         if (channel == "guild")
         {
             if (Guild* guild = sGuildMgr.GetGuildById(sender->GetGuildId()))
-                guild->BroadcastToGuild(sender->GetSession(), msg.c_str(), LANG_UNIVERSAL);
+                guild->BroadcastToGuild(sender->GetSession(), dispMsg.c_str(), LANG_UNIVERSAL);
         }
         else
         {
@@ -199,7 +195,7 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
             if (!group) return;
             WorldPacket data;
             ChatMsg type = (channel == "raid") ? CHAT_MSG_RAID : CHAT_MSG_PARTY;
-            ChatHandler::BuildChatPacket(data, type, msg.c_str(),
+            ChatHandler::BuildChatPacket(data, type, dispMsg.c_str(),
                 LANG_UNIVERSAL, CHAT_TAG_NONE, sender->GetObjectGuid(), sender->GetName());
             group->BroadcastPacket(&data, false);
         }
