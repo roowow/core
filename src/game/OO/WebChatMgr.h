@@ -25,6 +25,8 @@ public:
                       std::string const& recipient,
                       std::string const& msg);
 
+    void WriteBroadcast(std::string const& msg);
+
 private:
     void SubscribeThread();
     void DispatchWebMessage(std::string const& json); // main thread only
@@ -40,6 +42,7 @@ private:
                                  std::string const& recipient,
                                  std::string const& msg);
     static std::string EscapeJson(std::string const& s);
+    static std::string StripColorCodes(std::string const& s);
     static std::string JsonGetStr(std::string const& json, char const* key);
     static uint32      JsonGetU32(std::string const& json, char const* key);
 

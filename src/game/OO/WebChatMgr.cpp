@@ -202,6 +202,22 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
     }
 }
 
+// ── broadcast (server-wide system messages) ───────────────────────────────────
+
+void WebChatMgr::WriteBroadcast(std::string const& msg)
+{
+    if (!m_pubCtx || msg.empty()) return;
+    std::string clean = StripColorCodes(msg);
+    std::string j;
+    j.reserve(256);
+    j += "{\"source\":\"system\",\"channel\":\"broadcast\",\"character_name\":\"\",\"faction\":0,\"class\":0,\"recipient_name\":\"\",\"message\":\"";
+    j += EscapeJson(clean);
+    j += "\",\"ts\":";
+    j += std::to_string(uint32(time(nullptr)));
+    j += '}';
+    Publish(j);
+}
+
 // ── JSON helpers ──────────────────────────────────────────────────────────────
 
 std::string WebChatMgr::EscapeJson(std::string const& s)
@@ -257,6 +273,23 @@ std::string WebChatMgr::JsonGetStr(std::string const& json, char const* key)
         }
         else if (c == '"') break;
         else r += c;
+    }
+    return r;
+}
+
+std::string WebChatMgr::StripColorCodes(std::string const& s)
+{
+    std::string r;
+    r.reserve(s.size());
+    for (size_t i = 0; i < s.size(); )
+    {
+        if (s[i] == '|' && i + 1 < s.size())
+        {
+            char n = s[i + 1];
+            if ((n == 'c' || n == 'C') && i + 9 < s.size()) { i += 10; continue; } // |cAARRGGBB
+            if (n == 'r' || n == 'R')                        { i += 2;  continue; } // |r
+        }
+        r += s[i++];
     }
     return r;
 }

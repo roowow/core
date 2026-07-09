@@ -2804,7 +2804,11 @@ void World::SendServerMessage(ServerMessageType type, char const* text, Player* 
     if (player)
         player->GetSession()->SendPacket(std::move(packet));
     else
+    {
+        if (type == SERVER_MSG_CUSTOM && text && text[0])
+            sWebChatMgr.WriteBroadcast(text);
         SendGlobalMessage(std::move(packet));
+    }
 }
 
 void World::UpdateSessions(uint32 diff)
