@@ -28,7 +28,7 @@ void WebChatMgr::Initialize(char const* socketPath, uint32 realmId)
     m_keyHistory = "web_chat:history:" + std::to_string(realmId);
     m_keyJianJiaIn  = "web_chat:jianjia_in:" + std::to_string(realmId);
     m_keyJianJiaOut = "web_chat:jianjia_out:"+ std::to_string(realmId);
-    m_jianJiaName   = "\xe7\x99\xbd\xe9\x9c\xb2"; // 白露 (UTF-8, default; overwritten by World.cpp)
+    m_jianJiaName   = ""; // set by World.cpp after Initialize() via SetJianJiaName()
 
     m_pubCtx = redisConnectUnix(socketPath);
     if (!m_pubCtx || m_pubCtx->err)

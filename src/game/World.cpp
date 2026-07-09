@@ -1859,16 +1859,6 @@ void World::SetInitialWorldSettings()
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading PlayerBot ..."); // Requires Players cache
     sPlayerBotMgr.Load();
 
-    // Register 蒹葭 AI companion bot (requires JianJia.CharGuid set in mangosd.conf)
-    if (uint32 jjGuid = sConfig.GetIntDefault("JianJia.CharGuid", 0))
-    {
-        std::string jjName;
-        sObjectMgr.GetPlayerNameByGUID(jjGuid, jjName);
-        sWebChatMgr.SetJianJiaName(jjName);
-        sPlayerBotMgr.AddBot(jjGuid, false, new JianJiaAI());
-        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "JianJia: registered bot GUID %u (%s).", jjGuid, jjName.c_str());
-    }
-
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading faction change ...");
     sObjectMgr.LoadFactionChangeReputations();
@@ -1926,6 +1916,16 @@ void World::SetInitialWorldSettings()
 
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Initializing WebChatMgr...");
     sWebChatMgr.Initialize("/run/redis/redis.sock", realmID);
+
+    // Register AI companion bot after WebChatMgr::Initialize() so SetJianJiaName is not overwritten
+    if (uint32 jjGuid = sConfig.GetIntDefault("JianJia.CharGuid", 0))
+    {
+        std::string jjName;
+        sObjectMgr.GetPlayerNameByGUID(jjGuid, jjName);
+        sWebChatMgr.SetJianJiaName(jjName);
+        sPlayerBotMgr.AddBot(jjGuid, false, new JianJiaAI());
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "JianJia: registered bot GUID %u (%s).", jjGuid, jjName.c_str());
+    }
 
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "World initialized.");
 
