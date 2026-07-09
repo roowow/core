@@ -403,8 +403,10 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
 
         case CHAT_MSG_WHISPER: // Master Side
         {
+            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "JianJia DEBUG: WHISPER case, raw target='%s'(%zu)", packet.whisperTargetOrChannel.c_str(), packet.whisperTargetOrChannel.size());
             if (!normalizePlayerName(const_cast<std::string&>(packet.whisperTargetOrChannel)))
             {
+                sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "JianJia DEBUG: normalizePlayerName FAILED");
                 SendPlayerNotFoundNotice(packet.whisperTargetOrChannel);
                 break;
             }
