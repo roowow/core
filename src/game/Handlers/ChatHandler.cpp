@@ -413,6 +413,7 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
 
             // 在常规玩家查找前拦截发给 AI 陪伴角色的私信，
             // 因为 PlayerBot 不在 ObjectAccessor 索引中。
+            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "JianJia DEBUG: whisper target='%s' lang=%u", packet.whisperTargetOrChannel.c_str(), packet.lang);
             if (packet.lang != LANG_ADDON && sWebChatMgr.IsJianJiaName(packet.whisperTargetOrChannel))
             {
                 sWebChatMgr.ForwardWhisperToJianJia(masterPlr->GetName(), packet.message);
