@@ -256,6 +256,7 @@ def cleanup_loop() -> None:
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    global OLLAMA_MODEL, OLLAMA_URL, MAX_HISTORY_TURNS, HISTORY_TTL
     parser = argparse.ArgumentParser(description="AI Companion Service (诗经意境)")
     parser.add_argument("--redis-host", default=REDIS_HOST)
     parser.add_argument("--redis-port", type=int, default=REDIS_PORT)
@@ -269,7 +270,6 @@ def main() -> None:
                         help="Seconds before idle conversation context is cleared")
     args = parser.parse_args()
 
-    global OLLAMA_MODEL, OLLAMA_URL, MAX_HISTORY_TURNS, HISTORY_TTL
     OLLAMA_MODEL      = args.model
     OLLAMA_URL        = args.ollama_url
     MAX_HISTORY_TURNS = args.max_turns
