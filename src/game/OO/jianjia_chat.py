@@ -216,7 +216,7 @@ def handle_whisper(r_pub: "redis.Redis", sender: str, message: str, bot_name: st
         with _conv_lock:
             conv.add("assistant", reply)
 
-    payload = json.dumps({"target": sender, "message": reply}, ensure_ascii=False)
+    payload = json.dumps({"target": sender, "message": reply}, ensure_ascii=False, separators=(",", ":"))
     r_pub.publish(out_key, payload)
     log.info("[%s] Reply to %s: %s", bot_name, sender, reply)
 
