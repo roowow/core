@@ -239,8 +239,11 @@ class Channel
         void MakePlayerInviteBanned(WorldPacket* data, std::string const& name);//? 0x1E
         void MakeThrottled(WorldPacket* data);                                  //? 0x1F
 
+    public:
+        // 供 WebChatMgr 向频道成员广播网页侧消息（web→game 方向）
         void SendToAll(WorldPacket* data, ObjectGuid guid = ObjectGuid());
         void SendToOne(WorldPacket* data, ObjectGuid who);
+    private:
 
         bool IsOn(ObjectGuid who) const { return m_players.find(who) != m_players.end(); }
         bool IsBanned(ObjectGuid guid) const { return m_banned.find(guid) != m_banned.end(); }

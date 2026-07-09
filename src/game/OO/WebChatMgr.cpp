@@ -102,7 +102,7 @@ void WebChatMgr::SubscribeThread()
     m_subCtx = redisConnectUnix(m_socketPath.c_str());
     if (!m_subCtx || m_subCtx->err)
     {
-        sLog.outError("WebChatMgr: subscriber failed to connect to Redis");
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "WebChatMgr: subscriber failed to connect to Redis");
         return;
     }
 
