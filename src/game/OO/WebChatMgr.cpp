@@ -54,11 +54,10 @@ void WebChatMgr::Shutdown()
 
 void WebChatMgr::Update()
 {
-    if (m_pending.empty()) return;
-
     std::queue<std::string> local;
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
+        if (m_pending.empty()) return;
         local.swap(m_pending);
     }
     while (!local.empty())
@@ -311,11 +310,10 @@ void WebChatMgr::WhisperAsJianJia(std::string const& targetName, std::string con
 
 void WebChatMgr::UpdateJianJia()
 {
-    if (m_jianJiaPending.empty()) return;
-
     std::queue<std::string> local;
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
+        if (m_jianJiaPending.empty()) return;
         local.swap(m_jianJiaPending);
     }
     while (!local.empty())
