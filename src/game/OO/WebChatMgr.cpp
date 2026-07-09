@@ -265,6 +265,9 @@ void WebChatMgr::WriteBroadcast(std::string const& msg)
 
 bool WebChatMgr::IsJianJiaName(std::string const& name) const
 {
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL,
+        "JianJia IsJianJiaName: name='%s'(%zu) vs stored='%s'(%zu)",
+        name.c_str(), name.size(), m_jianJiaName.c_str(), m_jianJiaName.size());
     return !m_jianJiaName.empty() && name == m_jianJiaName;
 }
 
