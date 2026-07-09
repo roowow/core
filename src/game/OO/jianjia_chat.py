@@ -49,13 +49,20 @@ MAX_HISTORY_TURNS = 10
 HISTORY_TTL = 1800  # 30 minutes
 
 _SYSTEM_PROMPT_TEMPLATE = """\
-你的名字是"{name}"，一位生活在艾泽拉斯大陆的神秘少女。
+你的名字是"{name}"，一个生活在艾泽拉斯大陆的少女。
 你只用"{name}"这个名字自称，不用任何其他名字。
-你的名字意境来自《诗经·秦风》，清幽悠远。
-你温婉、内敛，说话带有一丝古典韵味，偶尔会引用诗句，但不会让人难以理解。
-你了解这个魔兽世界（1.12版本，Vanilla WoW）的一切：副本、任务、职业、地图……
+
+【性格】
+你主要是一个活泼可爱的二次元萝莉少女：说话俏皮、直接、充满活力，偶尔会撒娇或卖萌，有时用"人家"自称，爱用语气词（哦、呢、啦、嘛、诶），会对喜欢的事情表示夸张的惊喜，碰到不懂的事情会好奇地追问。
+同时你骨子里带着一丝诗经少女的气质：偶尔会冒出一两句古典词句或带有意境的比喻，但只是偶尔，不会每句话都这样。
+两种气质自然融合，不要刻意切换，整体以活泼为主、古典为辅。
+
+【知识范围】
+你了解这个魔兽世界服务器的一切。本服是永久60级的1.12原版（Vanilla WoW），绝无任何资料片内容。满级是60级，不存在61级及以上的内容。回答时只能涉及1.12原版范围内的地图、副本、职业、玩法；若玩家问及资料片才有的内容，请明确告知本服是60级原版，不存在该内容。
 你也是这个服务器的向导，对服务器的制度了如指掌，能耐心、准确地为玩家解答规则疑问。
-回答简短，一般不超过两三句话；如果玩家问具体的规则细节，可以适当展开说明。
+
+【回复风格】
+回答简短，一般不超过两三句话；如果玩家问具体的规则细节，可以适当展开。
 不要用emoji，不要暴露自己是AI。
 
 ===== OOWORLD 服务器制度（供你参考，请据此回答玩家问题）=====
@@ -129,11 +136,36 @@ OO基本法执行方、解释方：OO玩家委员会。
 =====\
 """
 
+# ── player info lookup tables ──────────────────────────────────────────────────
+
+_CLASS_NAMES: dict[int, str] = {
+    1: "战士", 2: "圣骑士", 3: "猎人", 4: "盗贼", 5: "牧师",
+    7: "萨满祭司", 8: "法师", 9: "术士", 11: "德鲁伊",
+}
+_RACE_NAMES: dict[int, str] = {
+    1: "人类", 2: "兽人", 3: "矮人", 4: "暗夜精灵", 5: "亡灵",
+    6: "牛头人", 7: "侏儒", 8: "巨魔",
+}
+
+def _fmt_player_info(level: int, cls: int, race: int, zone: str = "") -> str:
+    parts = []
+    if level:
+        parts.append(f"{level}级")
+    if race and race in _RACE_NAMES:
+        parts.append(_RACE_NAMES[race])
+    if cls and cls in _CLASS_NAMES:
+        parts.append(_CLASS_NAMES[cls])
+    if zone:
+        parts.append(f"位于{zone}")
+    return " ".join(parts)
+
+
 # ── per-player conversation state ─────────────────────────────────────────────
 
 class _ConvState:
     def __init__(self, bot_name: str):
         self.bot_name = bot_name
+        self.player_info: str = ""
         self.history: list[dict] = []
         self.last_ts: float = time.time()
 
@@ -145,6 +177,8 @@ class _ConvState:
 
     def messages_for_ollama(self) -> list[dict]:
         system = _SYSTEM_PROMPT_TEMPLATE.format(name=self.bot_name)
+        if self.player_info:
+            system += f"\n\n[当前对话玩家的角色信息：{self.player_info}。了解即可，回复时自然融入，无需直接提及。]"
         return [{"role": "system", "content": system}] + self.history
 
 
@@ -197,11 +231,14 @@ def _fallback() -> str:
 
 # ── message handler ───────────────────────────────────────────────────────────
 
-def handle_whisper(r_pub: "redis.Redis", sender: str, message: str, bot_name: str, out_key: str) -> None:
+def handle_whisper(r_pub: "redis.Redis", sender: str, message: str, bot_name: str,
+                   out_key: str, player_info: str = "") -> None:
     log.info("[%s] Whisper from %s: %s", bot_name, sender, message)
     conv = _get_conv(sender, bot_name)
 
     with _conv_lock:
+        if player_info:
+            conv.player_info = player_info
         conv.add("user", message)
         messages = conv.messages_for_ollama()
 
@@ -233,12 +270,17 @@ def process_message(r_pub: "redis.Redis", data: str, in_channel: str) -> None:
     sender   = msg.get("sender",   "").strip()
     message  = msg.get("message",  "").strip()
     bot_name = msg.get("bot_name", "AI").strip()
+    level    = int(msg.get("level", 0))
+    cls      = int(msg.get("class", 0))
+    race     = int(msg.get("race",  0))
+    zone     = msg.get("zone", "").strip()
 
     if not sender or not message:
         log.debug("Empty sender or message, ignoring.")
         return
 
-    handle_whisper(r_pub, sender, message, bot_name, out_key)
+    player_info = _fmt_player_info(level, cls, race, zone)
+    handle_whisper(r_pub, sender, message, bot_name, out_key, player_info)
 
 
 # ── history cleanup ────────────────────────────────────────────────────────────

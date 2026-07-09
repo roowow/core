@@ -29,7 +29,9 @@ public:
 
     // 蒹葭 AI companion
     bool        IsJianJiaName(std::string const& name) const;
-    void        ForwardWhisperToJianJia(std::string const& senderName, std::string const& message);
+    void        ForwardWhisperToJianJia(std::string const& senderName, std::string const& message,
+                    uint8 level = 0, uint8 cls = 0, uint8 race = 0,
+                    std::string const& zone = "");
     void        WhisperAsJianJia(std::string const& targetName, std::string const& message);
     void        UpdateJianJia(); // drain pending AI replies; call from main thread
     void        SetJianJiaName(std::string const& name) { m_jianJiaName = name; }

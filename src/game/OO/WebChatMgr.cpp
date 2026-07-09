@@ -143,10 +143,7 @@ void WebChatMgr::SubscribeThread()
             if (chan == m_keyLive && JsonGetStr(json, "source") == "web")
                 m_pending.push(std::move(json));
             else if (chan == m_keyJianJiaOut)
-            {
-                sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "JianJia DEBUG: jianjia_out received: %s", json.c_str());
                 m_jianJiaPending.push(std::move(json));
-            }
         }
         freeReplyObject(reply);
     }
@@ -267,19 +264,25 @@ void WebChatMgr::WriteBroadcast(std::string const& msg)
 
 bool WebChatMgr::IsJianJiaName(std::string const& name) const
 {
-    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL,
-        "JianJia IsJianJiaName: name='%s'(%zu) vs stored='%s'(%zu)",
-        name.c_str(), name.size(), m_jianJiaName.c_str(), m_jianJiaName.size());
     return !m_jianJiaName.empty() && name == m_jianJiaName;
 }
 
-void WebChatMgr::ForwardWhisperToJianJia(std::string const& senderName, std::string const& message)
+void WebChatMgr::ForwardWhisperToJianJia(std::string const& senderName, std::string const& message,
+    uint8 level, uint8 cls, uint8 race, std::string const& zone)
 {
     if (!m_pubCtx || senderName.empty()) return;
     std::string j = "{\"sender\":\"";
     j += EscapeJson(senderName);
     j += "\",\"bot_name\":\"";
     j += EscapeJson(m_jianJiaName);
+    j += "\",\"level\":";
+    j += std::to_string(level);
+    j += ",\"class\":";
+    j += std::to_string(cls);
+    j += ",\"race\":";
+    j += std::to_string(race);
+    j += ",\"zone\":\"";
+    j += EscapeJson(zone);
     j += "\",\"message\":\"";
     j += EscapeJson(message);
     j += "\"}";
@@ -294,8 +297,6 @@ void WebChatMgr::WhisperAsJianJia(std::string const& targetName, std::string con
     if (targetName.empty() || message.empty()) return;
 
     MasterPlayer* target = ObjectAccessor::FindMasterPlayer(targetName.c_str());
-    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "JianJia DEBUG: WhisperAsJianJia target='%s' found=%s",
-        targetName.c_str(), target ? "yes" : "no");
     if (!target) return;
 
     // Get 蒹葭's guid so the client can click-to-reply

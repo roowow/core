@@ -403,10 +403,8 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
 
         case CHAT_MSG_WHISPER: // Master Side
         {
-            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "JianJia DEBUG: WHISPER case, raw target='%s'(%zu)", packet.whisperTargetOrChannel.c_str(), packet.whisperTargetOrChannel.size());
             if (!normalizePlayerName(const_cast<std::string&>(packet.whisperTargetOrChannel)))
             {
-                sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "JianJia DEBUG: normalizePlayerName FAILED");
                 SendPlayerNotFoundNotice(packet.whisperTargetOrChannel);
                 break;
             }
@@ -415,10 +413,13 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
 
             // 在常规玩家查找前拦截发给 AI 陪伴角色的私信，
             // 因为 PlayerBot 不在 ObjectAccessor 索引中。
-            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "JianJia DEBUG: whisper target='%s' lang=%u", packet.whisperTargetOrChannel.c_str(), packet.lang);
             if (packet.lang != LANG_ADDON && sWebChatMgr.IsJianJiaName(packet.whisperTargetOrChannel))
             {
-                sWebChatMgr.ForwardWhisperToJianJia(masterPlr->GetName(), packet.message);
+                std::string zoneName;
+                if (AreaEntry const* zoneEntry = AreaEntry::GetById(masterPlr->GetZoneId()))
+                    zoneName = zoneEntry->Name;
+                sWebChatMgr.ForwardWhisperToJianJia(masterPlr->GetName(), packet.message,
+                    masterPlr->GetLevel(), masterPlr->GetClass(), masterPlr->GetRace(), zoneName);
                 WorldPacket informData;
                 PlayerCacheData const* botCache = sObjectMgr.GetPlayerDataByName(packet.whisperTargetOrChannel.c_str());
                 ObjectGuid botGuid = botCache ? ObjectGuid(HIGHGUID_PLAYER, botCache->uiGuid) : ObjectGuid();
