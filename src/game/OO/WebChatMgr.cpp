@@ -144,7 +144,10 @@ void WebChatMgr::SubscribeThread()
             if (chan == m_keyLive && JsonGetStr(json, "source") == "web")
                 m_pending.push(std::move(json));
             else if (chan == m_keyJianJiaOut)
+            {
+                sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "JianJia DEBUG: jianjia_out received: %s", json.c_str());
                 m_jianJiaPending.push(std::move(json));
+            }
         }
         freeReplyObject(reply);
     }
