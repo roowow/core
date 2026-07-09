@@ -4771,10 +4771,10 @@ void BattleBotAI::UpdateInCombatAI()
     if (m_racialSpells.pStoneform && me->GetHealthPercent() < 60.0f)
     {
         bool hasDebuff = false;
-        for (auto const& [id, holder] : me->GetSpellAuraHolderMap())
+        for (auto const& kv : me->GetSpellAuraHolderMap())
         {
-            uint32 const dispelType = holder->GetSpellProto()->Dispel;
-            if (!holder->IsPositive() && (dispelType == DISPEL_POISON || dispelType == DISPEL_DISEASE))
+            uint32 const dispelType = kv.second->GetSpellProto()->Dispel;
+            if (!kv.second->IsPositive() && (dispelType == DISPEL_POISON || dispelType == DISPEL_DISEASE))
             {
                 hasDebuff = true;
                 break;

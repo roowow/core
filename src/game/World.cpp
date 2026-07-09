@@ -1914,7 +1914,7 @@ void World::SetInitialWorldSettings()
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
 
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Initializing WebChatMgr...");
-    sWebChatMgr.Initialize("/run/redis/redis.sock");
+    sWebChatMgr.Initialize("/run/redis/redis.sock", realmID);
 
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "World initialized.");
 

@@ -13,7 +13,7 @@ class WebChatMgr
 public:
     static WebChatMgr& instance();
 
-    void Initialize(char const* socketPath);
+    void Initialize(char const* socketPath, uint32 realmId);
     void Shutdown();
     void Update(); // drain pending web→game messages; call from World::Update()
 
@@ -42,6 +42,8 @@ private:
     static uint32      JsonGetU32(std::string const& json, char const* key);
 
     std::string   m_socketPath;
+    std::string   m_keyLive;    // web_chat:live:<realmId>
+    std::string   m_keyHistory; // web_chat:history:<realmId>
     redisContext* m_pubCtx = nullptr;
     redisContext* m_subCtx = nullptr;
 

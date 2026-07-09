@@ -19,9 +19,12 @@ WebChatMgr& WebChatMgr::instance()
     return s;
 }
 
-void WebChatMgr::Initialize(char const* socketPath)
+void WebChatMgr::Initialize(char const* socketPath, uint32 realmId)
 {
     m_socketPath = socketPath;
+    m_keyLive    = "web_chat:live:"    + std::to_string(realmId);
+    m_keyHistory = "web_chat:history:" + std::to_string(realmId);
+
     m_pubCtx = redisConnectUnix(socketPath);
     if (!m_pubCtx || m_pubCtx->err)
     {
@@ -32,7 +35,7 @@ void WebChatMgr::Initialize(char const* socketPath)
     }
     m_stop = false;
     m_subThread = std::thread(&WebChatMgr::SubscribeThread, this);
-    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "WebChatMgr: connected to Redis, WebChat enabled.");
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "WebChatMgr: connected to Redis (realm %u), WebChat enabled.", realmId);
 }
 
 void WebChatMgr::Shutdown()
@@ -72,9 +75,9 @@ void WebChatMgr::WriteWebChat(std::string const& channel, std::string const& cha
 
 void WebChatMgr::Publish(std::string const& json)
 {
-    redisAppendCommand(m_pubCtx, "PUBLISH web_chat:live %b", json.data(), json.size());
-    redisAppendCommand(m_pubCtx, "LPUSH web_chat:history %b", json.data(), json.size());
-    redisAppendCommand(m_pubCtx, "LTRIM web_chat:history 0 99");
+    redisAppendCommand(m_pubCtx, "PUBLISH %s %b", m_keyLive.c_str(), json.data(), json.size());
+    redisAppendCommand(m_pubCtx, "LPUSH %s %b", m_keyHistory.c_str(), json.data(), json.size());
+    redisAppendCommand(m_pubCtx, "LTRIM %s 0 99", m_keyHistory.c_str());
 
     for (int i = 0; i < 3; ++i)
     {
@@ -106,7 +109,7 @@ void WebChatMgr::SubscribeThread()
         return;
     }
 
-    redisReply* r = (redisReply*)redisCommand(m_subCtx, "SUBSCRIBE web_chat:live");
+    redisReply* r = (redisReply*)redisCommand(m_subCtx, "SUBSCRIBE %s", m_keyLive.c_str());
     if (!r) return;
     freeReplyObject(r);
 
