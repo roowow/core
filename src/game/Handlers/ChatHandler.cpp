@@ -411,6 +411,19 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
             MasterPlayer* masterPlr = GetMasterPlayer();
             ASSERT(masterPlr);
 
+            // 在常规玩家查找前拦截发给 AI 陪伴角色的私信，
+            // 因为 PlayerBot 不在 ObjectAccessor 索引中。
+            if (packet.lang != LANG_ADDON && sWebChatMgr.IsJianJiaName(packet.whisperTargetOrChannel))
+            {
+                sWebChatMgr.ForwardWhisperToJianJia(masterPlr->GetName(), packet.message);
+                WorldPacket informData;
+                ChatHandler::BuildChatPacket(informData, CHAT_MSG_WHISPER_INFORM, packet.message.c_str(),
+                    LANG_UNIVERSAL, masterPlr->GetChatTag(),
+                    ObjectGuid(), packet.whisperTargetOrChannel.c_str());
+                SendPacket(&informData);
+                break;
+            }
+
             MasterPlayer* player = ObjectAccessor::FindMasterPlayer(packet.whisperTargetOrChannel.c_str());
             uint32 tSecurity = GetSecurity();
             uint32 pSecurity = player ? player->GetSession()->GetSecurity() : SEC_PLAYER;
@@ -447,18 +460,6 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
                 }
             }
 
-            // Intercept whispers addressed to the AI companion 蒹葭
-            if (sWebChatMgr.IsJianJiaName(player->GetName()) && packet.lang != LANG_ADDON)
-            {
-                sWebChatMgr.ForwardWhisperToJianJia(masterPlr->GetName(), packet.message);
-                // Echo to sender so the client shows the message was sent
-                WorldPacket informData;
-                ChatHandler::BuildChatPacket(informData, CHAT_MSG_WHISPER_INFORM, packet.message.c_str(),
-                    LANG_UNIVERSAL, masterPlr->GetChatTag(),
-                    player->GetObjectGuid(), player->GetName());
-                SendPacket(&informData);
-                break;
-            }
 
             if (Player* toPlayer = player->GetSession()->GetPlayer())
             {
