@@ -352,9 +352,6 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
                 if (AntispamInterface *a = sAnticheatMgr->GetAntispam())
                     a->addMessage(packet.message, packet.type, GetPlayerPointer(), nullptr);
 
-                // Forward to AFK challenge handler if player is under BG verification
-                if (BattleGround* bg = GetPlayer()->GetBattleGround())
-                    bg->GetAfkMgr().HandlePlayerSay(bg, GetPlayer()->GetObjectGuid(), packet.message);
             }
 
             break;
