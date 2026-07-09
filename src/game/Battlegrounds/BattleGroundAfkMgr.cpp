@@ -22,7 +22,6 @@
 #include "DBCStores.h"
 #include "Log.h"
 #include "ObjectMgr.h"
-#include "OO/WebChatMgr.h"
 #include "Player.h"
 
 #include <algorithm>
@@ -34,8 +33,6 @@
 namespace
 {
 uint32 const AFK_CHECK_INTERVAL           = 30 * IN_MILLISECONDS;
-uint32 const AFK_CHALLENGE_PENDING_TIMEOUT = 40 * IN_MILLISECONDS; // max wait for Ollama to return a question
-uint32 const AFK_CHALLENGE_ANSWER_TIMEOUT  = 90 * IN_MILLISECONDS; // time player has to answer once question arrives
 uint32 const SPELL_DESERTER               = 26013;
 uint32 const AFK_WARNING_COOLDOWN = 5 * MINUTE * IN_MILLISECONDS;
 uint32 const AFK_RECOVERY_NOTICE_COOLDOWN = 2 * MINUTE * IN_MILLISECONDS;
@@ -825,53 +822,6 @@ void BattleGroundAfkMgr::ApplyStage(BattleGround* bg, ObjectGuid guid, BattleGro
                 if (player->IsGameMaster())
                     return;
 
-                // Phase 1: waiting for Ollama to return a question
-                if (state.pendingChallenge)
-                {
-                    if (m_elapsedTime < state.challengeSentElapsed + AFK_CHALLENGE_PENDING_TIMEOUT)
-                        return; // still waiting for Ollama
-
-                    // Ollama didn't respond in time — cancel challenge gracefully,
-                    // fall back to normal AFK kick (no Deserter, not the player's fault)
-                    state.pendingChallenge = false;
-                    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] challenge pending timeout (Ollama?) for %s, falling back to normal kick.",
-                        player->GetName());
-                    state.kicked = true;
-                    player->SendSysMessage("您因长时间未有效参与战场，已被移出战场。");
-                    NotifyTeamAfkKick(bg, guid, player->GetName());
-                    player->LeaveBattleground();
-                    return;
-                }
-
-                // Phase 2: question was sent, waiting for player to answer
-                if (state.challenged)
-                {
-                    if (m_elapsedTime < state.challengeSentElapsed + AFK_CHALLENGE_ANSWER_TIMEOUT)
-                        return; // still within answer window
-
-                    // Player got the question but didn't answer — kick with Deserter
-                    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] challenge answer timeout kick player %s (%s).",
-                        player->GetName(), guid.GetString().c_str());
-                    state.kicked = true;
-                    player->SendSysMessage("未在规定时间内完成验证，已被移出战场并施加逃兵惩罚。");
-                    player->CastSpell(player, SPELL_DESERTER, true);
-                    NotifyTeamAfkKick(bg, guid, player->GetName());
-                    player->LeaveBattleground();
-                    return;
-                }
-
-                // First time at kick threshold — trigger AI challenge instead of kicking
-                if (!state.pendingChallenge && !state.challenged)
-                {
-                    state.pendingChallenge = true;
-                    state.challengeSentElapsed = m_elapsedTime;
-                    player->SendSysMessage("检测到您可能在挂机，系统将向您发送一道验证题，请在90秒内用 /s 回答，否则将被移出战场。");
-                    sWebChatMgr.PublishAfkChallengeReq(player->GetName());
-                    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] challenge triggered for player %s (%s).",
-                        player->GetName(), guid.GetString().c_str());
-                    return;
-                }
-
                 std::string const reasons = FormatAfkReasons(state.lastReasonMask);
                 int32 const delta = int32(state.score) - int32(state.lastPreviousScore);
                 uint32 const bgType = bg ? uint32(bg->GetTypeID()) : state.trackBgType;
@@ -1066,78 +1016,3 @@ void BattleGroundAfkMgr::SendRecoveryNotice(BattleGround* bg, ObjectGuid guid, B
     }
 }
 
-// ── AI challenge ──────────────────────────────────────────────────────────────
-
-void BattleGroundAfkMgr::HandleChallengeQuestion(BattleGround* bg, ObjectGuid guid, std::string const& question)
-{
-    auto itr = m_playerStates.find(guid);
-    if (itr == m_playerStates.end() || !itr->second.pendingChallenge)
-        return;
-
-    Player* player = sObjectMgr.GetPlayer(guid);
-    if (!player || player->GetBattleGround() != bg)
-        return;
-
-    BattleGroundAfkPlayerState& state = itr->second;
-    state.pendingChallenge    = false;
-    state.challenged          = true;
-    state.challengeQuestion   = question;
-    state.challengeSentElapsed = m_elapsedTime;
-
-    player->PSendSysMessage("【战场验证】%s（请用 /s 回答，90秒内有效）", question.c_str());
-    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] challenge question sent to %s: %s",
-        player->GetName(), question.c_str());
-}
-
-void BattleGroundAfkMgr::HandleChallengeVerdict(BattleGround* bg, ObjectGuid guid, bool pass)
-{
-    auto itr = m_playerStates.find(guid);
-    if (itr == m_playerStates.end())
-        return;
-
-    Player* player = sObjectMgr.GetPlayer(guid);
-    BattleGroundAfkPlayerState& state = itr->second;
-    state.challenged       = false;
-    state.pendingChallenge = false;
-
-    if (pass)
-    {
-        // Reset AFK state so player gets a clean slate
-        state.score                        = 0;
-        state.stage                        = 0;
-        state.maxScoreChecks               = 0;
-        state.sustainedKickChecks          = 0;
-        state.noObjectiveContributionChecks = 0;
-        state.lastWarnTime                 = 0;
-        if (player && player->GetBattleGround() == bg)
-            player->SendSysMessage("验证通过，感谢您的参与！");
-        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] challenge PASS for %s",
-            player ? player->GetName() : guid.GetString().c_str());
-    }
-    else
-    {
-        if (player && player->GetBattleGround() == bg)
-        {
-            sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BattleGroundAfk] challenge FAIL kick %s", player->GetName());
-            state.kicked = true;
-            player->SendSysMessage("验证未通过，已被移出战场并施加逃兵惩罚。");
-            player->CastSpell(player, SPELL_DESERTER, true);
-            NotifyTeamAfkKick(bg, guid, player->GetName());
-            player->LeaveBattleground();
-        }
-    }
-}
-
-void BattleGroundAfkMgr::HandlePlayerSay(BattleGround* bg, ObjectGuid guid, std::string const& text)
-{
-    auto itr = m_playerStates.find(guid);
-    if (itr == m_playerStates.end() || !itr->second.challenged)
-        return;
-
-    Player* player = sObjectMgr.GetPlayer(guid);
-    if (!player)
-        return;
-
-    itr->second.challenged = false; // prevent duplicate submissions
-    sWebChatMgr.PublishAfkPlayerResponse(player->GetName(), text);
-}
