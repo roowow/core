@@ -24,6 +24,7 @@
 */
 
 #include "World.h"
+#include "OO/WebChatMgr.h"
 #include "Database/DatabaseEnv.h"
 #include "Config/Config.h"
 #include "Platform/Define.h"
@@ -1912,6 +1913,9 @@ void World::SetInitialWorldSettings()
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "==========================================================");
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
 
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Initializing WebChatMgr...");
+    sWebChatMgr.Initialize("/run/redis/redis.sock");
+
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "World initialized.");
 
     uint32 uStartInterval = WorldTimer::getMSTimeDiff(uStartTime, WorldTimer::getMSTime());
@@ -2011,6 +2015,9 @@ void World::Update(uint32 diff)
 
     // Update mass mailer tasks if any
     sMassMailMgr.Update();
+
+    // Dispatch pending web→game chat messages
+    sWebChatMgr.Update();
 
     // <ul><li> Handle auctions when the timer has passed
     if (m_timers[WUPDATE_AUCTIONS].Passed())

@@ -15,11 +15,19 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
+find_path(HIREDIS_INCLUDE_DIR hiredis/hiredis.h)
+find_library(HIREDIS_LIBRARY NAMES hiredis)
+if(NOT HIREDIS_INCLUDE_DIR OR NOT HIREDIS_LIBRARY)
+    message(FATAL_ERROR "hiredis not found. Install with: apt install libhiredis-dev")
+endif()
+
 set (game_SRCS
     AccountMgr.cpp
     AuraRemovalMgr.cpp
     AutoBroadCastMgr.cpp
     OO/OOMgr.cpp
+    OO/WebChatMgr.cpp
+    OO/WebChatMgr.h
     Camera.cpp
     Conditions.cpp
     CreatureGroups.cpp
@@ -553,6 +561,7 @@ else()
 endif()
 
 include_directories(
+  ${HIREDIS_INCLUDE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/AI
   ${CMAKE_CURRENT_SOURCE_DIR}/Anticheat
@@ -652,6 +661,7 @@ target_link_libraries(game
   shared
   Detour
   g3dlite
+  ${HIREDIS_LIBRARY}
 )
 
 #add_dependencies(game revision.h)

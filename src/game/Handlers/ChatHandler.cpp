@@ -20,6 +20,7 @@
  */
 
 #include "Common.h"
+#include "OO/WebChatMgr.h"
 #include "Log.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
@@ -313,6 +314,9 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
                     chn->Say(playerPointer->GetObjectGuid(), packet.message.c_str(), packet.lang);
                     SetLastPubChanMsgTime(time(nullptr));
 
+                    if (packet.lang != LANG_ADDON && packet.whisperTargetOrChannel == "世界频道")
+                        sWebChatMgr.WriteWebChat("world", playerPointer->GetName(), uint32(playerPointer->GetTeam()), "", packet.message);
+
                     if (packet.lang != LANG_ADDON && chn->HasFlag(Channel::ChannelFlags::CHANNEL_FLAG_GENERAL))
                         if (AntispamInterface *a = sAnticheatMgr->GetAntispam())
                             a->addMessage(packet.message, packet.type, GetPlayerPointer(), nullptr);
@@ -455,7 +459,11 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
                 }
 
                 if (masterPlr->IsGameMaster() || allowSendWhisper)
+                {
                     masterPlr->Whisper(packet.message.c_str(), packet.lang, player);
+                    if (packet.lang != LANG_ADDON)
+                        sWebChatMgr.WriteWebChat("whisper", masterPlr->GetName(), uint32(masterPlr->GetTeam()), player->GetName(), packet.message);
+                }
 
                 if (packet.lang != LANG_ADDON)
                 {
@@ -488,7 +496,10 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
             ChatHandler::BuildChatPacket(data, ChatMsg(packet.type), packet.message.c_str(), Language(packet.lang), _player->GetChatTag(), _player->GetObjectGuid(), _player->GetName());
             group->BroadcastPacket(&data, false, group->GetMemberGroup(GetPlayer()->GetObjectGuid()));
             if (packet.lang != LANG_ADDON)
+            {
                 sWorld.LogChat(this, "Group", packet.message.c_str(), nullptr, group->GetId());
+                sWebChatMgr.WriteWebChat("party", _player->GetName(), uint32(_player->GetTeam()), "", packet.message);
+            }
         }
         break;
         case CHAT_MSG_GUILD: // Master side
@@ -498,7 +509,10 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
                     guild->BroadcastToGuild(this, packet.message.c_str(), packet.lang == LANG_ADDON ? LANG_ADDON : LANG_UNIVERSAL);
 
             if (packet.lang != LANG_ADDON)
+            {
                 sWorld.LogChat(this, "Guild", packet.message.c_str(), nullptr, GetMasterPlayer()->GetGuildId());
+                sWebChatMgr.WriteWebChat("guild", GetMasterPlayer()->GetName(), uint32(GetMasterPlayer()->GetTeam()), "", packet.message);
+            }
             break;
         }
         case CHAT_MSG_OFFICER: // Master side
@@ -531,7 +545,10 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
             group->BroadcastPacket(&data, false);
 
             if (packet.lang != LANG_ADDON)
+            {
                 sWorld.LogChat(this, "Raid", packet.message.c_str(), nullptr, group->GetId());
+                sWebChatMgr.WriteWebChat("raid", _player->GetName(), uint32(_player->GetTeam()), "", packet.message);
+            }
         }
         break;
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_10_2
