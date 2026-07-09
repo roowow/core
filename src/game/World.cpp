@@ -25,6 +25,7 @@
 
 #include "World.h"
 #include "OO/WebChatMgr.h"
+#include "OO/JianJiaAI.h"
 #include "Database/DatabaseEnv.h"
 #include "Config/Config.h"
 #include "Platform/Define.h"
@@ -1858,6 +1859,16 @@ void World::SetInitialWorldSettings()
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading PlayerBot ..."); // Requires Players cache
     sPlayerBotMgr.Load();
 
+    // Register 蒹葭 AI companion bot (requires JianJia.CharGuid set in mangosd.conf)
+    if (uint32 jjGuid = sConfig.GetIntDefault("JianJia.CharGuid", 0))
+    {
+        std::string jjName;
+        sObjectMgr.GetPlayerNameByGUID(jjGuid, jjName);
+        sWebChatMgr.SetJianJiaName(jjName);
+        sPlayerBotMgr.AddBot(jjGuid, false, new JianJiaAI());
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "JianJia: registered bot GUID %u (%s).", jjGuid, jjName.c_str());
+    }
+
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Loading faction change ...");
     sObjectMgr.LoadFactionChangeReputations();
@@ -2018,6 +2029,8 @@ void World::Update(uint32 diff)
 
     // Dispatch pending web→game chat messages
     sWebChatMgr.Update();
+    // Dispatch pending AI companion replies
+    sWebChatMgr.UpdateJianJia();
 
     // <ul><li> Handle auctions when the timer has passed
     if (m_timers[WUPDATE_AUCTIONS].Passed())

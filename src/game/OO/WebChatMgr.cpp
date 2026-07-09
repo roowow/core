@@ -1,4 +1,6 @@
 #include "WebChatMgr.h"
+#include "Battlegrounds/BattleGround.h"
+#include "Battlegrounds/BattleGroundAfkMgr.h"
 #include "Log.h"
 #include "ObjectMgr.h"
 #include "ObjectAccessor.h"
@@ -24,6 +26,9 @@ void WebChatMgr::Initialize(char const* socketPath, uint32 realmId)
     m_socketPath = socketPath;
     m_keyLive    = "web_chat:live:"    + std::to_string(realmId);
     m_keyHistory = "web_chat:history:" + std::to_string(realmId);
+    m_keyJianJiaIn  = "web_chat:jianjia_in:" + std::to_string(realmId);
+    m_keyJianJiaOut = "web_chat:jianjia_out:"+ std::to_string(realmId);
+    m_jianJiaName   = "\xe7\x99\xbd\xe9\x9c\xb2"; // 白露 (UTF-8, default; overwritten by World.cpp)
 
     m_pubCtx = redisConnectUnix(socketPath);
     if (!m_pubCtx || m_pubCtx->err)
@@ -109,9 +114,18 @@ void WebChatMgr::SubscribeThread()
         return;
     }
 
-    redisReply* r = (redisReply*)redisCommand(m_subCtx, "SUBSCRIBE %s", m_keyLive.c_str());
-    if (!r) return;
-    freeReplyObject(r);
+    {
+        redisReply* r = (redisReply*)redisCommand(m_subCtx, "SUBSCRIBE %s %s",
+            m_keyLive.c_str(), m_keyJianJiaOut.c_str());
+        if (!r) return;
+        freeReplyObject(r);
+        // SUBSCRIBE to 2 channels produces 2 confirmation replies; consume the extra one
+        {
+            redisReply* rx = nullptr;
+            if (redisGetReply(m_subCtx, (void**)&rx) == REDIS_OK && rx)
+                freeReplyObject(rx);
+        }
+    }
 
     while (!m_stop.load(std::memory_order_relaxed))
     {
@@ -120,14 +134,17 @@ void WebChatMgr::SubscribeThread()
             break; // connection closed (Shutdown freed the context)
 
         if (reply->type == REDIS_REPLY_ARRAY && reply->elements == 3
+            && reply->element[1]->type == REDIS_REPLY_STRING
             && reply->element[2]->type == REDIS_REPLY_STRING)
         {
+            std::string chan(reply->element[1]->str, reply->element[1]->len);
             std::string json(reply->element[2]->str, reply->element[2]->len);
-            if (JsonGetStr(json, "source") == "web")
-            {
-                std::lock_guard<std::mutex> lock(m_queueMutex);
+
+            std::lock_guard<std::mutex> lock(m_queueMutex);
+            if (chan == m_keyLive && JsonGetStr(json, "source") == "web")
                 m_pending.push(std::move(json));
-            }
+            else if (chan == m_keyJianJiaOut)
+                m_jianJiaPending.push(std::move(json));
         }
         freeReplyObject(reply);
     }
@@ -242,6 +259,64 @@ void WebChatMgr::WriteBroadcast(std::string const& msg)
     j += std::to_string(uint32(time(nullptr)));
     j += '}';
     Publish(j);
+}
+
+// ── 蒹葭 AI companion ─────────────────────────────────────────────────────────
+
+bool WebChatMgr::IsJianJiaName(std::string const& name) const
+{
+    return !m_jianJiaName.empty() && name == m_jianJiaName;
+}
+
+void WebChatMgr::ForwardWhisperToJianJia(std::string const& senderName, std::string const& message)
+{
+    if (!m_pubCtx || senderName.empty()) return;
+    std::string j = "{\"sender\":\"";
+    j += EscapeJson(senderName);
+    j += "\",\"message\":\"";
+    j += EscapeJson(message);
+    j += "\"}";
+    redisReply* r = (redisReply*)redisCommand(m_pubCtx, "PUBLISH %s %b",
+        m_keyJianJiaIn.c_str(), j.data(), j.size());
+    if (r) freeReplyObject(r);
+    else ReconnectPub();
+}
+
+void WebChatMgr::WhisperAsJianJia(std::string const& targetName, std::string const& message)
+{
+    if (targetName.empty() || message.empty()) return;
+
+    MasterPlayer* target = ObjectAccessor::FindMasterPlayer(targetName.c_str());
+    if (!target) return;
+
+    // Get 蒹葭's guid so the client can click-to-reply
+    PlayerCacheData const* cache = sObjectMgr.GetPlayerDataByName(m_jianJiaName.c_str());
+    ObjectGuid senderGuid = cache ? ObjectGuid(HIGHGUID_PLAYER, cache->uiGuid) : ObjectGuid();
+
+    WorldPacket data;
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER, message.c_str(),
+        LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, m_jianJiaName.c_str());
+    target->GetSession()->SendPacket(&data);
+}
+
+void WebChatMgr::UpdateJianJia()
+{
+    if (m_jianJiaPending.empty()) return;
+
+    std::queue<std::string> local;
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        local.swap(m_jianJiaPending);
+    }
+    while (!local.empty())
+    {
+        std::string const& json = local.front();
+        std::string target  = JsonGetStr(json, "target");
+        std::string message = JsonGetStr(json, "message");
+        if (!target.empty() && !message.empty())
+            WhisperAsJianJia(target, message);
+        local.pop();
+    }
 }
 
 // ── JSON helpers ──────────────────────────────────────────────────────────────

@@ -27,6 +27,13 @@ public:
 
     void WriteBroadcast(std::string const& msg);
 
+    // 蒹葭 AI companion
+    bool        IsJianJiaName(std::string const& name) const;
+    void        ForwardWhisperToJianJia(std::string const& senderName, std::string const& message);
+    void        WhisperAsJianJia(std::string const& targetName, std::string const& message);
+    void        UpdateJianJia(); // drain pending AI replies; call from main thread
+    void        SetJianJiaName(std::string const& name) { m_jianJiaName = name; }
+
 private:
     void SubscribeThread();
     void DispatchWebMessage(std::string const& json); // main thread only
@@ -47,8 +54,11 @@ private:
     static uint32      JsonGetU32(std::string const& json, char const* key);
 
     std::string   m_socketPath;
-    std::string   m_keyLive;    // web_chat:live:<realmId>
-    std::string   m_keyHistory; // web_chat:history:<realmId>
+    std::string   m_keyLive;       // web_chat:live:<realmId>
+    std::string   m_keyHistory;    // web_chat:history:<realmId>
+    std::string   m_keyJianJiaIn;  // web_chat:jianjia_in:<realmId>   (C++ → Python)
+    std::string   m_keyJianJiaOut; // web_chat:jianjia_out:<realmId>  (Python → C++)
+    std::string   m_jianJiaName;  // in-game character name
     redisContext* m_pubCtx = nullptr;
     redisContext* m_subCtx = nullptr;
 
@@ -56,7 +66,8 @@ private:
     std::atomic<bool> m_stop{false};
 
     std::mutex              m_queueMutex;
-    std::queue<std::string> m_pending;
+    std::queue<std::string> m_pending;        // web chat messages (web→game)
+    std::queue<std::string> m_jianJiaPending; // AI companion replies from Python
 };
 
 #define sWebChatMgr WebChatMgr::instance()

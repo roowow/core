@@ -166,6 +166,7 @@ class BattleGround
         typedef std::map<ObjectGuid, BattleGroundPlayer> BattleGroundPlayerMap;
         BattleGroundPlayerMap const& GetPlayers() const { return m_players; }
         uint32 GetPlayersSize() const { return m_players.size(); }
+        BattleGroundAfkMgr& GetAfkMgr() { return m_afkMgr; }
 
         typedef std::map<ObjectGuid, BattleGroundScore*> BattleGroundScoreMap;
         BattleGroundScoreMap::const_iterator GetPlayerScoresBegin() const { return m_playerScores.begin(); }

@@ -20,6 +20,7 @@
  */
 
 #include "Common.h"
+#include "Battlegrounds/BattleGround.h"
 #include "OO/WebChatMgr.h"
 #include "Log.h"
 #include "WorldPacket.h"
@@ -350,6 +351,10 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
 
                 if (AntispamInterface *a = sAnticheatMgr->GetAntispam())
                     a->addMessage(packet.message, packet.type, GetPlayerPointer(), nullptr);
+
+                // Forward to AFK challenge handler if player is under BG verification
+                if (BattleGround* bg = GetPlayer()->GetBattleGround())
+                    bg->GetAfkMgr().HandlePlayerSay(bg, GetPlayer()->GetObjectGuid(), packet.message);
             }
 
             break;
@@ -443,6 +448,19 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
                     ChatHandler(this).SendSysMessage("你还不能发送悄悄话。");
                     return;
                 }
+            }
+
+            // Intercept whispers addressed to the AI companion 蒹葭
+            if (sWebChatMgr.IsJianJiaName(player->GetName()) && packet.lang != LANG_ADDON)
+            {
+                sWebChatMgr.ForwardWhisperToJianJia(masterPlr->GetName(), packet.message);
+                // Echo to sender so the client shows the message was sent
+                WorldPacket informData;
+                ChatHandler::BuildChatPacket(informData, CHAT_MSG_WHISPER_INFORM, packet.message.c_str(),
+                    LANG_UNIVERSAL, masterPlr->GetChatTag(),
+                    player->GetObjectGuid(), player->GetName());
+                SendPacket(&informData);
+                break;
             }
 
             if (Player* toPlayer = player->GetSession()->GetPlayer())

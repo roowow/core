@@ -28,6 +28,8 @@ set (game_SRCS
     OO/OOMgr.cpp
     OO/WebChatMgr.cpp
     OO/WebChatMgr.h
+    OO/JianJiaAI.cpp
+    OO/JianJiaAI.h
     Camera.cpp
     Conditions.cpp
     CreatureGroups.cpp
