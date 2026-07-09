@@ -155,11 +155,14 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
             LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, charName.c_str(),
             ObjectGuid(), nullptr, "世界频道");
 
-        const Team kTeams[] = {ALLIANCE, HORDE};
-        for (Team team : kTeams)
-            if (ChannelMgr* cMgr = channelMgr(team))
-                if (Channel* chan = cMgr->GetChannel("世界频道", PlayerPointer(), false))
-                    chan->SendToAll(&data);
+        Channel* chanA = nullptr;
+        Channel* chanB = nullptr;
+        if (ChannelMgr* cMgr = channelMgr(ALLIANCE))
+            chanA = cMgr->GetChannel("世界频道", PlayerPointer(), false);
+        if (ChannelMgr* cMgr = channelMgr(HORDE))
+            chanB = cMgr->GetChannel("世界频道", PlayerPointer(), false);
+        if (chanA) chanA->SendToAll(&data);
+        if (chanB && chanB != chanA) chanB->SendToAll(&data);
     }
     else if (channel == "whisper" && !recipient.empty())
     {
