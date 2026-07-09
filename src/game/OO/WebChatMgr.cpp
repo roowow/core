@@ -180,23 +180,49 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
     }
     else if (channel == "guild" || channel == "party" || channel == "raid")
     {
-        // group/guild objects are bound to an online player — skip if offline
         Player* sender = !senderGuid.IsEmpty() ? ObjectAccessor::FindPlayer(senderGuid) : nullptr;
-        if (!sender) return;
 
         if (channel == "guild")
         {
+            if (!sender) return;
             if (Guild* guild = sGuildMgr.GetGuildById(sender->GetGuildId()))
                 guild->BroadcastToGuild(sender->GetSession(), dispMsg.c_str(), LANG_UNIVERSAL);
         }
         else
         {
-            Group* group = sender->GetGroup();
+            // Find the group: prefer the sender's own Group* if online,
+            // otherwise scan online players to find one who shares the group.
+            Group* group = sender ? sender->GetGroup() : nullptr;
+
+            if (!group && !senderGuid.IsEmpty())
+            {
+                for (auto const& kv : sWorld.GetAllSessions())
+                {
+                    if (WorldSession* sess = kv.second)
+                    {
+                        if (Player* p = sess->GetPlayer())
+                        {
+                            if (p->IsInWorld())
+                            {
+                                if (Group* g = p->GetGroup())
+                                {
+                                    if (g->IsMember(senderGuid))
+                                    {
+                                        group = g;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if (!group) return;
             WorldPacket data;
             ChatMsg type = (channel == "raid") ? CHAT_MSG_RAID : CHAT_MSG_PARTY;
             ChatHandler::BuildChatPacket(data, type, dispMsg.c_str(),
-                LANG_UNIVERSAL, CHAT_TAG_NONE, sender->GetObjectGuid(), sender->GetName());
+                LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, charName.c_str());
             group->BroadcastPacket(&data, false);
         }
     }
