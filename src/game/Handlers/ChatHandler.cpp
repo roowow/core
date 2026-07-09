@@ -571,7 +571,10 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
             ChatHandler::BuildChatPacket(data, CHAT_MSG_RAID_LEADER, packet.message.c_str(), Language(packet.lang), _player->GetChatTag(), _player->GetObjectGuid(), _player->GetName());
             group->BroadcastPacket(&data, false);
             if (packet.lang != LANG_ADDON)
+            {
                 sWorld.LogChat(this, "Raid", packet.message.c_str(), nullptr, group->GetId());
+                sWebChatMgr.WriteWebChat("raid_leader", _player->GetName(), uint32(_player->GetTeam()), uint32(_player->GetClass()), "", packet.message);
+            }
         }
         break;
 
@@ -588,7 +591,10 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
             group->BroadcastPacket(&data, false);
 
             if (packet.lang != LANG_ADDON)
+            {
                 sWorld.LogChat(this, "Raid", packet.message.c_str(), nullptr, group->GetId());
+                sWebChatMgr.WriteWebChat("raid", _player->GetName(), uint32(_player->GetTeam()), uint32(_player->GetClass()), "", packet.message);
+            }
         }
         break;
 #endif
