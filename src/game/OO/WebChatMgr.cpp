@@ -148,15 +148,19 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
     PlayerCacheData const* cache = sObjectMgr.GetPlayerDataByName(charName);
     ObjectGuid senderGuid = cache ? ObjectGuid(HIGHGUID_PLAYER, cache->uiGuid) : ObjectGuid();
 
-    // Append (网) to sender name if player is not currently logged into the game
+    // For web-only senders (not logged into the game client):
+    // - Append "(Web)" to the display name
+    // - Use an empty GUID so the client is forced to use the name string from the packet
+    //   (non-empty GUID causes the client to resolve the name from its unit cache, ignoring the packet name field)
     bool isInGame = !charName.empty() && (ObjectAccessor::FindMasterPlayer(charName.c_str()) != nullptr);
-    std::string dispName = isInGame ? charName : charName + "(网)";
+    std::string dispName = isInGame ? charName : charName + "(Web)";
+    ObjectGuid  dispGuid = isInGame ? senderGuid : ObjectGuid();
 
     if (channel == "world")
     {
         WorldPacket data;
         ChatHandler::BuildChatPacket(data, CHAT_MSG_CHANNEL, msg.c_str(),
-            LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, dispName.c_str(),
+            LANG_UNIVERSAL, CHAT_TAG_NONE, dispGuid, dispName.c_str(),
             ObjectGuid(), nullptr, "世界频道");
 
         Channel* chanA = nullptr;
@@ -174,7 +178,7 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
         {
             WorldPacket data;
             ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER, msg.c_str(),
-                LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, dispName.c_str());
+                LANG_UNIVERSAL, CHAT_TAG_NONE, dispGuid, dispName.c_str());
             rcp->GetSession()->SendPacket(&data);
         }
     }
