@@ -42,7 +42,6 @@ REDIS_PORT   = 6379
 REALM_ID     = 1
 OLLAMA_URL   = "http://192.168.1.231:11434/api/chat"
 OLLAMA_MODEL = "qwen3:32b"
-BOT_NAME     = "白露"
 
 # How many message turns to keep per player (user+assistant pairs)
 MAX_HISTORY_TURNS = 10
@@ -129,36 +128,33 @@ OO基本法执行方、解释方：OO玩家委员会。
 =====\
 """
 
-def _build_system_prompt() -> str:
-    return _SYSTEM_PROMPT_TEMPLATE.format(name=BOT_NAME)
-
-
 # ── per-player conversation state ─────────────────────────────────────────────
 
 class _ConvState:
-    def __init__(self):
-        self.history: list[dict] = []  # [{role, content}, ...]
+    def __init__(self, bot_name: str):
+        self.bot_name = bot_name
+        self.history: list[dict] = []
         self.last_ts: float = time.time()
 
     def add(self, role: str, content: str) -> None:
         self.history.append({"role": role, "content": content})
-        # Keep only the most recent MAX_HISTORY_TURNS pairs
         if len(self.history) > MAX_HISTORY_TURNS * 2:
             self.history = self.history[-(MAX_HISTORY_TURNS * 2):]
         self.last_ts = time.time()
 
     def messages_for_ollama(self) -> list[dict]:
-        return [{"role": "system", "content": _build_system_prompt()}] + self.history
+        system = _SYSTEM_PROMPT_TEMPLATE.format(name=self.bot_name)
+        return [{"role": "system", "content": system}] + self.history
 
 
 _conversations: dict[str, _ConvState] = {}
 _conv_lock = threading.Lock()
 
 
-def _get_conv(player: str) -> _ConvState:
+def _get_conv(player: str, bot_name: str) -> _ConvState:
     with _conv_lock:
         if player not in _conversations:
-            _conversations[player] = _ConvState()
+            _conversations[player] = _ConvState(bot_name)
         return _conversations[player]
 
 
@@ -200,9 +196,9 @@ def _fallback() -> str:
 
 # ── message handler ───────────────────────────────────────────────────────────
 
-def handle_whisper(r_pub: "redis.Redis", sender: str, message: str, out_key: str) -> None:
-    log.info("Whisper from %s: %s", sender, message)
-    conv = _get_conv(sender)
+def handle_whisper(r_pub: "redis.Redis", sender: str, message: str, bot_name: str, out_key: str) -> None:
+    log.info("[%s] Whisper from %s: %s", bot_name, sender, message)
+    conv = _get_conv(sender, bot_name)
 
     with _conv_lock:
         conv.add("user", message)
@@ -213,20 +209,18 @@ def handle_whisper(r_pub: "redis.Redis", sender: str, message: str, out_key: str
     except Exception as e:
         log.warning("Ollama error for %s: %s — using fallback", sender, e)
         reply = _fallback()
-        # Don't store fallback in history so the next real reply has cleaner context
         with _conv_lock:
-            conv.history.pop()  # remove the user message we just added
+            conv.history.pop()
     else:
         with _conv_lock:
             conv.add("assistant", reply)
 
     payload = json.dumps({"target": sender, "message": reply}, ensure_ascii=False)
     r_pub.publish(out_key, payload)
-    log.info("Reply to %s: %s", sender, reply)
+    log.info("[%s] Reply to %s: %s", bot_name, sender, reply)
 
 
 def process_message(r_pub: "redis.Redis", data: str, in_channel: str) -> None:
-    # derive out_key from in_channel: web_chat:jianjia_in:<id> → web_chat:jianjia_out:<id>
     out_key = in_channel.replace("jianjia_in:", "jianjia_out:", 1)
 
     try:
@@ -235,14 +229,15 @@ def process_message(r_pub: "redis.Redis", data: str, in_channel: str) -> None:
         log.error("Invalid JSON: %s", e)
         return
 
-    sender  = msg.get("sender", "").strip()
-    message = msg.get("message", "").strip()
+    sender   = msg.get("sender",   "").strip()
+    message  = msg.get("message",  "").strip()
+    bot_name = msg.get("bot_name", "AI").strip()
 
     if not sender or not message:
         log.debug("Empty sender or message, ignoring.")
         return
 
-    handle_whisper(r_pub, sender, message, out_key)
+    handle_whisper(r_pub, sender, message, bot_name, out_key)
 
 
 # ── history cleanup ────────────────────────────────────────────────────────────
@@ -268,18 +263,15 @@ def main() -> None:
                         metavar="ID", help="One or more realm IDs (e.g. --realm-id 1 2 3)")
     parser.add_argument("--model",      default=OLLAMA_MODEL)
     parser.add_argument("--ollama-url", default=OLLAMA_URL)
-    parser.add_argument("--bot-name",   default=BOT_NAME,
-                        help="In-game character name of the AI bot (e.g. 白露, 蒹葭, 采薇)")
     parser.add_argument("--max-turns",  type=int, default=MAX_HISTORY_TURNS,
                         help="Max conversation turns to keep per player")
     parser.add_argument("--history-ttl", type=int, default=HISTORY_TTL,
                         help="Seconds before idle conversation context is cleared")
     args = parser.parse_args()
 
-    global OLLAMA_MODEL, OLLAMA_URL, BOT_NAME, MAX_HISTORY_TURNS, HISTORY_TTL
+    global OLLAMA_MODEL, OLLAMA_URL, MAX_HISTORY_TURNS, HISTORY_TTL
     OLLAMA_MODEL      = args.model
     OLLAMA_URL        = args.ollama_url
-    BOT_NAME          = args.bot_name
     MAX_HISTORY_TURNS = args.max_turns
     HISTORY_TTL       = args.history_ttl
 
@@ -301,7 +293,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _shutdown)
 
     realms_str = ", ".join(str(r) for r in args.realm_id)
-    log.info("AI companion [%s] started (model=%s realms=%s)", BOT_NAME, OLLAMA_MODEL, realms_str)
+    log.info("AI companion started (model=%s realms=%s)", OLLAMA_MODEL, realms_str)
     log.info("Listening on pattern: %s", in_pattern)
 
     for msg in pubsub.listen():

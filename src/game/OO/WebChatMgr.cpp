@@ -273,6 +273,8 @@ void WebChatMgr::ForwardWhisperToJianJia(std::string const& senderName, std::str
     if (!m_pubCtx || senderName.empty()) return;
     std::string j = "{\"sender\":\"";
     j += EscapeJson(senderName);
+    j += "\",\"bot_name\":\"";
+    j += EscapeJson(m_jianJiaName);
     j += "\",\"message\":\"";
     j += EscapeJson(message);
     j += "\"}";
