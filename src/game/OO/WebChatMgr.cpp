@@ -150,7 +150,7 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
 
     // For web-only senders: append " [W]" to the message as a suffix indicator
     bool isInGame = !charName.empty() && (ObjectAccessor::FindMasterPlayer(charName.c_str()) != nullptr);
-    std::string dispMsg = isInGame ? msg : msg + " \xe2\x93\x8c"; // Ⓦ
+    std::string dispMsg = isInGame ? msg : "\xe3\x80\x8a\xe2\x93\x8c\xe3\x80\x8b" + msg; // 《Ⓦ》
 
     if (channel == "world")
     {
