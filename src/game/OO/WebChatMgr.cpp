@@ -66,10 +66,10 @@ void WebChatMgr::Update()
 // ── game → Redis ──────────────────────────────────────────────────────────────
 
 void WebChatMgr::WriteWebChat(std::string const& channel, std::string const& charName,
-    uint32 faction, std::string const& recipient, std::string const& msg)
+    uint32 faction, uint32 classId, std::string const& recipient, std::string const& msg)
 {
     if (!m_pubCtx) return;
-    std::string json = BuildJson("game", channel, charName, faction, recipient, msg);
+    std::string json = BuildJson("game", channel, charName, faction, classId, recipient, msg);
     Publish(json);
 }
 
@@ -212,13 +212,14 @@ std::string WebChatMgr::EscapeJson(std::string const& s)
 }
 
 std::string WebChatMgr::BuildJson(std::string const& source, std::string const& channel,
-    std::string const& charName, uint32 faction, std::string const& recipient, std::string const& msg)
+    std::string const& charName, uint32 faction, uint32 classId, std::string const& recipient, std::string const& msg)
 {
     std::string j;
     j.reserve(300);
     j += "{\"source\":\"";           j += EscapeJson(source);
     j += "\",\"character_name\":\""; j += EscapeJson(charName);
     j += "\",\"faction\":";          j += std::to_string(faction);
+    j += ",\"class\":";              j += std::to_string(classId);
     j += ",\"channel\":\"";          j += EscapeJson(channel);
     j += "\",\"recipient_name\":\""; j += EscapeJson(recipient);
     j += "\",\"message\":\"";        j += EscapeJson(msg);

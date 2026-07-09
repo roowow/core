@@ -21,6 +21,7 @@ public:
     void WriteWebChat(std::string const& channel,
                       std::string const& charName,
                       uint32 faction,
+                      uint32 classId,
                       std::string const& recipient,
                       std::string const& msg);
 
@@ -35,6 +36,7 @@ private:
                                  std::string const& channel,
                                  std::string const& charName,
                                  uint32 faction,
+                                 uint32 classId,
                                  std::string const& recipient,
                                  std::string const& msg);
     static std::string EscapeJson(std::string const& s);
