@@ -203,12 +203,17 @@ void WebChatMgr::ReconnectPub()
     if (m_pubCtx) { redisFree(m_pubCtx); m_pubCtx = nullptr; }
     m_pubCtx = redisConnectUnix(m_socketPath.c_str());
     if (m_pubCtx && m_pubCtx->err) { redisFree(m_pubCtx); m_pubCtx = nullptr; }
+    if (m_pubCtx)
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "WebChatMgr: publisher reconnected to Redis.");
+    else
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "WebChatMgr: publisher failed to reconnect to Redis.");
 }
 
 // ── Redis → game (subscribe thread) ──────────────────────────────────────────
 
 void WebChatMgr::SubscribeThread()
 {
+    bool wasDisconnected = false;
     while (!m_stop.load(std::memory_order_relaxed))
     {
         redisContext* ctx = redisConnectUnix(m_socketPath.c_str());
@@ -216,10 +221,14 @@ void WebChatMgr::SubscribeThread()
         {
             if (ctx) { redisFree(ctx); }
             sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "WebChatMgr: subscriber failed to connect, retrying in 5s");
+            wasDisconnected = true;
             for (int w = 0; w < 50 && !m_stop.load(std::memory_order_relaxed); ++w)
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
         }
+
+        if (wasDisconnected)
+            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "WebChatMgr: subscriber reconnected to Redis.");
 
         m_subCtx = ctx;
         // Publish fd before potentially blocking so Shutdown() can ::shutdown() it.
