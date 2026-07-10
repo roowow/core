@@ -13,6 +13,7 @@
 #include "Objects/Player.h"
 #include "Server/WorldSession.h"
 #include <hiredis/hiredis.h>
+#include <csignal>
 #include <ctime>
 
 WebChatMgr& WebChatMgr::instance()
@@ -23,6 +24,11 @@ WebChatMgr& WebChatMgr::instance()
 
 void WebChatMgr::Initialize(char const* socketPath, uint32 realmId)
 {
+    // hiredis 0.14 uses write() without MSG_NOSIGNAL; broken socket sends SIGPIPE
+    // which would kill the calling thread. Ignore it — write() returns EPIPE instead,
+    // redisGetReply returns REDIS_ERR, and ReconnectPub() handles recovery.
+    signal(SIGPIPE, SIG_IGN);
+
     m_socketPath = socketPath;
     m_keyLive    = "web_chat:live:"    + std::to_string(realmId);
     m_keyHistory = "web_chat:history:" + std::to_string(realmId);
@@ -79,7 +85,8 @@ void WebChatMgr::WriteWebChat(std::string const& channel, std::string const& cha
     std::string json = BuildJson("game", channel, charName, faction, classId, recipient, msg, contextId);
     Publish(json);
     // For party/raid: update char→group mapping so PHP can filter by group membership
-    if (contextId > 0 && (channel == "party" || channel == "raid" || channel == "raid_leader"))
+    // Re-check m_pubCtx: Publish() may have called ReconnectPub() which can null it on failure.
+    if (m_pubCtx && contextId > 0 && (channel == "party" || channel == "raid" || channel == "raid_leader"))
     {
         std::string key = "web_chat:char_group:" + std::to_string(m_realmId) + ":" + charName;
         redisReply* r = (redisReply*)redisCommand(m_pubCtx, "SETEX %s 3600 %u", key.c_str(), contextId);
