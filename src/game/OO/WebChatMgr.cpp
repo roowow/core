@@ -314,7 +314,7 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
     bool isInGame = !senderGuid.IsEmpty() && (
         ObjectAccessor::FindMasterPlayer(charName.c_str()) != nullptr ||
         ObjectAccessor::FindPlayer(senderGuid) != nullptr);
-    std::string dispMsg = isInGame ? msg : "|cFF0000FF\xe2\x93\x94|r " + msg; // 蓝色 ⓔ，配色写法参照 Channel.cpp 里勇敢者红色"勇"标记
+    std::string dispMsg = isInGame ? msg : "|cFF1E90FF\xe2\x93\x94|r " + msg; // 浅蓝色 ⓔ（IE蓝，DodgerBlue），配色写法参照 Channel.cpp 里勇敢者红色"勇"标记
 
     if (channel == "world")
     {
