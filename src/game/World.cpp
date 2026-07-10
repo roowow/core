@@ -204,6 +204,7 @@ World::~World()
 
 void World::Shutdown()
 {
+    sWebChatMgr.Shutdown();
     sPlayerBotMgr.DeleteAll();
     KickAll();                                     // save and kick all players
     UpdateSessions(1);                             // real players unload required UpdateSessions call

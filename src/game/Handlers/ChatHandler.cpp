@@ -435,6 +435,20 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
             uint32 pSecurity = player ? player->GetSession()->GetSecurity() : SEC_PLAYER;
             if (!player || (tSecurity == SEC_PLAYER && pSecurity > SEC_PLAYER && !player->AcceptsWhispersFrom(masterPlr->GetObjectGuid())))
             {
+                // Before reporting not found, check if target is viewing webchat
+                if (packet.lang != LANG_ADDON && sWebChatMgr.IsWebOnline(packet.whisperTargetOrChannel))
+                {
+                    sWebChatMgr.WriteWebChat("whisper", masterPlr->GetName(),
+                        uint32(masterPlr->GetTeam()), uint32(_player->GetClass()),
+                        packet.whisperTargetOrChannel, packet.message);
+                    PlayerCacheData const* tCache = sObjectMgr.GetPlayerDataByName(packet.whisperTargetOrChannel.c_str());
+                    ObjectGuid tGuid = tCache ? ObjectGuid(HIGHGUID_PLAYER, tCache->uiGuid) : ObjectGuid();
+                    WorldPacket informData;
+                    ChatHandler::BuildChatPacket(informData, CHAT_MSG_WHISPER_INFORM, packet.message.c_str(),
+                        LANG_UNIVERSAL, masterPlr->GetChatTag(), tGuid, packet.whisperTargetOrChannel.c_str());
+                    SendPacket(&informData);
+                    return;
+                }
                 SendPlayerNotFoundNotice(packet.whisperTargetOrChannel);
                 return;
             }
@@ -520,7 +534,7 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
             if (packet.lang != LANG_ADDON)
             {
                 sWorld.LogChat(this, "Group", packet.message.c_str(), nullptr, group->GetId());
-                sWebChatMgr.WriteWebChat("party", _player->GetName(), uint32(_player->GetTeam()), uint32(_player->GetClass()), "", packet.message);
+                sWebChatMgr.WriteWebChat("party", _player->GetName(), uint32(_player->GetTeam()), uint32(_player->GetClass()), "", packet.message, group->GetId());
             }
         }
         break;
@@ -533,7 +547,7 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
             if (packet.lang != LANG_ADDON)
             {
                 sWorld.LogChat(this, "Guild", packet.message.c_str(), nullptr, GetMasterPlayer()->GetGuildId());
-                sWebChatMgr.WriteWebChat("guild", GetMasterPlayer()->GetName(), uint32(GetMasterPlayer()->GetTeam()), uint32(_player->GetClass()), "", packet.message);
+                sWebChatMgr.WriteWebChat("guild", GetMasterPlayer()->GetName(), uint32(GetMasterPlayer()->GetTeam()), uint32(_player->GetClass()), "", packet.message, GetMasterPlayer()->GetGuildId());
             }
             break;
         }
@@ -569,7 +583,7 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
             if (packet.lang != LANG_ADDON)
             {
                 sWorld.LogChat(this, "Raid", packet.message.c_str(), nullptr, group->GetId());
-                sWebChatMgr.WriteWebChat("raid", _player->GetName(), uint32(_player->GetTeam()), uint32(_player->GetClass()), "", packet.message);
+                sWebChatMgr.WriteWebChat("raid", _player->GetName(), uint32(_player->GetTeam()), uint32(_player->GetClass()), "", packet.message, group->GetId());
             }
         }
         break;
@@ -595,7 +609,7 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
             if (packet.lang != LANG_ADDON)
             {
                 sWorld.LogChat(this, "Raid", packet.message.c_str(), nullptr, group->GetId());
-                sWebChatMgr.WriteWebChat("raid_leader", _player->GetName(), uint32(_player->GetTeam()), uint32(_player->GetClass()), "", packet.message);
+                sWebChatMgr.WriteWebChat("raid_leader", _player->GetName(), uint32(_player->GetTeam()), uint32(_player->GetClass()), "", packet.message, group->GetId());
             }
         }
         break;

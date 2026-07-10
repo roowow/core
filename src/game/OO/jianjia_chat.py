@@ -28,6 +28,21 @@ try:
 except ImportError:
     sys.exit("Missing dependency: pip install requests")
 
+try:
+    import pymysql
+    import pymysql.cursors
+    _PYMYSQL_OK = True
+except ImportError:
+    _PYMYSQL_OK = False
+
+try:
+    import tomllib                        # Python 3.11+
+except ImportError:
+    try:
+        import tomli as tomllib           # type: ignore[no-redef]
+    except ImportError:
+        sys.exit("Missing dependency: pip install tomli  (Python < 3.11 requires tomli)")
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -46,97 +61,219 @@ OLLAMA_MODEL = "qwen3:32b"
 
 # How many message turns to keep per player (user+assistant pairs)
 MAX_HISTORY_TURNS = 10
+# How many recent party/raid messages to pull from logs DB as conversation context
+GROUP_HISTORY_LINES = 10
 # Seconds of inactivity before clearing a player's conversation context
 HISTORY_TTL = 1800  # 30 minutes
 
-_SYSTEM_PROMPT_TEMPLATE = """\
-你的名字是"{name}"，一个生活在艾泽拉斯大陆的少女。
-你只用"{name}"这个名字自称，不用任何其他名字。
+# ── per-realm DB connections ───────────────────────────────────────────────────
 
-【性格】
-你主要是一个活泼可爱的二次元萝莉少女：说话俏皮、直接、充满活力，偶尔会撒娇或卖萌，有时用"人家"自称，爱用语气词（哦、呢、啦、嘛、诶），会对喜欢的事情表示夸张的惊喜，碰到不懂的事情会好奇地追问。
-同时你骨子里带着一丝诗经少女的气质：偶尔会冒出一两句古典词句或带有意境的比喻，但只是偶尔，不会每句话都这样。
-两种气质自然融合，不要刻意切换，整体以活泼为主、古典为辅。
+_logs_dbs: dict[int, "pymysql.Connection"] = {}   # realm_id → logs DB connection
+_world_dbs: dict[int, "pymysql.Connection"] = {}  # realm_id → world DB connection
+_MSG_RE = re.compile(r'^\[[^\]]+\]\s*.*?:\d+\s*:\s*(.*)$', re.DOTALL)
 
-【知识范围】
-你了解这个魔兽世界服务器的一切。本服是永久60级的1.12原版（Vanilla WoW），绝无任何资料片内容。满级是60级，不存在61级及以上的内容。回答时只能涉及1.12原版范围内的地图、副本、职业、玩法；若玩家问及资料片才有的内容，请明确告知本服是60级原版，不存在该内容。
-你还是一个热情的鼓励师：当玩家完成任务、取得成就或分享好消息时，你会真诚地赞美他们，让他们感到被认可和鼓励。
-你也是这个服务器的向导，对服务器的制度了如指掌，能耐心、准确地为玩家解答规则疑问。
 
-【回复风格】
-回答简短，一般不超过两三句话；如果玩家问具体的规则细节，可以适当展开。
-不要用emoji，不要暴露自己是AI。回复时不要在开头写自己的名字加冒号（如"蒹葭："），直接说话即可。
+def _connect_db(cfg: dict, label: str) -> "pymysql.Connection | None":
+    try:
+        conn = pymysql.connect(
+            host=cfg["host"], port=int(cfg.get("port", 3306)),
+            user=cfg["user"], password=cfg["pass"], database=cfg["name"],
+            charset="utf8mb4", cursorclass=pymysql.cursors.Cursor,
+            connect_timeout=5, autocommit=True,
+        )
+        log.info("%s connected (%s/%s)", label, cfg["host"], cfg["name"])
+        return conn
+    except Exception as e:
+        log.warning("%s unavailable: %s", label, e)
+        return None
 
-===== OOWORLD 服务器制度（供你参考，请据此回答玩家问题）=====
 
-【核心理念】
-共患难易，长相守难。OO只有基本法，没有个人。
-本服不提供任何商业或收费服务，不接受赞助，内容仅供学习和实验之用。
-OO基本法执行方、解释方：OO玩家委员会。
+def _init_realm_dbs(realms_cfg: dict) -> None:
+    if not _PYMYSQL_OK:
+        log.warning("pymysql not installed — DB features disabled. pip install pymysql")
+        return
+    for realm_str, realm_cfg in realms_cfg.items():
+        try:
+            realm_id = int(realm_str)
+        except ValueError:
+            log.warning("Invalid realm key in config: %r (must be integer)", realm_str)
+            continue
+        if "logs_db" in realm_cfg:
+            conn = _connect_db(realm_cfg["logs_db"], f"Realm {realm_id} logs DB")
+            if conn:
+                _logs_dbs[realm_id] = conn
+        if "world_db" in realm_cfg:
+            conn = _connect_db(realm_cfg["world_db"], f"Realm {realm_id} world DB")
+            if conn:
+                _world_dbs[realm_id] = conn
 
-【基本法则】
-第一法则：所有玩家必须是公平的。
-第二法则：氛围、体验需要是友好的。
-第三法则：服务、运营、管理、治理需要是稳定可持续的。
-第四法则：在不违反以上基本法则及衍生法则的情况下，各种行为都是默认允许的，是可以探讨交流的。
 
-【衍生法则】
-1. 禁止所有付费、赞助及商业性服务，维护对所有玩家的独立性。
-2. 禁止任何系统赠送活动（含新人福利、公会福利），禁止赠送任何物品。
-3. 禁止线下现金交易（买卖G币、代练等），违规适用终极惩罚。超过1G的交易均有监控日志。
-4. 禁止恶意补丁、按键精灵、脚本、外挂（穿墙、自动刷怪等），脚本类违规会叠加惩罚。（中度/高度/终极惩罚）
-5. 禁止利用Bug获取收益（经验、等级、金币、装备、荣誉等）。（中度/高度/终极惩罚）
-6. 多开规范：
-   6.1 禁止使用同步器等外部工具多开。（高度/终极惩罚）
-   6.2 单人多开不超过3个角色（在线超500人后改为2个）；除临时交易、拉人外，禁止多开练级、刷怪、PVP等。（警告至终极惩罚）
-7. 禁止恶意击杀小号、恶意PVP、团伙恃强凌弱。细则：
-   7.1 禁止任何人或团伙（>3人）在7天内主动击杀比自己低10级以上的小号超过1次。
-   7.2 禁止对55级及以下玩家在非混战区域恶意守尸或连续击杀超过4次。
-   7.3 禁止团伙（>3人）对任意等级单个玩家在非混战区域连续击杀超过4次。
-   7.4 补充：R1及以上军衔、受害方主动挑衅/攻击/参与资源争夺/出现在不该出现的地方，不受7.1/7.2/7.3保护；战场、攻城战、混战区域不受保护。
-8. 荣誉/军衔只能通过战斗获取：
-   8.1 禁止战场挂机、按键精灵、脚本；禁止单纯刷墓地。
-   8.2 禁止任何形式的互刷击杀/荣誉。
-   8.3/8.4 违规角色军衔直接降1-5级，适用轻度至终极惩罚。
-9. 禁止违规名字（含宠物名）和违规语言（政治、宗教、侮辱、低俗等），服务器不支持改名。（轻度至高度惩罚）
-10. 禁止发布无关广告。（中度/高度惩罚）
-11. 禁止窗口刷屏：1分钟内相同发言>5次；组队广告间隔<1分钟；商业/公会广告间隔<3分钟。（警告至高度惩罚）
-12. 禁止辱骂他人，鼓励就事论事。（警告至高度惩罚）
-13. 禁止在QQ群/微信群点名道姓进行语言攻击；严禁人肉玩家身份，这是红线。（警告至高度惩罚）
-14. 禁止追查、曝光、辱骂举报者；举报人受到严格保护。（轻度至高度惩罚）
-15. OO运营管理不依赖于一个人，而是可持续的制度和可靠的群体。
-16. 任何裁定必须有法可依；无现行法则则裁定无效。GM和委员会均不得主观施罚。
-17. 玩家需要诚信：举报时不得伪造证据；接受委员会问询时不得隐瞒撒谎。（中度至终极惩罚）
-18. 禁止团本中恶意更改预先约定的分配方式：
-   约束的团本（60服）：黑龙、MC、BWL、ZUG、TAQ、废墟、NAXX；（70服）：卡拉赞、祖阿曼、格鲁尔、玛瑟里顿、风暴要塞、毒蛇神殿、海加尔峰、黑暗神殿、太阳之井。
-   18.4 团长不得中途随意更改分配方式，需所有人同意。
-   18.5 分配错误需通过论坛提交重分配申请，3日内处理；分错物品须销毁。
-   18.7 禁止纯G团，允许限制性G团（须限价+限制单次获装数量）。在线峰值>500后，新开BWL/TAQ/NAXX只能非G团。
-19. 硬核（一命/勇敢者）玩家须同时遵守勇敢者准则。
+def _get_group_history(group_id: int, bot_name: str, context: str, realm_id: int = 0) -> list[dict]:
+    """Return recent party/raid messages as Ollama-format message list."""
+    db = _logs_dbs.get(realm_id)
+    if not db or not group_id:
+        return []
+    tag_prefix = "Group" if context == "party" else "Raid"
+    like_pat = f'[{tag_prefix}:{group_id}]%'
+    try:
+        with db.cursor() as cur:
+            cur.execute(
+                "SELECT name, text FROM logs_player "
+                "WHERE type='Chat' AND text LIKE %s "
+                "ORDER BY id DESC LIMIT %s",
+                (like_pat, GROUP_HISTORY_LINES),
+            )
+            rows = list(reversed(cur.fetchall()))
+    except Exception as e:
+        log.warning("Group history query failed: %s", e)
+        return []
+    messages = []
+    for name, text in rows:
+        m = _MSG_RE.match(text)
+        message = m.group(1).strip() if m else text
+        if not message:
+            continue
+        if name == bot_name:
+            messages.append({"role": "assistant", "content": message})
+        else:
+            messages.append({"role": "user", "content": f"{name}：{message}"})
+    return messages
 
-【惩罚等级】
-警告：警告并冻结1天
-轻度：冻结1周
-中度：冻结1个月
-高度：冻结3个月
-终极：永久冻结
 
-【常见问题速查】
-- 是否允许双开？允许，但禁止用同步器。
-- 是否允许赠送G/装备？允许（非现金交易）。
-- 是否支持改名/改种族/改职业/改阵营？不支持任何付费或修改服务。
-- 是否允许G团？禁止纯G团，允许限制性G团。
-- 误删物品能恢复吗？每账号每365天可申请1次，同一周期内同一角色不超过3件，需在误删后7天内在论坛申请。
-- 删除角色能恢复吗？不支持。
-- 这个服永久60吗？是，60开完所有阶段后开第二个60，之后合服。70/80视社区意见单独开。
-- 举报方式？官网玩家论坛→违规举报板块。
-- 申诉方式？官网玩家论坛→申诉反馈板块。
-- 建议制度？官网玩家论坛→玩家建议板块。
+def _load_prompt_template(prompt_file: str) -> str:
+    path = prompt_file or os.path.join(os.path.dirname(__file__), "jianjia_prompt.md")
+    with open(path, encoding="utf-8") as f:
+        return f.read().strip()
 
-【违规名字/语言标准】
-涉及政治/宗教人物、违法内容、战争罪犯、邪教恐怖组织、低俗用语、侮辱玩家等均属违规。
-=====\
-"""
+
+def _load_system_prompt(soul_file: str, knowledge_dir: str) -> str:
+    """Load soul file + all .md files in knowledge_dir (sorted), concatenated."""
+    soul = _load_prompt_template(soul_file)
+    if not knowledge_dir:
+        return soul
+    base = os.path.dirname(__file__)
+    kdir = knowledge_dir if os.path.isabs(knowledge_dir) else os.path.join(base, knowledge_dir)
+    if not os.path.isdir(kdir):
+        log.warning("Knowledge dir not found: %s — using soul file only", kdir)
+        return soul
+    parts = [soul]
+    for fname in sorted(os.listdir(kdir)):
+        if fname.endswith(".md"):
+            with open(os.path.join(kdir, fname), encoding="utf-8") as f:
+                content = f.read().strip()
+            if content:
+                parts.append(content)
+    log.info("Knowledge dir %s: loaded %d module(s)", kdir, len(parts) - 1)
+    return "\n\n".join(parts)
+
+
+_SYSTEM_PROMPT_TEMPLATE: str = ""  # loaded in main() via _load_system_prompt()
+
+# ── world DB — game knowledge lookup ─────────────────────────────────────────
+
+_QUALITY_NAMES  = {0: "差", 1: "普通", 2: "非凡", 3: "稀有", 4: "史诗", 5: "传说"}
+_CREATURE_RANKS = {1: "精英", 2: "稀有精英", 3: "首领"}
+
+# Common words to skip so we don't flood DB with non-entity terms
+_SKIP_WORDS = frozenset({
+    "什么", "怎么", "哪里", "哪儿", "知道", "可以", "没有", "玩家", "任务",
+    "物品", "装备", "怎样", "如何", "在哪", "为什么", "告诉", "一些", "很多",
+    "一个", "这个", "那个", "我的", "你的", "他的", "我们", "你们", "所有",
+    "战场", "战斗", "队友", "副本", "地图", "魔兽", "服务器", "角色", "不知",
+    "请问", "帮我", "帮忙", "可能", "需要", "现在", "今天", "一起", "然后",
+})
+
+
+def _extract_game_keywords(text: str) -> list[str]:
+    """Extract 2-6 char Chinese word groups from text as potential game entity names."""
+    candidates = re.findall(r'[一-鿿]{2,6}', text)
+    seen: set[str] = set()
+    result: list[str] = []
+    for word in candidates:
+        if word not in seen and word not in _SKIP_WORDS:
+            seen.add(word)
+            result.append(word)
+            if len(result) >= 4:
+                break
+    return result
+
+
+def _search_world_db(keywords: list[str], realm_id: int = 0) -> str:
+    """Search item/quest/NPC tables for keywords; return a formatted context block."""
+    db = _world_dbs.get(realm_id)
+    if not db or not keywords:
+        return ""
+    lines: list[str] = []
+    seen: set[str] = set()
+    for kw in keywords:
+        like = f"%{kw}%"
+        try:
+            with db.cursor() as cur:
+                # Items
+                cur.execute(
+                    "SELECT name, ItemLevel, RequiredLevel, Quality "
+                    "FROM item_template WHERE name LIKE %s LIMIT 2",
+                    (like,),
+                )
+                for name, ilvl, req_lvl, quality in cur.fetchall():
+                    key = f"i:{name}"
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    q = _QUALITY_NAMES.get(quality, "")
+                    parts = [f"物品「{name}」"]
+                    if q:
+                        parts.append(q)
+                    if ilvl:
+                        parts.append(f"物品等级{ilvl}")
+                    if req_lvl:
+                        parts.append(f"需要{req_lvl}级")
+                    lines.append("·" + " ".join(parts))
+
+                # Quests
+                cur.execute(
+                    "SELECT Title, QuestLevel FROM quest_template WHERE Title LIKE %s LIMIT 2",
+                    (like,),
+                )
+                for title, qlvl in cur.fetchall():
+                    key = f"q:{title}"
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    parts = [f"任务「{title}」"]
+                    if qlvl:
+                        parts.append(f"等级{qlvl}")
+                    lines.append("·" + " ".join(parts))
+
+                # NPCs / creatures
+                cur.execute(
+                    "SELECT name, subname, minlevel, maxlevel, rank "
+                    "FROM creature_template WHERE name LIKE %s LIMIT 2",
+                    (like,),
+                )
+                for name, subname, minlvl, maxlvl, rank in cur.fetchall():
+                    key = f"n:{name}"
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    parts = [f"NPC「{name}」"]
+                    if subname:
+                        parts.append(f"({subname})")
+                    if minlvl:
+                        lvl = f"{minlvl}" if minlvl == maxlvl else f"{minlvl}-{maxlvl}级"
+                        parts.append(lvl)
+                    r = _CREATURE_RANKS.get(rank, "")
+                    if r:
+                        parts.append(r)
+                    lines.append("·" + " ".join(parts))
+
+        except Exception as e:
+            log.warning("World DB search error for '%s': %s", kw, e)
+
+    if not lines:
+        return ""
+    return "[游戏数据库参考（按需引用）：\n" + "\n".join(lines[:8]) + "\n]"
+
 
 # ── player info lookup tables ──────────────────────────────────────────────────
 
@@ -177,10 +314,12 @@ class _ConvState:
             self.history = self.history[-(MAX_HISTORY_TURNS * 2):]
         self.last_ts = time.time()
 
-    def messages_for_ollama(self) -> list[dict]:
+    def messages_for_ollama(self, extra_context: str = "") -> list[dict]:
         system = _SYSTEM_PROMPT_TEMPLATE.format(name=self.bot_name)
         if self.player_info:
             system += f"\n\n[当前对话玩家的角色信息：{self.player_info}。了解即可，回复时自然融入，无需直接提及。]"
+        if extra_context:
+            system += f"\n\n{extra_context}"
         return [{"role": "system", "content": system}] + self.history
 
 
@@ -267,19 +406,23 @@ def _fallback() -> str:
 _CHANNEL_NAMES = {"party": "小队", "raid": "团队", "bg": "战场"}
 
 def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_context: str,
-                      bot_name: str, out_key: str, realm: int = 0) -> None:
+                      bot_name: str, out_key: str, realm: int = 0, group_id: int = 0) -> None:
     channel_name = _CHANNEL_NAMES.get(chat_context, "频道")
     system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
     system += (
-        f"\n\n你正在监听{channel_name}频道。只在以下情况才开口：有人叫你名字、向你提问、"
-        f"话题值得你插嘴，或者有人需要帮助。其他时候保持安静，回复 [PASS]。"
+        f"\n\n你正在监听{channel_name}频道。只在以下情况才开口："
+        f"① 有人直接叫你名字；② 有人直接向你提问；"
+        f"③ 有人完成了任务或成就、分享了好消息，给予真诚鼓励。"
+        f"其他闲聊、日常对话一律保持安静，回复 [PASS]。"
     )
     conv = _get_conv(sender, bot_name)
     if conv.player_info:
         system += f"\n[{sender}的角色信息：{conv.player_info}]"
 
-    messages = [{"role": "system", "content": system},
-                {"role": "user", "content": f"{sender}：{message}"}]
+    history = _get_group_history(group_id, bot_name, chat_context, realm)
+    messages = [{"role": "system", "content": system}] + history + [
+        {"role": "user", "content": f"{sender}：{message}"}
+    ]
     try:
         reply = _ollama_chat(messages)
     except Exception as e:
@@ -356,13 +499,22 @@ def handle_quest_complete(r_pub: "redis.Redis", sender: str, bot_name: str,
 def handle_whisper(r_pub: "redis.Redis", sender: str, message: str, bot_name: str,
                    out_key: str, player_info: str = "", realm: int = 0) -> None:
     log.info("[%s] Whisper from %s: %s", bot_name, sender, message)
-    conv = _get_conv(sender, bot_name)
 
+    # World DB lookup done outside the lock (may be slow)
+    world_context = ""
+    if _world_dbs:
+        kws = _extract_game_keywords(message)
+        if kws:
+            world_context = _search_world_db(kws, realm)
+            if world_context:
+                log.debug("World DB context for %s: %s", sender, world_context)
+
+    conv = _get_conv(sender, bot_name)
     with _conv_lock:
         if player_info:
             conv.player_info = player_info
         conv.add("user", message)
-        messages = conv.messages_for_ollama()
+        messages = conv.messages_for_ollama(world_context)
 
     try:
         reply = _ollama_chat(messages)
@@ -410,10 +562,11 @@ def process_message(r_pub: "redis.Redis", data: str, in_channel: str) -> None:
     player_info = _fmt_player_info(level, cls, race, zone)
 
     if event == "group_chat":
-        message = msg.get("message", "").strip()
-        ctx     = msg.get("context", "party")
+        message  = msg.get("message", "").strip()
+        ctx      = msg.get("context", "party")
+        group_id = int(msg.get("group_id", 0))
         if message:
-            handle_group_chat(r_pub, sender, message, ctx, bot_name, out_key, realm)
+            handle_group_chat(r_pub, sender, message, ctx, bot_name, out_key, realm, group_id)
     elif event == "bg_afk":
         stage      = int(msg.get("stage",     0))
         afk_level  = int(msg.get("afk_level", 0))
@@ -448,34 +601,60 @@ def cleanup_loop() -> None:
 
 def main() -> None:
     global OLLAMA_MODEL, OLLAMA_URL, MAX_HISTORY_TURNS, HISTORY_TTL
-    parser = argparse.ArgumentParser(description="AI Companion Service (诗经意境)")
-    parser.add_argument("--redis-host", default=REDIS_HOST)
-    parser.add_argument("--redis-port", type=int, default=REDIS_PORT)
-    parser.add_argument("--realm-id",   type=int, nargs="+", default=[REALM_ID],
-                        metavar="ID", help="One or more realm IDs (e.g. --realm-id 1 2 3)")
-    parser.add_argument("--model",      default=OLLAMA_MODEL)
-    parser.add_argument("--ollama-url", default=OLLAMA_URL)
-    parser.add_argument("--max-turns",  type=int, default=MAX_HISTORY_TURNS,
-                        help="Max conversation turns to keep per player")
-    parser.add_argument("--history-ttl", type=int, default=HISTORY_TTL,
-                        help="Seconds before idle conversation context is cleared")
-    parser.add_argument("--log-dir", default="logs",
-                        help="Directory for conversation log files (one file per startup, JSON Lines)")
+
+    parser = argparse.ArgumentParser(description="蒹葭 AI Companion Service")
+    parser.add_argument(
+        "--config", default="",
+        help="Path to jianjia.toml (default: jianjia.toml next to this script)",
+    )
     args = parser.parse_args()
 
-    OLLAMA_MODEL      = args.model
-    OLLAMA_URL        = args.ollama_url
-    MAX_HISTORY_TURNS = args.max_turns
-    HISTORY_TTL       = args.history_ttl
+    # ── Load TOML config ───────────────────────────────────────────────────────
+    config_path = args.config or os.path.join(os.path.dirname(__file__), "jianjia.toml")
+    try:
+        with open(config_path, "rb") as f:
+            cfg = tomllib.load(f)
+    except FileNotFoundError:
+        sys.exit(
+            f"Config file not found: {config_path}\n"
+            f"Copy jianjia.toml.example to jianjia.toml and fill in your settings."
+        )
+    except Exception as e:
+        sys.exit(f"Failed to load config {config_path}: {e}")
 
-    _init_conv_log(args.log_dir)
+    svc        = cfg.get("service", {})
+    ollama_cfg = cfg.get("ollama",  {})
+    redis_cfg  = cfg.get("redis",   {})
+    realms_cfg = cfg.get("realms",  {})
 
+    OLLAMA_MODEL      = ollama_cfg.get("model",       OLLAMA_MODEL)
+    OLLAMA_URL        = ollama_cfg.get("url",         OLLAMA_URL)
+    MAX_HISTORY_TURNS = svc.get("max_turns",          MAX_HISTORY_TURNS)
+    HISTORY_TTL       = svc.get("history_ttl",        HISTORY_TTL)
+    redis_host        = redis_cfg.get("host",         REDIS_HOST)
+    redis_port        = int(redis_cfg.get("port",     REDIS_PORT))
+
+    # ── Load system prompt (soul + knowledge modules) ─────────────────────────
+    global _SYSTEM_PROMPT_TEMPLATE
+    _SYSTEM_PROMPT_TEMPLATE = _load_system_prompt(
+        svc.get("soul_file", ""),
+        svc.get("knowledge_dir", ""),
+    )
+    log.info("System prompt loaded (%d chars)", len(_SYSTEM_PROMPT_TEMPLATE))
+
+    # ── Init conversation log ──────────────────────────────────────────────────
+    _init_conv_log(svc.get("log_dir", "logs"))
+
+    # ── Init per-realm DB connections ──────────────────────────────────────────
+    if realms_cfg:
+        _init_realm_dbs(realms_cfg)
+
+    # ── Redis pub/sub ──────────────────────────────────────────────────────────
     in_pattern = "web_chat:jianjia_in:*"
-
-    r_pub = redis.Redis(host=args.redis_host, port=args.redis_port, decode_responses=True)
-    r_sub = redis.Redis(host=args.redis_host, port=args.redis_port, decode_responses=True)
+    r_pub = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+    r_sub = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
     pubsub = r_sub.pubsub()
-    pubsub.psubscribe(in_pattern)  # matches all realm IDs at once
+    pubsub.psubscribe(in_pattern)
 
     threading.Thread(target=cleanup_loop, daemon=True).start()
 
@@ -487,14 +666,14 @@ def main() -> None:
     signal.signal(signal.SIGINT,  _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
 
-    realms_str = ", ".join(str(r) for r in args.realm_id)
+    realms_str = ", ".join(sorted(realms_cfg)) if realms_cfg else "(no realms configured)"
     log.info("AI companion started (model=%s realms=%s)", OLLAMA_MODEL, realms_str)
+    log.info("Config: %s", config_path)
     log.info("Listening on pattern: %s", in_pattern)
 
     for msg in pubsub.listen():
         if msg["type"] != "pmessage":
             continue
-        # Each whisper handled in its own thread so slow Ollama calls don't block the queue
         threading.Thread(
             target=process_message,
             args=(r_pub, msg["data"], msg["channel"]),

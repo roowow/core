@@ -5,6 +5,7 @@
 #include "Server/Packet.h"
 #include "Opcodes.h"
 #include "ObjectMgr.h"
+#include "Group/Group.h"
 #include "Log.h"
 
 bool JianJiaAI::OnSessionLoaded(PlayerBotEntry* entry, WorldSession* sess)
@@ -62,7 +63,8 @@ void JianJiaAI::OnPacketReceived(WorldPacket const* packet)
 
             char const* ctx = (chatType == CHAT_MSG_BATTLEGROUND) ? "bg" :
                               (chatType == CHAT_MSG_RAID)          ? "raid" : "party";
-            sWebChatMgr.ForwardGroupChatToJianJia(sender->GetName(), message, ctx);
+            uint32 groupId = sender->GetGroup() ? sender->GetGroup()->GetId() : 0;
+            sWebChatMgr.ForwardGroupChatToJianJia(sender->GetName(), message, ctx, groupId);
             break;
         }
         default:
