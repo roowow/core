@@ -17,6 +17,7 @@
 #include <csignal>
 #include <ctime>
 #include <pthread.h>
+#include <sys/socket.h>
 
 // Blocks SIGPIPE on the calling thread for the duration of its lifetime.
 // Needed because hiredis 0.14 uses write() without MSG_NOSIGNAL, and threads
