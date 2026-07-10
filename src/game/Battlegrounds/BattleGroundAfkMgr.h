@@ -23,6 +23,7 @@
 #include <map>
 
 class BattleGround;
+class Player;
 
 struct BattleGroundAfkScoreRule
 {
@@ -83,6 +84,7 @@ class BattleGroundAfkMgr
 {
 public:
     void Update(BattleGround* bg, uint32 diff);
+    static void SendFallbackNotice(Player* player, uint8 stage, uint8 afkLevel, char const* noticeType);
     void RemovePlayer(ObjectGuid guid, char const* reason = nullptr);
     void Reset();
     void RecordDamageDone(ObjectGuid guid, uint32 amount);

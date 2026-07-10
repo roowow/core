@@ -292,21 +292,117 @@ void WebChatMgr::ForwardWhisperToJianJia(std::string const& senderName, std::str
     else ReconnectPub();
 }
 
-void WebChatMgr::WhisperAsJianJia(std::string const& targetName, std::string const& message)
+void WebChatMgr::ForwardGroupChatToJianJia(std::string const& senderName, std::string const& message,
+    char const* chatContext)
+{
+    if (!m_pubCtx || senderName.empty() || !chatContext) return;
+    std::string j = "{\"event\":\"group_chat\",\"sender\":\"";
+    j += EscapeJson(senderName);
+    j += "\",\"bot_name\":\"";
+    j += EscapeJson(m_jianJiaName);
+    j += "\",\"context\":\"";
+    j += EscapeJson(chatContext);
+    j += "\",\"message\":\"";
+    j += EscapeJson(message);
+    j += "\"}";
+    redisReply* r = (redisReply*)redisCommand(m_pubCtx, "PUBLISH %s %b",
+        m_keyJianJiaIn.c_str(), j.data(), j.size());
+    if (r) freeReplyObject(r);
+    else ReconnectPub();
+}
+
+bool WebChatMgr::NotifyBgAfkViaJianJia(Player* player, BattleGround* /*bg*/, uint8 stage, uint8 afkLevel,
+    char const* noticeType)
+{
+    if (!m_pubCtx || m_jianJiaName.empty() || !player) return false;
+    std::string zoneName;
+    if (AreaEntry const* zoneEntry = AreaEntry::GetById(player->GetZoneId()))
+        zoneName = zoneEntry->Name;
+    std::string j = "{\"event\":\"bg_afk\",\"sender\":\"";
+    j += EscapeJson(player->GetName());
+    j += "\",\"bot_name\":\"";
+    j += EscapeJson(m_jianJiaName);
+    j += "\",\"stage\":";
+    j += std::to_string(stage);
+    j += ",\"afk_level\":";
+    j += std::to_string(afkLevel);
+    j += ",\"notice\":\"";
+    j += EscapeJson(noticeType ? noticeType : "warning");
+    j += "\",\"level\":";
+    j += std::to_string(player->GetLevel());
+    j += ",\"class\":";
+    j += std::to_string(player->GetClass());
+    j += ",\"race\":";
+    j += std::to_string(player->GetRace());
+    j += ",\"zone\":\"";
+    j += EscapeJson(zoneName);
+    j += "\"}";
+    redisReply* r = (redisReply*)redisCommand(m_pubCtx, "PUBLISH %s %b",
+        m_keyJianJiaIn.c_str(), j.data(), j.size());
+    if (r) { freeReplyObject(r); return true; }
+    ReconnectPub();
+    return false;
+}
+
+void WebChatMgr::SpeakAsJianJia(std::string const& targetName, std::string const& message, bool preferGroup)
 {
     if (targetName.empty() || message.empty()) return;
 
-    MasterPlayer* target = ObjectAccessor::FindMasterPlayer(targetName.c_str());
-    if (!target) return;
-
-    // Get 蒹葭's guid so the client can click-to-reply
     PlayerCacheData const* cache = sObjectMgr.GetPlayerDataByName(m_jianJiaName.c_str());
     ObjectGuid senderGuid = cache ? ObjectGuid(HIGHGUID_PLAYER, cache->uiGuid) : ObjectGuid();
 
+    if (preferGroup && senderGuid)
+    {
+        if (Player* targetPlayer = ObjectAccessor::FindPlayerByName(targetName.c_str()))
+        {
+            if (Group* group = targetPlayer->GetGroup())
+            {
+                if (group->IsMember(senderGuid))
+                {
+                    uint8 chatType = group->isRaidGroup() ? CHAT_MSG_RAID : CHAT_MSG_PARTY;
+                    WorldPacket chatData;
+                    ChatHandler::BuildChatPacket(chatData, chatType, message.c_str(),
+                        LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, m_jianJiaName.c_str());
+                    group->BroadcastPacket(&chatData, false);
+                    return;
+                }
+            }
+        }
+    }
+
+    // Fallback: whisper
+    MasterPlayer* target = ObjectAccessor::FindMasterPlayer(targetName.c_str());
+    if (!target) return;
     WorldPacket data;
     ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER, message.c_str(),
         LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, m_jianJiaName.c_str());
     target->GetSession()->SendPacket(&data);
+}
+
+void WebChatMgr::SpeakInBgAsJianJia(std::string const& targetName, std::string const& message)
+{
+    if (targetName.empty() || message.empty()) return;
+
+    Player* targetPlayer = ObjectAccessor::FindPlayerByName(targetName.c_str());
+    if (!targetPlayer)
+    {
+        SpeakAsJianJia(targetName, message, false);
+        return;
+    }
+
+    BattleGround* bg = targetPlayer->GetBattleGround();
+    if (!bg)
+    {
+        SpeakAsJianJia(targetName, message, false); // fallback to whisper
+        return;
+    }
+
+    PlayerCacheData const* cache = sObjectMgr.GetPlayerDataByName(m_jianJiaName.c_str());
+    ObjectGuid senderGuid = cache ? ObjectGuid(HIGHGUID_PLAYER, cache->uiGuid) : ObjectGuid();
+    WorldPacket chatData;
+    ChatHandler::BuildChatPacket(chatData, CHAT_MSG_BATTLEGROUND, message.c_str(),
+        LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, m_jianJiaName.c_str());
+    bg->SendPacketToAll(&chatData);
 }
 
 void WebChatMgr::UpdateJianJia()
@@ -322,8 +418,27 @@ void WebChatMgr::UpdateJianJia()
         std::string const& json = local.front();
         std::string target  = JsonGetStr(json, "target");
         std::string message = JsonGetStr(json, "message");
-        if (!target.empty() && !message.empty())
-            WhisperAsJianJia(target, message);
+        std::string channel = JsonGetStr(json, "channel");
+        if (!target.empty())
+        {
+            if (channel == "fallback")
+            {
+                uint32 stage    = JsonGetU32(json, "stage");
+                uint32 afkLevel = JsonGetU32(json, "afk_level");
+                std::string notice = JsonGetStr(json, "notice");
+                if (Player* p = ObjectAccessor::FindPlayerByName(target.c_str()))
+                    BattleGroundAfkMgr::SendFallbackNotice(p, uint8(stage), uint8(afkLevel), notice.c_str());
+            }
+            else if (!message.empty())
+            {
+                if (channel == "bg")
+                    SpeakInBgAsJianJia(target, message);
+                else if (channel == "group" || channel == "party" || channel == "raid")
+                    SpeakAsJianJia(target, message, true);
+                else
+                    SpeakAsJianJia(target, message, false);
+            }
+        }
         local.pop();
     }
 }

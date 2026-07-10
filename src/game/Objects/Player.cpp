@@ -13877,6 +13877,7 @@ void Player::RewardQuest(Quest const* pQuest, uint32 reward, WorldObject* questE
                 if (!HasAura(itr->second->spellId, EFFECT_INDEX_0))
                     CastSpell(this, itr->second->spellId, true);
     }
+
 }
 
 void Player::FailQuest(uint32 questId)

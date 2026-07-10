@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-白露 AI Companion Service
-Bridges player whispers to 白露 (in-game bot) with an Ollama-powered AI.
+蒹葭 AI Companion Service
+Bridges player whispers to 蒹葭 (in-game bot) with an Ollama-powered AI.
 
 Channels:
   web_chat:jianjia_in:<realmId>   - game → this service  {"sender":"name","message":"..."}
@@ -9,6 +9,7 @@ Channels:
 """
 
 import json
+import os
 import re
 import threading
 import time
@@ -59,11 +60,12 @@ _SYSTEM_PROMPT_TEMPLATE = """\
 
 【知识范围】
 你了解这个魔兽世界服务器的一切。本服是永久60级的1.12原版（Vanilla WoW），绝无任何资料片内容。满级是60级，不存在61级及以上的内容。回答时只能涉及1.12原版范围内的地图、副本、职业、玩法；若玩家问及资料片才有的内容，请明确告知本服是60级原版，不存在该内容。
+你还是一个热情的鼓励师：当玩家完成任务、取得成就或分享好消息时，你会真诚地赞美他们，让他们感到被认可和鼓励。
 你也是这个服务器的向导，对服务器的制度了如指掌，能耐心、准确地为玩家解答规则疑问。
 
 【回复风格】
 回答简短，一般不超过两三句话；如果玩家问具体的规则细节，可以适当展开。
-不要用emoji，不要暴露自己是AI。
+不要用emoji，不要暴露自己是AI。回复时不要在开头写自己的名字加冒号（如"蒹葭："），直接说话即可。
 
 ===== OOWORLD 服务器制度（供你参考，请据此回答玩家问题）=====
 
@@ -211,6 +213,8 @@ def _ollama_chat(messages: list[dict], timeout: int = 30) -> str:
     content = resp.json()["message"]["content"].strip()
     # strip <think>...</think> blocks in case the model ignores the flag
     content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+    # strip "角色名：" prefix the model sometimes adds
+    content = re.sub(r"^\S{1,8}[：:]\s*", "", content)
     return content
 
 
@@ -220,6 +224,35 @@ _FALLBACK_REPLIES = [
     "水之湄，道阻且长。我暂时无法回应，请稍后再试。",
 ]
 _fallback_idx = 0
+
+# ── conversation log ──────────────────────────────────────────────────────────
+
+_conv_log_file = None
+_conv_log_lock = threading.Lock()
+
+def _init_conv_log(log_dir: str) -> None:
+    global _conv_log_file
+    os.makedirs(log_dir, exist_ok=True)
+    filename = time.strftime("JianJia_%Y-%m-%d_%H-%M-%S.jsonl")
+    path = os.path.join(log_dir, filename)
+    _conv_log_file = open(path, "a", encoding="utf-8")
+    log.info("Conversation log: %s", path)
+
+def _write_conv_log(realm: int, bot: str, player: str, player_info: str, user_msg: str, ai_reply: str) -> None:
+    if not _conv_log_file:
+        return
+    record = json.dumps({
+        "ts":     time.strftime("%Y-%m-%d %H:%M:%S"),
+        "realm":  realm,
+        "bot":    bot,
+        "player": player,
+        "info":   player_info,
+        "user":   user_msg,
+        "reply":  ai_reply,
+    }, ensure_ascii=False)
+    with _conv_log_lock:
+        _conv_log_file.write(record + "\n")
+        _conv_log_file.flush()
 
 
 def _fallback() -> str:
@@ -231,8 +264,97 @@ def _fallback() -> str:
 
 # ── message handler ───────────────────────────────────────────────────────────
 
+_CHANNEL_NAMES = {"party": "小队", "raid": "团队", "bg": "战场"}
+
+def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_context: str,
+                      bot_name: str, out_key: str, realm: int = 0) -> None:
+    channel_name = _CHANNEL_NAMES.get(chat_context, "频道")
+    system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
+    system += (
+        f"\n\n你正在监听{channel_name}频道。只在以下情况才开口：有人叫你名字、向你提问、"
+        f"话题值得你插嘴，或者有人需要帮助。其他时候保持安静，回复 [PASS]。"
+    )
+    conv = _get_conv(sender, bot_name)
+    if conv.player_info:
+        system += f"\n[{sender}的角色信息：{conv.player_info}]"
+
+    messages = [{"role": "system", "content": system},
+                {"role": "user", "content": f"{sender}：{message}"}]
+    try:
+        reply = _ollama_chat(messages)
+    except Exception as e:
+        log.warning("Ollama error for group chat: %s", e)
+        return
+    if not reply or "[PASS]" in reply:
+        return
+
+    payload = json.dumps({"target": sender, "message": reply, "channel": chat_context},
+                         ensure_ascii=False, separators=(",", ":"))
+    r_pub.publish(out_key, payload)
+    log.info("[%s] %s chat reply to %s: %s", bot_name, chat_context, sender, reply)
+    _write_conv_log(realm, bot_name, sender, conv.player_info, f"[{chat_context}]{message}", reply)
+
+
+def handle_bg_afk(r_pub: "redis.Redis", sender: str, bot_name: str,
+                  stage: int, afk_level: int, notice_type: str, player_info: str,
+                  out_key: str, realm: int = 0) -> None:
+    system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
+    system += "\n\n你现在在战场频道发言，所有队友都能看到。"
+    if player_info:
+        system += f"\n[{sender}的角色信息：{player_info}]"
+
+    if notice_type == "warning":
+        urgency_map = {1: "温柔地提醒", 2: "认真地警告", 3: "非常急切地催促"}
+        urgency = urgency_map.get(stage, "提醒")
+        prompt = f"请{urgency}{sender}：他们在战场中活动太少了，需要积极参与战斗或争夺目标，否则可能被移出战场。一句话，用你的性格说。"
+    else:
+        level_map = {1: "轻轻提醒", 2: "提醒", 3: "严肃警告"}
+        urgency = level_map.get(afk_level, "提醒")
+        prompt = f"请{urgency}{sender}：他们的战场活跃度不足，需要更积极地参与。一句话。"
+
+    messages = [{"role": "system", "content": system},
+                {"role": "user", "content": prompt}]
+    try:
+        reply = _ollama_chat(messages)
+    except Exception as e:
+        log.warning("Ollama error for bg_afk (%s): %s — signalling C++ fallback", sender, e)
+        payload = json.dumps({"target": sender, "channel": "fallback",
+                              "stage": stage, "afk_level": afk_level, "notice": notice_type},
+                             ensure_ascii=False, separators=(",", ":"))
+        r_pub.publish(out_key, payload)
+        return
+
+    payload = json.dumps({"target": sender, "message": reply, "channel": "bg"},
+                         ensure_ascii=False, separators=(",", ":"))
+    r_pub.publish(out_key, payload)
+    log.info("[%s] BG AFK notice to %s (stage %d): %s", bot_name, sender, stage, reply)
+    _write_conv_log(realm, bot_name, sender, player_info, f"[bg_afk stage={stage}]", reply)
+
+
+def handle_quest_complete(r_pub: "redis.Redis", sender: str, bot_name: str,
+                          quest_title: str, player_info: str, out_key: str, realm: int = 0) -> None:
+    system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
+    if player_info:
+        system += f"\n\n[当前对话玩家的角色信息：{player_info}。了解即可，回复时自然融入，无需直接提及。]"
+    user_content = f"{sender}完成了「{quest_title}」！" if quest_title else f"{sender}完成了一个任务！"
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user_content},
+    ]
+    try:
+        reply = _ollama_chat(messages)
+    except Exception as e:
+        log.warning("Ollama error for quest complete (%s): %s", sender, e)
+        return
+    payload = json.dumps({"target": sender, "message": reply, "channel": "group"},
+                         ensure_ascii=False, separators=(",", ":"))
+    r_pub.publish(out_key, payload)
+    log.info("[%s] Quest cheer to %s (%s): %s", bot_name, sender, quest_title, reply)
+    _write_conv_log(realm, bot_name, sender, player_info, f"[quest:{quest_title}]", reply)
+
+
 def handle_whisper(r_pub: "redis.Redis", sender: str, message: str, bot_name: str,
-                   out_key: str, player_info: str = "") -> None:
+                   out_key: str, player_info: str = "", realm: int = 0) -> None:
     log.info("[%s] Whisper from %s: %s", bot_name, sender, message)
     conv = _get_conv(sender, bot_name)
 
@@ -256,10 +378,16 @@ def handle_whisper(r_pub: "redis.Redis", sender: str, message: str, bot_name: st
     payload = json.dumps({"target": sender, "message": reply}, ensure_ascii=False, separators=(",", ":"))
     r_pub.publish(out_key, payload)
     log.info("[%s] Reply to %s: %s", bot_name, sender, reply)
+    _write_conv_log(realm, bot_name, sender, conv.player_info, message, reply)
 
 
 def process_message(r_pub: "redis.Redis", data: str, in_channel: str) -> None:
     out_key = in_channel.replace("jianjia_in:", "jianjia_out:", 1)
+    # extract realm id from channel name: web_chat:jianjia_in:<realmId>
+    try:
+        realm = int(in_channel.rsplit(":", 1)[-1])
+    except (ValueError, IndexError):
+        realm = 0
 
     try:
         msg = json.loads(data)
@@ -267,20 +395,40 @@ def process_message(r_pub: "redis.Redis", data: str, in_channel: str) -> None:
         log.error("Invalid JSON: %s", e)
         return
 
+    event    = msg.get("event", "whisper")
     sender   = msg.get("sender",   "").strip()
-    message  = msg.get("message",  "").strip()
     bot_name = msg.get("bot_name", "AI").strip()
     level    = int(msg.get("level", 0))
     cls      = int(msg.get("class", 0))
     race     = int(msg.get("race",  0))
     zone     = msg.get("zone", "").strip()
 
-    if not sender or not message:
-        log.debug("Empty sender or message, ignoring.")
+    if not sender:
+        log.debug("Empty sender, ignoring.")
         return
 
     player_info = _fmt_player_info(level, cls, race, zone)
-    handle_whisper(r_pub, sender, message, bot_name, out_key, player_info)
+
+    if event == "group_chat":
+        message = msg.get("message", "").strip()
+        ctx     = msg.get("context", "party")
+        if message:
+            handle_group_chat(r_pub, sender, message, ctx, bot_name, out_key, realm)
+    elif event == "bg_afk":
+        stage      = int(msg.get("stage",     0))
+        afk_level  = int(msg.get("afk_level", 0))
+        notice_type = msg.get("notice", "warning")
+        handle_bg_afk(r_pub, sender, bot_name, stage, afk_level, notice_type,
+                      player_info, out_key, realm)
+    elif event == "quest_complete":
+        quest_title = msg.get("quest", "").strip()
+        handle_quest_complete(r_pub, sender, bot_name, quest_title, player_info, out_key, realm)
+    else:
+        message = msg.get("message", "").strip()
+        if not message:
+            log.debug("Empty message, ignoring.")
+            return
+        handle_whisper(r_pub, sender, message, bot_name, out_key, player_info, realm)
 
 
 # ── history cleanup ────────────────────────────────────────────────────────────
@@ -311,12 +459,16 @@ def main() -> None:
                         help="Max conversation turns to keep per player")
     parser.add_argument("--history-ttl", type=int, default=HISTORY_TTL,
                         help="Seconds before idle conversation context is cleared")
+    parser.add_argument("--log-dir", default="logs",
+                        help="Directory for conversation log files (one file per startup, JSON Lines)")
     args = parser.parse_args()
 
     OLLAMA_MODEL      = args.model
     OLLAMA_URL        = args.ollama_url
     MAX_HISTORY_TURNS = args.max_turns
     HISTORY_TTL       = args.history_ttl
+
+    _init_conv_log(args.log_dir)
 
     in_pattern = "web_chat:jianjia_in:*"
 

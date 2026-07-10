@@ -15,6 +15,7 @@
  */
 
 #include "BattleGroundAfkMgr.h"
+#include "OO/WebChatMgr.h"
 #include "BattleGround.h"
 #include "BattleGroundAB.h"
 #include "BattleGroundAV.h"
@@ -884,11 +885,6 @@ void BattleGroundAfkMgr::SendActivityNotice(BattleGround* bg, ObjectGuid guid, u
     if (!player)
         return;
 
-    time_t const now = time(nullptr);
-    tm const* localTime = localtime(&now);
-    char currentTime[6];
-    snprintf(currentTime, sizeof(currentTime), "%02u:%02u", uint32(localTime->tm_hour), uint32(localTime->tm_min));
-
     if (logNotice)
     {
         uint32 const bgType = bg ? uint32(bg->GetTypeID()) : 0;
@@ -897,21 +893,8 @@ void BattleGroundAfkMgr::SendActivityNotice(BattleGround* bg, ObjectGuid guid, u
             m_elapsedTime, uint32(stage), score);
     }
 
-    switch (level)
-    {
-        case 0:
-            player->PSendSysMessage("[%s] 您当前战场活跃度正常。", currentTime);
-            break;
-        case 1:
-            player->PSendSysMessage("[%s] 您当前战场活跃度偏低，请参与战斗、治疗队友或争夺战场目标。", currentTime);
-            break;
-        case 2:
-            player->PSendSysMessage("[%s] 您当前战场活跃度不足，请尽快提升战场参与。", currentTime);
-            break;
-        default:
-            player->PSendSysMessage("[%s] 您当前战场活跃度危险，请立即参与战斗或战场目标。", currentTime);
-            break;
-    }
+    if (!sWebChatMgr.NotifyBgAfkViaJianJia(player, bg, stage, level, "activity"))
+        SendFallbackNotice(player, stage, level, "activity");
 }
 
 void BattleGroundAfkMgr::SendTrackStop(BattleGround* bg, ObjectGuid guid, BattleGroundAfkPlayerState const& state, char const* reason) const
@@ -939,11 +922,6 @@ void BattleGroundAfkMgr::SendWarning(BattleGround* bg, ObjectGuid guid, BattleGr
     if (!player)
         return;
 
-    time_t const now = time(nullptr);
-    tm const* localTime = localtime(&now);
-    char currentTime[6];
-    snprintf(currentTime, sizeof(currentTime), "%02u:%02u", uint32(localTime->tm_hour), uint32(localTime->tm_min));
-
     std::string const reasons = FormatAfkReasons(state.lastReasonMask);
     int32 const delta = int32(state.score) - int32(state.lastPreviousScore);
     uint32 const bgType = bg ? uint32(bg->GetTypeID()) : state.trackBgType;
@@ -953,19 +931,37 @@ void BattleGroundAfkMgr::SendWarning(BattleGround* bg, ObjectGuid guid, BattleGr
         BoolText(state.lastMoved), state.lastMoveDistance, BoolText(state.lastInCombat), BoolText(state.lastNearObjective),
         state.lastDamageDone, state.lastDamageTaken, state.lastHealingDone, state.lastObjectiveEvents);
 
-    switch (state.stage)
+    if (!sWebChatMgr.NotifyBgAfkViaJianJia(player, bg, state.stage, state.stage, "warning"))
+        SendFallbackNotice(player, state.stage, state.stage, "warning");
+}
+
+/*static*/ void BattleGroundAfkMgr::SendFallbackNotice(Player* player, uint8 stage, uint8 afkLevel, char const* noticeType)
+{
+    if (!player) return;
+    time_t const now = time(nullptr);
+    tm const* localTime = localtime(&now);
+    char currentTime[6];
+    snprintf(currentTime, sizeof(currentTime), "%02u:%02u", uint32(localTime->tm_hour), uint32(localTime->tm_min));
+
+    if (noticeType && strcmp(noticeType, "warning") == 0)
     {
-        case 1:
-            player->PSendSysMessage("[%s] 战场挂机警告 1：您在战场中的有效活动较少。", currentTime);
-            break;
-        case 2:
-            player->PSendSysMessage("[%s] 战场挂机警告 2：请您参与战斗或战场目标，否则将被移出。", currentTime);
-            break;
-        case 3:
-            player->PSendSysMessage("[%s] 战场挂机警告 3：最后警告，请您立即参与战场。", currentTime);
-            break;
-        default:
-            break;
+        switch (stage)
+        {
+            case 1: player->PSendSysMessage("[%s] 战场挂机警告 1：您在战场中的有效活动较少。", currentTime); break;
+            case 2: player->PSendSysMessage("[%s] 战场挂机警告 2：请您参与战斗或战场目标，否则将被移出。", currentTime); break;
+            case 3: player->PSendSysMessage("[%s] 战场挂机警告 3：最后警告，请您立即参与战场。", currentTime); break;
+            default: break;
+        }
+    }
+    else
+    {
+        switch (afkLevel)
+        {
+            case 0: player->PSendSysMessage("[%s] 您当前战场活跃度正常。", currentTime); break;
+            case 1: player->PSendSysMessage("[%s] 您当前战场活跃度偏低，请参与战斗、治疗队友或争夺战场目标。", currentTime); break;
+            case 2: player->PSendSysMessage("[%s] 您当前战场活跃度不足，请尽快提升战场参与。", currentTime); break;
+            default: player->PSendSysMessage("[%s] 您当前战场活跃度危险，请立即参与战斗或战场目标。", currentTime); break;
+        }
     }
 }
 

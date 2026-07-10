@@ -44,6 +44,7 @@
 #include "Conditions.h"
 #include "Anticheat.h"
 #include "MasterPlayer.h"
+#include "OO/WebChatMgr.h"
 
 void WorldSession::HandleRepopRequestOpcode(NullClientPacket const& /*packet*/)
 {
@@ -114,8 +115,8 @@ public:
                     continue;
             }
 
-            // skip bots
-            if (!showBotsInWhoList && pPlayer->IsBot())
+            // skip bots; exception: AI companion 蒹葭 is always visible
+            if (!showBotsInWhoList && pPlayer->IsBot() && !sWebChatMgr.IsJianJiaName(pPlayer->GetName()))
                 continue;
 
             // do not process players which are not in world

@@ -9,5 +9,6 @@ class JianJiaAI : public PlayerBotAI
 public:
     explicit JianJiaAI(Player* p = nullptr) : PlayerBotAI(p) {}
     bool OnSessionLoaded(PlayerBotEntry* entry, WorldSession* sess) override;
+    void OnPacketReceived(WorldPacket const* packet) override;
     void UpdateAI(uint32 diff) override {}
 };
