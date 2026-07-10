@@ -303,14 +303,18 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
     if (charName.empty() || msg.empty())
         return;
 
+    normalizePlayerName(charName);
+
     PlayerCacheData const* cache = sObjectMgr.GetPlayerDataByName(charName);
+    if (!cache)
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "WebChatMgr: character '%s' not found in cache, message from web will have empty sender", charName.c_str());
     ObjectGuid senderGuid = cache ? ObjectGuid(HIGHGUID_PLAYER, cache->uiGuid) : ObjectGuid();
 
     // For web-only senders: append " [W]" to the message as a suffix indicator
     bool isInGame = !senderGuid.IsEmpty() && (
         ObjectAccessor::FindMasterPlayer(charName.c_str()) != nullptr ||
         ObjectAccessor::FindPlayer(senderGuid) != nullptr);
-    std::string dispMsg = isInGame ? msg : "\xe2\x93\x94 " + msg; // ⓔ
+    std::string dispMsg = isInGame ? msg : "|cFF0000FF\xe2\x93\x94|r " + msg; // 蓝色 ⓔ，配色写法参照 Channel.cpp 里勇敢者红色"勇"标记
 
     if (channel == "world")
     {

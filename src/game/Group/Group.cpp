@@ -1782,7 +1782,10 @@ void Group::_setLeader(ObjectGuid guid)
         // in the DB those have been deleted already
         Player::ConvertInstancesToGroup(player, this, slot->guid);
 
-        // update the group leader
+        // update the group leader; remove any orphaned group record that already lists the new
+        // leader (stale DB rows left by a server crash), otherwise the unique key on leader_guid
+        // would reject the UPDATE and leave memory/DB out of sync.
+        CharacterDatabase.PExecute("DELETE FROM `groups` WHERE `leader_guid` = '%u' AND `group_id` != '%u'", newLeaderLowGuid, m_Id);
         CharacterDatabase.PExecute("UPDATE `groups` SET `leader_guid`='%u' WHERE `group_id`='%u'", newLeaderLowGuid, m_Id);
         CharacterDatabase.CommitTransaction();
     }
