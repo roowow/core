@@ -35,7 +35,26 @@ struct SigpipeGuard
         sigaddset(&set, SIGPIPE);
         pthread_sigmask(SIG_BLOCK, &set, &prev);
     }
-    ~SigpipeGuard() { pthread_sigmask(SIG_SETMASK, &prev, nullptr); }
+    ~SigpipeGuard()
+    {
+        // If restoring prev would unblock SIGPIPE, drain any pending SIGPIPE first.
+        // Without this, a SIGPIPE that became pending while blocked is delivered the
+        // instant SIG_SETMASK makes it unblocked again — causing a crash.
+        if (!sigismember(&prev, SIGPIPE))
+        {
+            sigset_t pending;
+            sigpending(&pending);
+            if (sigismember(&pending, SIGPIPE))
+            {
+                struct timespec ts = {};
+                sigset_t set;
+                sigemptyset(&set);
+                sigaddset(&set, SIGPIPE);
+                sigtimedwait(&set, nullptr, &ts);
+            }
+        }
+        pthread_sigmask(SIG_SETMASK, &prev, nullptr);
+    }
 };
 
 WebChatMgr& WebChatMgr::instance()
