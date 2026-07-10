@@ -638,7 +638,7 @@ void Channel::Say(ObjectGuid guid, char const* text, uint32 lang, bool skipCheck
     std::string tmp1 = "";
     if (pPlayer && pPlayer->ToPlayer()->IsHardcore())
     {
-        tmp1 = "|cFFFF0000勇|r：";
+        tmp1 = "|cFFFF4500\xe2\x98\x85|r "; // 橘红色（火焰色）★，代替原来的红色"勇"字
     }
     tmp1 += text;
 
