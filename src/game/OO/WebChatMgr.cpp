@@ -18,6 +18,25 @@
 #include <ctime>
 #include <pthread.h>
 
+// Blocks SIGPIPE on the calling thread for the duration of its lifetime.
+// Needed because hiredis 0.14 uses write() without MSG_NOSIGNAL, and threads
+// created before WebChatMgr::Initialize() (e.g. AsyncPacket) don't inherit
+// the SIG_BLOCK set there.  SIGPIPE is harmless (SIG_IGN disposition) but
+// GDB/ptrace intercepts it before the disposition check and triggers anticrash
+// full-thread dumps.  A blocked signal is never delivered via ptrace at all.
+struct SigpipeGuard
+{
+    sigset_t prev;
+    SigpipeGuard()
+    {
+        sigset_t set;
+        sigemptyset(&set);
+        sigaddset(&set, SIGPIPE);
+        pthread_sigmask(SIG_BLOCK, &set, &prev);
+    }
+    ~SigpipeGuard() { pthread_sigmask(SIG_SETMASK, &prev, nullptr); }
+};
+
 WebChatMgr& WebChatMgr::instance()
 {
     static WebChatMgr s;
@@ -66,10 +85,25 @@ void WebChatMgr::Initialize(char const* socketPath, uint32 realmId)
 void WebChatMgr::Shutdown()
 {
     m_stop = true;
-    // Freeing the subscribe context unblocks redisGetReply in the thread
-    if (m_subCtx) { redisFree(m_subCtx); m_subCtx = nullptr; }
+    // Interrupt the subscribe thread's blocking redisGetReply by shutting down
+    // its socket fd.  We must NOT call redisFree from here — that would race
+    // with the subscribe thread still using the context.  ::shutdown(fd) is
+    // safe from another thread and causes redisGetReply to return REDIS_ERR.
+    //
+    // Loop up to 6 s: the thread may be in its reconnect sleep (m_subFd=-1)
+    // when we first check.  If m_subFd stays -1 the whole time, the thread
+    // will wake from its sleep, see m_stop=true, and exit on its own.
+    for (int w = 0; w < 60; ++w)
+    {
+        int fd = m_subFd.load(std::memory_order_acquire);
+        if (fd >= 0) { ::shutdown(fd, SHUT_RDWR); break; }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
     if (m_subThread.joinable()) m_subThread.join();
-    if (m_pubCtx) { redisFree(m_pubCtx); m_pubCtx = nullptr; }
+    {
+        std::lock_guard<std::mutex> lock(m_pubMutex);
+        if (m_pubCtx) { redisFree(m_pubCtx); m_pubCtx = nullptr; }
+    }
 }
 
 void WebChatMgr::Update()
@@ -97,18 +131,24 @@ void WebChatMgr::WriteWebChat(std::string const& channel, std::string const& cha
     std::string json = BuildJson("game", channel, charName, faction, classId, recipient, msg, contextId);
     Publish(json);
     // For party/raid: update char→group mapping so PHP can filter by group membership
-    // Re-check m_pubCtx: Publish() may have called ReconnectPub() which can null it on failure.
-    if (m_pubCtx && contextId > 0 && (channel == "party" || channel == "raid" || channel == "raid_leader"))
+    if (contextId > 0 && (channel == "party" || channel == "raid" || channel == "raid_leader"))
     {
-        std::string key = "web_chat:char_group:" + std::to_string(m_realmId) + ":" + charName;
-        redisReply* r = (redisReply*)redisCommand(m_pubCtx, "SETEX %s 3600 %u", key.c_str(), contextId);
-        if (r) freeReplyObject(r);
-        else ReconnectPub();
+        SigpipeGuard guard;
+        std::lock_guard<std::mutex> lock(m_pubMutex);
+        if (m_pubCtx)
+        {
+            std::string key = "web_chat:char_group:" + std::to_string(m_realmId) + ":" + charName;
+            redisReply* r = (redisReply*)redisCommand(m_pubCtx, "SETEX %s 3600 %u", key.c_str(), contextId);
+            if (r) freeReplyObject(r);
+            else ReconnectPub();
+        }
     }
 }
 
 void WebChatMgr::Publish(std::string const& json)
 {
+    SigpipeGuard guard;
+    std::lock_guard<std::mutex> lock(m_pubMutex);
     // Attempt up to 2 times: first with the existing connection, then once after reconnect.
     for (int attempt = 0; attempt < 2; ++attempt)
     {
@@ -162,11 +202,29 @@ void WebChatMgr::SubscribeThread()
         }
 
         m_subCtx = ctx;
+        // Publish fd before potentially blocking so Shutdown() can ::shutdown() it.
+        m_subFd.store(ctx->fd, std::memory_order_release);
+
+        // Re-check m_stop: Shutdown() may have set m_stop=true and finished its
+        // m_subFd poll loop while we were still connecting (m_subFd was -1 then).
+        // Without this check we would block in redisGetReply with no one to wake us.
+        if (m_stop.load(std::memory_order_acquire))
+        {
+            m_subFd.store(-1, std::memory_order_release);
+            redisFree(ctx);
+            m_subCtx = nullptr;
+            break;
+        }
 
         {
             redisReply* r = (redisReply*)redisCommand(ctx, "SUBSCRIBE %s %s",
                 m_keyLive.c_str(), m_keyJianJiaOut.c_str());
-            if (!r) { redisFree(ctx); m_subCtx = nullptr; continue; }
+            if (!r)
+            {
+                m_subFd.store(-1, std::memory_order_release);
+                redisFree(ctx); m_subCtx = nullptr;
+                continue;
+            }
             freeReplyObject(r);
             // SUBSCRIBE to 2 channels produces 2 confirmation replies; consume the extra one
             redisReply* rx = nullptr;
@@ -178,7 +236,7 @@ void WebChatMgr::SubscribeThread()
         {
             redisReply* reply = nullptr;
             if (redisGetReply(ctx, (void**)&reply) != REDIS_OK)
-                break; // connection closed: either Shutdown() freed ctx, or Redis dropped us
+                break; // Shutdown() called ::shutdown(fd), or Redis dropped us
 
             if (reply->type == REDIS_REPLY_ARRAY && reply->elements == 3
                 && reply->element[1]->type == REDIS_REPLY_STRING
@@ -196,13 +254,11 @@ void WebChatMgr::SubscribeThread()
             freeReplyObject(reply);
         }
 
-        // If Shutdown() already freed ctx via m_subCtx, don't double-free.
-        // Otherwise (accidental disconnect), free it ourselves before reconnecting.
-        if (m_subCtx)
-        {
-            redisFree(ctx);
-            m_subCtx = nullptr;
-        }
+        // Clear m_subFd before redisFree so Shutdown() can't call ::shutdown()
+        // on a fd that we're about to close (would be harmless but confusing).
+        m_subFd.store(-1, std::memory_order_release);
+        redisFree(ctx);
+        m_subCtx = nullptr;
     }
 }
 
@@ -314,7 +370,10 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
 
 bool WebChatMgr::IsWebOnline(std::string const& charName) const
 {
-    if (!m_pubCtx || charName.empty()) return false;
+    if (!m_pubCtx || charName.empty()) return false; // optimistic fast-path
+    SigpipeGuard guard;
+    std::lock_guard<std::mutex> lock(m_pubMutex);
+    if (!m_pubCtx) return false; // re-check under lock
     std::string key = m_keyWebOnline + charName;
     redisReply* r = (redisReply*)redisCommand(m_pubCtx, "EXISTS %s", key.c_str());
     bool exists = r && r->type == REDIS_REPLY_INTEGER && r->integer > 0;
@@ -350,6 +409,9 @@ void WebChatMgr::ForwardWhisperToJianJia(std::string const& senderName, std::str
     uint8 level, uint8 cls, uint8 race, std::string const& zone)
 {
     if (!m_pubCtx || senderName.empty()) return;
+    SigpipeGuard guard;
+    std::lock_guard<std::mutex> lock(m_pubMutex);
+    if (!m_pubCtx) return;
     std::string j = "{\"sender\":\"";
     j += EscapeJson(senderName);
     j += "\",\"bot_name\":\"";
@@ -375,6 +437,9 @@ void WebChatMgr::ForwardGroupChatToJianJia(std::string const& senderName, std::s
     char const* chatContext, uint32 groupId)
 {
     if (!m_pubCtx || senderName.empty() || !chatContext) return;
+    SigpipeGuard guard;
+    std::lock_guard<std::mutex> lock(m_pubMutex);
+    if (!m_pubCtx) return;
     std::string j = "{\"event\":\"group_chat\",\"sender\":\"";
     j += EscapeJson(senderName);
     j += "\",\"bot_name\":\"";
@@ -396,6 +461,9 @@ bool WebChatMgr::NotifyBgAfkViaJianJia(Player* player, BattleGround* /*bg*/, uin
     char const* noticeType)
 {
     if (!m_pubCtx || m_jianJiaName.empty() || !player) return false;
+    SigpipeGuard guard;
+    std::lock_guard<std::mutex> lock(m_pubMutex);
+    if (!m_pubCtx) return false;
     std::string zoneName;
     if (AreaEntry const* zoneEntry = AreaEntry::GetById(player->GetZoneId()))
         zoneName = zoneEntry->Name;

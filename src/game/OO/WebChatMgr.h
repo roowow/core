@@ -82,7 +82,9 @@ private:
 
     std::thread       m_subThread;
     std::atomic<bool> m_stop{false};
+    std::atomic<int>  m_subFd{-1};   // fd of the active subscribe socket; -1 when not connected
 
+    mutable std::mutex      m_pubMutex;        // guards m_pubCtx and all Redis pub commands
     std::mutex              m_queueMutex;
     std::queue<std::string> m_pending;        // web chat messages (web→game)
     std::queue<std::string> m_jianJiaPending; // AI companion replies from Python
