@@ -13,8 +13,10 @@
 #include "Objects/Player.h"
 #include "Server/WorldSession.h"
 #include <hiredis/hiredis.h>
+#include <chrono>
 #include <csignal>
 #include <ctime>
+#include <pthread.h>
 
 WebChatMgr& WebChatMgr::instance()
 {
@@ -24,10 +26,20 @@ WebChatMgr& WebChatMgr::instance()
 
 void WebChatMgr::Initialize(char const* socketPath, uint32 realmId)
 {
-    // hiredis 0.14 uses write() without MSG_NOSIGNAL; broken socket sends SIGPIPE
-    // which would kill the calling thread. Ignore it — write() returns EPIPE instead,
-    // redisGetReply returns REDIS_ERR, and ReconnectPub() handles recovery.
+    // hiredis 0.14 uses write() without MSG_NOSIGNAL; a broken socket would normally
+    // send SIGPIPE.  We want two layers of protection:
+    //   1. signal(SIG_IGN) — process-wide disposition fallback
+    //   2. pthread_sigmask(SIG_BLOCK) — thread-level block; crucially, new threads
+    //      inherit the calling thread's signal mask, so AsyncPacket and any other
+    //      threads spawned after Initialize() also have SIGPIPE blocked.
+    //      Blocked signals are never delivered via GDB ptrace, preventing crash dumps.
     signal(SIGPIPE, SIG_IGN);
+    {
+        sigset_t set;
+        sigemptyset(&set);
+        sigaddset(&set, SIGPIPE);
+        pthread_sigmask(SIG_BLOCK, &set, nullptr);
+    }
 
     m_socketPath = socketPath;
     m_keyLive    = "web_chat:live:"    + std::to_string(realmId);
@@ -97,19 +109,32 @@ void WebChatMgr::WriteWebChat(std::string const& channel, std::string const& cha
 
 void WebChatMgr::Publish(std::string const& json)
 {
-    redisAppendCommand(m_pubCtx, "PUBLISH %s %b", m_keyLive.c_str(), json.data(), json.size());
-    redisAppendCommand(m_pubCtx, "LPUSH %s %b", m_keyHistory.c_str(), json.data(), json.size());
-    redisAppendCommand(m_pubCtx, "LTRIM %s 0 99", m_keyHistory.c_str());
-
-    for (int i = 0; i < 3; ++i)
+    // Attempt up to 2 times: first with the existing connection, then once after reconnect.
+    for (int attempt = 0; attempt < 2; ++attempt)
     {
-        redisReply* r = nullptr;
-        if (redisGetReply(m_pubCtx, (void**)&r) != REDIS_OK)
+        if (!m_pubCtx)
         {
             ReconnectPub();
-            return;
+            if (!m_pubCtx) return;
         }
-        freeReplyObject(r);
+
+        redisAppendCommand(m_pubCtx, "PUBLISH %s %b", m_keyLive.c_str(), json.data(), json.size());
+        redisAppendCommand(m_pubCtx, "LPUSH %s %b", m_keyHistory.c_str(), json.data(), json.size());
+        redisAppendCommand(m_pubCtx, "LTRIM %s 0 99", m_keyHistory.c_str());
+
+        bool ok = true;
+        for (int i = 0; i < 3; ++i)
+        {
+            redisReply* r = nullptr;
+            if (redisGetReply(m_pubCtx, (void**)&r) != REDIS_OK)
+            {
+                ReconnectPub();
+                ok = false;
+                break;
+            }
+            freeReplyObject(r);
+        }
+        if (ok) return;
     }
 }
 
@@ -124,46 +149,60 @@ void WebChatMgr::ReconnectPub()
 
 void WebChatMgr::SubscribeThread()
 {
-    m_subCtx = redisConnectUnix(m_socketPath.c_str());
-    if (!m_subCtx || m_subCtx->err)
-    {
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "WebChatMgr: subscriber failed to connect to Redis");
-        return;
-    }
-
-    {
-        redisReply* r = (redisReply*)redisCommand(m_subCtx, "SUBSCRIBE %s %s",
-            m_keyLive.c_str(), m_keyJianJiaOut.c_str());
-        if (!r) return;
-        freeReplyObject(r);
-        // SUBSCRIBE to 2 channels produces 2 confirmation replies; consume the extra one
-        {
-            redisReply* rx = nullptr;
-            if (redisGetReply(m_subCtx, (void**)&rx) == REDIS_OK && rx)
-                freeReplyObject(rx);
-        }
-    }
-
     while (!m_stop.load(std::memory_order_relaxed))
     {
-        redisReply* reply = nullptr;
-        if (redisGetReply(m_subCtx, (void**)&reply) != REDIS_OK)
-            break; // connection closed (Shutdown freed the context)
-
-        if (reply->type == REDIS_REPLY_ARRAY && reply->elements == 3
-            && reply->element[1]->type == REDIS_REPLY_STRING
-            && reply->element[2]->type == REDIS_REPLY_STRING)
+        redisContext* ctx = redisConnectUnix(m_socketPath.c_str());
+        if (!ctx || ctx->err)
         {
-            std::string chan(reply->element[1]->str, reply->element[1]->len);
-            std::string json(reply->element[2]->str, reply->element[2]->len);
-
-            std::lock_guard<std::mutex> lock(m_queueMutex);
-            if (chan == m_keyLive && JsonGetStr(json, "source") == "web")
-                m_pending.push(std::move(json));
-            else if (chan == m_keyJianJiaOut)
-                m_jianJiaPending.push(std::move(json));
+            if (ctx) { redisFree(ctx); }
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "WebChatMgr: subscriber failed to connect, retrying in 5s");
+            for (int w = 0; w < 50 && !m_stop.load(std::memory_order_relaxed); ++w)
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            continue;
         }
-        freeReplyObject(reply);
+
+        m_subCtx = ctx;
+
+        {
+            redisReply* r = (redisReply*)redisCommand(ctx, "SUBSCRIBE %s %s",
+                m_keyLive.c_str(), m_keyJianJiaOut.c_str());
+            if (!r) { redisFree(ctx); m_subCtx = nullptr; continue; }
+            freeReplyObject(r);
+            // SUBSCRIBE to 2 channels produces 2 confirmation replies; consume the extra one
+            redisReply* rx = nullptr;
+            if (redisGetReply(ctx, (void**)&rx) == REDIS_OK && rx)
+                freeReplyObject(rx);
+        }
+
+        while (!m_stop.load(std::memory_order_relaxed))
+        {
+            redisReply* reply = nullptr;
+            if (redisGetReply(ctx, (void**)&reply) != REDIS_OK)
+                break; // connection closed: either Shutdown() freed ctx, or Redis dropped us
+
+            if (reply->type == REDIS_REPLY_ARRAY && reply->elements == 3
+                && reply->element[1]->type == REDIS_REPLY_STRING
+                && reply->element[2]->type == REDIS_REPLY_STRING)
+            {
+                std::string chan(reply->element[1]->str, reply->element[1]->len);
+                std::string json(reply->element[2]->str, reply->element[2]->len);
+
+                std::lock_guard<std::mutex> lock(m_queueMutex);
+                if (chan == m_keyLive && JsonGetStr(json, "source") == "web")
+                    m_pending.push(std::move(json));
+                else if (chan == m_keyJianJiaOut)
+                    m_jianJiaPending.push(std::move(json));
+            }
+            freeReplyObject(reply);
+        }
+
+        // If Shutdown() already freed ctx via m_subCtx, don't double-free.
+        // Otherwise (accidental disconnect), free it ourselves before reconnecting.
+        if (m_subCtx)
+        {
+            redisFree(ctx);
+            m_subCtx = nullptr;
+        }
     }
 }
 
