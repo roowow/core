@@ -359,7 +359,7 @@ void WebChatMgr::SpeakAsJianJia(std::string const& targetName, std::string const
             {
                 if (group->IsMember(senderGuid))
                 {
-                    uint8 chatType = group->isRaidGroup() ? CHAT_MSG_RAID : CHAT_MSG_PARTY;
+                    ChatMsg chatType = group->isRaidGroup() ? CHAT_MSG_RAID : CHAT_MSG_PARTY;
                     WorldPacket chatData;
                     ChatHandler::BuildChatPacket(chatData, chatType, message.c_str(),
                         LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, m_jianJiaName.c_str());
