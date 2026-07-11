@@ -155,6 +155,13 @@ function jj_call_ollama(string $url, string $model, array $messages, float $temp
     return $data;
 }
 
+// mbstring 不一定装了（和 ext-curl 一样，这台服务器上没有），退化到字节长度，
+// 只是给调试台展示用，不需要精确的多字节字符数。
+function jj_strlen(string $s): int
+{
+    return function_exists('mb_strlen') ? mb_strlen($s) : strlen($s);
+}
+
 function jj_clean_reply(string $content): string
 {
     // 保险：即使 think=false，某些模型仍可能把思维链塞进正文
@@ -226,7 +233,7 @@ if ($isApi) {
         'reply'               => jj_clean_reply((string)$result['message']['content']),
         'model'                => $model,
         'ollama_url'           => $ollamaUrl,
-        'system_prompt_chars'  => mb_strlen($system),
+        'system_prompt_chars'  => jj_strlen($system),
         'elapsed_ms'           => $elapsedMs,
     ]);
 }
