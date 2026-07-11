@@ -23,7 +23,9 @@ void JianJiaAI::OnPacketReceived(WorldPacket const* packet)
     {
         case SMSG_GROUP_INVITE:
         {
-            auto reply = std::make_unique<NullClientPacket>(CMSG_GROUP_ACCEPT);
+            // 蒹葭不需要物理入队（ChatHandler 层已拦截所有小队/团队消息并转发给 AI）。
+            // 直接拒绝所有邀请，避免占用唯一的组队槽位。
+            auto reply = std::make_unique<NullClientPacket>(CMSG_GROUP_DECLINE);
             me->GetSession()->QueuePacket(std::move(reply));
             break;
         }
@@ -36,35 +38,26 @@ void JianJiaAI::OnPacketReceived(WorldPacket const* packet)
             uint32 language;
             pkt >> chatType >> language;
 
-            if (chatType != CHAT_MSG_PARTY && chatType != CHAT_MSG_RAID &&
-                chatType != CHAT_MSG_BATTLEGROUND)
+            // 小队/团队消息已在 ChatHandler 层转发，这里只处理战场频道。
+            if (chatType != CHAT_MSG_BATTLEGROUND)
                 break;
 
             ObjectGuid senderGuid;
             pkt >> senderGuid;
-
-            // CHAT_MSG_PARTY writes senderGuid twice (see BuildChatPacket)
-            if (chatType == CHAT_MSG_PARTY)
-            {
-                ObjectGuid dummy;
-                pkt >> dummy;
-            }
 
             uint32 msgLen;
             pkt >> msgLen;
             std::string message;
             pkt >> message;
 
-            if (senderGuid == me->GetObjectGuid()) break; // ignore own messages
+            if (senderGuid == me->GetObjectGuid()) break;
             if (message.empty() || language == LANG_ADDON) break;
 
             Player* sender = sObjectMgr.GetPlayer(senderGuid);
             if (!sender) break;
 
-            char const* ctx = (chatType == CHAT_MSG_BATTLEGROUND) ? "bg" :
-                              (chatType == CHAT_MSG_RAID)          ? "raid" : "party";
             uint32 groupId = sender->GetGroup() ? sender->GetGroup()->GetId() : 0;
-            sWebChatMgr.ForwardGroupChatToJianJia(sender->GetName(), message, ctx, groupId);
+            sWebChatMgr.ForwardGroupChatToJianJia(sender->GetName(), message, "bg", groupId);
             break;
         }
         default:

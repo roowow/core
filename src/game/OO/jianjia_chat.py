@@ -140,18 +140,19 @@ def _get_group_history(group_id: int, bot_name: str, context: str, realm_id: int
     return messages
 
 
-def _load_prompt_template(prompt_file: str) -> str:
-    path = prompt_file or os.path.join(os.path.dirname(__file__), "jianjia_prompt.md")
-    with open(path, encoding="utf-8") as f:
-        return f.read().strip()
-
-
 def _load_system_prompt(soul_file: str, knowledge_dir: str) -> str:
     """Load soul file + all .md files in knowledge_dir (sorted), concatenated."""
-    soul = _load_prompt_template(soul_file)
+    base = os.path.dirname(__file__)
+    if not soul_file:
+        sys.exit("Config error: [service] soul_file is required but not set.")
+    if not os.path.isabs(soul_file):
+        soul_file = os.path.join(base, soul_file)
+    if not os.path.isfile(soul_file):
+        sys.exit(f"Soul file not found: {soul_file}")
+    with open(soul_file, encoding="utf-8") as f:
+        soul = f.read().strip()
     if not knowledge_dir:
         return soul
-    base = os.path.dirname(__file__)
     kdir = knowledge_dir if os.path.isabs(knowledge_dir) else os.path.join(base, knowledge_dir)
     if not os.path.isdir(kdir):
         log.warning("Knowledge dir not found: %s — using soul file only", kdir)
@@ -403,10 +404,43 @@ def _fallback() -> str:
 
 # ── message handler ───────────────────────────────────────────────────────────
 
-_CHANNEL_NAMES = {"party": "小队", "raid": "团队", "bg": "战场"}
+_CHANNEL_NAMES = {"party": "小队", "raid": "团队", "bg": "战场", "world": "世界频道", "guild": "公会频道"}
+
+# Regex pre-filter for world channel (question-based, no wake-up needed)
+_QUESTION_RE = re.compile(r'[？?]|吗\b|呢\b|怎么|哪里|哪儿|如何|能否|有没有|在哪|什么时候|为什么|是否|可以吗|怎样|几级|多少|什么是|哪个|会不会')
+
+# Per-player cooldown for world channel replies (seconds)
+_CHANNEL_REPLY_CD = 120
+_channel_reply_ts: dict[str, float] = {}
+_channel_reply_lock = threading.Lock()
+
+# ── Wake-up state (guild / party / raid) ──────────────────────────────────────
+# Key: (context, context_id) e.g. ("guild", 3), ("party", 456), ("raid", 789)
+# Populated when someone mentions the bot name; cleared on service restart (= server restart).
+_awake_contexts: set[tuple[str, int]] = set()
+_awake_lock = threading.Lock()
+
+
+def _is_awake(context: str, context_id: int) -> bool:
+    with _awake_lock:
+        return (context, context_id) in _awake_contexts
+
+
+def _wake_up(context: str, context_id: int) -> None:
+    with _awake_lock:
+        if (context, context_id) not in _awake_contexts:
+            _awake_contexts.add((context, context_id))
+            log.info("Awake: %s/%d", context, context_id)
 
 def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_context: str,
                       bot_name: str, out_key: str, realm: int = 0, group_id: int = 0) -> None:
+    # Wake-up gate: only respond if already awake for this context, or bot name is mentioned.
+    bot_mentioned = bot_name in message
+    if not bot_mentioned and not _is_awake(chat_context, group_id):
+        return
+    if bot_mentioned:
+        _wake_up(chat_context, group_id)
+
     channel_name = _CHANNEL_NAMES.get(chat_context, "频道")
     system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
     system += (
@@ -436,6 +470,88 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
     r_pub.publish(out_key, payload)
     log.info("[%s] %s chat reply to %s: %s", bot_name, chat_context, sender, reply)
     _write_conv_log(realm, bot_name, sender, conv.player_info, f"[{chat_context}]{message}", reply)
+
+
+def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_context: str,
+                        context_id: int, bot_name: str, out_key: str,
+                        realm: int = 0, player_info: str = "") -> None:
+    """Handle world/guild channel messages.
+
+    World channel: question-based filter + per-player cooldown.
+    Guild channel: wake-up gate (same model as party/raid).
+    """
+    channel_name = _CHANNEL_NAMES.get(chat_context, "频道")
+
+    if chat_context == "guild":
+        # Wake-up gate
+        bot_mentioned = bot_name in message
+        if not bot_mentioned and not _is_awake("guild", context_id):
+            return
+        if bot_mentioned:
+            _wake_up("guild", context_id)
+
+        system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
+        system += (
+            f"\n\n你正在监听{channel_name}。只在以下情况才开口："
+            f"① 有人直接叫你名字；② 有人直接向你提问；"
+            f"③ 有人完成了任务或成就、分享了好消息，给予真诚鼓励。"
+            f"其他闲聊、日常对话一律保持安静，回复 [PASS]。"
+        )
+        if player_info:
+            system += f"\n[{sender}的角色信息：{player_info}]"
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
+        ]
+        try:
+            reply = _ollama_chat(messages)
+        except Exception as e:
+            log.warning("Ollama error for guild chat (%s): %s", sender, e)
+            return
+        if not reply or "[PASS]" in reply:
+            return
+
+    else:  # world channel: question-based filter
+        if not _QUESTION_RE.search(message):
+            return
+        with _channel_reply_lock:
+            last = _channel_reply_ts.get(sender, 0.0)
+            if time.time() - last < _CHANNEL_REPLY_CD:
+                return
+            _channel_reply_ts[sender] = time.time()
+
+        system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
+        system += (
+            f"\n\n你正在监听{channel_name}。"
+            f"只有当玩家提出的是明确的新手问题，且答案能在你掌握的FAQ知识库中找到时，才开口回答。"
+            f"如果问题含糊、不在FAQ范围内、已被其他玩家回答、或只是普通闲聊，"
+            f"请直接回复 [PASS]（不要附加任何文字）。"
+            f"回答时，先@{sender} 称呼对方，然后用一到两句话给出简洁准确的答案。"
+            f"不要展开说太多，不要卖弄学识，保持蒹葭的性格。"
+        )
+        if player_info:
+            system += f"\n[{sender}的角色信息：{player_info}]"
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
+        ]
+        try:
+            reply = _ollama_chat(messages)
+        except Exception as e:
+            log.warning("Ollama error for world chat (%s): %s", sender, e)
+            with _channel_reply_lock:
+                _channel_reply_ts.pop(sender, None)
+            return
+        if not reply or "[PASS]" in reply:
+            with _channel_reply_lock:
+                _channel_reply_ts.pop(sender, None)
+            return
+
+    payload = json.dumps({"target": sender, "message": reply, "channel": chat_context},
+                         ensure_ascii=False, separators=(",", ":"))
+    r_pub.publish(out_key, payload)
+    log.info("[%s] %s reply to %s: %s", bot_name, chat_context, sender, reply)
+    _write_conv_log(realm, bot_name, sender, player_info, f"[{chat_context}]{message}", reply)
 
 
 def handle_bg_afk(r_pub: "redis.Redis", sender: str, bot_name: str,
@@ -567,6 +683,12 @@ def process_message(r_pub: "redis.Redis", data: str, in_channel: str) -> None:
         group_id = int(msg.get("group_id", 0))
         if message:
             handle_group_chat(r_pub, sender, message, ctx, bot_name, out_key, realm, group_id)
+    elif event == "channel_chat":
+        message    = msg.get("message", "").strip()
+        ctx        = msg.get("context", "world")
+        ctx_id     = int(msg.get("context_id", 0))
+        if message:
+            handle_channel_chat(r_pub, sender, message, ctx, ctx_id, bot_name, out_key, realm, player_info)
     elif event == "bg_afk":
         stage      = int(msg.get("stage",     0))
         afk_level  = int(msg.get("afk_level", 0))

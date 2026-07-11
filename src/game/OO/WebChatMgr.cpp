@@ -85,7 +85,6 @@ void WebChatMgr::Initialize(char const* socketPath, uint32 realmId)
     m_keyHistory = "web_chat:history:" + std::to_string(realmId);
     m_keyJianJiaIn  = "web_chat:jianjia_in:"  + std::to_string(realmId);
     m_keyJianJiaOut = "web_chat:jianjia_out:" + std::to_string(realmId);
-    m_keyWebOnline  = "web_chat:web_online:"  + std::to_string(realmId) + ":";
     m_realmId       = realmId;
     m_jianJiaName   = ""; // set by World.cpp after Initialize() via SetJianJiaName()
 
@@ -145,10 +144,10 @@ void WebChatMgr::Update()
 
 void WebChatMgr::WriteWebChat(std::string const& channel, std::string const& charName,
     uint32 faction, uint32 classId, std::string const& recipient, std::string const& msg,
-    uint32 contextId)
+    uint32 contextId, bool hc)
 {
     if (!m_pubCtx) return;
-    std::string json = BuildJson("game", channel, charName, faction, classId, recipient, msg, contextId);
+    std::string json = BuildJson("game", channel, charName, faction, classId, recipient, msg, contextId, hc);
     Publish(json);
     // For party/raid: update char→group mapping so PHP can filter by group membership
     if (contextId > 0 && (channel == "party" || channel == "raid" || channel == "raid_leader"))
@@ -159,6 +158,19 @@ void WebChatMgr::WriteWebChat(std::string const& channel, std::string const& cha
         {
             std::string key = "web_chat:char_group:" + std::to_string(m_realmId) + ":" + charName;
             redisReply* r = (redisReply*)redisCommand(m_pubCtx, "SETEX %s 3600 %u", key.c_str(), contextId);
+            if (r) freeReplyObject(r);
+            else ReconnectPub();
+        }
+    }
+    // For world: invalidate PHP world-history cache so next page load sees this message
+    if (channel == "world")
+    {
+        SigpipeGuard guard;
+        std::lock_guard<std::mutex> lock(m_pubMutex);
+        if (m_pubCtx)
+        {
+            std::string key = "web_chat:wh_cache:" + std::to_string(m_realmId);
+            redisReply* r = (redisReply*)redisCommand(m_pubCtx, "DEL %s", key.c_str());
             if (r) freeReplyObject(r);
             else ReconnectPub();
         }
@@ -332,16 +344,6 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
         if (chanA) chanA->SendToAll(&data);
         if (chanB && chanB != chanA) chanB->SendToAll(&data);
     }
-    else if (channel == "whisper" && !recipient.empty())
-    {
-        if (MasterPlayer* rcp = ObjectAccessor::FindMasterPlayer(recipient.c_str()))
-        {
-            WorldPacket data;
-            ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER, dispMsg.c_str(),
-                LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, charName.c_str());
-            rcp->GetSession()->SendPacket(&data);
-        }
-    }
     else if (channel == "guild" || channel == "party" || channel == "raid")
     {
         Player* sender = !senderGuid.IsEmpty() ? ObjectAccessor::FindPlayer(senderGuid) : nullptr;
@@ -397,22 +399,6 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
             group->BroadcastPacket(&data, false);
         }
     }
-}
-
-// ── web presence ─────────────────────────────────────────────────────────────
-
-bool WebChatMgr::IsWebOnline(std::string const& charName) const
-{
-    if (!m_pubCtx || charName.empty()) return false; // optimistic fast-path
-    SigpipeGuard guard;
-    std::lock_guard<std::mutex> lock(m_pubMutex);
-    if (!m_pubCtx) return false; // re-check under lock
-    std::string key = m_keyWebOnline + charName;
-    redisReply* r = (redisReply*)redisCommand(m_pubCtx, "EXISTS %s", key.c_str());
-    bool exists = r && r->type == REDIS_REPLY_INTEGER && r->integer > 0;
-    if (r) freeReplyObject(r);
-    else const_cast<WebChatMgr*>(this)->ReconnectPub();
-    return exists;
 }
 
 // ── broadcast (server-wide system messages) ───────────────────────────────────
@@ -490,6 +476,37 @@ void WebChatMgr::ForwardGroupChatToJianJia(std::string const& senderName, std::s
     else ReconnectPub();
 }
 
+void WebChatMgr::ForwardChannelChatToJianJia(std::string const& senderName, std::string const& message,
+    char const* chatContext, uint8 level, uint8 cls, uint8 race, uint32 contextId)
+{
+    if (!m_pubCtx || senderName.empty() || !chatContext) return;
+    if (IsJianJiaName(senderName)) return;
+    SigpipeGuard guard;
+    std::lock_guard<std::mutex> lock(m_pubMutex);
+    if (!m_pubCtx) return;
+    std::string j = "{\"event\":\"channel_chat\",\"sender\":\"";
+    j += EscapeJson(senderName);
+    j += "\",\"bot_name\":\"";
+    j += EscapeJson(m_jianJiaName);
+    j += "\",\"context\":\"";
+    j += EscapeJson(chatContext);
+    j += "\",\"context_id\":";
+    j += std::to_string(contextId);
+    j += ",\"level\":";
+    j += std::to_string(level);
+    j += ",\"class\":";
+    j += std::to_string(cls);
+    j += ",\"race\":";
+    j += std::to_string(race);
+    j += ",\"message\":\"";
+    j += EscapeJson(message);
+    j += "\"}";
+    redisReply* r = (redisReply*)redisCommand(m_pubCtx, "PUBLISH %s %b",
+        m_keyJianJiaIn.c_str(), j.data(), j.size());
+    if (r) freeReplyObject(r);
+    else ReconnectPub();
+}
+
 bool WebChatMgr::NotifyBgAfkViaJianJia(Player* player, BattleGround* /*bg*/, uint8 stage, uint8 afkLevel,
     char const* noticeType)
 {
@@ -533,20 +550,17 @@ void WebChatMgr::SpeakAsJianJia(std::string const& targetName, std::string const
     PlayerCacheData const* cache = sObjectMgr.GetPlayerDataByName(m_jianJiaName.c_str());
     ObjectGuid senderGuid = cache ? ObjectGuid(HIGHGUID_PLAYER, cache->uiGuid) : ObjectGuid();
 
-    if (groupType != CHAT_MSG_WHISPER && senderGuid)
+    if (groupType != CHAT_MSG_WHISPER)
     {
         if (Player* targetPlayer = ObjectAccessor::FindPlayerByName(targetName.c_str()))
         {
             if (Group* group = targetPlayer->GetGroup())
             {
-                if (group->IsMember(senderGuid))
-                {
-                    WorldPacket chatData;
-                    ChatHandler::BuildChatPacket(chatData, groupType, message.c_str(),
-                        LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, m_jianJiaName.c_str());
-                    group->BroadcastPacket(&chatData, false);
-                    return;
-                }
+                WorldPacket chatData;
+                ChatHandler::BuildChatPacket(chatData, groupType, message.c_str(),
+                    LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, m_jianJiaName.c_str());
+                group->BroadcastPacket(&chatData, false);
+                return;
             }
         }
     }
@@ -586,6 +600,41 @@ void WebChatMgr::SpeakInBgAsJianJia(std::string const& targetName, std::string c
     bg->SendPacketToAll(&chatData);
 }
 
+void WebChatMgr::SpeakInWorldChannelAsJianJia(std::string const& message)
+{
+    if (message.empty()) return;
+    PlayerCacheData const* cache = sObjectMgr.GetPlayerDataByName(m_jianJiaName.c_str());
+    ObjectGuid senderGuid = cache ? ObjectGuid(HIGHGUID_PLAYER, cache->uiGuid) : ObjectGuid();
+    WorldPacket data;
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_CHANNEL, message.c_str(),
+        LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, m_jianJiaName.c_str(),
+        ObjectGuid(), nullptr, "世界频道");
+    Channel* chanA = nullptr;
+    Channel* chanB = nullptr;
+    if (ChannelMgr* cMgr = channelMgr(ALLIANCE))
+        chanA = cMgr->GetChannel("世界频道", PlayerPointer(), false);
+    if (ChannelMgr* cMgr = channelMgr(HORDE))
+        chanB = cMgr->GetChannel("世界频道", PlayerPointer(), false);
+    if (chanA) chanA->SendToAll(&data);
+    if (chanB && chanB != chanA) chanB->SendToAll(&data);
+}
+
+void WebChatMgr::SpeakInGuildAsJianJia(std::string const& targetName, std::string const& message)
+{
+    if (message.empty()) return;
+    PlayerCacheData const* jianjiaCache = sObjectMgr.GetPlayerDataByName(m_jianJiaName.c_str());
+    ObjectGuid senderGuid = jianjiaCache ? ObjectGuid(HIGHGUID_PLAYER, jianjiaCache->uiGuid) : ObjectGuid();
+    PlayerCacheData const* targetCache = sObjectMgr.GetPlayerDataByName(targetName.c_str());
+    if (!targetCache) return;
+    Guild* guild = sGuildMgr.GetPlayerGuild(targetCache->uiGuid);
+    if (!guild) return;
+    WorldPacket data;
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_GUILD, message.c_str(),
+        LANG_UNIVERSAL, CHAT_TAG_NONE, senderGuid, m_jianJiaName.c_str());
+    auto sendFn = [&data](Player* p) { p->GetSession()->SendPacket(&data); };
+    guild->BroadcastWorker(sendFn);
+}
+
 void WebChatMgr::UpdateJianJia()
 {
     std::queue<std::string> local;
@@ -618,6 +667,10 @@ void WebChatMgr::UpdateJianJia()
                     SpeakAsJianJia(target, message, CHAT_MSG_RAID);
                 else if (channel == "party")
                     SpeakAsJianJia(target, message, CHAT_MSG_PARTY);
+                else if (channel == "world")
+                    SpeakInWorldChannelAsJianJia(message);
+                else if (channel == "guild")
+                    SpeakInGuildAsJianJia(target, message);
                 else
                     SpeakAsJianJia(target, message);
             }
@@ -644,7 +697,7 @@ std::string WebChatMgr::EscapeJson(std::string const& s)
 
 std::string WebChatMgr::BuildJson(std::string const& source, std::string const& channel,
     std::string const& charName, uint32 faction, uint32 classId, std::string const& recipient,
-    std::string const& msg, uint32 contextId)
+    std::string const& msg, uint32 contextId, bool hc)
 {
     std::string j;
     j.reserve(320);
@@ -657,6 +710,7 @@ std::string WebChatMgr::BuildJson(std::string const& source, std::string const& 
     j += "\",\"message\":\"";        j += EscapeJson(msg);
     j += "\",\"ts\":";               j += std::to_string(uint32(time(nullptr)));
     if (contextId > 0) { j += ",\"context_id\":"; j += std::to_string(contextId); }
+    if (hc)            { j += ",\"hc\":1"; }
     j += '}';
     return j;
 }
