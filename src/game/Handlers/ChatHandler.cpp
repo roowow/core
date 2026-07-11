@@ -421,7 +421,10 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
             {
                 std::string zoneName;
                 if (AreaEntry const* zoneEntry = AreaEntry::GetById(masterPlr->GetZoneId()))
+                {
                     zoneName = zoneEntry->Name;
+                    sObjectMgr.GetAreaLocaleString(zoneEntry->Id, DB_LOCALE_zhCN, &zoneName);
+                }
                 sWebChatMgr.ForwardWhisperToJianJia(masterPlr->GetName(), packet.message,
                     masterPlr->GetLevel(), masterPlr->GetClass(), masterPlr->GetRace(), zoneName);
                 WorldPacket informData;

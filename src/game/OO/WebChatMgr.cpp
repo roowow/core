@@ -516,7 +516,10 @@ bool WebChatMgr::NotifyBgAfkViaJianJia(Player* player, BattleGround* /*bg*/, uin
     if (!m_pubCtx) return false;
     std::string zoneName;
     if (AreaEntry const* zoneEntry = AreaEntry::GetById(player->GetZoneId()))
+    {
         zoneName = zoneEntry->Name;
+        sObjectMgr.GetAreaLocaleString(zoneEntry->Id, DB_LOCALE_zhCN, &zoneName);
+    }
     std::string j = "{\"event\":\"bg_afk\",\"sender\":\"";
     j += EscapeJson(player->GetName());
     j += "\",\"bot_name\":\"";

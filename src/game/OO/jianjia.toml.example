@@ -12,6 +12,8 @@ knowledge_dir = "jianjia_knowledge"  # 知识模块目录（所有 .md 按序加
 log_dir       = "logs"               # 对话日志目录（JSON Lines，按启动时间命名）
 max_turns     = 10                   # 每玩家内存中保留的最近对话轮数
 history_ttl   = 1800                 # 玩家对话上下文空闲超时（秒），超时后清空
+server_name   = "石牛湖"             # 当前服务器名称，注入 AI 上下文
+server_phase  = "1.10 艾泽拉斯的风暴" # 当前版本阶段，注入 AI 上下文
 
 # ── Ollama ──────────────────────────────────────────────────────────────────────
 

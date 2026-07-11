@@ -337,7 +337,7 @@ def _get_conv(player: str, bot_name: str) -> _ConvState:
 
 # ── Ollama ────────────────────────────────────────────────────────────────────
 
-def _ollama_chat(messages: list[dict], timeout: int = 30) -> str:
+def _ollama_chat(messages: list[dict], timeout: int = 30, temperature: float = 0.8) -> str:
     resp = requests.post(
         OLLAMA_URL,
         json={
@@ -345,7 +345,7 @@ def _ollama_chat(messages: list[dict], timeout: int = 30) -> str:
             "messages": messages,
             "stream":   False,
             "think":    False,   # disable Qwen3 chain-of-thought
-            "options":  {"temperature": 0.8, "num_predict": 200},
+            "options":  {"temperature": temperature, "num_predict": 200},
         },
         timeout=timeout,
     )
@@ -406,13 +406,22 @@ def _fallback() -> str:
 
 _CHANNEL_NAMES = {"party": "小队", "raid": "团队", "bg": "战场", "world": "世界频道", "guild": "公会频道"}
 
-# Regex pre-filter for world channel (question-based, no wake-up needed)
-_QUESTION_RE = re.compile(r'[？?]|吗\b|呢\b|怎么|哪里|哪儿|如何|能否|有没有|在哪|什么时候|为什么|是否|可以吗|怎样|几级|多少|什么是|哪个|会不会')
+# Regex pre-filter for world channel (question-based, no wake-up needed).
+# Tuned against a real ~1450-line world-channel sample:
+#   - dropped 呢\b: almost pure noise (sentence-final particle, e.g. "都还没下班呢"),
+#     every genuine question that had 呢 also matched another keyword here.
+#   - added 咋: colloquial 怎么 (咋办/咋回事/咋弄), several real questions used only this form.
+_QUESTION_RE = re.compile(r'[？?]|吗\b|怎么|咋|哪里|哪儿|如何|能否|有没有|在哪|什么时候|为什么|是否|可以吗|怎样|几级|多少|什么是|哪个|会不会')
 
 # Per-player cooldown for world channel replies (seconds)
 _CHANNEL_REPLY_CD = 120
 _channel_reply_ts: dict[str, float] = {}
 _channel_reply_lock = threading.Lock()
+
+# Low temperature for world-channel FAQ judgment (answer-from-KB-or-PASS is a strict
+# classification task, not creative chat; default 0.8 caused confident fabrication
+# on out-of-scope questions instead of a clean [PASS]).
+_WORLD_CHANNEL_TEMPERATURE = 0.2
 
 # ── Wake-up state (guild / party / raid) ──────────────────────────────────────
 # Key: (context, context_id) e.g. ("guild", 3), ("party", 456), ("raid", 789)
@@ -472,6 +481,38 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
     _write_conv_log(realm, bot_name, sender, conv.player_info, f"[{chat_context}]{message}", reply)
 
 
+def _verify_grounded(bot_name: str, question: str, reply: str) -> bool:
+    """Second-pass fact check for world-channel replies: does every factual claim in
+    `reply` actually come from the knowledge base? A separate judge call reviewing an
+    already-written answer against the reference text is a much narrower, more reliable
+    task for the model than asking it to predict its own knowledge boundaries up front
+    (which is what the main answer-or-PASS instruction already tries and still misses
+    sometimes). Fails closed on any error or unclear verdict: staying silent is always
+    safer than broadcasting an unverified answer to the whole world channel.
+    """
+    kb = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
+    system = (
+        f"你是内容审核员，不用扮演任何角色。下面是{bot_name}的参考资料，以及她对一个玩家问题给出的候选回复。"
+        f"请检查候选回复里的每一句事实性内容，是否都能在参考资料里找到依据（原文或合理改写均可）。"
+        f"如果回复里包含任何参考资料没有提到的具体细节（编造的机制、编造的物品/技能名、编造的原因等），判定为不合格。"
+        f"语气词、称呼、寒暄等非事实性内容不计入判断。"
+        f"只输出「合格」或「不合格」这两个词之一，不要输出任何其他内容。\n\n"
+        f"【参考资料】\n{kb}\n\n"
+        f"【玩家问题】\n{question}\n\n"
+        f"【候选回复】\n{reply}"
+    )
+    try:
+        verdict = _ollama_chat(
+            [{"role": "system", "content": system},
+             {"role": "user", "content": "请给出判定。"}],
+            temperature=0.1,
+        )
+    except Exception as e:
+        log.warning("Ollama error verifying channel reply for %s: %s", question, e)
+        return False
+    return "不合格" not in verdict and "合格" in verdict
+
+
 def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_context: str,
                         context_id: int, bot_name: str, out_key: str,
                         realm: int = 0, player_info: str = "") -> None:
@@ -523,9 +564,12 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
         system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
         system += (
             f"\n\n你正在监听{channel_name}。"
-            f"只有当玩家提出的是明确的新手问题，且答案能在你掌握的FAQ知识库中找到时，才开口回答。"
+            f"只回答服务器规则/制度/版本进度这类「服务器知识」问题，且答案必须能在你掌握的FAQ知识库中原文或近似原文找到。"
+            f"具体的游戏内容/玩法问题一律不参与，就算你知道答案也不要说，直接回复 [PASS]——"
+            f"比如某个怪物为什么打不了、声望怎么刷、任务/副本怎么打、门怎么开、天赋加点这类通用魔兽世界玩法问题，"
+            f"这些应该让玩家自己去问其他玩家，不是你的职责范围。"
             f"如果问题含糊、不在FAQ范围内、已被其他玩家回答、或只是普通闲聊，"
-            f"请直接回复 [PASS]（不要附加任何文字）。"
+            f"同样直接回复 [PASS]（不要附加任何文字）。"
             f"回答时，先@{sender} 称呼对方，然后用一到两句话给出简洁准确的答案。"
             f"不要展开说太多，不要卖弄学识，保持蒹葭的性格。"
         )
@@ -536,13 +580,23 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
         ]
         try:
-            reply = _ollama_chat(messages)
+            # Low temperature: this is a strict "answer only from the knowledge base,
+            # otherwise PASS" judgment call, not free-form chat — high temperature made
+            # it fabricate answers for out-of-scope questions instead of staying silent.
+            reply = _ollama_chat(messages, temperature=_WORLD_CHANNEL_TEMPERATURE)
         except Exception as e:
             log.warning("Ollama error for world chat (%s): %s", sender, e)
             with _channel_reply_lock:
                 _channel_reply_ts.pop(sender, None)
             return
         if not reply or "[PASS]" in reply:
+            with _channel_reply_lock:
+                _channel_reply_ts.pop(sender, None)
+            return
+
+        if not _verify_grounded(bot_name, message, reply):
+            log.info("[%s] world reply to %s failed grounding check, discarding: %s",
+                     bot_name, sender, reply)
             with _channel_reply_lock:
                 _channel_reply_ts.pop(sender, None)
             return
@@ -762,6 +816,15 @@ def main() -> None:
         svc.get("soul_file", ""),
         svc.get("knowledge_dir", ""),
     )
+    server_name  = svc.get("server_name",  "").strip()
+    server_phase = svc.get("server_phase", "").strip()
+    if server_name or server_phase:
+        parts = []
+        if server_name:
+            parts.append(f"当前服务器：{server_name}")
+        if server_phase:
+            parts.append(f"当前阶段：{server_phase}")
+        _SYSTEM_PROMPT_TEMPLATE += "\n\n[" + "，".join(parts) + "。回答玩家问题时以此为准。]"
     log.info("System prompt loaded (%d chars)", len(_SYSTEM_PROMPT_TEMPLATE))
 
     # ── Init conversation log ──────────────────────────────────────────────────

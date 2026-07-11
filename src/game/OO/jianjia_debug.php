@@ -201,16 +201,24 @@ if ($isApi) {
     $model       = (string)($body['model'] ?? $config['model']);
     $ollamaUrl   = (string)($body['ollama_url'] ?? $config['ollama_url']);
     $extraSystem = trim((string)($body['extra_system'] ?? ''));
+    $rawSystem   = (string)($body['raw_system'] ?? '');
     $temperature = isset($body['temperature']) ? (float)$body['temperature'] : 0.8;
     $numPredict  = isset($body['num_predict']) ? (int)$body['num_predict'] : 200;
 
-    try {
-        $system = jj_load_system_prompt($SOUL_FILE, $KNOWLEDGE_DIR, (string)$config['bot_name']);
-    } catch (Throwable $e) {
-        jj_json_out(500, ['error' => $e->getMessage(), 'stage' => 'load_system_prompt']);
-    }
-    if ($extraSystem !== '') {
-        $system .= "\n\n" . $extraSystem;
+    if ($rawSystem !== '') {
+        // Testing a system prompt that jianjia_chat.py builds from scratch (e.g. a
+        // reviewer/utility call), NOT the persona+knowledge one — use it verbatim,
+        // skip the soul/knowledge auto-load and extra_system append entirely.
+        $system = $rawSystem;
+    } else {
+        try {
+            $system = jj_load_system_prompt($SOUL_FILE, $KNOWLEDGE_DIR, (string)$config['bot_name']);
+        } catch (Throwable $e) {
+            jj_json_out(500, ['error' => $e->getMessage(), 'stage' => 'load_system_prompt']);
+        }
+        if ($extraSystem !== '') {
+            $system .= "\n\n" . $extraSystem;
+        }
     }
 
     $messages = [['role' => 'system', 'content' => $system]];
