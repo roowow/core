@@ -42,6 +42,7 @@
 #include "MapManager.h"
 #include "CreatureGroups.h"
 #include "HardcodedEvents.h"
+#include "OO/WebChatMgr.h"
 
 bool ChatHandler::HandleAnnounceCommand(char* args)
 {
@@ -49,6 +50,7 @@ bool ChatHandler::HandleAnnounceCommand(char* args)
         return false;
 
     sWorld.SendWorldText(LANG_SYSTEMMESSAGE, args);
+    sWebChatMgr.WriteBroadcast(args);
     return true;
 }
 
