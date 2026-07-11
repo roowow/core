@@ -577,7 +577,6 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             return
 
     else:  # world channel: question-based filter
-        log.info("[world] %s: %s", sender, message)
         if not _QUESTION_RE.search(message):
             return
         with _channel_reply_lock:
@@ -625,6 +624,8 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             with _channel_reply_lock:
                 _channel_reply_ts.pop(sender, None)
             return
+
+        log.info("[world] %s: %s", sender, message)
 
     payload = json.dumps({"target": sender, "message": reply, "channel": chat_context},
                          ensure_ascii=False, separators=(",", ":"))
