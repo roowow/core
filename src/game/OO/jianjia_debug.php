@@ -12,6 +12,34 @@
 
 declare(strict_types=1);
 
+// 兜底：任何没被 try/catch 到的真·致命错误（比如内存耗尽），也要以 JSON 形式暴露出来，
+// 而不是让 Apache 吐一个没有 body 的空白 500，那样根本没法远程排查。
+register_shutdown_function(function (): void {
+    $err = error_get_last();
+    if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        if (!headers_sent()) {
+            http_response_code(500);
+            header('Content-Type: application/json; charset=utf-8');
+        }
+        echo json_encode([
+            'error' => 'fatal: ' . $err['message'] . ' in ' . $err['file'] . ':' . $err['line'],
+        ], JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+    }
+});
+
+function jj_json_out(int $status, array $data): void
+{
+    http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+    if ($json === false) {
+        // 极端情况：连 PARTIAL_OUTPUT_ON_ERROR 都编不出来，至少告诉调用方哪里错了
+        $json = json_encode(['error' => 'json_encode failed: ' . json_last_error_msg()]);
+    }
+    echo $json;
+    exit;
+}
+
 $SOUL_FILE     = __DIR__ . '/jianjia_soul.md';
 $KNOWLEDGE_DIR = __DIR__ . '/jianjia_knowledge';
 
@@ -138,31 +166,24 @@ function jj_clean_reply(string $content): string
 
 // ── 鉴权：必须先把 jianjia_debug_config.php 里的 token 改成真实值，否则一律拒绝 ──
 if (!isset($config['token']) || $config['token'] === 'change-me') {
-    http_response_code(500);
-    header('Content-Type: application/json; charset=utf-8');
-    exit(json_encode(['error' => '请先复制 jianjia_debug_config.example.php 为 jianjia_debug_config.php 并设置真实 token']));
+    jj_json_out(500, ['error' => '请先复制 jianjia_debug_config.example.php 为 jianjia_debug_config.php 并设置真实 token']);
 }
 
 $token = $_GET['token'] ?? $_POST['token'] ?? ($_SERVER['HTTP_X_AUTH_TOKEN'] ?? '');
 if (!hash_equals((string)$config['token'], (string)$token)) {
-    http_response_code(403);
-    header('Content-Type: application/json; charset=utf-8');
-    exit(json_encode(['error' => 'invalid token']));
+    jj_json_out(403, ['error' => 'invalid token']);
 }
 
 // ── JSON API：POST 请求，或 GET 带 ?api=1 ──────────────────────────────────────
 $isApi = ($_SERVER['REQUEST_METHOD'] === 'POST') || isset($_GET['api']);
 if ($isApi) {
-    header('Content-Type: application/json; charset=utf-8');
-
     $body = json_decode((string)(file_get_contents('php://input') ?: '{}'), true);
     if (!is_array($body)) {
         $body = [];
     }
     $message = trim((string)($body['message'] ?? $_POST['message'] ?? $_GET['message'] ?? ''));
     if ($message === '') {
-        http_response_code(400);
-        exit(json_encode(['error' => 'message is required']));
+        jj_json_out(400, ['error' => 'message is required']);
     }
 
     $history = $body['history'] ?? [];
@@ -179,8 +200,7 @@ if ($isApi) {
     try {
         $system = jj_load_system_prompt($SOUL_FILE, $KNOWLEDGE_DIR, (string)$config['bot_name']);
     } catch (Throwable $e) {
-        http_response_code(500);
-        exit(json_encode(['error' => $e->getMessage()]));
+        jj_json_out(500, ['error' => $e->getMessage(), 'stage' => 'load_system_prompt']);
     }
     if ($extraSystem !== '') {
         $system .= "\n\n" . $extraSystem;
@@ -198,19 +218,17 @@ if ($isApi) {
     try {
         $result = jj_call_ollama($ollamaUrl, $model, $messages, $temperature, $numPredict);
     } catch (Throwable $e) {
-        http_response_code(502);
-        exit(json_encode(['error' => $e->getMessage()]));
+        jj_json_out(502, ['error' => $e->getMessage(), 'stage' => 'call_ollama']);
     }
     $elapsedMs = (int)round((microtime(true) - $t0) * 1000);
 
-    echo json_encode([
+    jj_json_out(200, [
         'reply'               => jj_clean_reply((string)$result['message']['content']),
         'model'                => $model,
         'ollama_url'           => $ollamaUrl,
         'system_prompt_chars'  => mb_strlen($system),
         'elapsed_ms'           => $elapsedMs,
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
+    ]);
 }
 
 // ── 浏览器测试页面：简单的单页聊天界面，对话历史保存在前端 JS 里 ──────────────
