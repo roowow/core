@@ -131,12 +131,12 @@ function jj_http_post_stream(string $url, string $payload): array
 
 // 与 jianjia_chat.py::_ollama_chat() 保持一致（think 关闭、temperature/num_predict 默认值、
 // <think> 块清理、角色名前缀清理），否则调试台看到的回复和游戏里实际发出的不是一回事。
-function jj_call_ollama(string $url, string $model, array $messages, float $temperature = 0.8, int $numPredict = 200): array
+function jj_call_ollama(string $url, string $model, array $messages, float $temperature = 0.8, int $numPredict = 200, bool $think = false): array
 {
     $payload = json_encode([
         'model'    => $model,
         'stream'   => false,
-        'think'    => false,
+        'think'    => $think,
         'options'  => ['temperature' => $temperature, 'num_predict' => $numPredict],
         'messages' => $messages,
     ], JSON_UNESCAPED_UNICODE);
@@ -203,7 +203,8 @@ if ($isApi) {
     $extraSystem = trim((string)($body['extra_system'] ?? ''));
     $rawSystem   = (string)($body['raw_system'] ?? '');
     $temperature = isset($body['temperature']) ? (float)$body['temperature'] : 0.8;
-    $numPredict  = isset($body['num_predict']) ? (int)$body['num_predict'] : 200;
+    $think       = !empty($body['think']);
+    $numPredict  = isset($body['num_predict']) ? (int)$body['num_predict'] : ($think ? 2000 : 200);
 
     if ($rawSystem !== '') {
         // Testing a system prompt that jianjia_chat.py builds from scratch (e.g. a
@@ -231,7 +232,7 @@ if ($isApi) {
 
     $t0 = microtime(true);
     try {
-        $result = jj_call_ollama($ollamaUrl, $model, $messages, $temperature, $numPredict);
+        $result = jj_call_ollama($ollamaUrl, $model, $messages, $temperature, $numPredict, $think);
     } catch (Throwable $e) {
         jj_json_out(502, ['error' => $e->getMessage(), 'stage' => 'call_ollama']);
     }
