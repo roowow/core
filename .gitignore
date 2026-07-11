@@ -122,3 +122,7 @@ Progression.h
 portal
 src/game/0-Design
 uploadIP.sh
+
+# JianJia AI (contains secrets, generated locally from .example templates)
+src/game/OO/jianjia.toml
+src/game/OO/jianjia_debug_config.php

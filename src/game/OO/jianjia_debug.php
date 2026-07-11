@@ -50,18 +50,9 @@ function jj_load_system_prompt(string $soulFile, string $knowledgeDir, string $b
     return str_replace('{name}', $botName, $prompt);
 }
 
-// 与 jianjia_chat.py::_ollama_chat() 保持一致（think 关闭、temperature/num_predict 默认值、
-// <think> 块清理、角色名前缀清理），否则调试台看到的回复和游戏里实际发出的不是一回事。
-function jj_call_ollama(string $url, string $model, array $messages, float $temperature = 0.8, int $numPredict = 200): array
+/** @return array{0: string, 1: int} [响应body, HTTP状态码] */
+function jj_http_post_curl(string $url, string $payload): array
 {
-    $payload = json_encode([
-        'model'    => $model,
-        'stream'   => false,
-        'think'    => false,
-        'options'  => ['temperature' => $temperature, 'num_predict' => $numPredict],
-        'messages' => $messages,
-    ], JSON_UNESCAPED_UNICODE);
-
     $ch = curl_init($url);
     if ($ch === false) {
         throw new RuntimeException("curl_init failed for url: $url");
@@ -77,10 +68,58 @@ function jj_call_ollama(string $url, string $model, array $messages, float $temp
     if ($raw === false) {
         $err = curl_error($ch);
         curl_close($ch);
-        throw new RuntimeException("Ollama request failed: $err");
+        throw new RuntimeException("Ollama request failed (curl): $err");
     }
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
+    return [(string)$raw, $httpCode];
+}
+
+/** @return array{0: string, 1: int} [响应body, HTTP状态码] */
+function jj_http_post_stream(string $url, string $payload): array
+{
+    $context = stream_context_create([
+        'http' => [
+            'method'        => 'POST',
+            'header'        => "Content-Type: application/json\r\n",
+            'content'       => $payload,
+            'timeout'       => 120,
+            'ignore_errors' => true, // 非 2xx 也要拿到 body，方便定位问题
+        ],
+    ]);
+    $raw = @file_get_contents($url, false, $context);
+    if ($raw === false) {
+        $err = error_get_last();
+        throw new RuntimeException("Ollama request failed (stream): " . ($err['message'] ?? 'unknown error'));
+    }
+    $httpCode = 0;
+    foreach ($http_response_header ?? [] as $header) {
+        if (preg_match('#^HTTP/\S+\s+(\d+)#', $header, $m)) {
+            $httpCode = (int)$m[1];
+        }
+    }
+    return [(string)$raw, $httpCode];
+}
+
+// 与 jianjia_chat.py::_ollama_chat() 保持一致（think 关闭、temperature/num_predict 默认值、
+// <think> 块清理、角色名前缀清理），否则调试台看到的回复和游戏里实际发出的不是一回事。
+function jj_call_ollama(string $url, string $model, array $messages, float $temperature = 0.8, int $numPredict = 200): array
+{
+    $payload = json_encode([
+        'model'    => $model,
+        'stream'   => false,
+        'think'    => false,
+        'options'  => ['temperature' => $temperature, 'num_predict' => $numPredict],
+        'messages' => $messages,
+    ], JSON_UNESCAPED_UNICODE);
+
+    if (function_exists('curl_init')) {
+        [$raw, $httpCode] = jj_http_post_curl($url, $payload);
+    } else {
+        // 部分精简版 PHP（php-cli/低配 LNMP 环境）没装 ext-curl，退化到 stream context，
+        // 这样调试台不依赖服务器是否装了 curl 扩展也能用。
+        [$raw, $httpCode] = jj_http_post_stream($url, $payload);
+    }
     $data = json_decode((string)$raw, true);
     if ($httpCode !== 200 || !isset($data['message']['content'])) {
         throw new RuntimeException("Ollama bad response (HTTP $httpCode): " . substr((string)$raw, 0, 500));
