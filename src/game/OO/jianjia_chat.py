@@ -347,12 +347,14 @@ def _get_conv(player: str, bot_name: str) -> _ConvState:
 
 # ── Ollama ────────────────────────────────────────────────────────────────────
 
-def _ollama_chat(messages: list[dict], timeout: int = 60, temperature: float = 0.8,
-                 think: bool = True, num_predict: int = 800) -> str:
-    # think=True left on by default: the reasoning tokens never reach the player anyway
-    # (stripped below), so there's no reason to disable it — and judgment-heavy calls
-    # (world-channel FAQ gate, reply verification) measurably need it to stay grounded.
-    # num_predict is raised accordingly since it caps thinking + answer combined.
+def _ollama_chat(messages: list[dict], timeout: int = 30, temperature: float = 0.8,
+                 think: bool = False, num_predict: int = 200) -> str:
+    # think defaults off for fast, natural-feeling chat (whisper/party/bg-afk/quest-cheer).
+    # Judgment-heavy calls (world/guild/raid channel gating, reply verification) opt into
+    # think=True at the call site with a much larger num_predict — the reasoning tokens
+    # never reach the player either way (stripped below), but measurably improve whether
+    # the model stays grounded instead of confidently fabricating. Costs ~10-25s instead
+    # of ~1-5s per call, so it's scoped to where accuracy matters more than latency.
     resp = requests.post(
         OLLAMA_URL,
         json={
@@ -481,8 +483,13 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
     messages = [{"role": "system", "content": system}] + history + [
         {"role": "user", "content": f"{sender}：{message}"}
     ]
+    # Raid (团队) gets thinking like world/guild; party (小队) stays fast — same
+    # speed-vs-accuracy split the user asked for, raid chat skews more toward
+    # rules/strategy questions where grounding matters, party skews toward banter.
+    think = chat_context == "raid"
     try:
-        reply = _ollama_chat(messages)
+        reply = _ollama_chat(messages, think=think, num_predict=(1500 if think else 200),
+                             timeout=(90 if think else 30))
     except Exception as e:
         log.warning("Ollama error for group chat: %s", e)
         return
@@ -517,10 +524,12 @@ def _verify_grounded(bot_name: str, question: str, reply: str) -> bool:
         f"【候选回复】\n{reply}"
     )
     try:
+        # think=True is load-bearing here: without it this call rubber-stamps fabricated
+        # answers as grounded (tested empirically), with it it correctly catches them.
         verdict = _ollama_chat(
             [{"role": "system", "content": system},
              {"role": "user", "content": "请给出判定。"}],
-            temperature=0.1,
+            temperature=0.1, think=True, num_predict=1500, timeout=90,
         )
     except Exception as e:
         log.warning("Ollama error verifying channel reply for %s: %s", question, e)
@@ -560,7 +569,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
         ]
         try:
-            reply = _ollama_chat(messages)
+            reply = _ollama_chat(messages, think=True, num_predict=1500, timeout=90)
         except Exception as e:
             log.warning("Ollama error for guild chat (%s): %s", sender, e)
             return
@@ -596,10 +605,10 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
         ]
         try:
-            # Low temperature: this is a strict "answer only from the knowledge base,
-            # otherwise PASS" judgment call, not free-form chat — high temperature made
-            # it fabricate answers for out-of-scope questions instead of staying silent.
-            reply = _ollama_chat(messages, temperature=_WORLD_CHANNEL_TEMPERATURE)
+            # Low temperature + thinking: this is a strict "answer only from the
+            # knowledge base, otherwise PASS" judgment call, not free-form chat.
+            reply = _ollama_chat(messages, temperature=_WORLD_CHANNEL_TEMPERATURE,
+                                 think=True, num_predict=1500, timeout=90)
         except Exception as e:
             log.warning("Ollama error for world chat (%s): %s", sender, e)
             with _channel_reply_lock:
