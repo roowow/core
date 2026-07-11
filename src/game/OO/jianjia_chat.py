@@ -210,11 +210,14 @@ def _search_world_db(keywords: list[str], realm_id: int = 0) -> str:
         like = f"%{kw}%"
         try:
             with db.cursor() as cur:
-                # Items
+                # Items — prefer Chinese name from locales_item (name_loc4 = zhCN)
                 cur.execute(
-                    "SELECT name, ItemLevel, RequiredLevel, Quality "
-                    "FROM item_template WHERE name LIKE %s LIMIT 2",
-                    (like,),
+                    "SELECT COALESCE(NULLIF(li.name_loc4,''), it.name), "
+                    "it.item_level, it.required_level, it.quality "
+                    "FROM item_template it "
+                    "LEFT JOIN locales_item li ON li.entry = it.entry "
+                    "WHERE it.name LIKE %s OR li.name_loc4 LIKE %s LIMIT 2",
+                    (like, like),
                 )
                 for name, ilvl, req_lvl, quality in cur.fetchall():
                     key = f"i:{name}"
@@ -231,10 +234,13 @@ def _search_world_db(keywords: list[str], realm_id: int = 0) -> str:
                         parts.append(f"需要{req_lvl}级")
                     lines.append("·" + " ".join(parts))
 
-                # Quests
+                # Quests — prefer Chinese title from locales_quest (Title_loc4 = zhCN)
                 cur.execute(
-                    "SELECT Title, QuestLevel FROM quest_template WHERE Title LIKE %s LIMIT 2",
-                    (like,),
+                    "SELECT COALESCE(NULLIF(lq.Title_loc4,''), qt.Title), qt.QuestLevel "
+                    "FROM quest_template qt "
+                    "LEFT JOIN locales_quest lq ON lq.entry = qt.entry "
+                    "WHERE qt.Title LIKE %s OR lq.Title_loc4 LIKE %s LIMIT 2",
+                    (like, like),
                 )
                 for title, qlvl in cur.fetchall():
                     key = f"q:{title}"
@@ -246,11 +252,15 @@ def _search_world_db(keywords: list[str], realm_id: int = 0) -> str:
                         parts.append(f"等级{qlvl}")
                     lines.append("·" + " ".join(parts))
 
-                # NPCs / creatures
+                # NPCs — prefer Chinese name from locales_creature (name_loc4 = zhCN)
                 cur.execute(
-                    "SELECT name, subname, minlevel, maxlevel, rank "
-                    "FROM creature_template WHERE name LIKE %s LIMIT 2",
-                    (like,),
+                    "SELECT COALESCE(NULLIF(lc.name_loc4,''), ct.name), "
+                    "COALESCE(NULLIF(lc.subname_loc4,''), ct.subname), "
+                    "ct.level_min, ct.level_max, ct.rank "
+                    "FROM creature_template ct "
+                    "LEFT JOIN locales_creature lc ON lc.entry = ct.entry "
+                    "WHERE ct.name LIKE %s OR lc.name_loc4 LIKE %s LIMIT 2",
+                    (like, like),
                 )
                 for name, subname, minlvl, maxlvl, rank in cur.fetchall():
                     key = f"n:{name}"
@@ -337,15 +347,20 @@ def _get_conv(player: str, bot_name: str) -> _ConvState:
 
 # ── Ollama ────────────────────────────────────────────────────────────────────
 
-def _ollama_chat(messages: list[dict], timeout: int = 30, temperature: float = 0.8) -> str:
+def _ollama_chat(messages: list[dict], timeout: int = 60, temperature: float = 0.8,
+                 think: bool = True, num_predict: int = 800) -> str:
+    # think=True left on by default: the reasoning tokens never reach the player anyway
+    # (stripped below), so there's no reason to disable it — and judgment-heavy calls
+    # (world-channel FAQ gate, reply verification) measurably need it to stay grounded.
+    # num_predict is raised accordingly since it caps thinking + answer combined.
     resp = requests.post(
         OLLAMA_URL,
         json={
             "model":    OLLAMA_MODEL,
             "messages": messages,
             "stream":   False,
-            "think":    False,   # disable Qwen3 chain-of-thought
-            "options":  {"temperature": temperature, "num_predict": 200},
+            "think":    think,
+            "options":  {"temperature": temperature, "num_predict": num_predict},
         },
         timeout=timeout,
     )
@@ -553,6 +568,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             return
 
     else:  # world channel: question-based filter
+        log.info("[world] %s: %s", sender, message)
         if not _QUESTION_RE.search(message):
             return
         with _channel_reply_lock:
