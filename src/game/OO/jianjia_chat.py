@@ -17,6 +17,7 @@ import signal
 import sys
 import argparse
 import logging
+from collections import deque
 
 try:
     import redis
@@ -435,6 +436,37 @@ _CHANNEL_REPLY_CD = 120
 _channel_reply_ts: dict[str, float] = {}
 _channel_reply_lock = threading.Lock()
 
+# Rolling buffer of recent world-channel messages, per realm — every world message gets
+# recorded here (not just ones that pass the question filter), so that when someone
+# explicitly @-mentions the bot ("@蒹葭 你看下上面 xxx 的问题") she has something to look
+# back at. Count-based cap, not time-based: simple, and "recent N messages" is what a
+# human skimming the channel would actually use as context too.
+_WORLD_RECENT_MAXLEN = 20
+_world_recent: dict[int, deque] = {}
+_world_recent_lock = threading.Lock()
+
+# Separate, shorter cooldown for explicit @-mention summons (per summoner, not per the
+# player being asked about) — this is an intentional direct request, not passive
+# detection, so it doesn't need the same aggressive throttling, but still shouldn't be
+# spammable.
+_SUMMON_REPLY_CD = 60
+_summon_reply_ts: dict[str, float] = {}
+_summon_reply_lock = threading.Lock()
+
+
+def _record_world_message(realm: int, sender: str, message: str) -> None:
+    with _world_recent_lock:
+        buf = _world_recent.setdefault(realm, deque(maxlen=_WORLD_RECENT_MAXLEN))
+        buf.append((sender, message))
+
+
+def _get_world_recent_transcript(realm: int) -> str:
+    with _world_recent_lock:
+        buf = _world_recent.get(realm)
+        if not buf:
+            return ""
+        return "\n".join(f"{s}：{m}" for s, m in buf)
+
 # Low temperature for world-channel FAQ judgment (answer-from-KB-or-PASS is a strict
 # classification task, not creative chat; default 0.8 caused confident fabrication
 # on out-of-scope questions instead of a clean [PASS]).
@@ -576,7 +608,63 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
         if not reply or "[PASS]" in reply:
             return
 
-    else:  # world channel: question-based filter
+    else:  # world channel: question-based filter, or explicit @-mention summon
+        # Record every world message (not just ones that get answered) so an explicit
+        # summon has recent context to look back at ("上面 xxx 的问题").
+        _record_world_message(realm, sender, message)
+
+        bot_mentioned = bot_name in message
+        if bot_mentioned:
+            with _summon_reply_lock:
+                last = _summon_reply_ts.get(sender, 0.0)
+                if time.time() - last < _SUMMON_REPLY_CD:
+                    return
+                _summon_reply_ts[sender] = time.time()
+
+            transcript = _get_world_recent_transcript(realm)
+            system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
+            system += (
+                f"\n\n你正在监听{channel_name}，刚刚有玩家在频道里 @ 了你的名字，"
+                f"希望你看看频道里最近的对话、回答里面提到的某个问题。"
+                f"下面是最近的{channel_name}聊天记录（旧的在前，新的在后）：\n{transcript}\n\n"
+                f"只回答服务器规则/制度/版本进度这类「服务器知识」问题，且答案必须能在你掌握的FAQ知识库中原文或近似原文找到。"
+                f"具体的游戏内容/玩法问题（怪物机制、声望怎么刷、任务/副本怎么打、门怎么开、天赋加点、"
+                f"客户端界面操作等）一律不参与，就算你知道答案也不要说。"
+                f"如果聊天记录里根本没有明确的问题、你判断不出该回答哪一条、或者问题不在FAQ范围内，"
+                f"直接回复 [PASS]（不要附加任何文字），不要因为被点名了就硬凑一个回答。"
+                f"回答时先@{sender}（是TA叫你的），如果能看出问题是哪位玩家问的，也可以一并提到那位玩家的名字。"
+                f"用一到两句话给出简洁准确的答案，不要展开说太多，不要卖弄学识，保持蒹葭的性格。"
+            )
+            messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
+            ]
+            try:
+                reply = _ollama_chat(messages, temperature=_WORLD_CHANNEL_TEMPERATURE,
+                                     think=True, num_predict=1500, timeout=90)
+            except Exception as e:
+                log.warning("Ollama error for world summon (%s): %s", sender, e)
+                with _summon_reply_lock:
+                    _summon_reply_ts.pop(sender, None)
+                return
+            if not reply or "[PASS]" in reply:
+                with _summon_reply_lock:
+                    _summon_reply_ts.pop(sender, None)
+                return
+            if not _verify_grounded(bot_name, message, reply):
+                log.info("[%s] world summon reply to %s failed grounding check, discarding: %s",
+                         bot_name, sender, reply)
+                with _summon_reply_lock:
+                    _summon_reply_ts.pop(sender, None)
+                return
+
+            payload = json.dumps({"target": sender, "message": reply, "channel": chat_context},
+                                 ensure_ascii=False, separators=(",", ":"))
+            r_pub.publish(out_key, payload)
+            log.info("[%s] world summon reply to %s: %s", bot_name, sender, reply)
+            _write_conv_log(realm, bot_name, sender, player_info, f"[world-summon]{message}", reply)
+            return
+
         if not _QUESTION_RE.search(message):
             return
         with _channel_reply_lock:
