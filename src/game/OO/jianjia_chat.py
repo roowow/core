@@ -709,18 +709,31 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
                         message, context=chat_context, llm_calls=1,
                         latency_ms=(time.time() - t0) * 1000)
         return
-    latency_ms = (time.time() - t0) * 1000
+    gen_latency_ms = (time.time() - t0) * 1000
     if not reply or "[PASS]" in reply:
         _write_conv_log(realm, bot_name, "group_chat", "pass", sender, conv.player_info, message,
-                        context=chat_context, llm_calls=1, latency_ms=latency_ms)
+                        context=chat_context, llm_calls=1, latency_ms=gen_latency_ms)
         return
+
+    llm_calls, latency_ms = 1, gen_latency_ms
+    if think:  # raid: verify like world/guild; party stays fast, no second pass
+        verified, verify_latency_ms = _verify_grounded(bot_name, message, reply)
+        llm_calls = 2
+        latency_ms = gen_latency_ms + verify_latency_ms
+        if not verified:
+            log.info("[%s] %s reply to %s failed grounding check, discarding: %s",
+                     bot_name, chat_context, sender, reply)
+            _write_conv_log(realm, bot_name, "group_chat", "verify_rejected", sender,
+                            conv.player_info, message, reply, context=chat_context,
+                            llm_calls=llm_calls, latency_ms=latency_ms)
+            return
 
     payload = json.dumps({"target": sender, "message": reply, "channel": chat_context},
                          ensure_ascii=False, separators=(",", ":"))
     r_pub.publish(out_key, payload)
     log.info("[%s] %s chat reply to %s: %s", bot_name, chat_context, sender, reply)
     _write_conv_log(realm, bot_name, "group_chat", "answered", sender, conv.player_info, message,
-                    reply, context=chat_context, llm_calls=1, latency_ms=latency_ms)
+                    reply, context=chat_context, llm_calls=llm_calls, latency_ms=latency_ms)
 
 
 def _verify_grounded(bot_name: str, question: str, reply: str) -> tuple[bool, float]:
@@ -792,10 +805,21 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                             message, context="guild", llm_calls=1,
                             latency_ms=(time.time() - t0) * 1000)
             return
-        llm_calls, latency_ms = 1, (time.time() - t0) * 1000
+        gen_latency_ms = (time.time() - t0) * 1000
         if not reply or "[PASS]" in reply:
             _write_conv_log(realm, bot_name, "channel_chat", "pass", sender, player_info, message,
-                            context="guild", llm_calls=llm_calls, latency_ms=latency_ms)
+                            context="guild", llm_calls=1, latency_ms=gen_latency_ms)
+            return
+
+        verified, verify_latency_ms = _verify_grounded(bot_name, message, reply)
+        llm_calls = 2
+        latency_ms = gen_latency_ms + verify_latency_ms
+        if not verified:
+            log.info("[%s] guild reply to %s failed grounding check, discarding: %s",
+                     bot_name, sender, reply)
+            _write_conv_log(realm, bot_name, "channel_chat", "verify_rejected", sender, player_info,
+                            message, reply, context="guild", llm_calls=llm_calls,
+                            latency_ms=latency_ms)
             return
 
     else:  # world channel: question-based filter, or explicit @-mention summon
