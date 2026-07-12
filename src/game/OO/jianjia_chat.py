@@ -59,10 +59,13 @@ REDIS_PORT   = 6379
 REALM_ID     = 1
 OLLAMA_URL   = "http://192.168.1.231:11434/api/chat"
 OLLAMA_MODEL = "qwen3:32b"
-# The context window (num_ctx) actually configured for this model in Ollama — we don't
-# call it, so this can't be auto-detected; set it in jianjia.toml [ollama] to match
-# reality, or the usage% logged below is meaningless. Conservative guess if unset.
-OLLAMA_CONTEXT_TOKENS = 8192
+# Sent as num_ctx on every request (see _ollama_chat) — this isn't just a display
+# estimate, it's what actually gets allocated. Without it, Ollama falls back to its
+# own runtime default (often 2048-4096), which can silently truncate the prompt well
+# below what the model architecture supports (qwen3:32b supports up to 40960 — check
+# `ollama show <model>` for the real ceiling before raising this; more context = more
+# VRAM for the KV cache, so verify it doesn't push Ollama into OOM).
+OLLAMA_CONTEXT_TOKENS = 16384
 
 # How many message turns to keep per player (user+assistant pairs)
 MAX_HISTORY_TURNS = 10
@@ -454,7 +457,8 @@ def _ollama_chat(messages: list[dict], timeout: int = 30, temperature: float = 0
             "messages": messages,
             "stream":   False,
             "think":    think,
-            "options":  {"temperature": temperature, "num_predict": num_predict},
+            "options":  {"temperature": temperature, "num_predict": num_predict,
+                        "num_ctx": OLLAMA_CONTEXT_TOKENS},
         },
         timeout=timeout,
     )
