@@ -24,6 +24,9 @@ server_phase  = "1.10 艾泽拉斯的风暴" # 当前版本阶段，注入 AI �
 [ollama]
 url   = "http://127.0.0.1:11434/api/chat"
 model = "qwen3:32b"
+context_tokens = 8192   # 这个模型在Ollama里实际配置的num_ctx，填错的话日志里的
+                        # "上下文占比"就是错的——去 ollama show <model> 或者
+                        # Modelfile 里确认真实的 num_ctx 是多少
 
 # ── Redis ───────────────────────────────────────────────────────────────────────
 

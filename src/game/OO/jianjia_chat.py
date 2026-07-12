@@ -59,6 +59,10 @@ REDIS_PORT   = 6379
 REALM_ID     = 1
 OLLAMA_URL   = "http://192.168.1.231:11434/api/chat"
 OLLAMA_MODEL = "qwen3:32b"
+# The context window (num_ctx) actually configured for this model in Ollama — we don't
+# call it, so this can't be auto-detected; set it in jianjia.toml [ollama] to match
+# reality, or the usage% logged below is meaningless. Conservative guess if unset.
+OLLAMA_CONTEXT_TOKENS = 8192
 
 # How many message turns to keep per player (user+assistant pairs)
 MAX_HISTORY_TURNS = 10
@@ -172,6 +176,18 @@ def _load_system_prompt(soul_file: str, knowledge_dir: str) -> str:
 _SYSTEM_PROMPT_TEMPLATE: str = ""  # loaded in main() via _load_system_prompt()
 
 
+def _estimate_tokens(text: str) -> int:
+    """Rough token-count estimate, not an exact tokenizer count (Ollama's HTTP API
+    doesn't expose a tokenize-only endpoint, so this is a cheap approximation only,
+    good enough to eyeball how close the base prompt is to the configured context
+    window). CJK text runs closer to ~1 token per character with Qwen's tokenizer;
+    ASCII runs closer to ~4 chars per token. Split by rough byte-width as a proxy.
+    """
+    cjk = sum(1 for ch in text if ord(ch) > 0x2E80)  # CJK/punctuation-ish range
+    other = len(text) - cjk
+    return cjk + other // 4
+
+
 def _reload_system_prompt(svc: dict) -> None:
     """(Re)load soul + knowledge into _SYSTEM_PROMPT_TEMPLATE. Used at startup and
     again on SIGHUP, so editing jianjia_soul.md / jianjia_knowledge/*.md takes effect
@@ -203,7 +219,15 @@ def _reload_system_prompt(svc: dict) -> None:
         template += "\n\n[" + "，".join(parts) + "。回答玩家问题时以此为准。]"
 
     _SYSTEM_PROMPT_TEMPLATE = template
-    log.info("System prompt (re)loaded (%d chars)", len(_SYSTEM_PROMPT_TEMPLATE))
+    n_chars  = len(_SYSTEM_PROMPT_TEMPLATE)
+    n_tokens = _estimate_tokens(_SYSTEM_PROMPT_TEMPLATE)
+    pct = n_tokens / OLLAMA_CONTEXT_TOKENS * 100
+    log.info("System prompt (re)loaded (%d chars, ~%d tokens est., ~%.0f%% of %d-token context window)",
+             n_chars, n_tokens, pct, OLLAMA_CONTEXT_TOKENS)
+    if pct > 50:
+        log.warning("Base system prompt alone is using ~%.0f%% of the context window — "
+                    "conversation history / world-channel transcript / verifier calls "
+                    "stack on top of this and may get silently truncated by Ollama.", pct)
 
 
 def _default_pid_file() -> str:
@@ -965,7 +989,7 @@ def cleanup_loop() -> None:
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    global OLLAMA_MODEL, OLLAMA_URL, MAX_HISTORY_TURNS, HISTORY_TTL
+    global OLLAMA_MODEL, OLLAMA_URL, OLLAMA_CONTEXT_TOKENS, MAX_HISTORY_TURNS, HISTORY_TTL
 
     parser = argparse.ArgumentParser(description="蒹葭 AI Companion Service")
     parser.add_argument(
@@ -1002,8 +1026,9 @@ def main() -> None:
         _send_reload_signal(pid_file)
         return
 
-    OLLAMA_MODEL      = ollama_cfg.get("model",       OLLAMA_MODEL)
-    OLLAMA_URL        = ollama_cfg.get("url",         OLLAMA_URL)
+    OLLAMA_MODEL          = ollama_cfg.get("model",           OLLAMA_MODEL)
+    OLLAMA_URL            = ollama_cfg.get("url",             OLLAMA_URL)
+    OLLAMA_CONTEXT_TOKENS = int(ollama_cfg.get("context_tokens", OLLAMA_CONTEXT_TOKENS))
     MAX_HISTORY_TURNS = svc.get("max_turns",          MAX_HISTORY_TURNS)
     HISTORY_TTL       = svc.get("history_ttl",        HISTORY_TTL)
     redis_host        = redis_cfg.get("host",         REDIS_HOST)
