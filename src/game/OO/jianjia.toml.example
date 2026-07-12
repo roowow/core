@@ -25,8 +25,8 @@ server_phase  = "1.10 艾泽拉斯的风暴" # 当前版本阶段，注入 AI �
 
 [ollama]
 url   = "http://127.0.0.1:11434/api/chat"
-model = "qwen3:32b"
-context_tokens = 10240  # 每次请求会带上 num_ctx=此值，这是真正生效的上下文窗口，
+model = "qwen3:14b"
+context_tokens = 24576  # 每次请求会带上 num_ctx=此值，这是真正生效的上下文窗口，
                         # 不只是日志显示用。不设置的话 Ollama 用它自己的运行时
                         # 默认值（很多版本只有2048-4096），跟模型架构支持的上限
                         # （ollama show <model> 看 "context length"）没关系。
@@ -34,6 +34,8 @@ context_tokens = 10240  # 每次请求会带上 num_ctx=此值，这是真正生
                         # 本身就要占约20GB，24GB显卡（如4090/4090D）上num_ctx每往上
                         # 加，KV cache的占用是线性增长的，务必用 nvidia-smi 在真实
                         # 请求跑起来时看一下实际峰值占用，不要只看空载时的余量。
+                        # 注：knowledge dir 里的 MD 文件 CJK 约 1字/token，server_context.md
+                        # 约 15000 tokens，加上 soul + 历史 + 当前消息，24576 是合理下限。
 max_concurrent = 1     # 同时允许几个请求打给Ollama，默认1——`ollama show <model>`
                         # 里如果显示 Parallel:1（GPU显存只够跑一份模型的话通常如此），
                         # 那并发发请求毫无意义，只会让Ollama来回抢显存加载/卸载模型，

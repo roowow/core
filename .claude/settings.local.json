@@ -52,7 +52,10 @@
       "Bash(find /d/其他/wow/Development -name \"*.sln\" -o -name \"Makefile\" 2>/dev/null | head -5)",
       "Read(//d/其他/wow/Development/**)",
       "Bash(awk -F',' '{print $1, $7, $8, $9}')",
-      "Bash(awk -F',' '{print \"spawntimesecs=\" $11}')"
+      "Bash(awk -F',' '{print \"spawntimesecs=\" $11}')",
+      "WebFetch(domain:s1.oowow.world)",
+      "Bash(curl *)",
+      "Bash(wait)"
     ]
   }
 }

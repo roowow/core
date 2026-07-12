@@ -18,6 +18,7 @@ import sys
 import argparse
 import logging
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 
 try:
     import redis
@@ -58,14 +59,14 @@ REDIS_HOST   = "192.168.1.231"
 REDIS_PORT   = 6379
 REALM_ID     = 1
 OLLAMA_URL   = "http://192.168.1.231:11434/api/chat"
-OLLAMA_MODEL = "qwen3:32b"
+OLLAMA_MODEL = "qwen3:14b"
 # Sent as num_ctx on every request (see _ollama_chat) — this isn't just a display
 # estimate, it's what actually gets allocated. Without it, Ollama falls back to its
 # own runtime default (often 2048-4096), which can silently truncate the prompt well
 # below what the model architecture supports (qwen3:32b supports up to 40960 — check
 # `ollama show <model>` for the real ceiling before raising this; more context = more
 # VRAM for the KV cache, so verify it doesn't push Ollama into OOM).
-OLLAMA_CONTEXT_TOKENS = 10240
+OLLAMA_CONTEXT_TOKENS = 24576
 # How many Ollama requests are allowed in flight at once, across every realm/thread in
 # this process. Ollama itself reports "Parallel:1" for this model+GPU (confirmed via
 # server log: a single 32B model at Q4 barely fits a 24GB card once num_ctx KV-cache is
@@ -83,11 +84,25 @@ GROUP_HISTORY_LINES = 10
 # Seconds of inactivity before clearing a player's conversation context
 HISTORY_TTL = 1800  # 30 minutes
 
+# ── Player memory (精华记忆) ────────────────────────────────────────────────────
+MEMORY_COMPRESS_EVERY = 20   # compress after this many turns of history accumulate
+MEMORY_KEEP_AFTER     = 10   # turns to keep in Redis after compression
+MEMORY_REDIS_TTL      = 3600 # Redis cache TTL for memory reads (1 hour)
+
 # ── per-realm DB connections ───────────────────────────────────────────────────
 
 _logs_dbs: dict[int, "pymysql.Connection"] = {}   # realm_id → logs DB connection
 _world_dbs: dict[int, "pymysql.Connection"] = {}  # realm_id → world DB connection
 _MSG_RE = re.compile(r'^\[[^\]]+\]\s*.*?:\d+\s*:\s*(.*)$', re.DOTALL)
+
+
+def _ping_db(db: "pymysql.Connection", label: str) -> bool:
+    try:
+        db.ping(reconnect=True)
+        return True
+    except Exception as e:
+        log.warning("%s reconnect failed: %s", label, e)
+        return False
 
 
 def _connect_db(cfg: dict, label: str) -> "pymysql.Connection | None":
@@ -105,6 +120,26 @@ def _connect_db(cfg: dict, label: str) -> "pymysql.Connection | None":
         return None
 
 
+def _init_memory_table(db: "pymysql.Connection", realm_id: int) -> None:
+    try:
+        with db.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS jianjia_player_memory (
+                    id         INT AUTO_INCREMENT PRIMARY KEY,
+                    realm_id   INT         NOT NULL,
+                    bot_name   VARCHAR(64) NOT NULL,
+                    player     VARCHAR(64) NOT NULL,
+                    memory     TEXT        NOT NULL,
+                    updated_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP
+                               ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uk (realm_id, bot_name, player)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+        log.info("Memory table ready (realm %d)", realm_id)
+    except Exception as e:
+        log.warning("Failed to init memory table for realm %d: %s", realm_id, e)
+
+
 def _init_realm_dbs(realms_cfg: dict) -> None:
     if not _PYMYSQL_OK:
         log.warning("pymysql not installed — DB features disabled. pip install pymysql")
@@ -119,6 +154,7 @@ def _init_realm_dbs(realms_cfg: dict) -> None:
             conn = _connect_db(realm_cfg["logs_db"], f"Realm {realm_id} logs DB")
             if conn:
                 _logs_dbs[realm_id] = conn
+                _init_memory_table(conn, realm_id)
         if "world_db" in realm_cfg:
             conn = _connect_db(realm_cfg["world_db"], f"Realm {realm_id} world DB")
             if conn:
@@ -126,12 +162,13 @@ def _init_realm_dbs(realms_cfg: dict) -> None:
 
 
 def _get_group_history(group_id: int, bot_name: str, context: str, realm_id: int = 0) -> list[dict]:
-    """Return recent party/raid messages as Ollama-format message list."""
+    """Return recent party messages as Ollama-format message list (party only; raid uses Redis buffer)."""
     db = _logs_dbs.get(realm_id)
     if not db or not group_id:
         return []
-    tag_prefix = "Group" if context == "party" else "Raid"
-    like_pat = f'[{tag_prefix}:{group_id}]%'
+    if not _ping_db(db, f"Realm {realm_id} logs DB"):
+        return []
+    like_pat = f'[Group:{group_id}]%'
     try:
         with db.cursor() as cur:
             cur.execute(
@@ -185,7 +222,8 @@ def _load_system_prompt(soul_file: str, knowledge_dir: str) -> str:
     return "\n\n".join(parts)
 
 
-_SYSTEM_PROMPT_TEMPLATE: str = ""  # loaded in main() via _load_system_prompt()
+_SYSTEM_PROMPT_TEMPLATE: str = ""  # soul + knowledge, loaded via _load_system_prompt()
+_KNOWLEDGE_CONTENT: str = ""       # knowledge-only, used by _verify_grounded
 
 
 def _estimate_tokens(text: str) -> int:
@@ -207,7 +245,7 @@ def _reload_system_prompt(svc: dict) -> None:
     are left untouched). Code changes to this .py file still need a real restart —
     Python can't safely hot-swap running function bodies.
     """
-    global _SYSTEM_PROMPT_TEMPLATE
+    global _SYSTEM_PROMPT_TEMPLATE, _KNOWLEDGE_CONTENT
     try:
         template = _load_system_prompt(
             svc.get("soul_file", ""),
@@ -222,15 +260,30 @@ def _reload_system_prompt(svc: dict) -> None:
 
     server_name  = svc.get("server_name",  "").strip()
     server_phase = svc.get("server_phase", "").strip()
-    if server_name or server_phase:
-        parts = []
-        if server_name:
-            parts.append(f"当前服务器：{server_name}")
-        if server_phase:
-            parts.append(f"当前阶段：{server_phase}")
-        template += "\n\n[" + "，".join(parts) + "。回答玩家问题时以此为准。]"
+    parts = [f"今天是 {time.strftime('%Y-%m-%d')}"]
+    if server_name:
+        parts.append(f"当前服务器：{server_name}")
+    if server_phase:
+        parts.append(f"当前阶段：{server_phase}")
+    template += "\n\n[" + "，".join(parts) + "。回答玩家问题时以此为准。]"
 
     _SYSTEM_PROMPT_TEMPLATE = template
+
+    # Build knowledge-only content for _verify_grounded (excludes soul/personality).
+    kdir = svc.get("knowledge_dir", "")
+    if kdir:
+        base = os.path.dirname(__file__)
+        kdir = kdir if os.path.isabs(kdir) else os.path.join(base, kdir)
+        parts = []
+        if os.path.isdir(kdir):
+            for fname in sorted(os.listdir(kdir)):
+                if fname.endswith(".md"):
+                    with open(os.path.join(kdir, fname), encoding="utf-8") as f:
+                        content = f.read().strip()
+                    if content:
+                        parts.append(content)
+        _KNOWLEDGE_CONTENT = "\n\n".join(parts)
+
     n_chars  = len(_SYSTEM_PROMPT_TEMPLATE)
     n_tokens = _estimate_tokens(_SYSTEM_PROMPT_TEMPLATE)
     pct = n_tokens / OLLAMA_CONTEXT_TOKENS * 100
@@ -250,6 +303,7 @@ def _reload_system_prompt(svc: dict) -> None:
 _PROMPT_TEMPLATES: dict[str, str] = {}
 _REQUIRED_PROMPT_TEMPLATES = {
     "group_wakeup", "guild_wakeup", "world_question", "world_summon", "verify_grounded",
+    "whisper_companion",
 }
 
 
@@ -320,7 +374,6 @@ def _send_reload_signal(pid_file: str) -> None:
 _QUALITY_NAMES  = {0: "差", 1: "普通", 2: "非凡", 3: "稀有", 4: "史诗", 5: "传说"}
 _CREATURE_RANKS = {1: "精英", 2: "稀有精英", 3: "首领"}
 
-# Common words to skip so we don't flood DB with non-entity terms
 _SKIP_WORDS = frozenset({
     "什么", "怎么", "哪里", "哪儿", "知道", "可以", "没有", "玩家", "任务",
     "物品", "装备", "怎样", "如何", "在哪", "为什么", "告诉", "一些", "很多",
@@ -331,7 +384,6 @@ _SKIP_WORDS = frozenset({
 
 
 def _extract_game_keywords(text: str) -> list[str]:
-    """Extract 2-6 char Chinese word groups from text as potential game entity names."""
     candidates = re.findall(r'[一-鿿]{2,6}', text)
     seen: set[str] = set()
     result: list[str] = []
@@ -345,9 +397,10 @@ def _extract_game_keywords(text: str) -> list[str]:
 
 
 def _search_world_db(keywords: list[str], realm_id: int = 0) -> str:
-    """Search item/quest/NPC tables for keywords; return a formatted context block."""
     db = _world_dbs.get(realm_id)
     if not db or not keywords:
+        return ""
+    if not _ping_db(db, f"Realm {realm_id} world DB"):
         return ""
     lines: list[str] = []
     seen: set[str] = set()
@@ -355,7 +408,6 @@ def _search_world_db(keywords: list[str], realm_id: int = 0) -> str:
         like = f"%{kw}%"
         try:
             with db.cursor() as cur:
-                # Items — prefer Chinese name from locales_item (name_loc4 = zhCN)
                 cur.execute(
                     "SELECT COALESCE(NULLIF(li.name_loc4,''), it.name), "
                     "it.item_level, it.required_level, it.quality "
@@ -366,20 +418,15 @@ def _search_world_db(keywords: list[str], realm_id: int = 0) -> str:
                 )
                 for name, ilvl, req_lvl, quality in cur.fetchall():
                     key = f"i:{name}"
-                    if key in seen:
-                        continue
+                    if key in seen: continue
                     seen.add(key)
                     q = _QUALITY_NAMES.get(quality, "")
                     parts = [f"物品「{name}」"]
-                    if q:
-                        parts.append(q)
-                    if ilvl:
-                        parts.append(f"物品等级{ilvl}")
-                    if req_lvl:
-                        parts.append(f"需要{req_lvl}级")
+                    if q: parts.append(q)
+                    if ilvl: parts.append(f"物品等级{ilvl}")
+                    if req_lvl: parts.append(f"需要{req_lvl}级")
                     lines.append("·" + " ".join(parts))
 
-                # Quests — prefer Chinese title from locales_quest (Title_loc4 = zhCN)
                 cur.execute(
                     "SELECT COALESCE(NULLIF(lq.Title_loc4,''), qt.Title), qt.QuestLevel "
                     "FROM quest_template qt "
@@ -389,15 +436,12 @@ def _search_world_db(keywords: list[str], realm_id: int = 0) -> str:
                 )
                 for title, qlvl in cur.fetchall():
                     key = f"q:{title}"
-                    if key in seen:
-                        continue
+                    if key in seen: continue
                     seen.add(key)
                     parts = [f"任务「{title}」"]
-                    if qlvl:
-                        parts.append(f"等级{qlvl}")
+                    if qlvl: parts.append(f"等级{qlvl}")
                     lines.append("·" + " ".join(parts))
 
-                # NPCs — prefer Chinese name from locales_creature (name_loc4 = zhCN)
                 cur.execute(
                     "SELECT COALESCE(NULLIF(lc.name_loc4,''), ct.name), "
                     "COALESCE(NULLIF(lc.subname_loc4,''), ct.subname), "
@@ -409,18 +453,15 @@ def _search_world_db(keywords: list[str], realm_id: int = 0) -> str:
                 )
                 for name, subname, minlvl, maxlvl, rank in cur.fetchall():
                     key = f"n:{name}"
-                    if key in seen:
-                        continue
+                    if key in seen: continue
                     seen.add(key)
                     parts = [f"NPC「{name}」"]
-                    if subname:
-                        parts.append(f"({subname})")
+                    if subname: parts.append(f"({subname})")
                     if minlvl:
                         lvl = f"{minlvl}" if minlvl == maxlvl else f"{minlvl}-{maxlvl}级"
                         parts.append(lvl)
                     r = _CREATURE_RANKS.get(rank, "")
-                    if r:
-                        parts.append(r)
+                    if r: parts.append(r)
                     lines.append("·" + " ".join(parts))
 
         except Exception as e:
@@ -455,23 +496,221 @@ def _fmt_player_info(level: int, cls: int, race: int, zone: str = "") -> str:
     return " ".join(parts)
 
 
+# ── conversation history persistence (Redis) ──────────────────────────────────
+
+_r_history: "redis.Redis | None" = None  # set in main()
+_executor: "ThreadPoolExecutor | None" = None  # set in main(), used for async compression
+
+
+def _history_key(bot_name: str, player: str) -> str:
+    return f"jianjia:hist:{bot_name}:{player}"
+
+
+def _persist_history(player: str, bot_name: str, history: list[dict]) -> None:
+    if not _r_history:
+        return
+    key = _history_key(bot_name, player)
+    try:
+        pipe = _r_history.pipeline()
+        pipe.delete(key)
+        for entry in history:
+            pipe.rpush(key, json.dumps(entry, ensure_ascii=False))
+        pipe.execute()  # no EXPIRE — whisper history is kept permanently
+    except Exception as e:
+        log.debug("History persist failed for %s: %s", player, e)
+
+
+def _load_history_from_db(player: str, bot_name: str, realm_id: int = 0) -> list[dict]:
+    """Cold-start whisper history from logs DB when Redis has no record for this player."""
+    db = _logs_dbs.get(realm_id)
+    if not db:
+        return []
+    if not _ping_db(db, f"Realm {realm_id} logs DB"):
+        return []
+    try:
+        with db.cursor() as cur:
+            cur.execute(
+                "SELECT name, text FROM logs_player "
+                "WHERE type='Chat' AND text LIKE '[Whisper%' "
+                "AND (name = %s OR name = %s) "
+                "ORDER BY id DESC LIMIT %s",
+                (player, bot_name, MAX_HISTORY_TURNS * 2),
+            )
+            rows = list(reversed(cur.fetchall()))
+    except Exception as e:
+        log.warning("History DB load failed for %s: %s", player, e)
+        return []
+    messages = []
+    for name, text in rows:
+        m = _MSG_RE.match(text)
+        content = m.group(1).strip() if m else text
+        if not content:
+            continue
+        role = "assistant" if name == bot_name else "user"
+        messages.append({"role": role, "content": content})
+    return messages
+
+
+def _restore_history(player: str, bot_name: str, realm_id: int = 0) -> list[dict]:
+    if _r_history:
+        key = _history_key(bot_name, player)
+        try:
+            entries = _r_history.lrange(key, 0, -1)
+            if entries:
+                return [json.loads(e) for e in entries]
+        except Exception as e:
+            log.debug("History restore from Redis failed for %s: %s", player, e)
+
+    # Redis empty — cold-start from logs DB, then warm Redis cache
+    history = _load_history_from_db(player, bot_name, realm_id)
+    if history:
+        log.info("Cold-started history for %s from logs DB (%d turns)", player, len(history) // 2)
+        _persist_history(player, bot_name, history)
+    return history
+
+
+# ── Player memory — 精华记忆 (MySQL primary, Redis cache) ─────────────────────
+
+def _memory_redis_key(bot_name: str, player: str) -> str:
+    return f"jianjia:memory:{bot_name}:{player}"
+
+
+def _get_player_memory(player: str, bot_name: str, realm_id: int = 0) -> str:
+    """Read compressed memory: Redis cache first, MySQL fallback."""
+    if _r_history:
+        try:
+            cached = _r_history.get(_memory_redis_key(bot_name, player))
+            if cached:
+                return cached
+        except Exception as e:
+            log.debug("Memory Redis read failed for %s: %s", player, e)
+
+    db = _logs_dbs.get(realm_id)
+    if not db or not _ping_db(db, f"Realm {realm_id} logs DB"):
+        return ""
+    try:
+        with db.cursor() as cur:
+            cur.execute(
+                "SELECT memory FROM jianjia_player_memory "
+                "WHERE realm_id=%s AND bot_name=%s AND player=%s",
+                (realm_id, bot_name, player),
+            )
+            row = cur.fetchone()
+            if row:
+                memory = row[0]
+                if _r_history:
+                    try:
+                        _r_history.setex(_memory_redis_key(bot_name, player), MEMORY_REDIS_TTL, memory)
+                    except Exception:
+                        pass
+                return memory
+    except Exception as e:
+        log.warning("Memory DB read failed for %s: %s", player, e)
+    return ""
+
+
+def _save_player_memory(player: str, bot_name: str, realm_id: int, memory: str) -> None:
+    """Persist compressed memory to MySQL (primary) and refresh Redis cache."""
+    db = _logs_dbs.get(realm_id)
+    if db and _ping_db(db, f"Realm {realm_id} logs DB"):
+        try:
+            with db.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO jianjia_player_memory (realm_id, bot_name, player, memory) "
+                    "VALUES (%s, %s, %s, %s) "
+                    "ON DUPLICATE KEY UPDATE memory=%s, updated_at=NOW()",
+                    (realm_id, bot_name, player, memory, memory),
+                )
+        except Exception as e:
+            log.warning("Memory DB save failed for %s: %s", player, e)
+
+    if _r_history:
+        try:
+            _r_history.setex(_memory_redis_key(bot_name, player), MEMORY_REDIS_TTL, memory)
+        except Exception as e:
+            log.debug("Memory Redis cache update failed for %s: %s", player, e)
+
+
+def _compress_history(player: str, bot_name: str,
+                      history: list[dict], existing_memory: str) -> str:
+    """Call LLM to distill conversation history + old memory into updated 精华记忆."""
+    conv_text = "\n".join(
+        f"{'玩家' if m['role'] == 'user' else bot_name}：{m['content']}"
+        for m in history
+    )
+    existing_part = f"【旧记忆】\n{existing_memory}\n\n" if existing_memory else ""
+    prompt = (
+        f"{existing_part}"
+        f"【新对话】\n{conv_text}\n\n"
+        f"请将以上内容提炼为关于玩家{player}的精华记忆，"
+        f"包含：职业进度、提过的需求和问题、性格特点、重要偏好。"
+        f"简洁列举，不超过300字。"
+    )
+    try:
+        result = _ollama_chat(
+            [{"role": "system", "content": "你是记忆整理助手，负责为AI角色整理玩家画像。"},
+             {"role": "user", "content": prompt}],
+            think=False, temperature=0.3, num_predict=600, timeout=60, queue_timeout=0,
+        )
+        return result
+    except _OllamaBusy:
+        log.debug("Memory compression skipped (Ollama busy) for %s", player)
+        return existing_memory
+    except Exception as e:
+        log.warning("Memory compression failed for %s: %s", player, e)
+        return existing_memory  # keep old on failure
+
+
+def _maybe_compress(conv: "_ConvState", realm_id: int) -> None:
+    """Trigger async memory compression when history reaches MEMORY_COMPRESS_EVERY turns."""
+    if len(conv.history) < MEMORY_COMPRESS_EVERY * 2:
+        return
+
+    history_snapshot = list(conv.history)
+    player, bot_name = conv.player, conv.bot_name
+
+    # Trim history immediately (sync) so next request uses a shorter window
+    with _conv_lock:
+        conv.history = conv.history[-(MEMORY_KEEP_AFTER * 2):]
+        _persist_history(player, bot_name, conv.history)
+
+    def _do_compress():
+        new_memory = _compress_history(player, bot_name, history_snapshot, conv.memory)
+        if new_memory:
+            conv.memory = new_memory
+            _save_player_memory(player, bot_name, realm_id, new_memory)
+            log.info("Memory compressed for %s (%d chars)", player, len(new_memory))
+
+    if _executor:
+        _executor.submit(_do_compress)
+    else:
+        threading.Thread(target=_do_compress, daemon=True).start()
+
+
 # ── per-player conversation state ─────────────────────────────────────────────
 
 class _ConvState:
-    def __init__(self, bot_name: str):
+    def __init__(self, player: str, bot_name: str):
+        self.player = player
         self.bot_name = bot_name
         self.player_info: str = ""
+        self.memory: str = ""       # compressed long-term memory (精华记忆)
         self.history: list[dict] = []
         self.last_ts: float = time.time()
 
     def add(self, role: str, content: str) -> None:
         self.history.append({"role": role, "content": content})
-        if len(self.history) > MAX_HISTORY_TURNS * 2:
-            self.history = self.history[-(MAX_HISTORY_TURNS * 2):]
+        # Emergency cap only — normal trimming is done by _maybe_compress at MEMORY_COMPRESS_EVERY*2.
+        # This fires only if compression fails to run (e.g. executor error).
+        if len(self.history) > MEMORY_COMPRESS_EVERY * 4:
+            self.history = self.history[-(MEMORY_KEEP_AFTER * 2):]
         self.last_ts = time.time()
+        _persist_history(self.player, self.bot_name, self.history)
 
     def messages_for_ollama(self, extra_context: str = "") -> list[dict]:
         system = _SYSTEM_PROMPT_TEMPLATE.format(name=self.bot_name)
+        if self.memory:
+            system += f"\n\n[关于{self.player}的记忆：\n{self.memory}]"
         if self.player_info:
             system += (f"\n\n[当前对话玩家的角色信息：{self.player_info}。"
                        f"这是系统提供的准确信息，不是玩家自己说的；回复时自然融入即可，不需要逐字念出来。"
@@ -486,18 +725,22 @@ _conversations: dict[str, _ConvState] = {}
 _conv_lock = threading.Lock()
 
 
-def _get_conv(player: str, bot_name: str) -> _ConvState:
+def _get_conv(player: str, bot_name: str, realm_id: int = 0) -> _ConvState:
     with _conv_lock:
         if player not in _conversations:
-            _conversations[player] = _ConvState(bot_name)
+            state = _ConvState(player, bot_name)
+            state.history = _restore_history(player, bot_name, realm_id)
+            state.memory  = _get_player_memory(player, bot_name, realm_id)
+            _conversations[player] = state
         return _conversations[player]
 
 
 # ── Ollama ────────────────────────────────────────────────────────────────────
 
-# Default 1 in-flight request at a time — matches what the GPU/model can actually do
-# (see OLLAMA_MAX_CONCURRENT comment above). Recreated in main() if config overrides
-# the count; every caller just goes through _ollama_semaphore, no other bookkeeping.
+# Default 1 in-flight request at a time. qwen3:14b Q4 at num_ctx=24576 leaves ~15GB
+# for KV cache on a 24GB card — enough for one full context comfortably, but not two
+# simultaneous runners without spilling layers to CPU and stalling. Recreated in main()
+# if config overrides the count; every caller just goes through _ollama_semaphore.
 OLLAMA_MAX_CONCURRENT = 1
 _ollama_semaphore = threading.Semaphore(OLLAMA_MAX_CONCURRENT)
 
@@ -509,16 +752,35 @@ _ollama_semaphore = threading.Semaphore(OLLAMA_MAX_CONCURRENT)
 OLLAMA_QUEUE_TIMEOUT = 120
 
 
+class _OllamaBusy(RuntimeError):
+    """Raised when a non-blocking Ollama semaphore acquire finds the slot taken.
+
+    Used by background compression tasks so they skip quietly instead of
+    blocking the queue — the next compression cycle will retry.
+    """
+
+
 def _ollama_chat(messages: list[dict], timeout: int = 30, temperature: float = 0.8,
-                 think: bool = False, num_predict: int = 200) -> str:
+                 think: bool = False, num_predict: int = 200,
+                 queue_timeout: "int | None" = None) -> str:
     # think defaults off for fast, natural-feeling chat (whisper/party/bg-afk/quest-cheer).
     # Judgment-heavy calls (world/guild/raid channel gating, reply verification) opt into
     # think=True at the call site with a much larger num_predict — the reasoning tokens
     # never reach the player either way (stripped below), but measurably improve whether
     # the model stays grounded instead of confidently fabricating. Costs ~10-25s instead
     # of ~1-5s per call, so it's scoped to where accuracy matters more than latency.
-    if not _ollama_semaphore.acquire(timeout=OLLAMA_QUEUE_TIMEOUT):
-        raise TimeoutError(f"timed out after {OLLAMA_QUEUE_TIMEOUT}s waiting in the "
+    #
+    # queue_timeout=0 → non-blocking; used by background compression so it yields
+    # immediately to chat requests instead of competing for the Ollama slot.
+    wait = OLLAMA_QUEUE_TIMEOUT if queue_timeout is None else queue_timeout
+    if wait == 0:
+        acquired = _ollama_semaphore.acquire(blocking=False)
+    else:
+        acquired = _ollama_semaphore.acquire(timeout=wait)
+    if not acquired:
+        if queue_timeout == 0:
+            raise _OllamaBusy("Ollama busy, skipping")
+        raise TimeoutError(f"timed out after {wait}s waiting in the "
                            f"Ollama queue (server busy)")
     try:
         resp = requests.post(
@@ -624,13 +886,27 @@ _CHANNEL_REPLY_CD = 120
 _channel_reply_ts: dict[str, float] = {}
 _channel_reply_lock = threading.Lock()
 
+# Per-player cooldown for group (party/raid) channel replies (seconds)
+_GROUP_REPLY_CD = 30
+_group_reply_ts: dict[str, float] = {}
+_group_reply_lock = threading.Lock()
+
+# Guild channel: short per-sender cooldown + auto-sleep after inactivity
+_GUILD_REPLY_CD      = 10   # seconds — guild is lower-frequency than party/raid
+_GUILD_AWAKE_TIMEOUT = 300  # seconds — auto-sleep if no bot reply in 5 minutes
+_guild_reply_ts: dict[str, float] = {}
+_guild_reply_lock = threading.Lock()
+_guild_awake_ts: dict[int, float] = {}  # context_id → timestamp of last bot reply
+
 # Rolling buffer of recent world-channel messages, per realm — every world message gets
 # recorded here (not just ones that pass the question filter), so that when someone
 # explicitly @-mentions the bot ("@蒹葭 你看下上面 xxx 的问题") she has something to look
-# back at. Count-based cap, not time-based: simple, and "recent N messages" is what a
-# human skimming the channel would actually use as context too.
-_WORLD_RECENT_MAXLEN = 20
-_world_recent: dict[int, deque] = {}
+# back at. Persisted to Redis with a 2-hour TTL so the buffer survives service restarts
+# within the same play session. Falls back to an in-memory deque when Redis is unavailable.
+WORLD_RECENT_TTL  = 7200   # 2 hours — Redis key lifetime
+WORLD_RECENT_MAX  = 200    # max entries kept in Redis per realm (ltrim cap)
+WORLD_INJECT_LINES = 50    # how many recent lines to inject into @-mention context
+_world_recent: dict[int, deque] = {}   # in-memory fallback only
 _world_recent_lock = threading.Lock()
 
 # Separate, shorter cooldown for explicit @-mention summons (per summoner, not per the
@@ -643,17 +919,178 @@ _summon_reply_lock = threading.Lock()
 
 
 def _record_world_message(realm: int, sender: str, message: str) -> None:
+    entry = json.dumps([sender, message], ensure_ascii=False)
+    if _r_history:
+        key = f"jianjia:world:{realm}"
+        try:
+            pipe = _r_history.pipeline()
+            pipe.rpush(key, entry)
+            pipe.ltrim(key, -WORLD_RECENT_MAX, -1)
+            pipe.expire(key, WORLD_RECENT_TTL)
+            pipe.execute()
+            return
+        except Exception as e:
+            log.debug("World recent Redis write failed: %s", e)
+    # fallback: in-memory deque
     with _world_recent_lock:
-        buf = _world_recent.setdefault(realm, deque(maxlen=_WORLD_RECENT_MAXLEN))
+        buf = _world_recent.setdefault(realm, deque(maxlen=WORLD_INJECT_LINES))
         buf.append((sender, message))
 
 
+def _build_world_transcript(pairs: list) -> str:
+    """Compress consecutive identical messages: A/B（×3）：内容."""
+    compressed: list[tuple[list, str, int]] = []
+    for sender, msg in pairs:
+        if compressed and compressed[-1][1] == msg:
+            senders, prev_msg, count = compressed[-1]
+            if sender not in senders:
+                senders.append(sender)
+            compressed[-1] = (senders, prev_msg, count + 1)
+        else:
+            compressed.append(([sender], msg, 1))
+    lines = []
+    for senders, msg, count in compressed:
+        label = "/".join(senders[:3])
+        lines.append(f"{label}（×{count}）：{msg}" if count > 1 else f"{label}：{msg}")
+    return "\n".join(lines)
+
+
 def _get_world_recent_transcript(realm: int) -> str:
+    if _r_history:
+        key = f"jianjia:world:{realm}"
+        try:
+            entries = _r_history.lrange(key, -WORLD_INJECT_LINES, -1)
+            pairs = [json.loads(e) for e in entries]
+            return _build_world_transcript(pairs)
+        except Exception as e:
+            log.debug("World recent Redis read failed: %s", e)
+    # fallback: in-memory deque
     with _world_recent_lock:
         buf = _world_recent.get(realm)
         if not buf:
             return ""
-        return "\n".join(f"{s}：{m}" for s, m in buf)
+        return _build_world_transcript(list(buf))
+
+# ── Raid channel rolling buffer (per group, Redis-backed) ─────────────────────
+# Each raid group gets its own key (jianjia:raid:<realm>:<group_id>), so multiple
+# simultaneous raids don't share or overwrite each other's context.
+# No TTL — context is cleared explicitly on group_disband event (the game server
+# knows when a raid disbands; relying on a timer would either expire too early or
+# leave stale keys too long). Keys are also bounded by RAID_RECENT_MAX to cap storage.
+RAID_RECENT_MAX   = 100  # max messages stored per group in Redis (ltrim cap)
+RAID_INJECT_LINES = 20   # how many recent lines to inject as context
+
+
+def _record_raid_message(realm: int, group_id: int, sender: str, message: str) -> None:
+    if not _r_history or not group_id:
+        return
+    key = f"jianjia:raid:{realm}:{group_id}"
+    entry = json.dumps([sender, message], ensure_ascii=False)
+    try:
+        pipe = _r_history.pipeline()
+        pipe.rpush(key, entry)
+        pipe.ltrim(key, -RAID_RECENT_MAX, -1)
+        pipe.execute()
+    except Exception as e:
+        log.debug("Raid recent write failed (group %d): %s", group_id, e)
+
+
+def _clear_raid_context(realm: int, group_id: int) -> None:
+    if not _r_history or not group_id:
+        return
+    key = f"jianjia:raid:{realm}:{group_id}"
+    summary_key = f"jianjia:raid_summary:{realm}:{group_id}"
+    try:
+        _r_history.delete(key, summary_key)
+        log.info("Raid context cleared (realm=%d group=%d)", realm, group_id)
+    except Exception as e:
+        log.debug("Raid context clear failed (group %d): %s", group_id, e)
+
+
+def _get_raid_summary(realm: int, group_id: int) -> str:
+    try:
+        if _r_history:
+            val = _r_history.get(f"jianjia:raid_summary:{realm}:{group_id}")
+            return val.decode() if val else ""
+    except Exception:
+        pass
+    return ""
+
+
+def _save_raid_summary(realm: int, group_id: int, summary: str) -> None:
+    try:
+        if _r_history:
+            _r_history.set(f"jianjia:raid_summary:{realm}:{group_id}", summary.encode())
+    except Exception as e:
+        log.warning("Failed to save raid summary (group %d): %s", group_id, e)
+
+
+def _compress_raid_session(history: list[dict], existing_summary: str) -> str:
+    """LLM compression for raid: extract loot auction records and morale highlights only."""
+    conv_text = "\n".join(
+        f"{'队员' if m['role'] == 'user' else '蒹葭'}：{m['content']}"
+        for m in history
+    )
+    existing_part = f"【已有记录】\n{existing_summary}\n\n" if existing_summary else ""
+    prompt = (
+        f"{existing_part}"
+        f"【新增对话】\n{conv_text}\n\n"
+        "请从以上对话中提取两类信息（其他战斗流程不需要记录）：\n"
+        "1. 装备竞拍/分配记录：谁获得了哪件装备、出价多少金/DKP、每人分多少。\n"
+        "2. 活跃气氛节点：灭团次数及鼓励话语、重要首杀庆贺。\n"
+        "若无相关内容则对应项留空。简洁列举，不超过300字。"
+    )
+    try:
+        return _ollama_chat(
+            [{"role": "system", "content": "你是副本记录员，只记录装备分配和气氛节点。"},
+             {"role": "user", "content": prompt}],
+            think=False, temperature=0.3, num_predict=600, timeout=60, queue_timeout=0,
+        )
+    except _OllamaBusy:
+        log.debug("Raid session compression skipped (Ollama busy)")
+        return existing_summary
+    except Exception as e:
+        log.warning("Raid session compression failed: %s", e)
+        return existing_summary
+
+
+def _maybe_compress_raid(conv: "_ConvState", realm: int, group_id: int) -> None:
+    """Async raid session summary: saves to Redis only, cleared on group_disband."""
+    if len(conv.history) < MEMORY_COMPRESS_EVERY * 2:
+        return
+    history_snapshot = list(conv.history)
+    with _conv_lock:
+        conv.history = conv.history[-(MEMORY_KEEP_AFTER * 2):]
+
+    def _do_compress():
+        existing = _get_raid_summary(realm, group_id)
+        summary = _compress_raid_session(history_snapshot, existing)
+        if summary:
+            _save_raid_summary(realm, group_id, summary)
+            log.info("Raid summary updated (realm=%d group=%d %d chars)",
+                     realm, group_id, len(summary))
+
+    if _executor:
+        _executor.submit(_do_compress)
+    else:
+        threading.Thread(target=_do_compress, daemon=True).start()
+
+
+def _get_raid_transcript(realm: int, group_id: int) -> str:
+    if not _r_history or not group_id:
+        return ""
+    key = f"jianjia:raid:{realm}:{group_id}"
+    try:
+        entries = _r_history.lrange(key, -RAID_INJECT_LINES, -1)
+        pairs = [json.loads(e) for e in entries]
+        if not pairs:
+            return ""
+        body = _build_world_transcript(pairs)  # reuse same compression logic
+        return f"[最近团队频道消息（最新在下）：\n{body}\n]"
+    except Exception as e:
+        log.debug("Raid recent read failed (group %d): %s", group_id, e)
+        return ""
+
 
 # Low temperature for world-channel FAQ judgment (answer-from-KB-or-PASS is a strict
 # classification task, not creative chat; default 0.8 caused confident fabrication
@@ -680,6 +1117,14 @@ def _wake_up(context: str, context_id: int) -> None:
 
 def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_context: str,
                       bot_name: str, out_key: str, realm: int = 0, group_id: int = 0) -> None:
+    # For raid: fetch transcript BEFORE recording the current message so it doesn't
+    # appear both in the context block and as the user turn. Record regardless of
+    # wake-up/cooldown so even filtered messages end up in future context.
+    raid_transcript = ""
+    if chat_context == "raid":
+        raid_transcript = _get_raid_transcript(realm, group_id)
+        _record_raid_message(realm, group_id, sender, message)
+
     # Wake-up gate: only respond if already awake for this context, or bot name is mentioned.
     bot_mentioned = bot_name in message
     if not bot_mentioned and not _is_awake(chat_context, group_id):
@@ -689,17 +1134,34 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
     if bot_mentioned:
         _wake_up(chat_context, group_id)
 
+    with _group_reply_lock:
+        last = _group_reply_ts.get(sender, 0.0)
+        if time.time() - last < _GROUP_REPLY_CD:
+            _write_conv_log(realm, bot_name, "group_chat", "filtered_cooldown", sender,
+                            user_msg=message, context=chat_context)
+            return
+        _group_reply_ts[sender] = time.time()
+
     channel_name = _CHANNEL_NAMES.get(chat_context, "频道")
     system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
     system += "\n\n" + _PROMPT_TEMPLATES["group_wakeup"].format(channel_name=channel_name)
-    conv = _get_conv(sender, bot_name)
+    conv = _get_conv(sender, bot_name, realm)
+    if conv.memory:
+        system += f"\n\n[关于{sender}的记忆：\n{conv.memory}]"
     if conv.player_info:
         system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{conv.player_info}。"
                    f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
+    if chat_context == "raid":
+        raid_summary = _get_raid_summary(realm, group_id)
+        if raid_summary:
+            system += f"\n\n[本次团队活动记录（装备分配/气氛节点）：\n{raid_summary}]"
+    if raid_transcript:
+        system += f"\n\n{raid_transcript}"
 
-    history = _get_group_history(group_id, bot_name, chat_context, realm)
+    # Party uses DB history; raid uses its own Redis rolling buffer (injected above).
+    history = _get_group_history(group_id, bot_name, chat_context, realm) if chat_context == "party" else []
     messages = [{"role": "system", "content": system}] + history + [
-        {"role": "user", "content": f"{sender}：{message}"}
+        {"role": "user", "content": f"{sender}：{message}"},
     ]
     # Raid (团队) gets thinking like world/guild; party (小队) stays fast — same
     # speed-vs-accuracy split the user asked for, raid chat skews more toward
@@ -711,6 +1173,8 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
                              timeout=(180 if think else 30))
     except Exception as e:
         log.warning("Ollama error for group chat: %s", e)
+        with _group_reply_lock:
+            _group_reply_ts.pop(sender, None)
         _write_conv_log(realm, bot_name, "group_chat", "ollama_error", sender, conv.player_info,
                         message, context=chat_context, llm_calls=1,
                         latency_ms=(time.time() - t0) * 1000)
@@ -740,6 +1204,13 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
     log.info("[%s] %s chat reply to %s: %s", bot_name, chat_context, sender, reply)
     _write_conv_log(realm, bot_name, "group_chat", "answered", sender, conv.player_info, message,
                     reply, context=chat_context, llm_calls=llm_calls, latency_ms=latency_ms)
+    with _conv_lock:
+        conv.add("user", message)
+        conv.add("assistant", reply)
+    if chat_context == "party":
+        _maybe_compress(conv, realm)
+    else:  # raid: Redis-only summary, no MySQL
+        _maybe_compress_raid(conv, realm, group_id)
 
 
 def _verify_grounded(bot_name: str, question: str, reply: str) -> tuple[bool, float]:
@@ -754,7 +1225,7 @@ def _verify_grounded(bot_name: str, question: str, reply: str) -> tuple[bool, fl
     Returns (passed, latency_ms) — latency is returned too so callers can log total
     Ollama time spent per event without timing this call separately at every site.
     """
-    kb = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
+    kb = _KNOWLEDGE_CONTENT or _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
     system = _PROMPT_TEMPLATES["verify_grounded"].format(
         bot_name=bot_name, kb=kb, question=question, reply=reply)
     t0 = time.time()
@@ -784,17 +1255,41 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
     channel_name = _CHANNEL_NAMES.get(chat_context, "频道")
 
     if chat_context == "guild":
-        # Wake-up gate
+        # Wake-up gate + auto-sleep: if awake but no bot reply for GUILD_AWAKE_TIMEOUT
+        # seconds, go back to sleep so an idle guild stops paying LLM costs.
         bot_mentioned = bot_name in message
-        if not bot_mentioned and not _is_awake("guild", context_id):
+        awake = _is_awake("guild", context_id)
+        if awake:
+            with _awake_lock:
+                last_active = _guild_awake_ts.get(context_id, 0.0)
+            if time.time() - last_active > _GUILD_AWAKE_TIMEOUT:
+                with _awake_lock:
+                    _awake_contexts.discard(("guild", context_id))
+                    awake = False
+                log.info("Guild %d auto-slept (idle > %ds)", context_id, _GUILD_AWAKE_TIMEOUT)
+        if not bot_mentioned and not awake:
             _write_conv_log(realm, bot_name, "channel_chat", "filtered_not_awake", sender,
                             user_msg=message, context="guild")
             return
         if bot_mentioned:
             _wake_up("guild", context_id)
+            with _awake_lock:
+                _guild_awake_ts[context_id] = time.time()
 
+        # Per-sender cooldown
+        with _guild_reply_lock:
+            last = _guild_reply_ts.get(sender, 0.0)
+            if time.time() - last < _GUILD_REPLY_CD:
+                _write_conv_log(realm, bot_name, "channel_chat", "filtered_cooldown", sender,
+                                user_msg=message, context="guild")
+                return
+            _guild_reply_ts[sender] = time.time()
+
+        conv = _get_conv(sender, bot_name, realm)
         system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
         system += "\n\n" + _PROMPT_TEMPLATES["guild_wakeup"].format(channel_name=channel_name)
+        if conv.memory:
+            system += f"\n\n[关于{sender}的记忆：\n{conv.memory}]"
         if player_info:
             system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{player_info}。"
                        f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
@@ -889,6 +1384,11 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             _write_conv_log(realm, bot_name, "channel_chat", "answered", sender, player_info,
                             message, reply, context="world-summon", llm_calls=2,
                             latency_ms=total_latency_ms)
+            conv = _get_conv(sender, bot_name, realm)
+            with _conv_lock:
+                conv.add("user", message)
+                conv.add("assistant", reply)
+            _maybe_compress(conv, realm)
             return
 
         if not _QUESTION_RE.search(message):
@@ -956,6 +1456,14 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
     log.info("[%s] %s reply to %s: %s", bot_name, chat_context, sender, reply)
     _write_conv_log(realm, bot_name, "channel_chat", "answered", sender, player_info, message,
                     reply, context=chat_context, llm_calls=llm_calls, latency_ms=latency_ms)
+    conv = _get_conv(sender, bot_name, realm)
+    with _conv_lock:
+        conv.add("user", message)
+        conv.add("assistant", reply)
+    _maybe_compress(conv, realm)
+    if chat_context == "guild":
+        with _awake_lock:
+            _guild_awake_ts[context_id] = time.time()
 
 
 def handle_bg_afk(r_pub: "redis.Redis", sender: str, bot_name: str,
@@ -1036,7 +1544,6 @@ def handle_whisper(r_pub: "redis.Redis", sender: str, message: str, bot_name: st
                    out_key: str, player_info: str = "", realm: int = 0) -> None:
     log.info("[%s] Whisper from %s: %s", bot_name, sender, message)
 
-    # World DB lookup done outside the lock (may be slow)
     world_context = ""
     if _world_dbs:
         kws = _extract_game_keywords(message)
@@ -1045,12 +1552,14 @@ def handle_whisper(r_pub: "redis.Redis", sender: str, message: str, bot_name: st
             if world_context:
                 log.debug("World DB context for %s: %s", sender, world_context)
 
-    conv = _get_conv(sender, bot_name)
+    conv = _get_conv(sender, bot_name, realm)
     with _conv_lock:
         if player_info:
             conv.player_info = player_info
         conv.add("user", message)
-        messages = conv.messages_for_ollama(world_context)
+        whisper_ctx = _PROMPT_TEMPLATES.get("whisper_companion", "")
+        extra = "\n\n".join(filter(None, [whisper_ctx, world_context]))
+        messages = conv.messages_for_ollama(extra)
 
     t0 = time.time()
     outcome = "answered"
@@ -1065,6 +1574,7 @@ def handle_whisper(r_pub: "redis.Redis", sender: str, message: str, bot_name: st
     else:
         with _conv_lock:
             conv.add("assistant", reply)
+        _maybe_compress(conv, realm)  # async, non-blocking
     latency_ms = (time.time() - t0) * 1000
 
     payload = json.dumps({"target": sender, "message": reply}, ensure_ascii=False, separators=(",", ":"))
@@ -1123,6 +1633,13 @@ def process_message(r_pub: "redis.Redis", data: str, in_channel: str) -> None:
     elif event == "quest_complete":
         quest_title = msg.get("quest", "").strip()
         handle_quest_complete(r_pub, sender, bot_name, quest_title, player_info, out_key, realm)
+    elif event == "group_disband":
+        group_id = int(msg.get("group_id", 0))
+        ctx      = msg.get("context", "raid")
+        if ctx == "raid" and group_id:
+            _clear_raid_context(realm, group_id)
+            with _awake_lock:
+                _awake_contexts.discard(("raid", group_id))
     else:
         message = msg.get("message", "").strip()
         if not message:
@@ -1148,7 +1665,7 @@ def cleanup_loop() -> None:
 
 def main() -> None:
     global OLLAMA_MODEL, OLLAMA_URL, OLLAMA_CONTEXT_TOKENS, OLLAMA_MAX_CONCURRENT, \
-           _ollama_semaphore, MAX_HISTORY_TURNS, HISTORY_TTL
+           _ollama_semaphore, MAX_HISTORY_TURNS, HISTORY_TTL, _r_history, _executor
 
     parser = argparse.ArgumentParser(description="蒹葭 AI Companion Service")
     parser.add_argument(
@@ -1202,22 +1719,26 @@ def main() -> None:
     # ── Init conversation log ──────────────────────────────────────────────────
     _init_conv_log(svc.get("log_dir", "logs"))
 
-    # ── Init per-realm DB connections ──────────────────────────────────────────
+    # ── Init per-realm DB connections ─────────────────────────────────────────
     if realms_cfg:
         _init_realm_dbs(realms_cfg)
 
-    # ── Redis pub/sub ──────────────────────────────────────────────────────────
+    # ── Redis pub/sub + history ────────────────────────────────────────────────
     in_pattern = "web_chat:jianjia_in:*"
     r_pub = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
     r_sub = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+    _r_history = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
     pubsub = r_sub.pubsub()
     pubsub.psubscribe(in_pattern)
 
+    _executor = ThreadPoolExecutor(max_workers=50, thread_name_prefix="jianjia")
+    executor = _executor
     threading.Thread(target=cleanup_loop, daemon=True).start()
 
     def _shutdown(sig, frame):
         log.info("Shutting down.")
         pubsub.punsubscribe()
+        executor.shutdown(wait=False)
         try:
             os.remove(pid_file)
         except OSError:
@@ -1248,11 +1769,7 @@ def main() -> None:
     for msg in pubsub.listen():
         if msg["type"] != "pmessage":
             continue
-        threading.Thread(
-            target=process_message,
-            args=(r_pub, msg["data"], msg["channel"]),
-            daemon=True,
-        ).start()
+        executor.submit(process_message, r_pub, msg["data"], msg["channel"])
 
 
 if __name__ == "__main__":
