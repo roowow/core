@@ -73,7 +73,7 @@ world DB 查询结果（仅私聊，按关键词实时查 MySQL）
 | **触发条件** | 无过滤，全响应 | 唤醒门控¹ | 唤醒门控¹ | 唤醒门控¹ | 问句过滤² 或 @提及 |
 | **prompt 模板** | `whisper_companion` | `group_wakeup` | `group_wakeup`³ | `guild_wakeup` | `world_question` / `world_summon` |
 | **对话历史** | Redis 永久，最近 20 turn | 无 | Redis 滚动缓存，最近20条，按 group_id 隔离，解散清除 | 无 | 无；@提及时有最近50条世界频道滚动缓存 |
-| **精华记忆** | MySQL 永久 + Redis 缓存，注入 system | MySQL 永久 + Redis 缓存，注入 system | Redis session 摘要（解散清除），注入 system | MySQL 永久 + Redis 缓存，注入 system | MySQL 永久 + Redis 缓存，静默积累（不注入） |
+| **精华记忆** | MySQL 永久 + Redis 缓存，注入 system（独立一份） | Redis 活动摘要（TTL 1小时），注入 system，**不写 MySQL** | Redis session 摘要（TTL/解散清除），注入 system，**不写 MySQL** | MySQL 永久 + Redis 缓存，注入 system（按公会ID隔离，换公会=新记忆，不跟世界频道共享） | MySQL 永久 + Redis 缓存，注入 system（独立一份，不跟公会共享） |
 | **冷却时间** | 无 | 30s/人 | 30s/人 | 无 | 120s/人；@提及单独 60s/人 |
 | **think 模式** | 关（快速） | 关（快速） | 开（准确） | 开（准确） | 开（准确，低温 0.2） |
 | **verify_grounded** | 否 | 否 | 是 | 是 | 是 |
@@ -125,11 +125,11 @@ soul + 知识库（~8,400）
 
 | 维度 | 说明 |
 |------|------|
-| 历史 | 无（无状态，每条消息独立） |
-| 精华记忆 | MySQL 主存（永久）+ Redis 缓存（1小时 TTL），每 20 轮异步压缩一次，注入 system |
+| 历史 | 小队 DB 短期历史（`_get_group_history`，按 `[Group:group_id]` 精确匹配），每次请求现查，不做长期存储 |
+| 精华记忆 | **无 MySQL 永久存储**，仅 Redis 按 group_id 存一份短活动摘要（`jianjia:party_summary:<realm>:<group_id>`，1小时 TTL 自动过期），每 20 轮异步压缩一次，注入 system。跟私聊/公会/世界频道共用的"精华记忆"（per-player, MySQL 永久）完全独立、不共享——小队是临时组队场景，没必要给单个玩家建立跨会话长期画像，做法上对齐团队（raid）的 Redis-only 方案，但小队没有稳定的解散事件可用（`group_disband` 目前 C++ 侧还没有实际发出，raid 那边同样存在这个缺口），所以用 TTL 兜底自动过期，不依赖解散事件清理 |
 | 唤醒 | bot 名字出现在消息中才激活，服务重启清零 |
 | 冷却 | 30s/人（`_GROUP_REPLY_CD`），避免高频刷屏 |
-| 玩家信息 | 从内存 conv state 取（有则注入） |
+| 玩家信息 | 小队不单独维护玩家信息，无对应参数传入（跟公会/世界频道不同，那两个是从消息里带的 `player_info` 参数直接注入） |
 
 context 构成（约占 tokens）：
 
@@ -150,7 +150,7 @@ soul + 知识库（~8,400）
 | 维度 | 说明 |
 |------|------|
 | 历史 | 无（无状态，每条消息独立） |
-| 精华记忆 | MySQL 主存（永久）+ Redis 缓存（1小时 TTL），每 20 轮异步压缩一次，注入 system |
+| 精华记忆 | MySQL 主存（永久）+ Redis 缓存（1小时 TTL），每 20 轮异步压缩一次，注入 system。scope=`"guild:<context_id>"`（按公会ID隔离，换公会=全新一份记忆），跟世界频道的 scope=`"world"` 各自独立存储，互不共享 |
 | 唤醒 | bot 名字出现在消息中才激活，服务重启清零 |
 | 冷却 | 无（公会频道消息频率低，无需节流） |
 | 玩家信息 | 有则注入 system |
@@ -212,7 +212,7 @@ soul + 知识库（~8,400）
 - 2小时覆盖同一玩家的完整在线时段，重启后仍有上下文
 - 普通问句不注入历史（无状态，单次请求）；@提及时才拉取
 
-**精华记忆**：每次成功回复后静默积累到 conv state，满 20 轮异步压缩写入 MySQL/Redis。世界频道**不**将记忆注入 system prompt（世界频道本身无状态，记忆主要供其他频道使用）。
+**精华记忆**：每次成功回复后静默积累到 conv state（scope=`"world"`，跟公会的 scope=`"guild:<context_id>"` 各自独立、互不共享），满 20 轮异步压缩写入 MySQL/Redis，并注入 system prompt（被动问答、@提及召唤两条路径都会读取）。
 
 ## 底座架构方案
 
