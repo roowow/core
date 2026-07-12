@@ -128,13 +128,34 @@ def _init_memory_table(db: "pymysql.Connection", realm_id: int) -> None:
                     id         INT AUTO_INCREMENT PRIMARY KEY,
                     realm_id   INT         NOT NULL,
                     bot_name   VARCHAR(64) NOT NULL,
+                    scope      VARCHAR(32) NOT NULL DEFAULT 'whisper',
                     player     VARCHAR(64) NOT NULL,
                     memory     TEXT        NOT NULL,
                     updated_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP
                                ON UPDATE CURRENT_TIMESTAMP,
-                    UNIQUE KEY uk (realm_id, bot_name, player)
+                    UNIQUE KEY uk (realm_id, bot_name, scope, player)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """)
+            # Best-effort migrations for a table already created by an earlier version of
+            # this function — errors here just mean the migration was already applied, or
+            # the table was already fresh. scope went from VARCHAR(16) to VARCHAR(32) when
+            # guild scope became "guild:<context_id>" (a plain "guild" fit in 16, but
+            # "guild:" + a real guild id can run past it and silently truncate).
+            try:
+                cur.execute("ALTER TABLE jianjia_player_memory "
+                            "ADD COLUMN scope VARCHAR(32) NOT NULL DEFAULT 'whisper' AFTER bot_name")
+            except Exception:
+                pass
+            try:
+                cur.execute("ALTER TABLE jianjia_player_memory MODIFY COLUMN scope VARCHAR(32) NOT NULL DEFAULT 'whisper'")
+            except Exception:
+                pass
+            try:
+                cur.execute("ALTER TABLE jianjia_player_memory DROP INDEX uk")
+                cur.execute("ALTER TABLE jianjia_player_memory "
+                            "ADD UNIQUE KEY uk (realm_id, bot_name, scope, player)")
+            except Exception:
+                pass
         log.info("Memory table ready (realm %d)", realm_id)
     except Exception as e:
         log.warning("Failed to init memory table for realm %d: %s", realm_id, e)
@@ -502,14 +523,14 @@ _r_history: "redis.Redis | None" = None  # set in main()
 _executor: "ThreadPoolExecutor | None" = None  # set in main(), used for async compression
 
 
-def _history_key(bot_name: str, player: str) -> str:
-    return f"jianjia:hist:{bot_name}:{player}"
+def _history_key(bot_name: str, scope: str, player: str) -> str:
+    return f"jianjia:hist:{bot_name}:{scope}:{player}"
 
 
-def _persist_history(player: str, bot_name: str, history: list[dict]) -> None:
+def _persist_history(player: str, bot_name: str, scope: str, history: list[dict]) -> None:
     if not _r_history:
         return
-    key = _history_key(bot_name, player)
+    key = _history_key(bot_name, scope, player)
     try:
         pipe = _r_history.pipeline()
         pipe.delete(key)
@@ -521,7 +542,15 @@ def _persist_history(player: str, bot_name: str, history: list[dict]) -> None:
 
 
 def _load_history_from_db(player: str, bot_name: str, realm_id: int = 0) -> list[dict]:
-    """Cold-start whisper history from logs DB when Redis has no record for this player."""
+    """Cold-start whisper history from logs DB when Redis has no record for this player.
+
+    Whisper rows are logged by World::LogChat as "[Whisp] Sender:guid -> Target:guid : text"
+    (see World.cpp LogChat, type="Whisp" — NOT "Whisper", and the counterpart's name is only
+    findable via the "-> Target:" segment, not the `name` column, which is always the sender).
+    Scoping by `name IN (player, bot_name)` alone (a prior version of this query) would pull in
+    this player's/bot's whispers with anyone else, not just this specific pair — the "-> " match
+    below is required to keep this player and bot's history from bleeding into someone else's.
+    """
     db = _logs_dbs.get(realm_id)
     if not db:
         return []
@@ -531,10 +560,13 @@ def _load_history_from_db(player: str, bot_name: str, realm_id: int = 0) -> list
         with db.cursor() as cur:
             cur.execute(
                 "SELECT name, text FROM logs_player "
-                "WHERE type='Chat' AND text LIKE '[Whisper%' "
-                "AND (name = %s OR name = %s) "
-                "ORDER BY id DESC LIMIT %s",
-                (player, bot_name, MAX_HISTORY_TURNS * 2),
+                "WHERE type='Chat' AND ("
+                "  (name = %s AND text LIKE %s) "
+                "  OR (name = %s AND text LIKE %s)"
+                ") ORDER BY id DESC LIMIT %s",
+                (player, f"[Whisp]%-> {bot_name}:%",
+                 bot_name, f"[Whisp]%-> {player}:%",
+                 MAX_HISTORY_TURNS * 2),
             )
             rows = list(reversed(cur.fetchall()))
     except Exception as e:
@@ -551,9 +583,9 @@ def _load_history_from_db(player: str, bot_name: str, realm_id: int = 0) -> list
     return messages
 
 
-def _restore_history(player: str, bot_name: str, realm_id: int = 0) -> list[dict]:
+def _restore_history(player: str, bot_name: str, scope: str, realm_id: int = 0) -> list[dict]:
     if _r_history:
-        key = _history_key(bot_name, player)
+        key = _history_key(bot_name, scope, player)
         try:
             entries = _r_history.lrange(key, 0, -1)
             if entries:
@@ -561,25 +593,30 @@ def _restore_history(player: str, bot_name: str, realm_id: int = 0) -> list[dict
         except Exception as e:
             log.debug("History restore from Redis failed for %s: %s", player, e)
 
-    # Redis empty — cold-start from logs DB, then warm Redis cache
+    # Redis empty — cold-start from logs DB. Only meaningful for whisper: that's the
+    # only scope with a matching per-pair log format to scope the query correctly (see
+    # _load_history_from_db). "public" (group/guild/world) history is short-lived context
+    # covered by their own per-context mechanisms anyway, so it starts empty here.
+    if scope != "whisper":
+        return []
     history = _load_history_from_db(player, bot_name, realm_id)
     if history:
         log.info("Cold-started history for %s from logs DB (%d turns)", player, len(history) // 2)
-        _persist_history(player, bot_name, history)
+        _persist_history(player, bot_name, scope, history)
     return history
 
 
 # ── Player memory — 精华记忆 (MySQL primary, Redis cache) ─────────────────────
 
-def _memory_redis_key(bot_name: str, player: str) -> str:
-    return f"jianjia:memory:{bot_name}:{player}"
+def _memory_redis_key(bot_name: str, scope: str, player: str) -> str:
+    return f"jianjia:memory:{bot_name}:{scope}:{player}"
 
 
-def _get_player_memory(player: str, bot_name: str, realm_id: int = 0) -> str:
+def _get_player_memory(player: str, bot_name: str, scope: str, realm_id: int = 0) -> str:
     """Read compressed memory: Redis cache first, MySQL fallback."""
     if _r_history:
         try:
-            cached = _r_history.get(_memory_redis_key(bot_name, player))
+            cached = _r_history.get(_memory_redis_key(bot_name, scope, player))
             if cached:
                 return cached
         except Exception as e:
@@ -592,15 +629,15 @@ def _get_player_memory(player: str, bot_name: str, realm_id: int = 0) -> str:
         with db.cursor() as cur:
             cur.execute(
                 "SELECT memory FROM jianjia_player_memory "
-                "WHERE realm_id=%s AND bot_name=%s AND player=%s",
-                (realm_id, bot_name, player),
+                "WHERE realm_id=%s AND bot_name=%s AND scope=%s AND player=%s",
+                (realm_id, bot_name, scope, player),
             )
             row = cur.fetchone()
             if row:
                 memory = row[0]
                 if _r_history:
                     try:
-                        _r_history.setex(_memory_redis_key(bot_name, player), MEMORY_REDIS_TTL, memory)
+                        _r_history.setex(_memory_redis_key(bot_name, scope, player), MEMORY_REDIS_TTL, memory)
                     except Exception:
                         pass
                 return memory
@@ -609,24 +646,24 @@ def _get_player_memory(player: str, bot_name: str, realm_id: int = 0) -> str:
     return ""
 
 
-def _save_player_memory(player: str, bot_name: str, realm_id: int, memory: str) -> None:
+def _save_player_memory(player: str, bot_name: str, realm_id: int, scope: str, memory: str) -> None:
     """Persist compressed memory to MySQL (primary) and refresh Redis cache."""
     db = _logs_dbs.get(realm_id)
     if db and _ping_db(db, f"Realm {realm_id} logs DB"):
         try:
             with db.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO jianjia_player_memory (realm_id, bot_name, player, memory) "
-                    "VALUES (%s, %s, %s, %s) "
+                    "INSERT INTO jianjia_player_memory (realm_id, bot_name, scope, player, memory) "
+                    "VALUES (%s, %s, %s, %s, %s) "
                     "ON DUPLICATE KEY UPDATE memory=%s, updated_at=NOW()",
-                    (realm_id, bot_name, player, memory, memory),
+                    (realm_id, bot_name, scope, player, memory, memory),
                 )
         except Exception as e:
             log.warning("Memory DB save failed for %s: %s", player, e)
 
     if _r_history:
         try:
-            _r_history.setex(_memory_redis_key(bot_name, player), MEMORY_REDIS_TTL, memory)
+            _r_history.setex(_memory_redis_key(bot_name, scope, player), MEMORY_REDIS_TTL, memory)
         except Exception as e:
             log.debug("Memory Redis cache update failed for %s: %s", player, e)
 
@@ -667,18 +704,18 @@ def _maybe_compress(conv: "_ConvState", realm_id: int) -> None:
         return
 
     history_snapshot = list(conv.history)
-    player, bot_name = conv.player, conv.bot_name
+    player, bot_name, scope = conv.player, conv.bot_name, conv.scope
 
     # Trim history immediately (sync) so next request uses a shorter window
     with _conv_lock:
         conv.history = conv.history[-(MEMORY_KEEP_AFTER * 2):]
-        _persist_history(player, bot_name, conv.history)
+        _persist_history(player, bot_name, scope, conv.history)
 
     def _do_compress():
         new_memory = _compress_history(player, bot_name, history_snapshot, conv.memory)
         if new_memory:
             conv.memory = new_memory
-            _save_player_memory(player, bot_name, realm_id, new_memory)
+            _save_player_memory(player, bot_name, realm_id, scope, new_memory)
             log.info("Memory compressed for %s (%d chars)", player, len(new_memory))
 
     if _executor:
@@ -690,9 +727,10 @@ def _maybe_compress(conv: "_ConvState", realm_id: int) -> None:
 # ── per-player conversation state ─────────────────────────────────────────────
 
 class _ConvState:
-    def __init__(self, player: str, bot_name: str):
+    def __init__(self, player: str, bot_name: str, scope: str):
         self.player = player
         self.bot_name = bot_name
+        self.scope = scope          # "whisper" (private) or "public" (group/guild/world)
         self.player_info: str = ""
         self.memory: str = ""       # compressed long-term memory (精华记忆)
         self.history: list[dict] = []
@@ -705,7 +743,7 @@ class _ConvState:
         if len(self.history) > MEMORY_COMPRESS_EVERY * 4:
             self.history = self.history[-(MEMORY_KEEP_AFTER * 2):]
         self.last_ts = time.time()
-        _persist_history(self.player, self.bot_name, self.history)
+        _persist_history(self.player, self.bot_name, self.scope, self.history)
 
     def messages_for_ollama(self, extra_context: str = "") -> list[dict]:
         system = _SYSTEM_PROMPT_TEMPLATE.format(name=self.bot_name)
@@ -725,14 +763,21 @@ _conversations: dict[str, _ConvState] = {}
 _conv_lock = threading.Lock()
 
 
-def _get_conv(player: str, bot_name: str, realm_id: int = 0) -> _ConvState:
+def _get_conv(player: str, bot_name: str, realm_id: int = 0, scope: str = "whisper") -> _ConvState:
+    """`scope` separates private whisper conversation/memory from "public" (group/guild/
+    world) conversation/memory for the same player — they must never share one _ConvState,
+    otherwise something a player said privately in a whisper can get compressed into their
+    memory profile and then surface again when the bot replies to them in a party/raid/guild
+    channel, which is visible to everyone else there.
+    """
+    key = f"{scope}:{player}"
     with _conv_lock:
-        if player not in _conversations:
-            state = _ConvState(player, bot_name)
-            state.history = _restore_history(player, bot_name, realm_id)
-            state.memory  = _get_player_memory(player, bot_name, realm_id)
-            _conversations[player] = state
-        return _conversations[player]
+        if key not in _conversations:
+            state = _ConvState(player, bot_name, scope)
+            state.history = _restore_history(player, bot_name, scope, realm_id)
+            state.memory  = _get_player_memory(player, bot_name, scope, realm_id)
+            _conversations[key] = state
+        return _conversations[key]
 
 
 # ── Ollama ────────────────────────────────────────────────────────────────────
@@ -1008,10 +1053,16 @@ def _clear_raid_context(realm: int, group_id: int) -> None:
 
 
 def _get_raid_summary(realm: int, group_id: int) -> str:
+    # _r_history is created with decode_responses=True, so .get() already returns str
+    # (or None) — never bytes. Calling .decode() on that (a prior version of this
+    # function did) raises AttributeError on every real cache hit, silently swallowed
+    # by the except below, which meant this always returned "" even right after a
+    # successful _save_raid_summary — the raid activity-summary context was silently
+    # never actually injected.
     try:
         if _r_history:
             val = _r_history.get(f"jianjia:raid_summary:{realm}:{group_id}")
-            return val.decode() if val else ""
+            return val or ""
     except Exception:
         pass
     return ""
@@ -1020,17 +1071,14 @@ def _get_raid_summary(realm: int, group_id: int) -> str:
 def _save_raid_summary(realm: int, group_id: int, summary: str) -> None:
     try:
         if _r_history:
-            _r_history.set(f"jianjia:raid_summary:{realm}:{group_id}", summary.encode())
+            _r_history.set(f"jianjia:raid_summary:{realm}:{group_id}", summary)
     except Exception as e:
         log.warning("Failed to save raid summary (group %d): %s", group_id, e)
 
 
-def _compress_raid_session(history: list[dict], existing_summary: str) -> str:
+def _compress_raid_session(history: list[tuple], existing_summary: str) -> str:
     """LLM compression for raid: extract loot auction records and morale highlights only."""
-    conv_text = "\n".join(
-        f"{'队员' if m['role'] == 'user' else '蒹葭'}：{m['content']}"
-        for m in history
-    )
+    conv_text = "\n".join(f"{sender}：{msg}" for sender, msg in history)
     existing_part = f"【已有记录】\n{existing_summary}\n\n" if existing_summary else ""
     prompt = (
         f"{existing_part}"
@@ -1054,13 +1102,27 @@ def _compress_raid_session(history: list[dict], existing_summary: str) -> str:
         return existing_summary
 
 
-def _maybe_compress_raid(conv: "_ConvState", realm: int, group_id: int) -> None:
-    """Async raid session summary: saves to Redis only, cleared on group_disband."""
-    if len(conv.history) < MEMORY_COMPRESS_EVERY * 2:
+def _maybe_compress_raid(realm: int, group_id: int) -> None:
+    """Async raid session summary: Redis-only (no MySQL, no per-player _ConvState),
+    snapshotted straight from the raid transcript buffer (jianjia:raid:<realm>:<group_id>)
+    that _record_raid_message already writes to — no separate tracking needed.
+    """
+    if not _r_history or not group_id:
         return
-    history_snapshot = list(conv.history)
-    with _conv_lock:
-        conv.history = conv.history[-(MEMORY_KEEP_AFTER * 2):]
+    key = f"jianjia:raid:{realm}:{group_id}"
+    try:
+        length = _r_history.llen(key)
+    except Exception:
+        return
+    if length < MEMORY_COMPRESS_EVERY * 2:
+        return
+    try:
+        entries = _r_history.lrange(key, 0, -1)
+        history_snapshot = [tuple(json.loads(e)) for e in entries]
+        _r_history.ltrim(key, -(MEMORY_KEEP_AFTER * 2), -1)
+    except Exception as e:
+        log.debug("Raid history snapshot failed (group %d): %s", group_id, e)
+        return
 
     def _do_compress():
         existing = _get_raid_summary(realm, group_id)
@@ -1090,6 +1152,111 @@ def _get_raid_transcript(realm: int, group_id: int) -> str:
     except Exception as e:
         log.debug("Raid recent read failed (group %d): %s", group_id, e)
         return ""
+
+
+# ── Party channel rolling buffer (per group, Redis-only, TTL-cleaned) ─────────
+# Party groups form/disband far more often than raids, and don't have a reliable
+# disband signal wired from the game server (the same gap exists for raid's
+# group_disband — nothing on the C++ side currently emits that event either), so
+# this relies purely on TTL instead of an explicit clear. No MySQL involved at all:
+# party context is too short-lived to warrant a permanent per-player profile the
+# way whisper/guild/world get one — this mirrors raid's Redis-only summary, just
+# entirely decoupled from the per-player _ConvState/_get_conv machinery.
+PARTY_RECENT_MAX  = 40    # max messages stored per group in Redis (ltrim cap)
+PARTY_RECENT_TTL  = 3600  # 1 hour idle → transcript buffer auto-expires
+PARTY_SUMMARY_TTL = 3600  # 1 hour idle → summary auto-expires
+
+
+def _record_party_message(realm: int, group_id: int, sender: str, message: str) -> None:
+    if not _r_history or not group_id:
+        return
+    key = f"jianjia:party:{realm}:{group_id}"
+    entry = json.dumps([sender, message], ensure_ascii=False)
+    try:
+        pipe = _r_history.pipeline()
+        pipe.rpush(key, entry)
+        pipe.ltrim(key, -PARTY_RECENT_MAX, -1)
+        pipe.expire(key, PARTY_RECENT_TTL)
+        pipe.execute()
+    except Exception as e:
+        log.debug("Party recent write failed (group %d): %s", group_id, e)
+
+
+def _get_party_summary(realm: int, group_id: int) -> str:
+    # _r_history uses decode_responses=True, so .get() already returns str/None —
+    # no .decode() needed (see _get_raid_summary for why that would silently break this).
+    try:
+        if _r_history:
+            val = _r_history.get(f"jianjia:party_summary:{realm}:{group_id}")
+            return val or ""
+    except Exception:
+        pass
+    return ""
+
+
+def _save_party_summary(realm: int, group_id: int, summary: str) -> None:
+    try:
+        if _r_history:
+            _r_history.setex(f"jianjia:party_summary:{realm}:{group_id}", PARTY_SUMMARY_TTL, summary)
+    except Exception as e:
+        log.warning("Failed to save party summary (group %d): %s", group_id, e)
+
+
+def _compress_party_session(history: list[tuple], existing_summary: str) -> str:
+    """LLM compression for party: lightweight session gist, Redis-only, no MySQL."""
+    conv_text = "\n".join(f"{sender}：{msg}" for sender, msg in history)
+    existing_part = f"【已有记录】\n{existing_summary}\n\n" if existing_summary else ""
+    prompt = (
+        f"{existing_part}"
+        f"【新增对话】\n{conv_text}\n\n"
+        "请简要提炼这支小队目前在做什么（任务/副本/遇到的问题），"
+        "以及队员提过的重要需求或偏好。简洁列举，不超过200字。"
+    )
+    try:
+        return _ollama_chat(
+            [{"role": "system", "content": "你是小队记录员，只记录活动状态和队员需求。"},
+             {"role": "user", "content": prompt}],
+            think=False, temperature=0.3, num_predict=400, timeout=60, queue_timeout=0,
+        )
+    except _OllamaBusy:
+        log.debug("Party session compression skipped (Ollama busy)")
+        return existing_summary
+    except Exception as e:
+        log.warning("Party session compression failed: %s", e)
+        return existing_summary
+
+
+def _maybe_compress_party(realm: int, group_id: int) -> None:
+    """Async party session summary: Redis-only, TTL-expired, no MySQL, no per-player state."""
+    if not _r_history or not group_id:
+        return
+    key = f"jianjia:party:{realm}:{group_id}"
+    try:
+        length = _r_history.llen(key)
+    except Exception:
+        return
+    if length < MEMORY_COMPRESS_EVERY * 2:
+        return
+    try:
+        entries = _r_history.lrange(key, 0, -1)
+        history_snapshot = [tuple(json.loads(e)) for e in entries]
+        _r_history.ltrim(key, -(MEMORY_KEEP_AFTER * 2), -1)
+    except Exception as e:
+        log.debug("Party history snapshot failed (group %d): %s", group_id, e)
+        return
+
+    def _do_compress():
+        existing = _get_party_summary(realm, group_id)
+        summary = _compress_party_session(history_snapshot, existing)
+        if summary:
+            _save_party_summary(realm, group_id, summary)
+            log.info("Party summary updated (realm=%d group=%d %d chars)",
+                     realm, group_id, len(summary))
+
+    if _executor:
+        _executor.submit(_do_compress)
+    else:
+        threading.Thread(target=_do_compress, daemon=True).start()
 
 
 # Low temperature for world-channel FAQ judgment (answer-from-KB-or-PASS is a strict
@@ -1145,18 +1312,22 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
     channel_name = _CHANNEL_NAMES.get(chat_context, "频道")
     system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
     system += "\n\n" + _PROMPT_TEMPLATES["group_wakeup"].format(channel_name=channel_name)
-    conv = _get_conv(sender, bot_name, realm)
-    if conv.memory:
-        system += f"\n\n[关于{sender}的记忆：\n{conv.memory}]"
-    if conv.player_info:
-        system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{conv.player_info}。"
-                   f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
+
+    # Neither raid nor party keeps a permanent per-player MySQL profile — both are
+    # transient group contexts, not a persistent player relationship (that's what
+    # whisper/guild/world are for). Each gets only its own short-lived, Redis-only
+    # per-group summary (_maybe_compress_raid / _maybe_compress_party).
+    player_info_for_log = ""
     if chat_context == "raid":
         raid_summary = _get_raid_summary(realm, group_id)
         if raid_summary:
             system += f"\n\n[本次团队活动记录（装备分配/气氛节点）：\n{raid_summary}]"
-    if raid_transcript:
-        system += f"\n\n{raid_transcript}"
+        if raid_transcript:
+            system += f"\n\n{raid_transcript}"
+    else:  # party
+        party_summary = _get_party_summary(realm, group_id)
+        if party_summary:
+            system += f"\n\n[本次小队活动记录：\n{party_summary}]"
 
     # Party uses DB history; raid uses its own Redis rolling buffer (injected above).
     history = _get_group_history(group_id, bot_name, chat_context, realm) if chat_context == "party" else []
@@ -1175,13 +1346,13 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
         log.warning("Ollama error for group chat: %s", e)
         with _group_reply_lock:
             _group_reply_ts.pop(sender, None)
-        _write_conv_log(realm, bot_name, "group_chat", "ollama_error", sender, conv.player_info,
+        _write_conv_log(realm, bot_name, "group_chat", "ollama_error", sender, player_info_for_log,
                         message, context=chat_context, llm_calls=1,
                         latency_ms=(time.time() - t0) * 1000)
         return
     gen_latency_ms = (time.time() - t0) * 1000
     if not reply or _PASS_RE.search(reply):
-        _write_conv_log(realm, bot_name, "group_chat", "pass", sender, conv.player_info, message,
+        _write_conv_log(realm, bot_name, "group_chat", "pass", sender, player_info_for_log, message,
                         context=chat_context, llm_calls=1, latency_ms=gen_latency_ms)
         return
 
@@ -1194,7 +1365,7 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
             log.info("[%s] %s reply to %s failed grounding check, discarding: %s",
                      bot_name, chat_context, sender, reply)
             _write_conv_log(realm, bot_name, "group_chat", "verify_rejected", sender,
-                            conv.player_info, message, reply, context=chat_context,
+                            player_info_for_log, message, reply, context=chat_context,
                             llm_calls=llm_calls, latency_ms=latency_ms)
             return
 
@@ -1202,15 +1373,14 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
                          ensure_ascii=False, separators=(",", ":"))
     r_pub.publish(out_key, payload)
     log.info("[%s] %s chat reply to %s: %s", bot_name, chat_context, sender, reply)
-    _write_conv_log(realm, bot_name, "group_chat", "answered", sender, conv.player_info, message,
+    _write_conv_log(realm, bot_name, "group_chat", "answered", sender, player_info_for_log, message,
                     reply, context=chat_context, llm_calls=llm_calls, latency_ms=latency_ms)
-    with _conv_lock:
-        conv.add("user", message)
-        conv.add("assistant", reply)
     if chat_context == "party":
-        _maybe_compress(conv, realm)
-    else:  # raid: Redis-only summary, no MySQL
-        _maybe_compress_raid(conv, realm, group_id)
+        _record_party_message(realm, group_id, sender, message)
+        _record_party_message(realm, group_id, bot_name, reply)
+        _maybe_compress_party(realm, group_id)
+    else:  # raid: Redis-only group summary, no MySQL, no per-player state
+        _maybe_compress_raid(realm, group_id)
 
 
 def _verify_grounded(bot_name: str, question: str, reply: str) -> tuple[bool, float]:
@@ -1285,7 +1455,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                 return
             _guild_reply_ts[sender] = time.time()
 
-        conv = _get_conv(sender, bot_name, realm)
+        conv = _get_conv(sender, bot_name, realm, scope=f"guild:{context_id}")
         system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
         system += "\n\n" + _PROMPT_TEMPLATES["guild_wakeup"].format(channel_name=channel_name)
         if conv.memory:
@@ -1338,10 +1508,13 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                     return
                 _summon_reply_ts[sender] = time.time()
 
+            conv = _get_conv(sender, bot_name, realm, scope="world")
             transcript = _get_world_recent_transcript(realm)
             system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
             system += "\n\n" + _PROMPT_TEMPLATES["world_summon"].format(
                 channel_name=channel_name, transcript=transcript, sender=sender)
+            if conv.memory:
+                system += f"\n\n[关于{sender}的记忆：\n{conv.memory}]"
             messages = [
                 {"role": "system", "content": system},
                 {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
@@ -1384,7 +1557,6 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             _write_conv_log(realm, bot_name, "channel_chat", "answered", sender, player_info,
                             message, reply, context="world-summon", llm_calls=2,
                             latency_ms=total_latency_ms)
-            conv = _get_conv(sender, bot_name, realm)
             with _conv_lock:
                 conv.add("user", message)
                 conv.add("assistant", reply)
@@ -1403,9 +1575,12 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                 return
             _channel_reply_ts[sender] = time.time()
 
+        conv = _get_conv(sender, bot_name, realm, scope="world")
         system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
         system += "\n\n" + _PROMPT_TEMPLATES["world_question"].format(
             channel_name=channel_name, sender=sender)
+        if conv.memory:
+            system += f"\n\n[关于{sender}的记忆：\n{conv.memory}]"
         if player_info:
             system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{player_info}。"
                        f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
@@ -1456,7 +1631,12 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
     log.info("[%s] %s reply to %s: %s", bot_name, chat_context, sender, reply)
     _write_conv_log(realm, bot_name, "channel_chat", "answered", sender, player_info, message,
                     reply, context=chat_context, llm_calls=llm_calls, latency_ms=latency_ms)
-    conv = _get_conv(sender, bot_name, realm)
+    # This tail is shared by both the guild branch and the passive-world branch above —
+    # scope must follow chat_context here, not be hardcoded, or their memories would
+    # merge back together despite being read separately as "guild:<id>"/"world" elsewhere.
+    # Guild scope includes context_id (the guild's ID) so switching guilds starts fresh —
+    # this is a per-guild profile, not a global per-player one across all guilds.
+    conv = _get_conv(sender, bot_name, realm, scope=(f"guild:{context_id}" if chat_context == "guild" else "world"))
     with _conv_lock:
         conv.add("user", message)
         conv.add("assistant", reply)
