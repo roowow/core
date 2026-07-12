@@ -1219,7 +1219,7 @@ def _compress_party_session(history: list[tuple], existing_summary: str) -> str:
             think=False, temperature=0.3, num_predict=400, timeout=60, queue_timeout=0,
         )
     except _OllamaBusy:
-        log.debug("Party session compression skipped (Ollama busy)")
+        log.info("Party session compression skipped (Ollama busy)")
         return existing_summary
     except Exception as e:
         log.warning("Party session compression failed: %s", e)

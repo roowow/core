@@ -55,7 +55,8 @@
       "Bash(awk -F',' '{print \"spawntimesecs=\" $11}')",
       "WebFetch(domain:s1.oowow.world)",
       "Bash(curl *)",
-      "Bash(wait)"
+      "Bash(wait)",
+      "Bash(git *)"
     ]
   }
 }

@@ -174,13 +174,13 @@ soul + 知识库（~8,400）
 | 维度 | 说明 |
 |------|------|
 | Redis key | `jianjia:raid:<realm>:<group_id>`，不同团队互不干扰 |
-| 生命周期 | 无 TTL，由游戏服务器发送 `group_disband` 事件触发 `DEL` 清理 |
+| 生命周期 | 无 TTL，设计上由游戏服务器发送 `group_disband` 事件触发 `DEL` 清理；**⚠️ 待确认：C++ 侧目前未实际发出该事件，transcript key 和 summary key 均不会被自动清除** |
 | 存储上限 | 最多 100 条/团队（`LTRIM` 硬上限，防止长期副本无限增长） |
 | 注入量 | 最近 20 条（`RAID_INJECT_LINES`），压缩去重后约 200~400 token |
 | 记录时机 | **所有**团队消息都记录，包括 bot 未响应的（wake-up gate 过滤前） |
 | 注入时机 | fetch 在 record 之前，当前消息不出现在 transcript 里（只作为 user 消息出现） |
-| 解散清理 | `group_disband` 事件同时清除 transcript key、summary key 和内存唤醒状态 |
-| session 摘要 | Redis 专属 key（`jianjia:raid_summary:<realm>:<group_id>`），无 TTL，解散时清除 |
+| 解散清理 | 设计上由 `group_disband` 事件同时清除 transcript key、summary key 和内存唤醒状态；**⚠️ 同上，目前不生效** |
+| session 摘要 | Redis 专属 key（`jianjia:raid_summary:<realm>:<group_id>`），**无 TTL**，依赖解散事件清除；若解散事件未到位，旧摘要会永久留存——如果 group_id 是自增复用的，下次同 ID 的团队会读到上次的装备竞拍记录。建议待 `group_disband` 事件接入后验证，或临时给 summary key 加 24 小时 TTL 兜底 |
 | 摘要内容 | 只提炼装备竞拍/DKP 分配记录、灭团次数及鼓励、首杀庆贺；战斗流水不记录 |
 | 压缩触发 | 每 20 轮 → 异步 LLM → 累积写入 Redis（不写 MySQL） |
 
@@ -263,7 +263,7 @@ Redis pub/sub（jianjia_out:<realmId>）
 | 频道 prompt 模板 | ~100 | ~150 | ~150 | ~200 | ~200 |
 | 玩家信息 | ~50 | ~50 | ~50 | ~50 | ~50 |
 | world DB 查询 | ~200 | — | — | — | — |
-| 精华记忆 | ~0~100 | ~0~100 | — | ~0~100 | — |
+| 精华记忆 | ~0~100 | ~0~100 | — | ~0~100 | ~0~100 |
 | 对话历史 | ~4,000~8,000 | DB 最近10条 ~200 | — | — | — |
 | 团队 transcript | — | — | ~200~400 | — | — |
 | 团队 session 摘要 | — | — | ~0~100 | — | — |
