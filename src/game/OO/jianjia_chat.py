@@ -1275,9 +1275,24 @@ _WORLD_CHANNEL_TEMPERATURE = 0.2
 
 # ── Wake-up state (guild / party / raid) ──────────────────────────────────────
 # Key: (context, context_id) e.g. ("guild", 3), ("party", 456), ("raid", 789)
-# Populated when someone mentions the bot name; cleared on service restart (= server restart).
+# Populated when someone mentions the bot name; cleared on service restart (= server restart),
+# by an explicit sleep command (_SLEEP_RE, see below), or by the per-context auto-sleep
+# timeout checked at each handler's call site (guild already had one; party/raid didn't —
+# before this, waking the bot in a raid/party had no way back to sleep short of restarting
+# the whole service, since group_disband isn't actually wired up from the game server yet).
 _awake_contexts: set[tuple[str, int]] = set()
 _awake_lock = threading.Lock()
+
+# Last-activity timestamp per (context, context_id), for auto-sleep after idle. Guild has
+# its own _guild_awake_ts (unchanged, pre-existing); this one covers party/raid.
+_group_awake_ts: dict[tuple[str, int], float] = {}
+_GROUP_AWAKE_TIMEOUT = 600  # seconds — party/raid sessions can have longer natural lulls
+                            # (boss pulls, travel) than guild chat, so a bit more generous.
+
+# Dismiss phrases — only checked when the bot is actually mentioned in the same message
+# (bot_mentioned), so this doesn't false-trigger on unrelated chat that happens to contain
+# one of these words.
+_SLEEP_RE = re.compile(r'退下|退出|安静点?吧?|别说了|别说话了|闭嘴|够了|休息(去)?吧|睡觉去吧|下班吧')
 
 
 def _is_awake(context: str, context_id: int) -> bool:
@@ -1291,6 +1306,12 @@ def _wake_up(context: str, context_id: int) -> None:
             _awake_contexts.add((context, context_id))
             log.info("Awake: %s/%d", context, context_id)
 
+
+def _sleep(context: str, context_id: int) -> None:
+    with _awake_lock:
+        _awake_contexts.discard((context, context_id))
+    log.info("Asleep: %s/%d", context, context_id)
+
 def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_context: str,
                       bot_name: str, out_key: str, realm: int = 0, group_id: int = 0) -> None:
     # For raid: fetch transcript BEFORE recording the current message so it doesn't
@@ -1301,14 +1322,41 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
         raid_transcript = _get_raid_transcript(realm, group_id)
         _record_raid_message(realm, group_id, sender, message)
 
-    # Wake-up gate: only respond if already awake for this context, or bot name is mentioned.
     bot_mentioned = bot_name in message
-    if not bot_mentioned and not _is_awake(chat_context, group_id):
+
+    # Explicit dismiss command ("蒹葭退下"/"蒹葭安静点") — takes effect immediately and
+    # skips the LLM entirely, so it's instant and doesn't depend on the model choosing to
+    # comply. Before this there was no way to put party/raid back to sleep short of
+    # restarting the whole service (group_disband isn't reliably emitted by the game
+    # server, so that cleanup path never actually fired).
+    if bot_mentioned and _SLEEP_RE.search(message):
+        _sleep(chat_context, group_id)
+        with _awake_lock:
+            _group_awake_ts.pop((chat_context, group_id), None)
+        _write_conv_log(realm, bot_name, "group_chat", "sleep_command", sender,
+                        user_msg=message, context=chat_context)
+        return
+
+    # Wake-up gate: only respond if already awake for this context, or bot name is
+    # mentioned. Auto-sleep if awake but idle too long (see _GROUP_AWAKE_TIMEOUT) — this
+    # is the real safety net, not the dismiss command above, since players won't always
+    # remember to say it.
+    awake = _is_awake(chat_context, group_id)
+    if awake:
+        with _awake_lock:
+            last_active = _group_awake_ts.get((chat_context, group_id), 0.0)
+        if time.time() - last_active > _GROUP_AWAKE_TIMEOUT:
+            _sleep(chat_context, group_id)
+            awake = False
+            log.info("%s %d auto-slept (idle > %ds)", chat_context, group_id, _GROUP_AWAKE_TIMEOUT)
+    if not bot_mentioned and not awake:
         _write_conv_log(realm, bot_name, "group_chat", "filtered_not_awake", sender,
                         user_msg=message, context=chat_context)
         return
     if bot_mentioned:
         _wake_up(chat_context, group_id)
+        with _awake_lock:
+            _group_awake_ts[(chat_context, group_id)] = time.time()
 
     with _group_reply_lock:
         last = _group_reply_ts.get(sender, 0.0)
@@ -1384,6 +1432,8 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
     log.info("[%s] %s chat reply to %s: %s", bot_name, chat_context, sender, reply)
     _write_conv_log(realm, bot_name, "group_chat", "answered", sender, player_info_for_log, message,
                     reply, context=chat_context, llm_calls=llm_calls, latency_ms=latency_ms)
+    with _awake_lock:
+        _group_awake_ts[(chat_context, group_id)] = time.time()
     if chat_context == "party":
         _record_party_message(realm, group_id, sender, message)
         _record_party_message(realm, group_id, bot_name, reply)
@@ -1437,6 +1487,17 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
         # Wake-up gate + auto-sleep: if awake but no bot reply for GUILD_AWAKE_TIMEOUT
         # seconds, go back to sleep so an idle guild stops paying LLM costs.
         bot_mentioned = bot_name in message
+
+        # Explicit dismiss command, same as party/raid — instant, doesn't depend on the
+        # model choosing to comply, doesn't wait for the idle timeout.
+        if bot_mentioned and _SLEEP_RE.search(message):
+            _sleep("guild", context_id)
+            with _awake_lock:
+                _guild_awake_ts.pop(context_id, None)
+            _write_conv_log(realm, bot_name, "channel_chat", "sleep_command", sender,
+                            user_msg=message, context="guild")
+            return
+
         awake = _is_awake("guild", context_id)
         if awake:
             with _awake_lock:
