@@ -487,17 +487,31 @@ def _init_conv_log(log_dir: str) -> None:
     _conv_log_file = open(path, "a", encoding="utf-8")
     log.info("Conversation log: %s", path)
 
-def _write_conv_log(realm: int, bot: str, player: str, player_info: str, user_msg: str, ai_reply: str) -> None:
+def _write_conv_log(realm: int, bot: str, event: str, outcome: str, player: str,
+                    player_info: str = "", user_msg: str = "", ai_reply: str = "",
+                    context: str = "", llm_calls: int = 0, latency_ms: float = 0.0) -> None:
+    """Every handler exit point logs here — not just the ones that end in a published
+    reply. `outcome` says what actually happened (answered / pass / filtered_* / etc.)
+    and `llm_calls`/`latency_ms` say how much Ollama work it cost, so this file can
+    answer "how often is the model actually being called" and "what fraction of
+    world-channel traffic gets silently dropped" from grep/jq instead of guesswork.
+    """
     if not _conv_log_file:
         return
     record = json.dumps({
-        "ts":     time.strftime("%Y-%m-%d %H:%M:%S"),
-        "realm":  realm,
-        "bot":    bot,
-        "player": player,
-        "info":   player_info,
-        "user":   user_msg,
-        "reply":  ai_reply,
+        "ts":         time.strftime("%Y-%m-%d %H:%M:%S"),
+        "realm":      realm,
+        "bot":        bot,
+        "event":      event,      # whisper | group_chat | channel_chat | bg_afk | quest_complete
+        "context":    context,    # party | raid | bg | world | world-summon | guild | "" (whisper)
+        "player":     player,
+        "info":       player_info,
+        "user":       user_msg,
+        "outcome":    outcome,    # answered | pass | filtered_no_question | filtered_cooldown |
+                                  # filtered_not_awake | verify_rejected | ollama_error | fallback
+        "reply":      ai_reply,
+        "llm_calls":  llm_calls,
+        "latency_ms": round(latency_ms, 1),
     }, ensure_ascii=False)
     with _conv_log_lock:
         _conv_log_file.write(record + "\n")
@@ -586,6 +600,8 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
     # Wake-up gate: only respond if already awake for this context, or bot name is mentioned.
     bot_mentioned = bot_name in message
     if not bot_mentioned and not _is_awake(chat_context, group_id):
+        _write_conv_log(realm, bot_name, "group_chat", "filtered_not_awake", sender,
+                        user_msg=message, context=chat_context)
         return
     if bot_mentioned:
         _wake_up(chat_context, group_id)
@@ -611,23 +627,31 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
     # speed-vs-accuracy split the user asked for, raid chat skews more toward
     # rules/strategy questions where grounding matters, party skews toward banter.
     think = chat_context == "raid"
+    t0 = time.time()
     try:
         reply = _ollama_chat(messages, think=think, num_predict=(1500 if think else 200),
-                             timeout=(90 if think else 30))
+                             timeout=(180 if think else 30))
     except Exception as e:
         log.warning("Ollama error for group chat: %s", e)
+        _write_conv_log(realm, bot_name, "group_chat", "ollama_error", sender, conv.player_info,
+                        message, context=chat_context, llm_calls=1,
+                        latency_ms=(time.time() - t0) * 1000)
         return
+    latency_ms = (time.time() - t0) * 1000
     if not reply or "[PASS]" in reply:
+        _write_conv_log(realm, bot_name, "group_chat", "pass", sender, conv.player_info, message,
+                        context=chat_context, llm_calls=1, latency_ms=latency_ms)
         return
 
     payload = json.dumps({"target": sender, "message": reply, "channel": chat_context},
                          ensure_ascii=False, separators=(",", ":"))
     r_pub.publish(out_key, payload)
     log.info("[%s] %s chat reply to %s: %s", bot_name, chat_context, sender, reply)
-    _write_conv_log(realm, bot_name, sender, conv.player_info, f"[{chat_context}]{message}", reply)
+    _write_conv_log(realm, bot_name, "group_chat", "answered", sender, conv.player_info, message,
+                    reply, context=chat_context, llm_calls=1, latency_ms=latency_ms)
 
 
-def _verify_grounded(bot_name: str, question: str, reply: str) -> bool:
+def _verify_grounded(bot_name: str, question: str, reply: str) -> tuple[bool, float]:
     """Second-pass fact check for world-channel replies: does every factual claim in
     `reply` actually come from the knowledge base? A separate judge call reviewing an
     already-written answer against the reference text is a much narrower, more reliable
@@ -635,6 +659,9 @@ def _verify_grounded(bot_name: str, question: str, reply: str) -> bool:
     (which is what the main answer-or-PASS instruction already tries and still misses
     sometimes). Fails closed on any error or unclear verdict: staying silent is always
     safer than broadcasting an unverified answer to the whole world channel.
+
+    Returns (passed, latency_ms) — latency is returned too so callers can log total
+    Ollama time spent per event without timing this call separately at every site.
     """
     kb = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
     system = (
@@ -647,18 +674,20 @@ def _verify_grounded(bot_name: str, question: str, reply: str) -> bool:
         f"【玩家问题】\n{question}\n\n"
         f"【候选回复】\n{reply}"
     )
+    t0 = time.time()
     try:
         # think=True is load-bearing here: without it this call rubber-stamps fabricated
         # answers as grounded (tested empirically), with it it correctly catches them.
         verdict = _ollama_chat(
             [{"role": "system", "content": system},
              {"role": "user", "content": "请给出判定。"}],
-            temperature=0.1, think=True, num_predict=1500, timeout=90,
+            temperature=0.1, think=True, num_predict=1500, timeout=180,
         )
     except Exception as e:
         log.warning("Ollama error verifying channel reply for %s: %s", question, e)
-        return False
-    return "不合格" not in verdict and "合格" in verdict
+        return False, (time.time() - t0) * 1000
+    latency_ms = (time.time() - t0) * 1000
+    return ("不合格" not in verdict and "合格" in verdict), latency_ms
 
 
 def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_context: str,
@@ -675,6 +704,8 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
         # Wake-up gate
         bot_mentioned = bot_name in message
         if not bot_mentioned and not _is_awake("guild", context_id):
+            _write_conv_log(realm, bot_name, "channel_chat", "filtered_not_awake", sender,
+                            user_msg=message, context="guild")
             return
         if bot_mentioned:
             _wake_up("guild", context_id)
@@ -693,12 +724,19 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             {"role": "system", "content": system},
             {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
         ]
+        t0 = time.time()
         try:
-            reply = _ollama_chat(messages, think=True, num_predict=1500, timeout=90)
+            reply = _ollama_chat(messages, think=True, num_predict=1500, timeout=180)
         except Exception as e:
             log.warning("Ollama error for guild chat (%s): %s", sender, e)
+            _write_conv_log(realm, bot_name, "channel_chat", "ollama_error", sender, player_info,
+                            message, context="guild", llm_calls=1,
+                            latency_ms=(time.time() - t0) * 1000)
             return
+        llm_calls, latency_ms = 1, (time.time() - t0) * 1000
         if not reply or "[PASS]" in reply:
+            _write_conv_log(realm, bot_name, "channel_chat", "pass", sender, player_info, message,
+                            context="guild", llm_calls=llm_calls, latency_ms=latency_ms)
             return
 
     else:  # world channel: question-based filter, or explicit @-mention summon
@@ -711,6 +749,8 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             with _summon_reply_lock:
                 last = _summon_reply_ts.get(sender, 0.0)
                 if time.time() - last < _SUMMON_REPLY_CD:
+                    _write_conv_log(realm, bot_name, "channel_chat", "filtered_cooldown", sender,
+                                    player_info, message, context="world-summon")
                     return
                 _summon_reply_ts[sender] = time.time()
 
@@ -732,37 +772,55 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                 {"role": "system", "content": system},
                 {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
             ]
+            t0 = time.time()
             try:
                 reply = _ollama_chat(messages, temperature=_WORLD_CHANNEL_TEMPERATURE,
-                                     think=True, num_predict=1500, timeout=90)
+                                     think=True, num_predict=1500, timeout=180)
             except Exception as e:
                 log.warning("Ollama error for world summon (%s): %s", sender, e)
                 with _summon_reply_lock:
                     _summon_reply_ts.pop(sender, None)
+                _write_conv_log(realm, bot_name, "channel_chat", "ollama_error", sender, player_info,
+                                message, context="world-summon", llm_calls=1,
+                                latency_ms=(time.time() - t0) * 1000)
                 return
+            gen_latency_ms = (time.time() - t0) * 1000
             if not reply or "[PASS]" in reply:
                 with _summon_reply_lock:
                     _summon_reply_ts.pop(sender, None)
+                _write_conv_log(realm, bot_name, "channel_chat", "pass", sender, player_info, message,
+                                context="world-summon", llm_calls=1, latency_ms=gen_latency_ms)
                 return
-            if not _verify_grounded(bot_name, message, reply):
+            verified, verify_latency_ms = _verify_grounded(bot_name, message, reply)
+            total_latency_ms = gen_latency_ms + verify_latency_ms
+            if not verified:
                 log.info("[%s] world summon reply to %s failed grounding check, discarding: %s",
                          bot_name, sender, reply)
                 with _summon_reply_lock:
                     _summon_reply_ts.pop(sender, None)
+                _write_conv_log(realm, bot_name, "channel_chat", "verify_rejected", sender,
+                                player_info, message, reply, context="world-summon",
+                                llm_calls=2, latency_ms=total_latency_ms)
                 return
 
             payload = json.dumps({"target": sender, "message": reply, "channel": chat_context},
                                  ensure_ascii=False, separators=(",", ":"))
             r_pub.publish(out_key, payload)
             log.info("[%s] world summon reply to %s: %s", bot_name, sender, reply)
-            _write_conv_log(realm, bot_name, sender, player_info, f"[world-summon]{message}", reply)
+            _write_conv_log(realm, bot_name, "channel_chat", "answered", sender, player_info,
+                            message, reply, context="world-summon", llm_calls=2,
+                            latency_ms=total_latency_ms)
             return
 
         if not _QUESTION_RE.search(message):
+            _write_conv_log(realm, bot_name, "channel_chat", "filtered_no_question", sender,
+                            player_info, message, context="world")
             return
         with _channel_reply_lock:
             last = _channel_reply_ts.get(sender, 0.0)
             if time.time() - last < _CHANNEL_REPLY_CD:
+                _write_conv_log(realm, bot_name, "channel_chat", "filtered_cooldown", sender,
+                                player_info, message, context="world")
                 return
             _channel_reply_ts[sender] = time.time()
 
@@ -786,26 +844,39 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             {"role": "system", "content": system},
             {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
         ]
+        t0 = time.time()
         try:
             # Low temperature + thinking: this is a strict "answer only from the
             # knowledge base, otherwise PASS" judgment call, not free-form chat.
             reply = _ollama_chat(messages, temperature=_WORLD_CHANNEL_TEMPERATURE,
-                                 think=True, num_predict=1500, timeout=90)
+                                 think=True, num_predict=1500, timeout=180)
         except Exception as e:
             log.warning("Ollama error for world chat (%s): %s", sender, e)
             with _channel_reply_lock:
                 _channel_reply_ts.pop(sender, None)
+            _write_conv_log(realm, bot_name, "channel_chat", "ollama_error", sender, player_info,
+                            message, context="world", llm_calls=1,
+                            latency_ms=(time.time() - t0) * 1000)
             return
+        gen_latency_ms = (time.time() - t0) * 1000
         if not reply or "[PASS]" in reply:
             with _channel_reply_lock:
                 _channel_reply_ts.pop(sender, None)
+            _write_conv_log(realm, bot_name, "channel_chat", "pass", sender, player_info, message,
+                            context="world", llm_calls=1, latency_ms=gen_latency_ms)
             return
 
-        if not _verify_grounded(bot_name, message, reply):
+        verified, verify_latency_ms = _verify_grounded(bot_name, message, reply)
+        llm_calls = 2
+        latency_ms = gen_latency_ms + verify_latency_ms
+        if not verified:
             log.info("[%s] world reply to %s failed grounding check, discarding: %s",
                      bot_name, sender, reply)
             with _channel_reply_lock:
                 _channel_reply_ts.pop(sender, None)
+            _write_conv_log(realm, bot_name, "channel_chat", "verify_rejected", sender, player_info,
+                            message, reply, context="world", llm_calls=llm_calls,
+                            latency_ms=latency_ms)
             return
 
         log.info("[world] %s: %s", sender, message)
@@ -814,7 +885,8 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                          ensure_ascii=False, separators=(",", ":"))
     r_pub.publish(out_key, payload)
     log.info("[%s] %s reply to %s: %s", bot_name, chat_context, sender, reply)
-    _write_conv_log(realm, bot_name, sender, player_info, f"[{chat_context}]{message}", reply)
+    _write_conv_log(realm, bot_name, "channel_chat", "answered", sender, player_info, message,
+                    reply, context=chat_context, llm_calls=llm_calls, latency_ms=latency_ms)
 
 
 def handle_bg_afk(r_pub: "redis.Redis", sender: str, bot_name: str,
@@ -837,6 +909,7 @@ def handle_bg_afk(r_pub: "redis.Redis", sender: str, bot_name: str,
 
     messages = [{"role": "system", "content": system},
                 {"role": "user", "content": prompt}]
+    t0 = time.time()
     try:
         reply = _ollama_chat(messages)
     except Exception as e:
@@ -845,13 +918,18 @@ def handle_bg_afk(r_pub: "redis.Redis", sender: str, bot_name: str,
                               "stage": stage, "afk_level": afk_level, "notice": notice_type},
                              ensure_ascii=False, separators=(",", ":"))
         r_pub.publish(out_key, payload)
+        _write_conv_log(realm, bot_name, "bg_afk", "ollama_error", sender, player_info,
+                        f"stage={stage} afk_level={afk_level} notice={notice_type}",
+                        context="bg", llm_calls=1, latency_ms=(time.time() - t0) * 1000)
         return
 
     payload = json.dumps({"target": sender, "message": reply, "channel": "bg"},
                          ensure_ascii=False, separators=(",", ":"))
     r_pub.publish(out_key, payload)
     log.info("[%s] BG AFK notice to %s (stage %d): %s", bot_name, sender, stage, reply)
-    _write_conv_log(realm, bot_name, sender, player_info, f"[bg_afk stage={stage}]", reply)
+    _write_conv_log(realm, bot_name, "bg_afk", "answered", sender, player_info,
+                    f"stage={stage} afk_level={afk_level} notice={notice_type}", reply,
+                    context="bg", llm_calls=1, latency_ms=(time.time() - t0) * 1000)
 
 
 def handle_quest_complete(r_pub: "redis.Redis", sender: str, bot_name: str,
@@ -867,16 +945,22 @@ def handle_quest_complete(r_pub: "redis.Redis", sender: str, bot_name: str,
         {"role": "system", "content": system},
         {"role": "user", "content": user_content},
     ]
+    t0 = time.time()
     try:
         reply = _ollama_chat(messages)
     except Exception as e:
         log.warning("Ollama error for quest complete (%s): %s", sender, e)
+        _write_conv_log(realm, bot_name, "quest_complete", "ollama_error", sender, player_info,
+                        quest_title, context="group", llm_calls=1,
+                        latency_ms=(time.time() - t0) * 1000)
         return
     payload = json.dumps({"target": sender, "message": reply, "channel": "group"},
                          ensure_ascii=False, separators=(",", ":"))
     r_pub.publish(out_key, payload)
     log.info("[%s] Quest cheer to %s (%s): %s", bot_name, sender, quest_title, reply)
-    _write_conv_log(realm, bot_name, sender, player_info, f"[quest:{quest_title}]", reply)
+    _write_conv_log(realm, bot_name, "quest_complete", "answered", sender, player_info,
+                    quest_title, reply, context="group", llm_calls=1,
+                    latency_ms=(time.time() - t0) * 1000)
 
 
 def handle_whisper(r_pub: "redis.Redis", sender: str, message: str, bot_name: str,
@@ -899,21 +983,26 @@ def handle_whisper(r_pub: "redis.Redis", sender: str, message: str, bot_name: st
         conv.add("user", message)
         messages = conv.messages_for_ollama(world_context)
 
+    t0 = time.time()
+    outcome = "answered"
     try:
         reply = _ollama_chat(messages)
     except Exception as e:
         log.warning("Ollama error for %s: %s — using fallback", sender, e)
         reply = _fallback()
+        outcome = "fallback"
         with _conv_lock:
             conv.history.pop()
     else:
         with _conv_lock:
             conv.add("assistant", reply)
+    latency_ms = (time.time() - t0) * 1000
 
     payload = json.dumps({"target": sender, "message": reply}, ensure_ascii=False, separators=(",", ":"))
     r_pub.publish(out_key, payload)
     log.info("[%s] Reply to %s: %s", bot_name, sender, reply)
-    _write_conv_log(realm, bot_name, sender, conv.player_info, message, reply)
+    _write_conv_log(realm, bot_name, "whisper", outcome, sender, conv.player_info, message, reply,
+                    llm_calls=1, latency_ms=latency_ms)
 
 
 def process_message(r_pub: "redis.Redis", data: str, in_channel: str) -> None:
