@@ -97,12 +97,21 @@ _MSG_RE = re.compile(r'^\[[^\]]+\]\s*.*?:\d+\s*:\s*(.*)$', re.DOTALL)
 
 
 def _ping_db(db: "pymysql.Connection", label: str) -> bool:
+    # pymysql deprecated ping(reconnect=True) — it now warns on every single call (which
+    # meant every DB-touching message logged this). Check liveness with reconnect=False,
+    # and if that fails, reconnect explicitly via .connect(), which re-establishes the
+    # socket on this same Connection object in place — callers holding a reference from
+    # _logs_dbs/_world_dbs don't need to re-fetch anything.
     try:
-        db.ping(reconnect=True)
+        db.ping(reconnect=False)
         return True
-    except Exception as e:
-        log.warning("%s reconnect failed: %s", label, e)
-        return False
+    except Exception:
+        try:
+            db.connect()
+            return True
+        except Exception as e:
+            log.warning("%s reconnect failed: %s", label, e)
+            return False
 
 
 def _connect_db(cfg: dict, label: str) -> "pymysql.Connection | None":
