@@ -14,6 +14,10 @@ max_turns     = 10                   # 每玩家内存中保留的最近对话�
 history_ttl   = 1800                 # 玩家对话上下文空闲超时（秒），超时后清空
 server_name   = "石牛湖"             # 当前服务器名称，注入 AI 上下文
 server_phase  = "1.10 艾泽拉斯的风暴" # 当前版本阶段，注入 AI 上下文
+# pid_file    = "jianjia.pid"        # 可选，默认脚本同目录下 jianjia.pid
+                                      # 改 soul/knowledge 文件后执行
+                                      # `python3 jianjia_chat.py --reload`
+                                      # 即可热加载，不用重启进程
 
 # ── Ollama ──────────────────────────────────────────────────────────────────────
 

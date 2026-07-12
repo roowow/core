@@ -1,6 +1,7 @@
 #include "WebChatMgr.h"
 #include "Battlegrounds/BattleGround.h"
 #include "Battlegrounds/BattleGroundAfkMgr.h"
+#include "Database/DatabaseEnv.h"
 #include "Log.h"
 #include "ObjectMgr.h"
 #include "ObjectAccessor.h"
@@ -628,6 +629,24 @@ void WebChatMgr::SpeakInWorldChannelAsJianJia(std::string const& message)
         uint32 faction = (cache->uiRace == 1 || cache->uiRace == 3 ||
                           cache->uiRace == 4 || cache->uiRace == 7) ? 1 : 0;
         WriteWebChat("world", m_jianJiaName, faction, cache->uiClass, "", message, 0, false);
+
+        // Write to logs_player so history reload shows the message
+        // Text format matches World::LogChat with chanStr: [Chan:世界频道] Name:guid : msg
+        if (LogsDatabase)
+        {
+            static SqlStatementID insJianJiaChat;
+            char text[1024];
+            snprintf(text, sizeof(text), "[Chan:世界频道] %s:%u : %s",
+                m_jianJiaName.c_str(), cache->uiGuid, message.c_str());
+            SqlStatement stmt = LogsDatabase.CreateStatement(insJianJiaChat,
+                "INSERT INTO `logs_player` (`type`, `subtype`, `account`, `guid`, `name`, `text`) "
+                "VALUES('Chat', NULL, ?, ?, ?, ?)");
+            stmt.addUInt32(cache->uiAccount);
+            stmt.addUInt32(cache->uiGuid);
+            stmt.addString(m_jianJiaName);
+            stmt.addString(std::string(text));
+            stmt.Execute();
+        }
     }
 }
 

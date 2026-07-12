@@ -171,6 +171,70 @@ def _load_system_prompt(soul_file: str, knowledge_dir: str) -> str:
 
 _SYSTEM_PROMPT_TEMPLATE: str = ""  # loaded in main() via _load_system_prompt()
 
+
+def _reload_system_prompt(svc: dict) -> None:
+    """(Re)load soul + knowledge into _SYSTEM_PROMPT_TEMPLATE. Used at startup and
+    again on SIGHUP, so editing jianjia_soul.md / jianjia_knowledge/*.md takes effect
+    without restarting the service (in-flight conversations, Redis connection, etc.
+    are left untouched). Code changes to this .py file still need a real restart —
+    Python can't safely hot-swap running function bodies.
+    """
+    global _SYSTEM_PROMPT_TEMPLATE
+    try:
+        template = _load_system_prompt(
+            svc.get("soul_file", ""),
+            svc.get("knowledge_dir", ""),
+        )
+    except SystemExit as e:
+        # _load_system_prompt calls sys.exit() on a missing/misconfigured soul file —
+        # fine at startup (nothing is running yet), but a reload failure must not take
+        # down an already-running service. Log and keep serving with the old prompt.
+        log.error("System prompt reload failed, keeping previous version: %s", e)
+        return
+
+    server_name  = svc.get("server_name",  "").strip()
+    server_phase = svc.get("server_phase", "").strip()
+    if server_name or server_phase:
+        parts = []
+        if server_name:
+            parts.append(f"当前服务器：{server_name}")
+        if server_phase:
+            parts.append(f"当前阶段：{server_phase}")
+        template += "\n\n[" + "，".join(parts) + "。回答玩家问题时以此为准。]"
+
+    _SYSTEM_PROMPT_TEMPLATE = template
+    log.info("System prompt (re)loaded (%d chars)", len(_SYSTEM_PROMPT_TEMPLATE))
+
+
+def _default_pid_file() -> str:
+    return os.path.join(os.path.dirname(__file__), "jianjia.pid")
+
+
+def _send_reload_signal(pid_file: str) -> None:
+    """`--reload` CLI entry point: signal an already-running instance instead of
+    starting a second one. Wraps `kill -HUP $(cat pid_file)` so there's nothing to
+    remember beyond `python3 jianjia_chat.py --reload`.
+    """
+    try:
+        with open(pid_file, encoding="utf-8") as f:
+            pid = int(f.read().strip())
+    except FileNotFoundError:
+        sys.exit(f"No pid file at {pid_file} — is the service running?")
+    except ValueError:
+        sys.exit(f"Pid file {pid_file} does not contain a valid pid.")
+
+    if not hasattr(signal, "SIGHUP"):
+        sys.exit("--reload needs SIGHUP, which isn't available on this platform.")
+
+    try:
+        os.kill(pid, signal.SIGHUP)
+    except ProcessLookupError:
+        sys.exit(f"No running process with pid {pid} — stale pid file at {pid_file}?")
+    except PermissionError:
+        sys.exit(f"Permission denied sending SIGHUP to pid {pid}.")
+
+    print(f"Sent reload signal to pid {pid}.")
+
 # ── world DB — game knowledge lookup ─────────────────────────────────────────
 
 _QUALITY_NAMES  = {0: "差", 1: "普通", 2: "非凡", 3: "稀有", 4: "史诗", 5: "传说"}
@@ -331,7 +395,8 @@ class _ConvState:
         if self.player_info:
             system += (f"\n\n[当前对话玩家的角色信息：{self.player_info}。"
                        f"这是系统提供的准确信息，不是玩家自己说的；回复时自然融入即可，不需要逐字念出来。"
-                       f"如果玩家在对话里说的等级/职业/种族等和这里不一致，以这里的信息为准，不要被玩家的话带偏。]")
+                       f"哪怕玩家自己在对话里说了不同的等级/职业/种族，或者只是发了个数字（比如玩家发「23」），"
+                       f"都不代表那就是TA的真实信息——一律以这里给的信息为准，不要被玩家的话带偏。]")
         if extra_context:
             system += f"\n\n{extra_context}"
         return [{"role": "system", "content": system}] + self.history
@@ -512,7 +577,7 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
     conv = _get_conv(sender, bot_name)
     if conv.player_info:
         system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{conv.player_info}。"
-                   f"如果{sender}自己说的和这里不一致，以这里为准。]")
+                   f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
 
     history = _get_group_history(group_id, bot_name, chat_context, realm)
     messages = [{"role": "system", "content": system}] + history + [
@@ -599,7 +664,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
         )
         if player_info:
             system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{player_info}。"
-                       f"如果{sender}自己说的和这里不一致，以这里为准。]")
+                       f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
@@ -692,7 +757,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
         )
         if player_info:
             system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{player_info}。"
-                       f"如果{sender}自己说的和这里不一致，以这里为准。]")
+                       f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
@@ -735,7 +800,7 @@ def handle_bg_afk(r_pub: "redis.Redis", sender: str, bot_name: str,
     system += "\n\n你现在在战场频道发言，所有队友都能看到。"
     if player_info:
         system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{player_info}。"
-                   f"如果{sender}自己说的和这里不一致，以这里为准。]")
+                   f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
 
     if notice_type == "warning":
         urgency_map = {1: "温柔地提醒", 2: "认真地警告", 3: "非常急切地催促"}
@@ -771,7 +836,8 @@ def handle_quest_complete(r_pub: "redis.Redis", sender: str, bot_name: str,
     if player_info:
         system += (f"\n\n[当前对话玩家的角色信息：{player_info}。"
                    f"这是系统提供的准确信息，不是玩家自己说的；回复时自然融入即可，不需要逐字念出来。"
-                   f"如果玩家在对话里说的和这里不一致，以这里的信息为准，不要被玩家的话带偏。]")
+                   f"哪怕玩家自己在对话里说了不同的信息、或者只是发了个数字，都不代表那是真实数据——"
+                   f"一律以这里给的信息为准，不要被玩家的话带偏。]")
     user_content = f"{sender}完成了「{quest_title}」！" if quest_title else f"{sender}完成了一个任务！"
     messages = [
         {"role": "system", "content": system},
@@ -906,6 +972,11 @@ def main() -> None:
         "--config", default="",
         help="Path to jianjia.toml (default: jianjia.toml next to this script)",
     )
+    parser.add_argument(
+        "--reload", action="store_true",
+        help="Signal the already-running instance to reload soul+knowledge, then exit "
+             "(does not start a new instance).",
+    )
     args = parser.parse_args()
 
     # ── Load TOML config ───────────────────────────────────────────────────────
@@ -925,6 +996,11 @@ def main() -> None:
     ollama_cfg = cfg.get("ollama",  {})
     redis_cfg  = cfg.get("redis",   {})
     realms_cfg = cfg.get("realms",  {})
+    pid_file   = svc.get("pid_file", "") or _default_pid_file()
+
+    if args.reload:
+        _send_reload_signal(pid_file)
+        return
 
     OLLAMA_MODEL      = ollama_cfg.get("model",       OLLAMA_MODEL)
     OLLAMA_URL        = ollama_cfg.get("url",         OLLAMA_URL)
@@ -934,21 +1010,7 @@ def main() -> None:
     redis_port        = int(redis_cfg.get("port",     REDIS_PORT))
 
     # ── Load system prompt (soul + knowledge modules) ─────────────────────────
-    global _SYSTEM_PROMPT_TEMPLATE
-    _SYSTEM_PROMPT_TEMPLATE = _load_system_prompt(
-        svc.get("soul_file", ""),
-        svc.get("knowledge_dir", ""),
-    )
-    server_name  = svc.get("server_name",  "").strip()
-    server_phase = svc.get("server_phase", "").strip()
-    if server_name or server_phase:
-        parts = []
-        if server_name:
-            parts.append(f"当前服务器：{server_name}")
-        if server_phase:
-            parts.append(f"当前阶段：{server_phase}")
-        _SYSTEM_PROMPT_TEMPLATE += "\n\n[" + "，".join(parts) + "。回答玩家问题时以此为准。]"
-    log.info("System prompt loaded (%d chars)", len(_SYSTEM_PROMPT_TEMPLATE))
+    _reload_system_prompt(svc)
 
     # ── Init conversation log ──────────────────────────────────────────────────
     _init_conv_log(svc.get("log_dir", "logs"))
@@ -969,10 +1031,25 @@ def main() -> None:
     def _shutdown(sig, frame):
         log.info("Shutting down.")
         pubsub.punsubscribe()
+        try:
+            os.remove(pid_file)
+        except OSError:
+            pass
         sys.exit(0)
 
     signal.signal(signal.SIGINT,  _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
+
+    if hasattr(signal, "SIGHUP"):  # not available on Windows; harmless to skip there
+        def _reload(sig, frame):
+            log.info("SIGHUP received, reloading soul + knowledge files.")
+            _reload_system_prompt(svc)
+        signal.signal(signal.SIGHUP, _reload)
+
+    with open(pid_file, "w", encoding="utf-8") as f:
+        f.write(str(os.getpid()))
+    log.info("Pid file: %s (pid=%d) — use `python3 %s --reload` to hot-reload "
+             "soul+knowledge without restarting", pid_file, os.getpid(), sys.argv[0])
 
     realms_str = ", ".join(sorted(realms_cfg)) if realms_cfg else "(no realms configured)"
     log.info("AI companion started (model=%s realms=%s)", OLLAMA_MODEL, realms_str)
