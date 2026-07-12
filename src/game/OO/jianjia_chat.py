@@ -65,7 +65,7 @@ OLLAMA_MODEL = "qwen3:32b"
 # below what the model architecture supports (qwen3:32b supports up to 40960 — check
 # `ollama show <model>` for the real ceiling before raising this; more context = more
 # VRAM for the KV cache, so verify it doesn't push Ollama into OOM).
-OLLAMA_CONTEXT_TOKENS = 16384
+OLLAMA_CONTEXT_TOKENS = 10240
 # How many Ollama requests are allowed in flight at once, across every realm/thread in
 # this process. Ollama itself reports "Parallel:1" for this model+GPU (confirmed via
 # server log: a single 32B model at Q4 barely fits a 24GB card once num_ctx KV-cache is
