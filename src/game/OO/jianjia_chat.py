@@ -613,6 +613,12 @@ _CHANNEL_NAMES = {"party": "小队", "raid": "团队", "bg": "战场", "world": 
 #   - added 咋: colloquial 怎么 (咋办/咋回事/咋弄), several real questions used only this form.
 _QUESTION_RE = re.compile(r'[？?]|吗\b|怎么|咋|哪里|哪儿|如何|能否|有没有|在哪|什么时候|为什么|是否|可以吗|怎样|几级|多少|什么是|哪个|会不会')
 
+# Tolerant PASS-token detector: a plain exact-substring check for "[PASS]" misses
+# variants the model actually produces (e.g. "[ PASS ]", "[pass]") — observed in testing,
+# where a spaced variant slipped past the exact-match check and would have been sent on
+# to verification/broadcast as literal garbage text instead of being treated as a pass.
+_PASS_RE = re.compile(r'\[\s*PASS\s*\]', re.IGNORECASE)
+
 # Per-player cooldown for world channel replies (seconds)
 _CHANNEL_REPLY_CD = 120
 _channel_reply_ts: dict[str, float] = {}
@@ -710,7 +716,7 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
                         latency_ms=(time.time() - t0) * 1000)
         return
     gen_latency_ms = (time.time() - t0) * 1000
-    if not reply or "[PASS]" in reply:
+    if not reply or _PASS_RE.search(reply):
         _write_conv_log(realm, bot_name, "group_chat", "pass", sender, conv.player_info, message,
                         context=chat_context, llm_calls=1, latency_ms=gen_latency_ms)
         return
@@ -806,7 +812,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                             latency_ms=(time.time() - t0) * 1000)
             return
         gen_latency_ms = (time.time() - t0) * 1000
-        if not reply or "[PASS]" in reply:
+        if not reply or _PASS_RE.search(reply):
             _write_conv_log(realm, bot_name, "channel_chat", "pass", sender, player_info, message,
                             context="guild", llm_calls=1, latency_ms=gen_latency_ms)
             return
@@ -858,7 +864,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                                 latency_ms=(time.time() - t0) * 1000)
                 return
             gen_latency_ms = (time.time() - t0) * 1000
-            if not reply or "[PASS]" in reply:
+            if not reply or _PASS_RE.search(reply):
                 with _summon_reply_lock:
                     _summon_reply_ts.pop(sender, None)
                 _write_conv_log(realm, bot_name, "channel_chat", "pass", sender, player_info, message,
@@ -922,7 +928,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                             latency_ms=(time.time() - t0) * 1000)
             return
         gen_latency_ms = (time.time() - t0) * 1000
-        if not reply or "[PASS]" in reply:
+        if not reply or _PASS_RE.search(reply):
             with _channel_reply_lock:
                 _channel_reply_ts.pop(sender, None)
             _write_conv_log(realm, bot_name, "channel_chat", "pass", sender, player_info, message,
