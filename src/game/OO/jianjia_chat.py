@@ -66,6 +66,15 @@ OLLAMA_MODEL = "qwen3:32b"
 # `ollama show <model>` for the real ceiling before raising this; more context = more
 # VRAM for the KV cache, so verify it doesn't push Ollama into OOM).
 OLLAMA_CONTEXT_TOKENS = 16384
+# How many Ollama requests are allowed in flight at once, across every realm/thread in
+# this process. Ollama itself reports "Parallel:1" for this model+GPU (confirmed via
+# server log: a single 32B model at Q4 barely fits a 24GB card once num_ctx KV-cache is
+# counted) — sending it concurrent requests anyway doesn't get more throughput, it just
+# makes Ollama try to spin up a second full runner, thrash for VRAM, partially spill
+# layers to CPU, and produce exactly the 30-40s stalls / 500s seen in production. Every
+# handler spawns its own daemon thread with no other rate limiting, so this semaphore is
+# the only thing standing between "one client at a time" and "however many messages
+# happened to arrive in the same second."
 
 # How many message turns to keep per player (user+assistant pairs)
 MAX_HISTORY_TURNS = 10
@@ -486,6 +495,13 @@ def _get_conv(player: str, bot_name: str) -> _ConvState:
 
 # ── Ollama ────────────────────────────────────────────────────────────────────
 
+# Default 1 in-flight request at a time — matches what the GPU/model can actually do
+# (see OLLAMA_MAX_CONCURRENT comment above). Recreated in main() if config overrides
+# the count; every caller just goes through _ollama_semaphore, no other bookkeeping.
+OLLAMA_MAX_CONCURRENT = 1
+_ollama_semaphore = threading.Semaphore(OLLAMA_MAX_CONCURRENT)
+
+
 def _ollama_chat(messages: list[dict], timeout: int = 30, temperature: float = 0.8,
                  think: bool = False, num_predict: int = 200) -> str:
     # think defaults off for fast, natural-feeling chat (whisper/party/bg-afk/quest-cheer).
@@ -494,18 +510,19 @@ def _ollama_chat(messages: list[dict], timeout: int = 30, temperature: float = 0
     # never reach the player either way (stripped below), but measurably improve whether
     # the model stays grounded instead of confidently fabricating. Costs ~10-25s instead
     # of ~1-5s per call, so it's scoped to where accuracy matters more than latency.
-    resp = requests.post(
-        OLLAMA_URL,
-        json={
-            "model":    OLLAMA_MODEL,
-            "messages": messages,
-            "stream":   False,
-            "think":    think,
-            "options":  {"temperature": temperature, "num_predict": num_predict,
-                        "num_ctx": OLLAMA_CONTEXT_TOKENS},
-        },
-        timeout=timeout,
-    )
+    with _ollama_semaphore:
+        resp = requests.post(
+            OLLAMA_URL,
+            json={
+                "model":    OLLAMA_MODEL,
+                "messages": messages,
+                "stream":   False,
+                "think":    think,
+                "options":  {"temperature": temperature, "num_predict": num_predict,
+                            "num_ctx": OLLAMA_CONTEXT_TOKENS},
+            },
+            timeout=timeout,
+        )
     resp.raise_for_status()
     content = resp.json()["message"]["content"].strip()
     # strip <think>...</think> blocks in case the model ignores the flag
@@ -1088,7 +1105,8 @@ def cleanup_loop() -> None:
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    global OLLAMA_MODEL, OLLAMA_URL, OLLAMA_CONTEXT_TOKENS, MAX_HISTORY_TURNS, HISTORY_TTL
+    global OLLAMA_MODEL, OLLAMA_URL, OLLAMA_CONTEXT_TOKENS, OLLAMA_MAX_CONCURRENT, \
+           _ollama_semaphore, MAX_HISTORY_TURNS, HISTORY_TTL
 
     parser = argparse.ArgumentParser(description="蒹葭 AI Companion Service")
     parser.add_argument(
@@ -1128,6 +1146,8 @@ def main() -> None:
     OLLAMA_MODEL          = ollama_cfg.get("model",           OLLAMA_MODEL)
     OLLAMA_URL            = ollama_cfg.get("url",             OLLAMA_URL)
     OLLAMA_CONTEXT_TOKENS = int(ollama_cfg.get("context_tokens", OLLAMA_CONTEXT_TOKENS))
+    OLLAMA_MAX_CONCURRENT = int(ollama_cfg.get("max_concurrent", OLLAMA_MAX_CONCURRENT))
+    _ollama_semaphore     = threading.Semaphore(OLLAMA_MAX_CONCURRENT)
     MAX_HISTORY_TURNS = svc.get("max_turns",          MAX_HISTORY_TURNS)
     HISTORY_TTL       = svc.get("history_ttl",        HISTORY_TTL)
     redis_host        = redis_cfg.get("host",         REDIS_HOST)
@@ -1178,7 +1198,8 @@ def main() -> None:
              "soul+knowledge without restarting", pid_file, os.getpid(), sys.argv[0])
 
     realms_str = ", ".join(sorted(realms_cfg)) if realms_cfg else "(no realms configured)"
-    log.info("AI companion started (model=%s realms=%s)", OLLAMA_MODEL, realms_str)
+    log.info("AI companion started (model=%s realms=%s max_concurrent_ollama=%d)",
+             OLLAMA_MODEL, realms_str, OLLAMA_MAX_CONCURRENT)
     log.info("Config: %s", config_path)
     log.info("Listening on pattern: %s", in_pattern)
 

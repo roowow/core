@@ -32,6 +32,11 @@ context_tokens = 16384  # 每次请求会带上 num_ctx=此值，这是真正生
                         # （ollama show <model> 看 "context length"）没关系。
                         # 调大会增加显存占用（KV cache），改完观察下 Ollama 有没有
                         # OOM。
+max_concurrent = 1     # 同时允许几个请求打给Ollama，默认1——`ollama show <model>`
+                        # 里如果显示 Parallel:1（GPU显存只够跑一份模型的话通常如此），
+                        # 那并发发请求毫无意义，只会让Ollama来回抢显存加载/卸载模型，
+                        # 反而更慢更容易报错甚至OOM。只有确认GPU显存够同时跑多份模型
+                        # 时才调大这个值。
 
 # ── Redis ───────────────────────────────────────────────────────────────────────
 
