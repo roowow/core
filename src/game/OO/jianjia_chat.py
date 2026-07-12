@@ -501,6 +501,13 @@ def _get_conv(player: str, bot_name: str) -> _ConvState:
 OLLAMA_MAX_CONCURRENT = 1
 _ollama_semaphore = threading.Semaphore(OLLAMA_MAX_CONCURRENT)
 
+# How long a thread will wait for its turn at the semaphore before giving up entirely.
+# Without this the wait is unbounded — observed 227s end-to-end on a busy queue, because
+# `timeout=` below only bounds the HTTP call once it starts, not the queueing before it.
+# Better to fail fast (fallback reply / silent PASS, depending on caller) than make a
+# player wait four minutes for an answer.
+OLLAMA_QUEUE_TIMEOUT = 120
+
 
 def _ollama_chat(messages: list[dict], timeout: int = 30, temperature: float = 0.8,
                  think: bool = False, num_predict: int = 200) -> str:
@@ -510,7 +517,10 @@ def _ollama_chat(messages: list[dict], timeout: int = 30, temperature: float = 0
     # never reach the player either way (stripped below), but measurably improve whether
     # the model stays grounded instead of confidently fabricating. Costs ~10-25s instead
     # of ~1-5s per call, so it's scoped to where accuracy matters more than latency.
-    with _ollama_semaphore:
+    if not _ollama_semaphore.acquire(timeout=OLLAMA_QUEUE_TIMEOUT):
+        raise TimeoutError(f"timed out after {OLLAMA_QUEUE_TIMEOUT}s waiting in the "
+                           f"Ollama queue (server busy)")
+    try:
         resp = requests.post(
             OLLAMA_URL,
             json={
@@ -523,6 +533,8 @@ def _ollama_chat(messages: list[dict], timeout: int = 30, temperature: float = 0
             },
             timeout=timeout,
         )
+    finally:
+        _ollama_semaphore.release()
     resp.raise_for_status()
     content = resp.json()["message"]["content"].strip()
     # strip <think>...</think> blocks in case the model ignores the flag
