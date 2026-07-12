@@ -9,6 +9,8 @@
 [service]
 soul_file     = "jianjia_soul.md"    # 核心灵魂文件（身份/性格/风格）
 knowledge_dir = "jianjia_knowledge"  # 知识模块目录（所有 .md 按序加载）
+prompts_dir   = "jianjia_prompts"    # 各场景指令模板目录（世界频道/公会/召唤/审核等，
+                                      # 见目录下 .md 文件名），改措辞同样支持 --reload
 log_dir       = "logs"               # 对话日志目录（JSON Lines，按启动时间命名）
 max_turns     = 10                   # 每玩家内存中保留的最近对话轮数
 history_ttl   = 1800                 # 玩家对话上下文空闲超时（秒），超时后清空

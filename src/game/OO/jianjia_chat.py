@@ -233,6 +233,50 @@ def _reload_system_prompt(svc: dict) -> None:
                     "stack on top of this and may get silently truncated by Ollama.", pct)
 
 
+# Per-event instruction snippets (world/guild/group wake-up rules, the summon prompt,
+# the verifier prompt) — kept as .md files instead of inline Python f-strings so tuning
+# a rule's wording doesn't require a full restart: `python3 jianjia_chat.py --reload`
+# picks these up the same way it picks up soul/knowledge changes. Code changes to
+# which *variables* get substituted still need a restart, but the *wording* doesn't.
+_PROMPT_TEMPLATES: dict[str, str] = {}
+_REQUIRED_PROMPT_TEMPLATES = {
+    "group_wakeup", "guild_wakeup", "world_question", "world_summon", "verify_grounded",
+}
+
+
+def _load_prompt_templates(prompts_dir: str) -> dict[str, str]:
+    base = os.path.dirname(__file__)
+    pdir = prompts_dir if os.path.isabs(prompts_dir) else os.path.join(base, prompts_dir)
+    if not os.path.isdir(pdir):
+        sys.exit(f"Prompt templates dir not found: {pdir}")
+    templates: dict[str, str] = {}
+    for fname in sorted(os.listdir(pdir)):
+        if fname.endswith(".md"):
+            with open(os.path.join(pdir, fname), encoding="utf-8") as f:
+                templates[fname[:-3]] = f.read().strip()
+    return templates
+
+
+def _reload_prompt_templates(svc: dict) -> None:
+    """(Re)load jianjia_prompts/*.md. Same restart-free pattern as _reload_system_prompt:
+    used at startup and again on SIGHUP. Fails closed — a bad reload keeps serving with
+    whatever templates already loaded successfully, rather than crashing or leaving a
+    call site with no template to `.format()` against.
+    """
+    global _PROMPT_TEMPLATES
+    try:
+        templates = _load_prompt_templates(svc.get("prompts_dir", "jianjia_prompts"))
+    except SystemExit as e:
+        log.error("Prompt templates reload failed, keeping previous versions: %s", e)
+        return
+    missing = _REQUIRED_PROMPT_TEMPLATES - templates.keys()
+    if missing:
+        log.error("Prompt templates missing %s, keeping previous versions.", sorted(missing))
+        return
+    _PROMPT_TEMPLATES = templates
+    log.info("Prompt templates (re)loaded: %s", ", ".join(sorted(templates)))
+
+
 def _default_pid_file() -> str:
     return os.path.join(os.path.dirname(__file__), "jianjia.pid")
 
@@ -612,12 +656,7 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
 
     channel_name = _CHANNEL_NAMES.get(chat_context, "频道")
     system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
-    system += (
-        f"\n\n你正在监听{channel_name}频道。只在以下情况才开口："
-        f"① 有人直接叫你名字；② 有人直接向你提问；"
-        f"③ 有人完成了任务或成就、分享了好消息，给予真诚鼓励。"
-        f"其他闲聊、日常对话一律保持安静，回复 [PASS]。"
-    )
+    system += "\n\n" + _PROMPT_TEMPLATES["group_wakeup"].format(channel_name=channel_name)
     conv = _get_conv(sender, bot_name)
     if conv.player_info:
         system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{conv.player_info}。"
@@ -668,16 +707,8 @@ def _verify_grounded(bot_name: str, question: str, reply: str) -> tuple[bool, fl
     Ollama time spent per event without timing this call separately at every site.
     """
     kb = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
-    system = (
-        f"你是内容审核员，不用扮演任何角色。下面是{bot_name}的参考资料，以及她对一个玩家问题给出的候选回复。"
-        f"请检查候选回复里的每一句事实性内容，是否都能在参考资料里找到依据（原文或合理改写均可）。"
-        f"如果回复里包含任何参考资料没有提到的具体细节（编造的机制、编造的物品/技能名、编造的原因等），判定为不合格。"
-        f"语气词、称呼、寒暄等非事实性内容不计入判断。"
-        f"只输出「合格」或「不合格」这两个词之一，不要输出任何其他内容。\n\n"
-        f"【参考资料】\n{kb}\n\n"
-        f"【玩家问题】\n{question}\n\n"
-        f"【候选回复】\n{reply}"
-    )
+    system = _PROMPT_TEMPLATES["verify_grounded"].format(
+        bot_name=bot_name, kb=kb, question=question, reply=reply)
     t0 = time.time()
     try:
         # think=True is load-bearing here: without it this call rubber-stamps fabricated
@@ -715,12 +746,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             _wake_up("guild", context_id)
 
         system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
-        system += (
-            f"\n\n你正在监听{channel_name}。只在以下情况才开口："
-            f"① 有人直接叫你名字；② 有人直接向你提问；"
-            f"③ 有人完成了任务或成就、分享了好消息，给予真诚鼓励。"
-            f"其他闲聊、日常对话一律保持安静，回复 [PASS]。"
-        )
+        system += "\n\n" + _PROMPT_TEMPLATES["guild_wakeup"].format(channel_name=channel_name)
         if player_info:
             system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{player_info}。"
                        f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
@@ -760,18 +786,8 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
 
             transcript = _get_world_recent_transcript(realm)
             system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
-            system += (
-                f"\n\n你正在监听{channel_name}，刚刚有玩家在频道里 @ 了你的名字，"
-                f"希望你看看频道里最近的对话、回答里面提到的某个问题。"
-                f"下面是最近的{channel_name}聊天记录（旧的在前，新的在后）：\n{transcript}\n\n"
-                f"只回答服务器规则/制度/版本进度这类「服务器知识」问题，且答案必须能在你掌握的FAQ知识库中原文或近似原文找到。"
-                f"具体的游戏内容/玩法问题（怪物机制、声望怎么刷、任务/副本怎么打、门怎么开、天赋加点、"
-                f"客户端界面操作等）一律不参与，就算你知道答案也不要说。"
-                f"如果聊天记录里根本没有明确的问题、你判断不出该回答哪一条、或者问题不在FAQ范围内，"
-                f"直接回复 [PASS]（不要附加任何文字），不要因为被点名了就硬凑一个回答。"
-                f"回答时先@{sender}（是TA叫你的），如果能看出问题是哪位玩家问的，也可以一并提到那位玩家的名字。"
-                f"用一到两句话给出简洁准确的答案，不要展开说太多，不要卖弄学识，保持蒹葭的性格。"
-            )
+            system += "\n\n" + _PROMPT_TEMPLATES["world_summon"].format(
+                channel_name=channel_name, transcript=transcript, sender=sender)
             messages = [
                 {"role": "system", "content": system},
                 {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
@@ -829,18 +845,8 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             _channel_reply_ts[sender] = time.time()
 
         system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
-        system += (
-            f"\n\n你正在监听{channel_name}。"
-            f"只回答服务器规则/制度/版本进度这类「服务器知识」问题，且答案必须能在你掌握的FAQ知识库中原文或近似原文找到。"
-            f"具体的游戏内容/玩法问题一律不参与，就算你知道答案也不要说，直接回复 [PASS]——"
-            f"比如某个怪物为什么打不了、声望怎么刷、任务/副本怎么打、门怎么开、天赋加点、"
-            f"客户端界面上某个图标/状态/标识怎么看怎么用这类通用魔兽世界玩法或客户端操作问题，"
-            f"这些应该让玩家自己去问其他玩家，不是你的职责范围。"
-            f"如果问题含糊、不在FAQ范围内、已被其他玩家回答、或只是普通闲聊，"
-            f"同样直接回复 [PASS]（不要附加任何文字）。"
-            f"回答时，先@{sender} 称呼对方，然后用一到两句话给出简洁准确的答案。"
-            f"不要展开说太多，不要卖弄学识，保持蒹葭的性格。"
-        )
+        system += "\n\n" + _PROMPT_TEMPLATES["world_question"].format(
+            channel_name=channel_name, sender=sender)
         if player_info:
             system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{player_info}。"
                        f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
@@ -1129,6 +1135,7 @@ def main() -> None:
 
     # ── Load system prompt (soul + knowledge modules) ─────────────────────────
     _reload_system_prompt(svc)
+    _reload_prompt_templates(svc)
 
     # ── Init conversation log ──────────────────────────────────────────────────
     _init_conv_log(svc.get("log_dir", "logs"))
@@ -1160,8 +1167,9 @@ def main() -> None:
 
     if hasattr(signal, "SIGHUP"):  # not available on Windows; harmless to skip there
         def _reload(sig, frame):
-            log.info("SIGHUP received, reloading soul + knowledge files.")
+            log.info("SIGHUP received, reloading soul + knowledge + prompt templates.")
             _reload_system_prompt(svc)
+            _reload_prompt_templates(svc)
         signal.signal(signal.SIGHUP, _reload)
 
     with open(pid_file, "w", encoding="utf-8") as f:
