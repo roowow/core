@@ -654,7 +654,7 @@ def _compress_history(player: str, bot_name: str,
         )
         return result
     except _OllamaBusy:
-        log.debug("Memory compression skipped (Ollama busy) for %s", player)
+        log.info("Memory compression skipped (Ollama busy) for %s", player)
         return existing_memory
     except Exception as e:
         log.warning("Memory compression failed for %s: %s", player, e)
@@ -1047,7 +1047,7 @@ def _compress_raid_session(history: list[dict], existing_summary: str) -> str:
             think=False, temperature=0.3, num_predict=600, timeout=60, queue_timeout=0,
         )
     except _OllamaBusy:
-        log.debug("Raid session compression skipped (Ollama busy)")
+        log.info("Raid session compression skipped (Ollama busy)")
         return existing_summary
     except Exception as e:
         log.warning("Raid session compression failed: %s", e)
