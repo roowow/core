@@ -620,6 +620,15 @@ void WebChatMgr::SpeakInWorldChannelAsJianJia(std::string const& message)
         chanB = cMgr->GetChannel("世界频道", PlayerPointer(), false);
     if (chanA) chanA->SendToAll(&data);
     if (chanB && chanB != chanA) chanB->SendToAll(&data);
+
+    // Publish to Redis so webchat displays the reply
+    if (cache)
+    {
+        // Alliance races: 1=Human 3=Dwarf 4=NightElf 7=Gnome
+        uint32 faction = (cache->uiRace == 1 || cache->uiRace == 3 ||
+                          cache->uiRace == 4 || cache->uiRace == 7) ? 1 : 0;
+        WriteWebChat("world", m_jianJiaName, faction, cache->uiClass, "", message, 0, false);
+    }
 }
 
 void WebChatMgr::SpeakInGuildAsJianJia(std::string const& targetName, std::string const& message)

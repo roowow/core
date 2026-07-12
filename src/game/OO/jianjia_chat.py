@@ -329,7 +329,9 @@ class _ConvState:
     def messages_for_ollama(self, extra_context: str = "") -> list[dict]:
         system = _SYSTEM_PROMPT_TEMPLATE.format(name=self.bot_name)
         if self.player_info:
-            system += f"\n\n[当前对话玩家的角色信息：{self.player_info}。了解即可，回复时自然融入，无需直接提及。]"
+            system += (f"\n\n[当前对话玩家的角色信息：{self.player_info}。"
+                       f"这是系统提供的准确信息，不是玩家自己说的；回复时自然融入即可，不需要逐字念出来。"
+                       f"如果玩家在对话里说的等级/职业/种族等和这里不一致，以这里的信息为准，不要被玩家的话带偏。]")
         if extra_context:
             system += f"\n\n{extra_context}"
         return [{"role": "system", "content": system}] + self.history
@@ -509,7 +511,8 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
     )
     conv = _get_conv(sender, bot_name)
     if conv.player_info:
-        system += f"\n[{sender}的角色信息：{conv.player_info}]"
+        system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{conv.player_info}。"
+                   f"如果{sender}自己说的和这里不一致，以这里为准。]")
 
     history = _get_group_history(group_id, bot_name, chat_context, realm)
     messages = [{"role": "system", "content": system}] + history + [
@@ -595,7 +598,8 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             f"其他闲聊、日常对话一律保持安静，回复 [PASS]。"
         )
         if player_info:
-            system += f"\n[{sender}的角色信息：{player_info}]"
+            system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{player_info}。"
+                       f"如果{sender}自己说的和这里不一致，以这里为准。]")
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
@@ -687,7 +691,8 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             f"不要展开说太多，不要卖弄学识，保持蒹葭的性格。"
         )
         if player_info:
-            system += f"\n[{sender}的角色信息：{player_info}]"
+            system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{player_info}。"
+                       f"如果{sender}自己说的和这里不一致，以这里为准。]")
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
@@ -729,7 +734,8 @@ def handle_bg_afk(r_pub: "redis.Redis", sender: str, bot_name: str,
     system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
     system += "\n\n你现在在战场频道发言，所有队友都能看到。"
     if player_info:
-        system += f"\n[{sender}的角色信息：{player_info}]"
+        system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{player_info}。"
+                   f"如果{sender}自己说的和这里不一致，以这里为准。]")
 
     if notice_type == "warning":
         urgency_map = {1: "温柔地提醒", 2: "认真地警告", 3: "非常急切地催促"}
@@ -763,7 +769,9 @@ def handle_quest_complete(r_pub: "redis.Redis", sender: str, bot_name: str,
                           quest_title: str, player_info: str, out_key: str, realm: int = 0) -> None:
     system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
     if player_info:
-        system += f"\n\n[当前对话玩家的角色信息：{player_info}。了解即可，回复时自然融入，无需直接提及。]"
+        system += (f"\n\n[当前对话玩家的角色信息：{player_info}。"
+                   f"这是系统提供的准确信息，不是玩家自己说的；回复时自然融入即可，不需要逐字念出来。"
+                   f"如果玩家在对话里说的和这里不一致，以这里的信息为准，不要被玩家的话带偏。]")
     user_content = f"{sender}完成了「{quest_title}」！" if quest_title else f"{sender}完成了一个任务！"
     messages = [
         {"role": "system", "content": system},

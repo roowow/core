@@ -12,7 +12,7 @@ bool JianJiaAI::OnSessionLoaded(PlayerBotEntry* entry, WorldSession* sess)
 {
     // Load the existing character from DB (same as base class)
     sess->LoginPlayer(entry->playerGUID);
-    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "JianJiaAI: 蒹葭 (guid %u) logged in.", entry->playerGUID);
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "JianJiaAI: %s (guid %u) logged in.", sess->GetPlayerName(), entry->playerGUID);
     return true;
 }
 
