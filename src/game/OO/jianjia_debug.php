@@ -46,7 +46,8 @@ $KNOWLEDGE_DIR = __DIR__ . '/jianjia_knowledge';
 $config = [
     'token'      => 'change-me',
     'ollama_url' => 'http://127.0.0.1:11434/api/chat',
-    'model'      => 'qwen3:32b',
+    'model'      => 'qwen3:14b',
+    'num_ctx'    => 24576,
     'bot_name'   => '蒹葭',
 ];
 $localConfigFile = __DIR__ . '/jianjia_debug_config.php';
@@ -133,11 +134,12 @@ function jj_http_post_stream(string $url, string $payload): array
 // <think> 块清理、角色名前缀清理），否则调试台看到的回复和游戏里实际发出的不是一回事。
 function jj_call_ollama(string $url, string $model, array $messages, float $temperature = 0.8, int $numPredict = 200, bool $think = false): array
 {
+    $numCtx  = (int)($GLOBALS['_jj_num_ctx'] ?? 24576);
     $payload = json_encode([
         'model'    => $model,
         'stream'   => false,
         'think'    => $think,
-        'options'  => ['temperature' => $temperature, 'num_predict' => $numPredict],
+        'options'  => ['temperature' => $temperature, 'num_predict' => $numPredict, 'num_ctx' => $numCtx],
         'messages' => $messages,
     ], JSON_UNESCAPED_UNICODE);
 
@@ -200,6 +202,7 @@ if ($isApi) {
 
     $model       = (string)($body['model'] ?? $config['model']);
     $ollamaUrl   = (string)($body['ollama_url'] ?? $config['ollama_url']);
+    $GLOBALS['_jj_num_ctx'] = (int)($body['num_ctx'] ?? $config['num_ctx'] ?? 24576);
     $extraSystem = trim((string)($body['extra_system'] ?? ''));
     $rawSystem   = (string)($body['raw_system'] ?? '');
     $temperature = isset($body['temperature']) ? (float)$body['temperature'] : 0.8;
