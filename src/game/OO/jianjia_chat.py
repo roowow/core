@@ -1720,7 +1720,9 @@ def handle_bg_afk(r_pub: "redis.Redis", sender: str, bot_name: str,
                   stage: int, afk_level: int, notice_type: str, player_info: str,
                   out_key: str, realm: int = 0) -> None:
     system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
-    system += "\n\n你现在在战场频道发言，所有队友都能看到。"
+    system += (f"\n\n你现在在战场频道发言，所有队友都能看到。"
+               f"你是{bot_name}，正在向玩家{sender}喊话——你说的话是你对{sender}说的，"
+               f"不是{sender}在回答你，也不是你在替{sender}说话。")
     if player_info:
         system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{player_info}。"
                    f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
@@ -1728,11 +1730,13 @@ def handle_bg_afk(r_pub: "redis.Redis", sender: str, bot_name: str,
     if notice_type == "warning":
         urgency_map = {1: "温柔地提醒", 2: "认真地警告", 3: "非常急切地催促"}
         urgency = urgency_map.get(stage, "提醒")
-        prompt = f"请{urgency}{sender}：他们在战场中活动太少了，需要积极参与战斗或争夺目标，否则可能被移出战场。一句话，用你的性格说。"
+        prompt = (f"你在战场频道对{sender}说一句话，{urgency}他们：战场中活动太少了，"
+                  f"需要积极参与战斗或争夺目标，否则可能被移出战场。用你的性格说，一句话。")
     else:
         level_map = {1: "轻轻提醒", 2: "提醒", 3: "严肃警告"}
         urgency = level_map.get(afk_level, "提醒")
-        prompt = f"请{urgency}{sender}：他们的战场活跃度不足，需要更积极地参与。一句话。"
+        prompt = (f"你在战场频道对{sender}说一句话，{urgency}他们：战场活跃度不足，"
+                  f"需要更积极地参与。一句话。")
 
     messages = [{"role": "system", "content": system},
                 {"role": "user", "content": prompt}]

@@ -56,7 +56,8 @@
       "WebFetch(domain:s1.oowow.world)",
       "Bash(curl *)",
       "Bash(wait)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(python3 *)"
     ]
   }
 }
