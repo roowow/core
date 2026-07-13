@@ -332,8 +332,8 @@ def _reload_system_prompt(svc: dict) -> None:
 # which *variables* get substituted still need a restart, but the *wording* doesn't.
 _PROMPT_TEMPLATES: dict[str, str] = {}
 _REQUIRED_PROMPT_TEMPLATES = {
-    "group_wakeup", "guild_wakeup", "world_question", "world_summon", "verify_grounded",
-    "whisper_companion",
+    "group_wakeup", "guild_wakeup", "world_question", "world_summon", "world_summon_deflect",
+    "verify_grounded", "whisper_companion",
 }
 
 
@@ -1473,6 +1473,31 @@ def _verify_grounded(bot_name: str, question: str, reply: str) -> tuple[bool, fl
     return ("不合格" not in verdict and "合格" in verdict), latency_ms
 
 
+def _summon_deflect(bot_name: str, sender: str, channel_name: str) -> tuple[str, float]:
+    """Fallback for world-summon when no KB answer exists or grounding fails.
+
+    Generates a brief in-character, non-factual reply (诗经 verse or vague quip) so
+    the player who @mentioned the bot never gets complete silence. Uses the soul/persona
+    only — no knowledge base — to prevent accidental fact claims. No grounding check
+    needed since the prompt explicitly prohibits factual content.
+
+    Returns (reply, latency_ms). Empty string on failure.
+    """
+    system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
+    prompt = _PROMPT_TEMPLATES["world_summon_deflect"].format(sender=sender, channel_name=channel_name)
+    t0 = time.time()
+    try:
+        reply = _ollama_chat(
+            [{"role": "system", "content": system},
+             {"role": "user", "content": prompt}],
+            temperature=0.9, think=False, num_predict=80, timeout=30,
+        )
+        return (reply.strip() if reply else ""), (time.time() - t0) * 1000
+    except Exception as e:
+        log.warning("Ollama error generating summon deflect for %s: %s", sender, e)
+        return "", (time.time() - t0) * 1000
+
+
 def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_context: str,
                         context_id: int, bot_name: str, out_key: str,
                         realm: int = 0, player_info: str = "") -> None:
@@ -1603,21 +1628,44 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                 return
             gen_latency_ms = (time.time() - t0) * 1000
             if not reply or _PASS_RE.search(reply):
-                with _summon_reply_lock:
-                    _summon_reply_ts.pop(sender, None)
-                _write_conv_log(realm, bot_name, "channel_chat", "pass", sender, player_info, message,
-                                context="world-summon", llm_calls=1, latency_ms=gen_latency_ms)
+                deflect, deflect_ms = _summon_deflect(bot_name, sender, channel_name)
+                total_latency_ms = gen_latency_ms + deflect_ms
+                if deflect:
+                    payload = json.dumps({"target": sender, "message": deflect, "channel": chat_context},
+                                         ensure_ascii=False, separators=(",", ":"))
+                    r_pub.publish(out_key, payload)
+                    log.info("[%s] world summon deflect to %s: %s", bot_name, sender, deflect)
+                    _write_conv_log(realm, bot_name, "channel_chat", "deflect", sender, player_info,
+                                    message, deflect, context="world-summon",
+                                    llm_calls=2, latency_ms=total_latency_ms)
+                else:
+                    with _summon_reply_lock:
+                        _summon_reply_ts.pop(sender, None)
+                    _write_conv_log(realm, bot_name, "channel_chat", "pass", sender, player_info,
+                                    message, context="world-summon", llm_calls=2,
+                                    latency_ms=total_latency_ms)
                 return
             verified, verify_latency_ms = _verify_grounded(bot_name, message, reply)
             total_latency_ms = gen_latency_ms + verify_latency_ms
             if not verified:
-                log.info("[%s] world summon reply to %s failed grounding check, discarding: %s",
+                log.info("[%s] world summon reply to %s failed grounding check, generating deflect: %s",
                          bot_name, sender, reply)
-                with _summon_reply_lock:
-                    _summon_reply_ts.pop(sender, None)
-                _write_conv_log(realm, bot_name, "channel_chat", "verify_rejected", sender,
-                                player_info, message, reply, context="world-summon",
-                                llm_calls=2, latency_ms=total_latency_ms)
+                deflect, deflect_ms = _summon_deflect(bot_name, sender, channel_name)
+                total_latency_ms += deflect_ms
+                if deflect:
+                    payload = json.dumps({"target": sender, "message": deflect, "channel": chat_context},
+                                         ensure_ascii=False, separators=(",", ":"))
+                    r_pub.publish(out_key, payload)
+                    log.info("[%s] world summon deflect (verify_rejected) to %s: %s", bot_name, sender, deflect)
+                    _write_conv_log(realm, bot_name, "channel_chat", "deflect", sender, player_info,
+                                    message, deflect, context="world-summon",
+                                    llm_calls=3, latency_ms=total_latency_ms)
+                else:
+                    with _summon_reply_lock:
+                        _summon_reply_ts.pop(sender, None)
+                    _write_conv_log(realm, bot_name, "channel_chat", "verify_rejected", sender,
+                                    player_info, message, reply, context="world-summon",
+                                    llm_calls=3, latency_ms=total_latency_ms)
                 return
 
             payload = json.dumps({"target": sender, "message": reply, "channel": chat_context},
