@@ -1419,8 +1419,8 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
         llm_calls = 2
         latency_ms = gen_latency_ms + verify_latency_ms
         if not verified:
-            log.info("[%s] %s reply to %s failed grounding check, discarding: %s",
-                     bot_name, chat_context, sender, reply)
+            log.info("[%s] %s reply to %s (asked: %s) failed grounding check, discarding: %s",
+                     bot_name, chat_context, sender, message, reply)
             _write_conv_log(realm, bot_name, "group_chat", "verify_rejected", sender,
                             player_info_for_log, message, reply, context=chat_context,
                             llm_calls=llm_calls, latency_ms=latency_ms)
@@ -1556,8 +1556,8 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
         llm_calls = 2
         latency_ms = gen_latency_ms + verify_latency_ms
         if not verified:
-            log.info("[%s] guild reply to %s failed grounding check, discarding: %s",
-                     bot_name, sender, reply)
+            log.info("[%s] guild reply to %s (asked: %s) failed grounding check, discarding: %s",
+                     bot_name, sender, message, reply)
             _write_conv_log(realm, bot_name, "channel_chat", "verify_rejected", sender, player_info,
                             message, reply, context="guild", llm_calls=llm_calls,
                             latency_ms=latency_ms)
@@ -1611,8 +1611,8 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             verified, verify_latency_ms = _verify_grounded(bot_name, message, reply)
             total_latency_ms = gen_latency_ms + verify_latency_ms
             if not verified:
-                log.info("[%s] world summon reply to %s failed grounding check, discarding: %s",
-                         bot_name, sender, reply)
+                log.info("[%s] world summon reply to %s (asked: %s) failed grounding check, discarding: %s",
+                         bot_name, sender, message, reply)
                 with _summon_reply_lock:
                     _summon_reply_ts.pop(sender, None)
                 _write_conv_log(realm, bot_name, "channel_chat", "verify_rejected", sender,
@@ -1684,8 +1684,8 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
         llm_calls = 2
         latency_ms = gen_latency_ms + verify_latency_ms
         if not verified:
-            log.info("[%s] world reply to %s failed grounding check, discarding: %s",
-                     bot_name, sender, reply)
+            log.info("[%s] world reply to %s (asked: %s) failed grounding check, discarding: %s",
+                     bot_name, sender, message, reply)
             with _channel_reply_lock:
                 _channel_reply_ts.pop(sender, None)
             _write_conv_log(realm, bot_name, "channel_chat", "verify_rejected", sender, player_info,
