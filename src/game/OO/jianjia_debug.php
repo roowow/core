@@ -207,7 +207,7 @@ if ($isApi) {
     $rawSystem   = (string)($body['raw_system'] ?? '');
     $temperature = isset($body['temperature']) ? (float)$body['temperature'] : 0.8;
     $think       = !empty($body['think']);
-    $numPredict  = isset($body['num_predict']) ? (int)$body['num_predict'] : ($think ? 2000 : 200);
+    $numPredict  = isset($body['num_predict']) ? (int)$body['num_predict'] : ($think ? 2000 : 600);
 
     if ($rawSystem !== '') {
         // Testing a system prompt that jianjia_chat.py builds from scratch (e.g. a
