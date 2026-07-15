@@ -1694,9 +1694,10 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             _channel_reply_ts[sender] = time.time()
 
         conv = _get_conv(sender, bot_name, realm, scope="world")
+        transcript = _get_world_recent_transcript(realm)
         system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
         system += "\n\n" + _PROMPT_TEMPLATES["world_question"].format(
-            channel_name=channel_name, sender=sender)
+            channel_name=channel_name, sender=sender, transcript=transcript)
         if conv.memory:
             system += f"\n\n[关于{sender}的记忆：\n{conv.memory}]"
         if player_info:
