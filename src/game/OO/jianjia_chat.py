@@ -1634,7 +1634,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                     payload = json.dumps({"target": sender, "message": deflect, "channel": chat_context},
                                          ensure_ascii=False, separators=(",", ":"))
                     r_pub.publish(out_key, payload)
-                    log.info("[%s] world summon deflect to %s: %s", bot_name, sender, deflect)
+                    log.info("[%s] world summon deflect to %s (asked: %s): %s", bot_name, sender, message, deflect)
                     _write_conv_log(realm, bot_name, "channel_chat", "deflect", sender, player_info,
                                     message, deflect, context="world-summon",
                                     llm_calls=2, latency_ms=total_latency_ms)
@@ -1656,7 +1656,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                     payload = json.dumps({"target": sender, "message": deflect, "channel": chat_context},
                                          ensure_ascii=False, separators=(",", ":"))
                     r_pub.publish(out_key, payload)
-                    log.info("[%s] world summon deflect (verify_rejected) to %s: %s", bot_name, sender, deflect)
+                    log.info("[%s] world summon deflect (verify_rejected) to %s (asked: %s): %s", bot_name, sender, message, deflect)
                     _write_conv_log(realm, bot_name, "channel_chat", "deflect", sender, player_info,
                                     message, deflect, context="world-summon",
                                     llm_calls=3, latency_ms=total_latency_ms)
@@ -1812,7 +1812,11 @@ def handle_bg_afk(r_pub: "redis.Redis", sender: str, bot_name: str,
     payload = json.dumps({"target": sender, "message": reply, "channel": "bg"},
                          ensure_ascii=False, separators=(",", ":"))
     r_pub.publish(out_key, payload)
-    log.info("[%s] BG AFK notice to %s (stage %d): %s", bot_name, sender, stage, reply)
+    # notice_type picks which of stage/afk_level is actually meaningful — logging "stage"
+    # unconditionally (as before) printed a stale/irrelevant "stage 0" whenever the
+    # afk_level branch was the one that actually fired.
+    level_desc = f"stage {stage}" if notice_type == "warning" else f"afk_level {afk_level}"
+    log.info("[%s] BG AFK notice to %s (%s, notice=%s): %s", bot_name, sender, level_desc, notice_type, reply)
     _write_conv_log(realm, bot_name, "bg_afk", "answered", sender, player_info,
                     f"stage={stage} afk_level={afk_level} notice={notice_type}", reply,
                     context="bg", llm_calls=1, latency_ms=(time.time() - t0) * 1000)
