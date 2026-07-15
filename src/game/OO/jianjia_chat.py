@@ -333,7 +333,7 @@ def _reload_system_prompt(svc: dict) -> None:
 _PROMPT_TEMPLATES: dict[str, str] = {}
 _REQUIRED_PROMPT_TEMPLATES = {
     "group_wakeup", "guild_wakeup", "world_question", "world_summon", "world_summon_deflect",
-    "verify_grounded", "whisper_companion",
+    "verify_grounded", "whisper_companion", "bg_afk",
 }
 
 
@@ -1768,27 +1768,33 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
 def handle_bg_afk(r_pub: "redis.Redis", sender: str, bot_name: str,
                   stage: int, afk_level: int, notice_type: str, player_info: str,
                   out_key: str, realm: int = 0) -> None:
+    if notice_type == "warning":
+        urgency_map = {
+            1: "傲娇地小声嫌弃他一下，带点俏皮",
+            2: "语气加重一档，傲娇地念叨他，可以带点夸张的吐槽增加喜感",
+            3: "语气最急的一档，嘴上依然嫌弃但要透出真着急，提醒他再不动就要被移出战场了——是嫌弃不是骂人",
+        }
+        urgency = urgency_map.get(stage, "傲娇地喊他动起来")
+        instruction = (f"对{sender}喊一句：{urgency}——他在战场里活动太少了，"
+                       f"需要冲上去参与战斗或抢目标，不然会被移出战场。用你的性格喊。")
+    else:
+        level_map = {
+            1: "用俏皮调侃的傲娇语气点他一下，别摸鱼",
+            2: "语气更傲娇一档，念叨他快上",
+            3: "语气最急的一档，活跃度太低了，嘴上嫌弃但透出真着急",
+        }
+        urgency = level_map.get(afk_level, "傲娇地喊他动起来")
+        instruction = f"对{sender}喊一句：{urgency}——他的战场活跃度不够，需要更拼一点。"
+
     system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
-    system += (f"\n\n你现在在战场频道发言，所有队友都能看到。"
-               f"你是{bot_name}，正在向玩家{sender}喊话——你说的话是你对{sender}说的，"
-               f"不是{sender}在回答你，也不是你在替{sender}说话。")
+    system += "\n\n" + _PROMPT_TEMPLATES["bg_afk"].format(
+        bot_name=bot_name, sender=sender, instruction=instruction)
     if player_info:
         system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{player_info}。"
                    f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
 
-    if notice_type == "warning":
-        urgency_map = {1: "温柔地提醒", 2: "认真地警告", 3: "非常急切地催促"}
-        urgency = urgency_map.get(stage, "提醒")
-        prompt = (f"你在战场频道对{sender}说一句话，{urgency}他们：战场中活动太少了，"
-                  f"需要积极参与战斗或争夺目标，否则可能被移出战场。用你的性格说，一句话。")
-    else:
-        level_map = {1: "轻轻提醒", 2: "提醒", 3: "严肃警告"}
-        urgency = level_map.get(afk_level, "提醒")
-        prompt = (f"你在战场频道对{sender}说一句话，{urgency}他们：战场活跃度不足，"
-                  f"需要更积极地参与。一句话。")
-
     messages = [{"role": "system", "content": system},
-                {"role": "user", "content": prompt}]
+                {"role": "user", "content": instruction}]
     t0 = time.time()
     try:
         reply = _ollama_chat(messages)
