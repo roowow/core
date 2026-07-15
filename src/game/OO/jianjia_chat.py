@@ -936,7 +936,7 @@ _QUESTION_RE = re.compile(r'[？?]|吗\b|怎么|咋|哪里|哪儿|如何|能否|
 _PASS_RE = re.compile(r'\[\s*PASS\s*\]', re.IGNORECASE)
 
 # Per-player cooldown for world channel replies (seconds)
-_CHANNEL_REPLY_CD = 120
+_CHANNEL_REPLY_CD = 30
 _channel_reply_ts: dict[str, float] = {}
 _channel_reply_lock = threading.Lock()
 
