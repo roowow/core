@@ -1057,6 +1057,12 @@ struct go_ai_suppression : public GameObjectAI
                 me->SetRespawnTime(urand(30, 2 * MINUTE));
             else
                 me->SetRespawnTime(7 * 24 * HOUR);
+
+            // Remove suppression aura from all nearby players when the trap is deactivated
+            std::list<Player*> players;
+            me->GetAlivePlayerListInRange(me, players, 40.0f);
+            for (Player* pPlayer : players)
+                pPlayer->RemoveAurasDueToSpell(SPELL_SUPPRESSION_AURA);
         }
     }
 
@@ -1068,11 +1074,20 @@ struct go_ai_suppression : public GameObjectAI
         {
             if (m_uiFumeTimer <= uiDiff)
             {
-                // The loot state check may be removed in that case because it should probably be handled in the Gameobject::Use() code
                 if (me->getLootState() == GO_READY)
                 {
                     me->SendGameObjectCustomAnim(me->GetObjectGuid());
-                    me->CastSpell(nullptr, me->GetGOInfo()->trap.spellId, true);
+                    // Cast only on players - creatures must not be slowed by suppression devices
+                    uint32 spellId = me->GetGOInfo()->trap.spellId;
+                    float radius = (float)me->GetGOInfo()->trap.radius;
+                    if (radius < 1.0f) radius = 30.0f;
+                    std::list<Player*> players;
+                    me->GetAlivePlayerListInRange(me, players, radius);
+                    for (Player* pPlayer : players)
+                    {
+                        if (!pPlayer->HasAura(spellId))
+                            me->CastSpell(pPlayer, spellId, true);
+                    }
                 }
                 m_uiFumeTimer = 5 * IN_MILLISECONDS;
             }
