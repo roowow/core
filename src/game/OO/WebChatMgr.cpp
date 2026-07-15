@@ -344,6 +344,15 @@ void WebChatMgr::DispatchWebMessage(std::string const& json)
             chanB = cMgr->GetChannel("世界频道", PlayerPointer(), false);
         if (chanA) chanA->SendToAll(&data);
         if (chanB && chanB != chanA) chanB->SendToAll(&data);
+
+        // Forward webchat world-channel messages to JianJia AI
+        if (IsJianJiaActive())
+        {
+            uint8 lvl = cache ? cache->uiLevel : 0;
+            uint8 cls = cache ? cache->uiClass : 0;
+            uint8 rac = cache ? cache->uiRace  : 0;
+            ForwardChannelChatToJianJia(charName, msg, "world", lvl, cls, rac, 0);
+        }
     }
     else if (channel == "guild" || channel == "party" || channel == "raid")
     {
