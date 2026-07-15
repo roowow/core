@@ -4409,6 +4409,11 @@ void Spell::SendCastResult(SpellCastResult result)
 
 void Spell::SendCastResult(Player const* caster, SpellEntry const* spellInfo, SpellCastResult result)
 {
+    // TEMP DEBUG: tracing item/spell 21308/21309/26469/26528 "item not ready" report. Remove after diagnosis.
+    if (result != SPELL_CAST_OK && (spellInfo->Id == 26469 || spellInfo->Id == 26528 || spellInfo->Id == 65469))
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG CastResult: caster '%s' (guid %u), spell %u, result code %u",
+            caster->GetName(), caster->GetGUIDLow(), spellInfo->Id, (uint32)result);
+
     auto packet = std::make_unique<WorldPackets::Spell::CastResult>();
     packet->spellId = spellInfo->Id;
     packet->failureReason = result;
