@@ -4282,7 +4282,6 @@ void Spell::EffectScriptEffect(SpellEffectIndex effIdx)
                 case 26541:
                 case 26469:
                 case 26528:
-                case 65469:                                 // TEMP DEBUG: test clone of 26469, remove after diagnosis
                 {
                     if (Player* player = m_caster->ToPlayer())
                     {
@@ -4297,7 +4296,6 @@ void Spell::EffectScriptEffect(SpellEffectIndex effIdx)
                                 entryToCheck = 15705;
                                 break;
                             case 26469: // Tiny Snowman
-                            case 65469: // TEMP DEBUG: test clone of 26469, remove after diagnosis
                                 entryToCheck = 15710;
                                 break;
                             case 26528: // Winter Reindeer
