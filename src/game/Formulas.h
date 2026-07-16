@@ -155,9 +155,10 @@ namespace MaNGOS
             xp_gain *= pCreature->GetXPModifierDueToDamageOrigin();
             xp_gain *= sWorld.getConfig(CONFIG_FLOAT_RATE_XP_KILL);
 
-            // 经验石（天选者和乌龟模式下无效）
+            // 经验石（天选者、乌龟模式、勇敢者下无效——勇敢者已经自带2倍经验，避免叠加成4倍）
             if (pUnit->IsPlayer() && pUnit->ToPlayer()->HasItemCount(91705, 1)
-                && !pUnit->ToPlayer()->IsTianxuan() && !pUnit->ToPlayer()->IsTurtle())
+                && !pUnit->ToPlayer()->IsTianxuan() && !pUnit->ToPlayer()->IsTurtle()
+                && !pUnit->ToPlayer()->IsHardcore())
                 xp_gain *= 2;
 
             // Hardcore

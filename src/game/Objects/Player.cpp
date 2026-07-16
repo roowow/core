@@ -6842,6 +6842,10 @@ int32 Player::CalculateReputationGain(ReputationSource source, int32 rep, int32 
         if (source == REPUTATION_SOURCE_KILL)
             repMod += GetTotalAuraModifierByMiscValue(SPELL_AURA_MOD_FACTION_REPUTATION_GAIN, faction);
 
+        // 声望石（天选者、乌龟模式、勇敢者下无效，跟经验石 91705 的排除规则保持一致）
+        if (HasItemCount(900108, 1) && !IsTianxuan() && !IsTurtle() && !IsHardcore())
+            repMod += 100.0f;
+
         percent += repMod;
 
         // Ustaag <Nostalrius> : apply reduction from difference lvl between mob/quest and player (since patch 1.9)
