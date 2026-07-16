@@ -346,6 +346,25 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
         cancelCast = true;
     }
 
+    // BR 积分商店 — 餐桌：召唤一张装饰桌 + 面包/水两个可反复点击的道具，5分钟后一起消失
+    if (pItem->GetEntry() == 900109)
+    {
+        float x, y, z;
+        pUser->GetClosePoint(x, y, z, pUser->GetObjectBoundingRadius(), 2.0f, 0.0f);
+        pUser->SummonGameObject(180698, x, y, pUser->GetPositionZ(), pUser->GetOrientation(), 0, 0, 0, 0, 300);
+
+        float bx, by, bz;
+        pUser->GetClosePoint(bx, by, bz, pUser->GetObjectBoundingRadius(), 1.5f, float(M_PI) / 6);
+        pUser->SummonGameObject(900109, bx, by, pUser->GetPositionZ(), pUser->GetOrientation(), 0, 0, 0, 0, 300);
+
+        float wx, wy, wz;
+        pUser->GetClosePoint(wx, wy, wz, pUser->GetObjectBoundingRadius(), 1.5f, -float(M_PI) / 6);
+        pUser->SummonGameObject(900111, wx, wy, pUser->GetPositionZ(), pUser->GetOrientation(), 0, 0, 0, 0, 300);
+
+        ChatHandler(pUser).PSendSysMessage("[孤胆称雄] 且坐，且饮，且歇脚。");
+        cancelCast = true;
+    }
+
     if (cancelCast)
     {
         ObjectGuid guid = pItem->GetGUID();
