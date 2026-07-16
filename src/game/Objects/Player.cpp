@@ -19170,10 +19170,29 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
 
     uint32 price  = pProto->BuyPrice * count;
 
-    // reputation discount
-    price = uint32(price * GetReputationPriceDiscount(pCreature) + 0.5f);
+    // BR 孤胆称雄积分商人（令使 900100/900102）：用赛季积分结算，不动铜币，也不套声望折扣
+    // （season_points 不是真实货币，商品价格应该是固定的，不该因为玩家跟这个NPC的阵营声望而浮动）
+    bool const isBrPointsVendor = (pCreature->GetEntry() == 900100 || pCreature->GetEntry() == 900102);
 
-    if (GetMoney() < price)
+    // reputation discount (does not apply to the BR points shop, see above)
+    if (!isBrPointsVendor)
+        price = uint32(price * GetReputationPriceDiscount(pCreature) + 0.5f);
+
+    uint32 brSeasonPoints = 0;
+    if (isBrPointsVendor)
+    {
+        if (std::unique_ptr<QueryResult> result = CharacterDatabase.PQuery(
+                "SELECT `season_points` FROM `battle_royale_season_score` WHERE `guid` = %u", GetGUIDLow()))
+            brSeasonPoints = result->Fetch()[0].GetUInt32();
+
+        if (brSeasonPoints < price)
+        {
+            ChatHandler(this).PSendSysMessage("[孤胆称雄] 当前积分：%u，需要：%u。", brSeasonPoints, price);
+            SendBuyError(BUY_ERR_NOT_ENOUGHT_MONEY, pCreature, item, 0);
+            return false;
+        }
+    }
+    else if (GetMoney() < price)
     {
         SendBuyError(BUY_ERR_NOT_ENOUGHT_MONEY, pCreature, item, 0);
         return false;
@@ -19191,7 +19210,12 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
             return false;
         }
 
-        LogModifyMoney(-int32(price), "BuyItem", vendorGuid, item);
+        if (isBrPointsVendor)
+            CharacterDatabase.PExecute(
+                "UPDATE `battle_royale_season_score` SET `season_points` = `season_points` - %u WHERE `guid` = %u AND `season_points` >= %u",
+                price, GetGUIDLow(), price);
+        else
+            LogModifyMoney(-int32(price), "BuyItem", vendorGuid, item);
 
         pItem = StoreNewItem(dest, item, true, Item::GenerateItemRandomPropertyId(item));
     }
@@ -19211,7 +19235,12 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
             return false;
         }
 
-        LogModifyMoney(-int32(price), "BuyItem", vendorGuid, item);
+        if (isBrPointsVendor)
+            CharacterDatabase.PExecute(
+                "UPDATE `battle_royale_season_score` SET `season_points` = `season_points` - %u WHERE `guid` = %u AND `season_points` >= %u",
+                price, GetGUIDLow(), price);
+        else
+            LogModifyMoney(-int32(price), "BuyItem", vendorGuid, item);
 
         pItem = EquipNewItem(dest, item, true);
 
@@ -19244,6 +19273,15 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
         oowowInfo.wareffort_used++;
         ChatHandler(this).PSendSysMessage("我的战争物质贡献值：%u, 已使用：%u。", oowowInfo.wareffort_count, oowowInfo.wareffort_used);
         CharacterDatabase.PExecute("UPDATE character_wareffort SET Used = %u WHERE guid=%u", oowowInfo.wareffort_used, GetGUIDLow());
+    }
+
+    // BR 孤胆称雄积分商店：记一笔购买流水，方便审计/查刷分
+    if (isBrPointsVendor)
+    {
+        CharacterDatabase.PExecute(
+            "INSERT INTO `character_log_battle_royale_shop` (`guid`, `item_entry`, `cost`, `purchase_time`) VALUES (%u, %u, %u, NOW())",
+            GetGUIDLow(), item, price);
+        ChatHandler(this).PSendSysMessage("[孤胆称雄] 花费 %u 积分，剩余 %u 积分。", price, brSeasonPoints - price);
     }
 
     return crItem->maxcount != 0;

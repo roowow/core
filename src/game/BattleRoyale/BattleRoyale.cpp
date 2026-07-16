@@ -961,17 +961,20 @@ void BattleRoyale::CleanupBRItems(Player* player)
     CharacterDatabase.escape_string(safeIp);
 
     // Accumulate season score
+    // `season_points` is the spendable balance (shop purchases reduce it);
+    // `season_points_earned` only ever grows and is what the leaderboard should rank on.
     CharacterDatabase.PExecute(
         "INSERT INTO `battle_royale_season_score` "
-        "  (`guid`, `season_points`, `total_matches`, `total_wins`, `total_kills`) "
-        "VALUES (%u, %u, 1, %u, %u) "
+        "  (`guid`, `season_points`, `season_points_earned`, `total_matches`, `total_wins`, `total_kills`) "
+        "VALUES (%u, %u, %u, 1, %u, %u) "
         "ON DUPLICATE KEY UPDATE "
-        "  `season_points` = `season_points` + %u, "
-        "  `total_matches` = `total_matches` + 1, "
-        "  `total_wins`    = `total_wins`    + %u, "
-        "  `total_kills`   = `total_kills`   + %u",
-        guid, totalPts, isWin, killCount,
-        totalPts, isWin, killCount);
+        "  `season_points`        = `season_points`        + %u, "
+        "  `season_points_earned` = `season_points_earned` + %u, "
+        "  `total_matches`        = `total_matches`        + 1, "
+        "  `total_wins`           = `total_wins`           + %u, "
+        "  `total_kills`          = `total_kills`          + %u",
+        guid, totalPts, totalPts, isWin, killCount,
+        totalPts, totalPts, isWin, killCount);
 
     // Append per-match log entry (mirrors character_log_pvpkill layout)
     CharacterDatabase.PExecute(

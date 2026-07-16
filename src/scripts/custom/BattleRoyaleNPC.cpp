@@ -21,6 +21,7 @@ enum BRGossipAction
     BR_ACTION_LEAVE     = 2,
     BR_ACTION_STATUS    = 3,
     BR_ACTION_GET_TOKEN = 4,
+    BR_ACTION_SHOP      = 5,
 };
 
 bool GossipHello_BattleRoyaleNPC(Player* player, Creature* creature)
@@ -37,6 +38,11 @@ bool GossipHello_BattleRoyaleNPC(Player* player, Creature* creature)
 
     if (!player->HasItemCount(ITEM_BR_TOKEN, 1) && BRPlayerHasWon(player))
         player->ADD_GOSSIP_ITEM(GOSSIP_ICON_INTERACT_1, "领取论剑令", GOSSIP_SENDER_MAIN, BR_ACTION_GET_TOKEN);
+
+    // 积分商店：这个NPC同时挂了 UNIT_NPC_FLAG_VENDOR，但因为这里手动接管了 gossip 菜单（没有走
+    // 默认的 PrepareGossipMenu 流程），商人选项不会被引擎自动加上，必须自己加一条并手动弹商人窗口。
+    if (creature->HasFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_VENDOR))
+        player->ADD_GOSSIP_ITEM(GOSSIP_ICON_VENDOR, "看看令使的珍藏", GOSSIP_SENDER_MAIN, BR_ACTION_SHOP);
 
     player->SEND_GOSSIP_MENU(BR_GOSSIP_TEXT_QUEUE, creature->GetGUID());
     return true;
@@ -84,6 +90,9 @@ bool GossipSelect_BattleRoyaleNPC(Player* player, Creature* creature, uint32 /*s
             player->SendNewItem(token, 1, true, false);
             break;
         }
+        case BR_ACTION_SHOP:
+            player->SEND_VENDORLIST(creature->GetObjectGuid());
+            break;
         default:
             break;
     }
