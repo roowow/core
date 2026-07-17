@@ -325,8 +325,10 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
     }
 
     // BR 报名令牌 — 世界地图远程加入/离开候战席（副本/战场/BR/战斗中不可用）
-    // 排查"卡在施法动作"问题期间，暂时去掉了额外触发的5001召唤特效，只保留最简单的
-    // cancelCast+20600壳子（历史上确认稳定的组合），用来隔离到底是不是那行额外CastSpell引入的。
+    // 壳子(8067 Party Time!，spellVisual1=0)只负责"预判施法然后被cancelCast取消"这一步，本身
+    // 没有任何特效可播，不会卡。召唤特效改成单独主动触发一次真实的5001（Lotwil's Summoning，
+    // 空召唤零副作用，自带spellVisual1=74）——这是一次独立的、完整走完的施法广播，不经过物品
+    // 点击那条"预判然后取消"的路径，所以不会有特效卡住的问题。
     if (pItem->GetEntry() == 900105)
     {
         if (pUser->GetMap()->Instanceable())
@@ -337,20 +339,26 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
         {
             bool inQueue = sBattleRoyaleMgr.IsPlayerInQueue(pUser->GetObjectGuid());
             if (inQueue)
+            {
                 sBattleRoyaleMgr.DequeuePlayer(pUser);
+                pUser->CastSpell(pUser, 5001, true);
+            }
             else
             {
                 std::string err;
                 if (!sBattleRoyaleMgr.EnqueuePlayer(pUser, err))
                     ChatHandler(pUser).PSendSysMessage("[孤胆称雄] %s", err.c_str());
+                else
+                    pUser->CastSpell(pUser, 5001, true);
             }
         }
         cancelCast = true;
     }
 
     // BR 积分商店 — 餐桌：召唤一张装饰桌 + 面包/水两个可反复点击的道具，5分钟后一起消失
-    // 排查"卡在施法动作"问题期间，暂时去掉了额外触发的5001召唤特效，只保留最简单的
-    // cancelCast+20600壳子，用来隔离到底是不是那行额外CastSpell引入的。
+    // 壳子(8067 Party Time!，spellVisual1=0)只负责"预判施法然后被cancelCast取消"这一步，本身
+    // 没有任何特效可播，不会卡。召唤特效改成召唤成功时单独主动触发一次真实的5001，跟900105
+    // 共用同一个空召唤瞬发法术，同样是独立的、完整走完的施法广播。
     // 冷却本身走61005这个纯标记法术手动查/写 Player::IsSpellReady/AddCooldown（因为壳子本身没冷却）。
     if (pItem->GetEntry() == 900109)
     {
@@ -387,6 +395,7 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             if (cdMarker)
                 pUser->AddCooldown(cdMarker);
 
+            pUser->CastSpell(pUser, 5001, true);
             pUser->TextEmote("摆开一桌酒菜，江湖路远，来者是客！");
         }
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-table BEFORE cancelCast t=%u elapsed=%u", WorldTimer::getMSTime(), WorldTimer::getMSTime() - debugBrEnterMs);
