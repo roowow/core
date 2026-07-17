@@ -349,23 +349,25 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
     // BR 积分商店 — 餐桌：召唤一张装饰桌 + 面包/水两个可反复点击的道具，5分钟后一起消失
     if (pItem->GetEntry() == 900109)
     {
-        // 桌面高度/半径：模型实际尺寸查不到，先按经验值估，游戏里看着不对再调
-        const float TABLE_TOP_HEIGHT = 1.3f;
-        const float TABLE_TOP_RADIUS = 0.4f; // 面包/水离桌子中心的水平距离，要小于桌面实际半径才不会露到外面
-
         float x, y, z;
         pUser->GetClosePoint(x, y, z, pUser->GetObjectBoundingRadius(), 2.0f, 0.0f);
-        pUser->SummonGameObject(180879, x, y, pUser->GetPositionZ(), pUser->GetOrientation(), 0, 0, 0, 0, 300);
+        float const tableOrient = pUser->GetOrientation();
+        pUser->SummonGameObject(180879, x, y, pUser->GetPositionZ(), tableOrient, 0, 0, 0, 0, 300);
 
-        // 面包/水的水平位置以桌子实际召唤出来的坐标(x,y)为圆心算偏移，不再各自独立相对玩家算，
-        // 避免出现桌子在2码外、面包水却按1.5码+夹角算导致离桌子中心超过1码、飘到桌面外面的问题
-        float angle1 = pUser->GetOrientation() + float(M_PI) / 6;
-        pUser->SummonGameObject(900109, x + TABLE_TOP_RADIUS * cos(angle1), y + TABLE_TOP_RADIUS * sin(angle1),
-            pUser->GetPositionZ() + TABLE_TOP_HEIGHT, pUser->GetOrientation(), 0, 0, 0, 0, 300);
+        // 面包/水/花相对桌子中心的偏移，用GM实测.gobject add摆放出来的真实坐标反推出来的
+        // （forward=沿桌子朝向前方为正，left=沿桌子朝向左侧为正，height=高于桌子原点的Z差），
+        // 不是拍脑袋估的。用桌子自己的朝向(tableOrient)做旋转，这样不管玩家用道具时面朝哪个
+        // 方向，摆放关系都保持一致。
+        auto summonOnTable = [&](uint32 entry, float forward, float left, float height)
+        {
+            float const px = x + forward * cos(tableOrient) - left * sin(tableOrient);
+            float const py = y + forward * sin(tableOrient) + left * cos(tableOrient);
+            pUser->SummonGameObject(entry, px, py, pUser->GetPositionZ() + height, tableOrient, 0, 0, 0, 0, 300);
+        };
 
-        float angle2 = pUser->GetOrientation() - float(M_PI) / 6;
-        pUser->SummonGameObject(900111, x + TABLE_TOP_RADIUS * cos(angle2), y + TABLE_TOP_RADIUS * sin(angle2),
-            pUser->GetPositionZ() + TABLE_TOP_HEIGHT, pUser->GetOrientation(), 0, 0, 0, 0, 300);
+        summonOnTable(900109, 0.167f, 0.121f, 1.86f);   // 面包
+        summonOnTable(900111, -0.625f, -0.130f, 1.86f); // 水
+        summonOnTable(178125, -0.169f, -0.187f, 2.02f); // 花（纯装饰，Lotharian Lotus）
 
         ChatHandler(pUser).PSendSysMessage("[孤胆称雄] 且坐，且饮，且歇脚。");
         cancelCast = true;
