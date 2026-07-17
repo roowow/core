@@ -393,11 +393,24 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
         cancelCast = true;
     }
 
+    // BR 令牌/餐桌(900105/900109)：诊断日志证明通用的cancelCast尾巴（SMSG_INVENTORY_CHANGE_FAILURE
+    // 那个hack）服务端处理和发包都是瞬间完成的（elapsed=0-2ms），排除了服务端耗时/丢包的可能——问题
+    // 是客户端本地预判的施法动作没有被正确取消。这个通用hack是给"库存/装备"类错误用的，不是真正
+    // 针对某个具体法术ID的取消信号。本函数上面118-141行处理"物品目标校验失败"时用的是另一套更
+    // 对症的组合：SendEquipError + Spell::SendCastResult(用道具真实声明的法术ID)——后者是专门告诉
+    // 客户端"这个法术ID的这次施法失败了"，才能让客户端正确对上本地预判、取消施法动作。这里改用
+    // 同一套组合，不动下面这个通用cancelCast尾巴（其它道具还在用，不想影响它们）。
+    if (cancelCast && (pItem->GetEntry() == 900105 || pItem->GetEntry() == 900109))
+    {
+        pUser->SendEquipError(EQUIP_ERR_NONE, pItem, nullptr);
+        uint32 spellid = proto->Spells[packet.spellSlot].SpellId;
+        if (SpellEntry const* spellInfo = sSpellMgr.GetSpellEntry(spellid))
+            Spell::SendCastResult(_player, spellInfo, SPELL_FAILED_DONT_REPORT);
+        return;
+    }
+
     if (cancelCast)
     {
-        if (pItem->GetEntry() == 900109)
-            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-table SENDING failure packet t=%u", WorldTimer::getMSTime());
-
         ObjectGuid guid = pItem->GetGUID();
         // Send equip error that shows no message
         // This is a hack fix to stop spell casting visual bug when a spell is not cast on use
@@ -407,9 +420,6 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
         data << ObjectGuid(uint64(0));
         data << uint8(0);
         pUser->GetSession()->SendPacket(&data);
-
-        if (pItem->GetEntry() == 900109)
-            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-table SENT failure packet t=%u", WorldTimer::getMSTime());
 
         return;
     }
