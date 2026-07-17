@@ -99,11 +99,40 @@ bool GossipSelect_BattleRoyaleNPC(Player* player, Creature* creature, uint32 /*s
     return true;
 }
 
+// BR 积分商店 - 餐桌的面包/水道具：点一下直接施法给点击者、立刻返回true。
+// 不能用GOOBER默认的"进入使用中状态->等冷却->回到就绪"这条路——这两个道具是SummonGameObject
+// 野生召唤出来的，没有数据库出生记录（m_spawnedByDefault=false），只要它真的走完一次冷却到期的
+// 状态转换（GO_ACTIVATED -> GO_JUST_DEACTIVATED），GameObject.cpp里对应逻辑会顺带把它删除——
+// 不管冷却设多长，"能被删除"和"能重复点击"绑在同一条状态机上，没法只要一半。
+// 这里直接接管OnUse，绕开整个状态机：施法后返回true会让GameObject::Use()提前return，
+// 后面那一整套状态变化根本不会发生，对象保持原样，可以无限次点击，直到5分钟自然到期消失。
+struct go_br_refreshment : public GameObjectAI
+{
+    go_br_refreshment(GameObject* go) : GameObjectAI(go) {}
+
+    bool OnUse(Unit* user) override
+    {
+        if (Player* player = user->ToPlayer())
+            player->CastSpell(player, me->GetGOInfo()->goober.spellId, true);
+        return true;
+    }
+};
+
+GameObjectAI* GetAI_go_br_refreshment(GameObject* go)
+{
+    return new go_br_refreshment(go);
+}
+
 void AddSC_BattleRoyaleNPC()
 {
     Script* newscript = new Script;
     newscript->Name            = "npc_battle_royale_queue";
     newscript->pGossipHello    = &GossipHello_BattleRoyaleNPC;
     newscript->pGossipSelect   = &GossipSelect_BattleRoyaleNPC;
+    newscript->RegisterSelf();
+
+    newscript = new Script;
+    newscript->Name    = "go_br_refreshment";
+    newscript->GOGetAI = &GetAI_go_br_refreshment;
     newscript->RegisterSelf();
 }
