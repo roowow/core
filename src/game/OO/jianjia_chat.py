@@ -1507,7 +1507,7 @@ def _verify_grounded(bot_name: str, question: str, reply: str) -> tuple[bool, fl
     return ("不合格" not in verdict and "合格" in verdict), latency_ms
 
 
-def _summon_deflect(bot_name: str, sender: str, channel_name: str) -> tuple[str, float]:
+def _summon_deflect(bot_name: str, sender: str, channel_name: str, message: str) -> tuple[str, float]:
     """Fallback for world-summon when no KB answer exists or grounding fails.
 
     Generates a brief in-character, non-factual reply (诗经 verse or vague quip) so
@@ -1518,7 +1518,8 @@ def _summon_deflect(bot_name: str, sender: str, channel_name: str) -> tuple[str,
     Returns (reply, latency_ms). Empty string on failure.
     """
     system = _build_system_prompt(bot_name)
-    prompt = _PROMPT_TEMPLATES["world_summon_deflect"].format(sender=sender, channel_name=channel_name)
+    prompt = _PROMPT_TEMPLATES["world_summon_deflect"].format(
+        sender=sender, channel_name=channel_name, message=message)
     t0 = time.time()
     try:
         reply = _ollama_chat(
@@ -1662,7 +1663,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                 return
             gen_latency_ms = (time.time() - t0) * 1000
             if not reply or _PASS_RE.search(reply) or _DECLINE_RE.search(reply):
-                deflect, deflect_ms = _summon_deflect(bot_name, sender, channel_name)
+                deflect, deflect_ms = _summon_deflect(bot_name, sender, channel_name, message)
                 total_latency_ms = gen_latency_ms + deflect_ms
                 if deflect:
                     payload = json.dumps({"target": sender, "message": deflect, "channel": chat_context},
@@ -1684,7 +1685,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             if not verified:
                 log.info("[%s] world summon reply to %s (asked: %s) failed grounding check, generating deflect: %s",
                          bot_name, sender, message, reply)
-                deflect, deflect_ms = _summon_deflect(bot_name, sender, channel_name)
+                deflect, deflect_ms = _summon_deflect(bot_name, sender, channel_name, message)
                 total_latency_ms += deflect_ms
                 if deflect:
                     payload = json.dumps({"target": sender, "message": deflect, "channel": chat_context},
