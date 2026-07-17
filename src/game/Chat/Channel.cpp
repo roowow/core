@@ -637,9 +637,11 @@ void Channel::Say(ObjectGuid guid, char const* text, uint32 lang, bool skipCheck
 
     std::string tmp1 = "";
     if (pPlayer && pPlayer->ToPlayer()->IsHardcore())
-    {
-        tmp1 = "|cFFFF4500\xe2\x98\x85|r "; // 橘红色（火焰色）★，代替原来的红色"勇"字
-    }
+        tmp1 = "|cFFFF4500\xe2\x98\x85|r "; // 橘红色★ 勇敢者
+    else if (pPlayer && pPlayer->ToPlayer()->IsTianxuan())
+        tmp1 = "|cFFDCD0EC\xe2\x97\x86|r "; // 淡紫色◆ 天选者
+    else if (pPlayer && pPlayer->ToPlayer()->IsTurtle())
+        tmp1 = "|cFF52AA5E\xe2\x97\x8e|r "; // 绿色◎ 乌龟模式
     tmp1 += text;
 
     if (!skipCheck)
