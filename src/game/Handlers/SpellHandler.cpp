@@ -370,10 +370,11 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             float const tableOrient = pUser->GetOrientation();
             pUser->SummonGameObject(180879, x, y, z, tableOrient, 0, 0, 0, 0, 600, false);
 
-            // 面包/水/花/水果相对桌子中心的偏移，用GM实测.gobject add摆放出来的真实坐标+朝向反推
-            // 出来的（forward=沿桌子朝向前方为正，left=沿桌子朝向左侧为正，height=高于桌子原点的Z差），
-            // 不是拍脑袋估的。用桌子自己的朝向(tableOrient)做旋转，这样不管玩家用道具时面朝哪个
-            // 方向，摆放关系都保持一致。水果(180370 Harvest Fruit)直接用原始entry，不需要clone。
+            // 面包/水/花/水果/烛台相对桌子中心的偏移，用GM实测.gobject add摆放出来的真实坐标+朝向
+            // 反推出来的（forward=沿桌子朝向前方为正，left=沿桌子朝向左侧为正，height=高于桌子原点的
+            // Z差），不是拍脑袋估的。用桌子自己的朝向(tableOrient)做旋转，这样不管玩家用道具时面朝
+            // 哪个方向，摆放关系都保持一致。水果(180370 Harvest Fruit)、烛台(177415 Light of Elune)
+            // 都直接用原始entry，不需要clone。
             auto summonOnTable = [&](uint32 entry, float forward, float left, float height)
             {
                 float const px = x + forward * cos(tableOrient) - left * sin(tableOrient);
@@ -385,6 +386,7 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             summonOnTable(900111, -0.625f, -0.130f, 1.86f); // 水
             summonOnTable(178125, -0.169f, -0.187f, 2.02f); // 花（纯装饰，Lotharian Lotus）
             summonOnTable(180370, 0.117f, -0.662f, 1.86f);  // 水果（Harvest Fruit，直接用原始entry，不clone）
+            summonOnTable(177415, -0.085f, -0.209f, 2.043f); // 月光烛台（Light of Elune，直接用原始entry，不clone）
 
             if (cdMarker)
                 pUser->AddCooldown(cdMarker);

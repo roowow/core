@@ -171,7 +171,7 @@ bool GossipSelect_HardcoreNPC2(Player *player, Creature *_Creature, uint32 sende
 // action 10/13: 乌龟模式流程
 
 // 功能开关：改为 true 并重新编译即可开放对应模式
-static constexpr bool TIANXUAN_ENABLED = false;
+static constexpr bool TIANXUAN_ENABLED = true;
 static constexpr bool TURTLE_ENABLED   = false;
 
 void SendDefaultMenu_TianxuanNPC(Player* player, Creature* creature, uint32 action)
