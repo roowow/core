@@ -29,6 +29,7 @@
 #include "Spell.h"
 #include "SpellAuras.h"
 #include "GameObject.h"
+#include "ObjectDefines.h"
 #include "Map.h"
 #include "Chat.h"
 #include "ScriptedGossip.h"
@@ -370,7 +371,7 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             float x, y, z;
             pUser->GetClosePoint(x, y, z, pUser->GetObjectBoundingRadius(), 2.0f, 0.0f);
             float const tableOrient = pUser->GetOrientation();
-            pUser->SummonGameObject(180879, x, y, z, tableOrient, 0, 0, 0, 0, 600);
+            pUser->SummonGameObject(180879, x, y, z, tableOrient, 0, 0, 0, 0, 600, false);
 
             // 面包/水/花相对桌子中心的偏移，用GM实测.gobject add摆放出来的真实坐标反推出来的
             // （forward=沿桌子朝向前方为正，left=沿桌子朝向左侧为正，height=高于桌子原点的Z差），
@@ -380,7 +381,7 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             {
                 float const px = x + forward * cos(tableOrient) - left * sin(tableOrient);
                 float const py = y + forward * sin(tableOrient) + left * cos(tableOrient);
-                pUser->SummonGameObject(entry, px, py, z + height, tableOrient, 0, 0, 0, 0, 600);
+                pUser->SummonGameObject(entry, px, py, z + height, tableOrient, 0, 0, 0, 0, 600, false);
             };
 
             summonOnTable(900109, 0.167f, 0.121f, 1.86f);   // 面包
@@ -418,7 +419,16 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             float x, y, z;
             pUser->GetClosePoint(x, y, z, pUser->GetObjectBoundingRadius(), 2.0f, 0.0f);
             float const orient = pUser->GetOrientation();
-            pUser->SummonGameObject(180797, x, y, z, orient, 0, 0, 0, 0, 600); // PX-238冬幕仙境机-陷阱（实际触发变身，锚点）
+            // attach=false很关键：SummonGameObject默认attach=true会把这个GameObject挂到玩家名下当
+            // "拥有者"（Unit::AddGameObject），而GameObject.cpp里TRAP类型的自动触发逻辑一旦有owner，
+            // 就会用`owner->CastSpell(...)`而不是`CastSpell(...)`（陷阱自己当施法者）——这样一来
+            // 26275法术里`m_caster->IsWithinDist(unitTarget, 1.0f)`那个"必须在陷阱1码内"的判定，
+            // 实际比的是"玩家(拥有者)当前位置"跟"目标"的距离，不是"陷阱固定位置"跟目标的距离！
+            // 单人测试时玩家自己就是被找到的目标，两者是同一个人，距离恒为0，判定形同虚设，只要在
+            // 陷阱的搜索半径(8码)内就会触发——这才是之前反馈"离得很远还会变身"的真正原因，不是
+            // buff自己周期性刷新。显式传false，陷阱没有owner，走`CastSpell`分支自己当施法者，
+            // 恢复成"必须站在陷阱1码内"这个原版设计的判定。
+            pUser->SummonGameObject(180797, x, y, z, orient, 0, 0, 0, 0, 600, false); // PX-238冬幕仙境机-陷阱（实际触发变身，锚点）
 
             // relOrient：每个对象在真实场景里自己的朝向减去锚点(180797)的朝向，召唤时叠加到玩家
             // 当前朝向上（Geometry::NormalizeOrientation归一化），这样每个对象不但位置跟着整体
@@ -430,7 +440,7 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
                 float const px = x + forward * cos(orient) - left * sin(orient);
                 float const py = y + forward * sin(orient) + left * cos(orient);
                 float const objOrient = Geometry::NormalizeOrientation(orient + relOrient);
-                pUser->SummonGameObject(entry, px, py, z + height, objOrient, 0, 0, 0, 0, 600);
+                pUser->SummonGameObject(entry, px, py, z + height, objOrient, 0, 0, 0, 0, 600, false);
             };
 
             summonInScene(180796, -0.3f, 1.275f, -0.06f, 3.22885f);    // PX-238冬幕仙境机（装饰模型）
@@ -441,6 +451,16 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             summonInScene(178435, 1.12f, 3.084f, 5.359f, 2.111844f);  // 圣诞袜2（同上）
             summonInScene(178667, -5.44f, 1.413f, 0.399f, 1.13446f);  // 圣诞树（中）
             summonInScene(180749, -9.03f, 1.376f, 0.228f, 0.698125f); // 欢呼扬声器
+
+            // Pat's Snowcloud Guy（雪雾）：真实场景里是个生物，不是gameobject，坐标/朝向几乎跟180796
+            // 完全重合（同一个点，只是Z高0.12码），SummonCreature的respawn参数是毫秒，不是秒。
+            {
+                float const forward = -0.3f, left = 1.275f, height = 0.06f, relOrient = 3.22885f;
+                float const px = x + forward * cos(orient) - left * sin(orient);
+                float const py = y + forward * sin(orient) + left * cos(orient);
+                float const objOrient = Geometry::NormalizeOrientation(orient + relOrient);
+                pUser->SummonCreature(15730, px, py, z + height, objOrient, TEMPSUMMON_TIMED_DESPAWN, 600 * 1000);
+            }
 
             if (cdMarker)
                 pUser->AddCooldown(cdMarker);
