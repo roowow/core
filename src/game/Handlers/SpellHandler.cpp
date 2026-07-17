@@ -354,6 +354,9 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
     // 冷却本身走61005这个纯标记法术手动查/写 Player::IsSpellReady/AddCooldown（因为壳子本身没冷却）。
     if (pItem->GetEntry() == 900109)
     {
+        uint32 const debugBrEnterMs = WorldTimer::getMSTime();
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-table ENTER t=%u", debugBrEnterMs);
+
         SpellEntry const* cdMarker = sSpellMgr.GetSpellEntry(61005);
         if (cdMarker && !pUser->IsSpellReady(cdMarker))
         {
@@ -386,11 +389,15 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
 
             pUser->TextEmote("摆开一桌酒菜，江湖路远，来者是客！");
         }
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-table BEFORE cancelCast t=%u elapsed=%u", WorldTimer::getMSTime(), WorldTimer::getMSTime() - debugBrEnterMs);
         cancelCast = true;
     }
 
     if (cancelCast)
     {
+        if (pItem->GetEntry() == 900109)
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-table SENDING failure packet t=%u", WorldTimer::getMSTime());
+
         ObjectGuid guid = pItem->GetGUID();
         // Send equip error that shows no message
         // This is a hack fix to stop spell casting visual bug when a spell is not cast on use
@@ -400,6 +407,10 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
         data << ObjectGuid(uint64(0));
         data << uint8(0);
         pUser->GetSession()->SendPacket(&data);
+
+        if (pItem->GetEntry() == 900109)
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-table SENT failure packet t=%u", WorldTimer::getMSTime());
+
         return;
     }
 
