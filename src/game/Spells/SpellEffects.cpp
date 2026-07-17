@@ -43,6 +43,7 @@
 #include "BattleGroundMgr.h"
 #include "BattleGround.h"
 #include "BattleGroundWS.h"
+#include "Chat.h"
 #include "VMapFactory.h"
 #include "Util.h"
 #include "MoveMapSharedDefines.h"
@@ -3692,6 +3693,33 @@ void Spell::EffectScriptEffect(SpellEffectIndex effIdx)
 
                     // Shadow Flame
                     m_caster->CastSpell(unitTarget, 22682, true);
+                    return;
+                }
+                case 61005: // BR 积分商店 - 餐桌(900109)：真实读条法术Summon Refreshment Table走完
+                            // 之后才触发，召唤桌子+面包+水+花。位置偏移量见 BattleRoyale.sql 里
+                            // 900109/61005 的说明——是拿.gobject add实测出来的坐标反推的，不是估的。
+                {
+                    Player* player = m_caster->ToPlayer();
+                    if (!player)
+                        return;
+
+                    float x, y, z;
+                    player->GetClosePoint(x, y, z, player->GetObjectBoundingRadius(), 2.0f, 0.0f);
+                    float const tableOrient = player->GetOrientation();
+                    player->SummonGameObject(180879, x, y, player->GetPositionZ(), tableOrient, 0, 0, 0, 0, 300);
+
+                    auto summonOnTable = [&](uint32 goEntry, float forward, float left, float height)
+                    {
+                        float const px = x + forward * cos(tableOrient) - left * sin(tableOrient);
+                        float const py = y + forward * sin(tableOrient) + left * cos(tableOrient);
+                        player->SummonGameObject(goEntry, px, py, player->GetPositionZ() + height, tableOrient, 0, 0, 0, 0, 300);
+                    };
+
+                    summonOnTable(900109, 0.167f, 0.121f, 1.86f);   // 面包
+                    summonOnTable(900111, -0.625f, -0.130f, 1.86f); // 水
+                    summonOnTable(178125, -0.169f, -0.187f, 2.02f); // 花（纯装饰，Lotharian Lotus）
+
+                    ChatHandler(player).PSendSysMessage("[孤胆称雄] 且坐，且饮，且歇脚。");
                     return;
                 }
                 case 23853: // Jubling Cooldown

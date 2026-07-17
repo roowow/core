@@ -346,32 +346,9 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
         cancelCast = true;
     }
 
-    // BR 积分商店 — 餐桌：召唤一张装饰桌 + 面包/水两个可反复点击的道具，5分钟后一起消失
-    if (pItem->GetEntry() == 900109)
-    {
-        float x, y, z;
-        pUser->GetClosePoint(x, y, z, pUser->GetObjectBoundingRadius(), 2.0f, 0.0f);
-        float const tableOrient = pUser->GetOrientation();
-        pUser->SummonGameObject(180879, x, y, pUser->GetPositionZ(), tableOrient, 0, 0, 0, 0, 300);
-
-        // 面包/水/花相对桌子中心的偏移，用GM实测.gobject add摆放出来的真实坐标反推出来的
-        // （forward=沿桌子朝向前方为正，left=沿桌子朝向左侧为正，height=高于桌子原点的Z差），
-        // 不是拍脑袋估的。用桌子自己的朝向(tableOrient)做旋转，这样不管玩家用道具时面朝哪个
-        // 方向，摆放关系都保持一致。
-        auto summonOnTable = [&](uint32 entry, float forward, float left, float height)
-        {
-            float const px = x + forward * cos(tableOrient) - left * sin(tableOrient);
-            float const py = y + forward * sin(tableOrient) + left * cos(tableOrient);
-            pUser->SummonGameObject(entry, px, py, pUser->GetPositionZ() + height, tableOrient, 0, 0, 0, 0, 300);
-        };
-
-        summonOnTable(900109, 0.167f, 0.121f, 1.86f);   // 面包
-        summonOnTable(900111, -0.625f, -0.130f, 1.86f); // 水
-        summonOnTable(178125, -0.169f, -0.187f, 2.02f); // 花（纯装饰，Lotharian Lotus）
-
-        ChatHandler(pUser).PSendSysMessage("[孤胆称雄] 且坐，且饮，且歇脚。");
-        cancelCast = true;
-    }
+    // BR 积分商店 — 餐桌(900109)：不再在这里拦截。壳子法术61005现在是真实施法流程（读条+特效
+    // 正常播放，冷却也是引擎原生处理），真正的召唤逻辑在 SpellEffects.cpp::EffectScriptEffect()
+    // 的 case 61005 里，读条结束后才触发。详见 BattleRoyale.sql 里 900109/61005 的说明。
 
     if (cancelCast)
     {
