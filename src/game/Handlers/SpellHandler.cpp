@@ -366,7 +366,7 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
         SpellEntry const* cdMarker = sSpellMgr.GetSpellEntry(61005);
         if (cdMarker && !pUser->IsSpellReady(cdMarker))
         {
-            ChatHandler(pUser).PSendSysMessage("[孤胆称雄] 餐桌还在冷却中，过一会儿再摆。");
+            ChatHandler(pUser).PSendSysMessage("杯盘狼藉，尚待片刻，方能再摆一桌。");
             cancelCast = true;
         }
         else
