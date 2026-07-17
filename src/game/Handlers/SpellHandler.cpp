@@ -349,17 +349,20 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
     // BR 积分商店 — 餐桌：召唤一张装饰桌 + 面包/水两个可反复点击的道具，5分钟后一起消失
     if (pItem->GetEntry() == 900109)
     {
+        // 桌面高度：模型实际尺寸查不到，先按经验值估，游戏里看着不对再调
+        const float TABLE_TOP_HEIGHT = 1.0f;
+
         float x, y, z;
         pUser->GetClosePoint(x, y, z, pUser->GetObjectBoundingRadius(), 2.0f, 0.0f);
-        pUser->SummonGameObject(180698, x, y, pUser->GetPositionZ(), pUser->GetOrientation(), 0, 0, 0, 0, 300);
+        pUser->SummonGameObject(180879, x, y, pUser->GetPositionZ(), pUser->GetOrientation(), 0, 0, 0, 0, 300);
 
         float bx, by, bz;
         pUser->GetClosePoint(bx, by, bz, pUser->GetObjectBoundingRadius(), 1.5f, float(M_PI) / 6);
-        pUser->SummonGameObject(900109, bx, by, pUser->GetPositionZ(), pUser->GetOrientation(), 0, 0, 0, 0, 300);
+        pUser->SummonGameObject(900109, bx, by, pUser->GetPositionZ() + TABLE_TOP_HEIGHT, pUser->GetOrientation(), 0, 0, 0, 0, 300);
 
         float wx, wy, wz;
         pUser->GetClosePoint(wx, wy, wz, pUser->GetObjectBoundingRadius(), 1.5f, -float(M_PI) / 6);
-        pUser->SummonGameObject(900111, wx, wy, pUser->GetPositionZ(), pUser->GetOrientation(), 0, 0, 0, 0, 300);
+        pUser->SummonGameObject(900111, wx, wy, pUser->GetPositionZ() + TABLE_TOP_HEIGHT, pUser->GetOrientation(), 0, 0, 0, 0, 300);
 
         ChatHandler(pUser).PSendSysMessage("[孤胆称雄] 且坐，且饮，且歇脚。");
         cancelCast = true;

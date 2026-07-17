@@ -2703,10 +2703,6 @@ void Spell::SetTargetMap(SpellEffectIndex effIndex, uint32 targetMode, UnitList&
         case TARGET_UNIT:
         {
             Unit* target = m_targets.getUnitTarget();
-            // TEMP DEBUG: tracing BR refreshment table (spell 61003/61004). Remove after diagnosis.
-            if (m_spellInfo->Id == 61003 || m_spellInfo->Id == 61004)
-                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-table TARGET_UNIT: spell %u, target=%s",
-                    m_spellInfo->Id, target ? target->GetName() : "NULL");
             // This target should be checked depending on the effect
             // (check for PvP ON/OFF, ...)
             if (target)
@@ -3801,11 +3797,6 @@ void Spell::handle_immediate()
         InitializeChanneledVisualTimer();
     }
 
-    // TEMP DEBUG: tracing BR refreshment table (spell 61003/61004). Remove after diagnosis.
-    if (m_spellInfo->Id == 61003 || m_spellInfo->Id == 61004)
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-table handle_immediate: spell %u, m_UniqueTargetInfo.size()=%u",
-            m_spellInfo->Id, (uint32)m_UniqueTargetInfo.size());
-
     m_targetNum = 0;
     for (auto ihit = m_UniqueTargetInfo.begin(); ihit != m_UniqueTargetInfo.end(); ++ihit)
     {
@@ -4404,11 +4395,6 @@ void Spell::finish(bool ok)
 
 void Spell::SendCastResult(SpellCastResult result)
 {
-    // TEMP DEBUG: tracing BR refreshment table (spell 61003/61004) not granting items. Remove after diagnosis.
-    if (m_spellInfo->Id == 61003 || m_spellInfo->Id == 61004)
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-table CastResult2: caster '%s' isPlayer=%u, spell %u, result %u, triggered %u",
-            m_caster->GetName(), (uint32)m_caster->IsPlayer(), m_spellInfo->Id, (uint32)result, (uint32)m_IsTriggeredSpell);
-
     if (!m_caster->IsPlayer())
         return;
 
