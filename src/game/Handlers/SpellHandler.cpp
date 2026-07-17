@@ -349,20 +349,23 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
     // BR 积分商店 — 餐桌：召唤一张装饰桌 + 面包/水两个可反复点击的道具，5分钟后一起消失
     if (pItem->GetEntry() == 900109)
     {
-        // 桌面高度：模型实际尺寸查不到，先按经验值估，游戏里看着不对再调
+        // 桌面高度/半径：模型实际尺寸查不到，先按经验值估，游戏里看着不对再调
         const float TABLE_TOP_HEIGHT = 1.0f;
+        const float TABLE_TOP_RADIUS = 0.4f; // 面包/水离桌子中心的水平距离，要小于桌面实际半径才不会露到外面
 
         float x, y, z;
         pUser->GetClosePoint(x, y, z, pUser->GetObjectBoundingRadius(), 2.0f, 0.0f);
         pUser->SummonGameObject(180879, x, y, pUser->GetPositionZ(), pUser->GetOrientation(), 0, 0, 0, 0, 300);
 
-        float bx, by, bz;
-        pUser->GetClosePoint(bx, by, bz, pUser->GetObjectBoundingRadius(), 1.5f, float(M_PI) / 6);
-        pUser->SummonGameObject(900109, bx, by, pUser->GetPositionZ() + TABLE_TOP_HEIGHT, pUser->GetOrientation(), 0, 0, 0, 0, 300);
+        // 面包/水的水平位置以桌子实际召唤出来的坐标(x,y)为圆心算偏移，不再各自独立相对玩家算，
+        // 避免出现桌子在2码外、面包水却按1.5码+夹角算导致离桌子中心超过1码、飘到桌面外面的问题
+        float angle1 = pUser->GetOrientation() + float(M_PI) / 6;
+        pUser->SummonGameObject(900109, x + TABLE_TOP_RADIUS * cos(angle1), y + TABLE_TOP_RADIUS * sin(angle1),
+            pUser->GetPositionZ() + TABLE_TOP_HEIGHT, pUser->GetOrientation(), 0, 0, 0, 0, 300);
 
-        float wx, wy, wz;
-        pUser->GetClosePoint(wx, wy, wz, pUser->GetObjectBoundingRadius(), 1.5f, -float(M_PI) / 6);
-        pUser->SummonGameObject(900111, wx, wy, pUser->GetPositionZ() + TABLE_TOP_HEIGHT, pUser->GetOrientation(), 0, 0, 0, 0, 300);
+        float angle2 = pUser->GetOrientation() - float(M_PI) / 6;
+        pUser->SummonGameObject(900111, x + TABLE_TOP_RADIUS * cos(angle2), y + TABLE_TOP_RADIUS * sin(angle2),
+            pUser->GetPositionZ() + TABLE_TOP_HEIGHT, pUser->GetOrientation(), 0, 0, 0, 0, 300);
 
         ChatHandler(pUser).PSendSysMessage("[孤胆称雄] 且坐，且饮，且歇脚。");
         cancelCast = true;
