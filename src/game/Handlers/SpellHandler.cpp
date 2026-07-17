@@ -347,7 +347,7 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
         cancelCast = true;
     }
 
-    // BR 积分商店 — 餐桌：召唤一张装饰桌 + 面包/水两个可反复点击的道具，5分钟后一起消失
+    // BR 积分商店 — 餐桌：召唤一张装饰桌 + 面包/水两个可反复点击的道具，10分钟后一起消失
     // 召唤特效统一在下面共享的cancelCast尾巴里触发（5001，见那里的说明），这里不用重复处理。
     // 冷却本身走61005这个纯标记法术手动查/写 Player::IsSpellReady/AddCooldown（因为壳子本身没冷却）。
     if (pItem->GetEntry() == 900109)
@@ -369,7 +369,7 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             float x, y, z;
             pUser->GetClosePoint(x, y, z, pUser->GetObjectBoundingRadius(), 2.0f, 0.0f);
             float const tableOrient = pUser->GetOrientation();
-            pUser->SummonGameObject(180879, x, y, z, tableOrient, 0, 0, 0, 0, 300);
+            pUser->SummonGameObject(180879, x, y, z, tableOrient, 0, 0, 0, 0, 600);
 
             // 面包/水/花相对桌子中心的偏移，用GM实测.gobject add摆放出来的真实坐标反推出来的
             // （forward=沿桌子朝向前方为正，left=沿桌子朝向左侧为正，height=高于桌子原点的Z差），
@@ -379,7 +379,7 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             {
                 float const px = x + forward * cos(tableOrient) - left * sin(tableOrient);
                 float const py = y + forward * sin(tableOrient) + left * cos(tableOrient);
-                pUser->SummonGameObject(entry, px, py, z + height, tableOrient, 0, 0, 0, 0, 300);
+                pUser->SummonGameObject(entry, px, py, z + height, tableOrient, 0, 0, 0, 0, 600);
             };
 
             summonOnTable(900109, 0.167f, 0.121f, 1.86f);   // 面包
@@ -389,13 +389,61 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             if (cdMarker)
                 pUser->AddCooldown(cdMarker);
 
-            pUser->TextEmote("摆开一桌酒菜，江湖路远，来者是客！");
+            pUser->TextEmote("摆一瓯清水，一方薄饼，君子之交，淡如水。");
         }
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-table BEFORE cancelCast t=%u elapsed=%u", WorldTimer::getMSTime(), WorldTimer::getMSTime() - debugBrEnterMs);
         cancelCast = true;
     }
 
-    // BR 令牌/餐桌(900105/900109)：排查记录——SendEquipError + Spell::SendCastResult(道具真实
+    // BR 积分商店 — 欢乐制造器：召唤冬幕节"PX-238 Winter Wondervolt"整个布景（机关本体+陷阱+
+    // 礼物/圣诞袜/圣诞树/告示牌/欢呼喇叭），10分钟后一起消失。直接复用真实entry，不需要clone/
+    // 自定义AI——TRAP类型的自动触发靠引擎原生逻辑（GameObject.cpp:461起），走近的玩家会被180797
+    // 自带的26275法术随机变身，可以在存续期间反复触发多次，不是GOOBER那种一次性状态机。
+    // 各对象相对180797（陷阱本体，当参照锚点）的偏移，是用GM `.gobject near`在真实冬幕节场景里
+    // 实测出来的世界坐标反推的（forward/left是把原始世界坐标差值当成"锚点朝向为0时"的偏移量，
+    // 使用时按玩家召唤时的朝向重新旋转，跟餐桌那套手法一样）。180434/180435这两个圣诞袜和
+    // 178667圣诞树在原场景里是挂在墙上/立在高台上的，height差有5+码，召唤到平地上会跟着悬空，
+    // 这是真实场景数据决定的，不是拍错了。
+    // 冷却走61006这个纯标记法术手动查/写 Player::IsSpellReady/AddCooldown。
+    if (pItem->GetEntry() == 900113)
+    {
+        SpellEntry const* cdMarker = sSpellMgr.GetSpellEntry(61006);
+        if (cdMarker && !pUser->IsSpellReady(cdMarker))
+        {
+            ChatHandler(pUser).PSendSysMessage("瑞雪未歇，机关小憩，且待片刻，再闹一场。");
+        }
+        else
+        {
+            float x, y, z;
+            pUser->GetClosePoint(x, y, z, pUser->GetObjectBoundingRadius(), 2.0f, 0.0f);
+            float const orient = pUser->GetOrientation();
+            pUser->SummonGameObject(180797, x, y, z, orient, 0, 0, 0, 0, 600); // 陷阱本体（实际触发变身，锚点）
+
+            auto summonInScene = [&](uint32 entry, float forward, float left, float height)
+            {
+                float const px = x + forward * cos(orient) - left * sin(orient);
+                float const py = y + forward * sin(orient) + left * cos(orient);
+                pUser->SummonGameObject(entry, px, py, z + height, orient, 0, 0, 0, 0, 600);
+            };
+
+            summonInScene(180796, -0.300293f, 1.274964f, -0.059997f);  // 装饰机器模型
+            summonInScene(180798, -1.950195f, 3.294007f, -0.093994f);  // 大礼物
+            summonInScene(180799, -2.570312f, 2.575012f, 0.026001f);   // 大礼物
+            summonInScene(178746, 3.429688f, 1.279969f, -0.160003f);   // Smokywood Pastures 告示牌
+            summonInScene(178434, -1.140136f, 3.468994f, 5.229004f);   // 圣诞袜1（原场景挂墙上，会悬空）
+            summonInScene(178435, 1.119629f, 3.083985f, 5.359009f);    // 圣诞袜2（同上）
+            summonInScene(178667, -5.440429f, 1.412964f, 0.399018f);   // 圣诞树
+            summonInScene(180749, -9.030273f, 1.375977f, 0.227997f);   // 欢呼喇叭
+
+            if (cdMarker)
+                pUser->AddCooldown(cdMarker);
+
+            pUser->TextEmote("瑞雪纷飞，机关轻响，欢声笑语，冬幕同庆！");
+        }
+        cancelCast = true;
+    }
+
+    // BR 令牌/餐桌/欢乐制造器(900105/900109/900113)：排查记录——SendEquipError + Spell::SendCastResult(道具真实
     // 法术ID) 这套比通用cancelCast hack更对症，但单独用仍然不够：实测发现"冷却拒绝"分支（只发
     // 聊天提示就直接走到这里）必卡，"召唤/报名成功"分支（走到这里之前额外真实完整施法过一次
     // 5001）反而不卡——说明真正解开客户端本地预判状态的，是"有没有一次真正完整走完的施法广播"，
@@ -408,7 +456,7 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
     // 但它的效果经代码验证是真正的空操作（SPELL_EFFECT_SUMMON, effectMiscValue1=0, EffectSummon
     // 里petEntry为0会直接return，不会召唤任何东西），只是会多播一次它自带的特效，两个分支都会
     // 出现——比"完全没有反馈"更能接受，也比"意外触发别的功能"安全得多。
-    if (cancelCast && (pItem->GetEntry() == 900105 || pItem->GetEntry() == 900109))
+    if (cancelCast && (pItem->GetEntry() == 900105 || pItem->GetEntry() == 900109 || pItem->GetEntry() == 900113))
     {
         pUser->CastSpell(pUser, 5001, true);
         pUser->SendEquipError(EQUIP_ERR_NONE, pItem, nullptr);
