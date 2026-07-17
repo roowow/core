@@ -1835,6 +1835,11 @@ void Spell::EffectHealthLeech(SpellEffectIndex effIndex)
 
 void Spell::DoCreateItem(SpellEffectIndex effIdx, uint32 itemtype)
 {
+    // TEMP DEBUG: tracing BR refreshment table (spell 61003/61004) not granting items. Remove after diagnosis.
+    if (m_spellInfo->Id == 61003 || m_spellInfo->Id == 61004)
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-table DoCreateItem: spell %u, unitTarget=%s, itemtype %u",
+            m_spellInfo->Id, unitTarget ? unitTarget->GetName() : "NULL", itemtype);
+
     Player* player = ToPlayer(unitTarget);
     if (!player)
         return;
