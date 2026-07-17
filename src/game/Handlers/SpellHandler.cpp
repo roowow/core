@@ -325,10 +325,7 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
     }
 
     // BR 报名令牌 — 世界地图远程加入/离开候战席（副本/战场/BR/战斗中不可用）
-    // 壳子(8067 Party Time!，spellVisual1=0)只负责"预判施法然后被cancelCast取消"这一步，本身
-    // 没有任何特效可播，不会卡。召唤特效改成单独主动触发一次真实的5001（Lotwil's Summoning，
-    // 空召唤零副作用，自带spellVisual1=74）——这是一次独立的、完整走完的施法广播，不经过物品
-    // 点击那条"预判然后取消"的路径，所以不会有特效卡住的问题。
+    // 召唤特效统一在下面共享的cancelCast尾巴里触发（5001，见那里的说明），这里不用重复处理。
     if (pItem->GetEntry() == 900105)
     {
         if (pUser->GetMap()->Instanceable())
@@ -339,26 +336,19 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
         {
             bool inQueue = sBattleRoyaleMgr.IsPlayerInQueue(pUser->GetObjectGuid());
             if (inQueue)
-            {
                 sBattleRoyaleMgr.DequeuePlayer(pUser);
-                pUser->CastSpell(pUser, 5001, true);
-            }
             else
             {
                 std::string err;
                 if (!sBattleRoyaleMgr.EnqueuePlayer(pUser, err))
                     ChatHandler(pUser).PSendSysMessage("[孤胆称雄] %s", err.c_str());
-                else
-                    pUser->CastSpell(pUser, 5001, true);
             }
         }
         cancelCast = true;
     }
 
     // BR 积分商店 — 餐桌：召唤一张装饰桌 + 面包/水两个可反复点击的道具，5分钟后一起消失
-    // 壳子(8067 Party Time!，spellVisual1=0)只负责"预判施法然后被cancelCast取消"这一步，本身
-    // 没有任何特效可播，不会卡。召唤特效改成召唤成功时单独主动触发一次真实的5001，跟900105
-    // 共用同一个空召唤瞬发法术，同样是独立的、完整走完的施法广播。
+    // 召唤特效统一在下面共享的cancelCast尾巴里触发（5001，见那里的说明），这里不用重复处理。
     // 冷却本身走61005这个纯标记法术手动查/写 Player::IsSpellReady/AddCooldown（因为壳子本身没冷却）。
     if (pItem->GetEntry() == 900109)
     {
@@ -399,7 +389,6 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             if (cdMarker)
                 pUser->AddCooldown(cdMarker);
 
-            pUser->CastSpell(pUser, 5001, true);
             pUser->TextEmote("摆开一桌酒菜，江湖路远，来者是客！");
         }
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-table BEFORE cancelCast t=%u elapsed=%u", WorldTimer::getMSTime(), WorldTimer::getMSTime() - debugBrEnterMs);
@@ -410,12 +399,18 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
     // 法术ID) 这套比通用cancelCast hack更对症，但单独用仍然不够：实测发现"冷却拒绝"分支（只发
     // 聊天提示就直接走到这里）必卡，"召唤/报名成功"分支（走到这里之前额外真实完整施法过一次
     // 5001）反而不卡——说明真正解开客户端本地预判状态的，是"有没有一次真正完整走完的施法广播"，
-    // 不只是发一个失败结果包。所以这里统一补一次真实的静默施法（8067 Party Time!，spellVisual1=0，
-    // 瞬发零消耗零冷却零副作用），不管这次点击是成功召唤还是冷却拒绝，都会有这一次完整广播，
-    // 冷却拒绝时因为是静默法术不会多播出额外特效。
+    // 不只是发一个失败结果包。所以这里统一补一次真实的5001（Lotwil's Summoning）广播，不管这次
+    // 点击是成功召唤还是冷却拒绝，都会有这一次完整广播。
+    // 教训：曾经在这里用过8067(Party Time!)，只检查了它spellVisual1=0（没有粒子特效），没检查
+    // 它effect1=SPELL_EFFECT_APPLY_AURA、effectApplyAuraName1=SPELL_AURA_DUMMY这个aura实际会
+    // 做什么——SpellAuras.cpp:1611有个按spellId特判的case 8067，会真的调用SetDisplayId整人变身
+    // （这仓库里"派对时间"这个真实功能，不是什么无害的空白法术）。5001虽然spellVisual1=74不是0，
+    // 但它的效果经代码验证是真正的空操作（SPELL_EFFECT_SUMMON, effectMiscValue1=0, EffectSummon
+    // 里petEntry为0会直接return，不会召唤任何东西），只是会多播一次它自带的特效，两个分支都会
+    // 出现——比"完全没有反馈"更能接受，也比"意外触发别的功能"安全得多。
     if (cancelCast && (pItem->GetEntry() == 900105 || pItem->GetEntry() == 900109))
     {
-        pUser->CastSpell(pUser, 8067, true);
+        pUser->CastSpell(pUser, 5001, true);
         pUser->SendEquipError(EQUIP_ERR_NONE, pItem, nullptr);
         uint32 spellid = proto->Spells[packet.spellSlot].SpellId;
         if (SpellEntry const* spellInfo = sSpellMgr.GetSpellEntry(spellid))
