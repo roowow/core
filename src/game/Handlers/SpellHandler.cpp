@@ -325,11 +325,8 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
     }
 
     // BR 报名令牌 — 世界地图远程加入/离开候战席（副本/战场/BR/战斗中不可用）
-    // 物品本身触发的这次"预判施法"永远cancelCast（跟其它道具一样，保持一致，客户端不会有歧义）。
-    // 召唤特效改成成功时单独主动触发一次真实的5001（同一个空召唤瞬发法术，见 BattleRoyale.sql
-    // 900105的说明），这是一次独立的、服务端主动广播的施法，不经过物品点击那条本地预判路径，
-    // 不会跟cancelCast的"假失败"混在一起造成客户端状态对不上（实测：物品自身有时完整施法、有时
-    // 被cancelCast拦掉，这种不一致会导致客户端卡在技能特效界面）。
+    // 排查"卡在施法动作"问题期间，暂时去掉了额外触发的5001召唤特效，只保留最简单的
+    // cancelCast+20600壳子（历史上确认稳定的组合），用来隔离到底是不是那行额外CastSpell引入的。
     if (pItem->GetEntry() == 900105)
     {
         if (pUser->GetMap()->Instanceable())
@@ -340,26 +337,20 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
         {
             bool inQueue = sBattleRoyaleMgr.IsPlayerInQueue(pUser->GetObjectGuid());
             if (inQueue)
-            {
                 sBattleRoyaleMgr.DequeuePlayer(pUser);
-                pUser->CastSpell(pUser, 5001, true);
-            }
             else
             {
                 std::string err;
                 if (!sBattleRoyaleMgr.EnqueuePlayer(pUser, err))
                     ChatHandler(pUser).PSendSysMessage("[孤胆称雄] %s", err.c_str());
-                else
-                    pUser->CastSpell(pUser, 5001, true);
             }
         }
         cancelCast = true;
     }
 
     // BR 积分商店 — 餐桌：召唤一张装饰桌 + 面包/水两个可反复点击的道具，5分钟后一起消失
-    // 物品本身触发的这次"预判施法"永远cancelCast（原因见上方900105的说明——同一个物品有时真的
-    // 完整施法、有时被cancelCast假装失败，这种不一致会让客户端卡在技能特效界面）。召唤特效改成
-    // 召唤成功时单独主动触发一次真实的5001，跟900105共用同一个空召唤瞬发法术。
+    // 排查"卡在施法动作"问题期间，暂时去掉了额外触发的5001召唤特效，只保留最简单的
+    // cancelCast+20600壳子，用来隔离到底是不是那行额外CastSpell引入的。
     // 冷却本身走61005这个纯标记法术手动查/写 Player::IsSpellReady/AddCooldown（因为壳子本身没冷却）。
     if (pItem->GetEntry() == 900109)
     {
@@ -393,7 +384,6 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             if (cdMarker)
                 pUser->AddCooldown(cdMarker);
 
-            pUser->CastSpell(pUser, 5001, true);
             pUser->TextEmote("摆开一桌酒菜，江湖路远，来者是客！");
         }
         cancelCast = true;
