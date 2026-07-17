@@ -1987,6 +1987,10 @@ void GameObject::Use(Unit* user)
             break;
     }
 
+    // TEMP DEBUG: tracing BR refreshment table goobers (900109/900111) not casting 597/5504. Remove after diagnosis.
+    if (GetEntry() == 900109 || GetEntry() == 900111)
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-table Use: GO entry %u, spellId %u", GetEntry(), spellId);
+
     if (!spellId)
         return;
 

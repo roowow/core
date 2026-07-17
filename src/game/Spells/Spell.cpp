@@ -4395,6 +4395,11 @@ void Spell::finish(bool ok)
 
 void Spell::SendCastResult(SpellCastResult result)
 {
+    // TEMP DEBUG: tracing BR refreshment table (spell 597/5504) not granting items. Remove after diagnosis.
+    if (m_spellInfo->Id == 597 || m_spellInfo->Id == 5504)
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-table CastResult: caster '%s', spell %u, result %u, triggered %u",
+            m_caster->GetName(), m_spellInfo->Id, (uint32)result, (uint32)m_IsTriggeredSpell);
+
     if (!m_caster->IsPlayer())
         return;
 
