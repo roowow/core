@@ -350,7 +350,7 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
     if (pItem->GetEntry() == 900109)
     {
         // 桌面高度/半径：模型实际尺寸查不到，先按经验值估，游戏里看着不对再调
-        const float TABLE_TOP_HEIGHT = 1.0f;
+        const float TABLE_TOP_HEIGHT = 1.3f;
         const float TABLE_TOP_RADIUS = 0.4f; // 面包/水离桌子中心的水平距离，要小于桌面实际半径才不会露到外面
 
         float x, y, z;
