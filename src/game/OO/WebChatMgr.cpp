@@ -145,10 +145,10 @@ void WebChatMgr::Update()
 
 void WebChatMgr::WriteWebChat(std::string const& channel, std::string const& charName,
     uint32 faction, uint32 classId, std::string const& recipient, std::string const& msg,
-    uint32 contextId, bool hc)
+    uint32 contextId, bool hc, bool tianxuan, bool turtle)
 {
     if (!m_pubCtx) return;
-    std::string json = BuildJson("game", channel, charName, faction, classId, recipient, msg, contextId, hc);
+    std::string json = BuildJson("game", channel, charName, faction, classId, recipient, msg, contextId, hc, tianxuan, turtle);
     Publish(json);
     // For party/raid: update char→group mapping so PHP can filter by group membership
     if (contextId > 0 && (channel == "party" || channel == "raid" || channel == "raid_leader"))
@@ -737,7 +737,7 @@ std::string WebChatMgr::EscapeJson(std::string const& s)
 
 std::string WebChatMgr::BuildJson(std::string const& source, std::string const& channel,
     std::string const& charName, uint32 faction, uint32 classId, std::string const& recipient,
-    std::string const& msg, uint32 contextId, bool hc)
+    std::string const& msg, uint32 contextId, bool hc, bool tianxuan, bool turtle)
 {
     std::string j;
     j.reserve(320);
@@ -750,7 +750,9 @@ std::string WebChatMgr::BuildJson(std::string const& source, std::string const& 
     j += "\",\"message\":\"";        j += EscapeJson(msg);
     j += "\",\"ts\":";               j += std::to_string(uint32(time(nullptr)));
     if (contextId > 0) { j += ",\"context_id\":"; j += std::to_string(contextId); }
-    if (hc)            { j += ",\"hc\":1"; }
+    if (hc)       { j += ",\"hc\":1"; }
+    if (tianxuan) { j += ",\"tianxuan\":1"; }
+    if (turtle)   { j += ",\"turtle\":1"; }
     j += '}';
     return j;
 }

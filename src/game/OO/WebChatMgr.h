@@ -28,7 +28,9 @@ public:
                       std::string const& recipient,
                       std::string const& msg,
                       uint32 contextId = 0,
-                      bool hc = false);
+                      bool hc = false,
+                      bool tianxuan = false,
+                      bool turtle = false);
 
     void WriteBroadcast(std::string const& msg);
 
@@ -67,7 +69,9 @@ private:
                                  std::string const& recipient,
                                  std::string const& msg,
                                  uint32 contextId = 0,
-                                 bool hc = false);
+                                 bool hc = false,
+                                 bool tianxuan = false,
+                                 bool turtle = false);
     static std::string EscapeJson(std::string const& s);
     static std::string StripColorCodes(std::string const& s);
     static std::string JsonGetStr(std::string const& json, char const* key);

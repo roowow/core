@@ -17,7 +17,20 @@
 #include "scriptPCH.h"
 #include "custom.h"
 #include "ScriptedAI.h"
+#include "Chat/Chat.h"
 #include <ctime>
+
+// 说话人名字改用本地化的简体中文名字（DB_LOCALE_zhCN，对应locales_creature.name_loc4），
+// 而不是MonsterSay默认用的creature_template.name原始英文名——这几个NPC（勇敢者/天选者/乌龟）
+// 在locales_creature里已经有中文翻译，只是普通MonsterSay不会去读它，说话气泡里名字显示成英文。
+// 只影响这个文件里用到的NPC，不动WorldObject::MonsterSay这个全仓库共用的函数。
+static void MonsterSayLocalized(Creature* creature, char const* text)
+{
+    WorldPacket data;
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_MONSTER_SAY, text, Language(0), CHAT_TAG_NONE, creature->GetObjectGuid(),
+        creature->GetNameForLocaleIdx(DB_LOCALE_zhCN), ObjectGuid(), "");
+    creature->SendMessageToSetInRange(&data, sWorld.getConfig(CONFIG_FLOAT_LISTEN_RANGE_SAY), true);
+}
 
 // Hardcore NPC
 
@@ -35,7 +48,7 @@ bool GossipHello_HardcoreNPC(Player *player, Creature *_Creature)
     {
         if (player->IsTianxuan() || player->IsTurtle())
         {
-            _Creature->MonsterSay("勇敢者之路只属于纯粹的灵魂，你已踏上另一条路，无法兼行。", 0, 0);
+            MonsterSayLocalized(_Creature, "勇敢者之路只属于纯粹的灵魂，你已踏上另一条路，无法兼行。");
             player->PrepareQuestMenu(_Creature->GetGUID());
             player->SEND_GOSSIP_MENU(22003, _Creature->GetGUID());
             return true;
@@ -89,7 +102,7 @@ void SendDefaultMenu_HardcoreNPC2(Player *player, Creature *_Creature, uint32 ac
         case 2:
             if (strcmp(code, "舍生取义") != 0)
             {
-                _Creature->MonsterSay("你的签名不正确，希望你是故意的。");
+                MonsterSayLocalized(_Creature, "你的签名不正确，希望你是故意的。");
 
                 player->CLOSE_GOSSIP_MENU();
                 break;
@@ -97,14 +110,14 @@ void SendDefaultMenu_HardcoreNPC2(Player *player, Creature *_Creature, uint32 ac
 
             if (player->IsTianxuan() || player->IsTurtle())
             {
-                _Creature->MonsterSay("勇敢者之路只属于纯粹的灵魂，你已踏上另一条路，无法兼行。", 0, 0);
+                MonsterSayLocalized(_Creature, "勇敢者之路只属于纯粹的灵魂，你已踏上另一条路，无法兼行。");
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
 
             if (player->GetLevel() > 5)
             {
-                _Creature->MonsterSay("我只招募刚刚返回归地球不超过5级的人类。");
+                MonsterSayLocalized(_Creature, "我只招募刚刚返回归地球不超过5级的人类。");
                 break;
             }
 
@@ -117,14 +130,14 @@ void SendDefaultMenu_HardcoreNPC2(Player *player, Creature *_Creature, uint32 ac
 
                 if (!hasMaxLevelChar)
                 {
-                    _Creature->MonsterSay("勇敢者之路，非轻率之举。先将一位英雄带至巅峰，方可踏上这条不归路。");
+                    MonsterSayLocalized(_Creature, "勇敢者之路，非轻率之举。先将一位英雄带至巅峰，方可踏上这条不归路。");
                     player->CLOSE_GOSSIP_MENU();
                     break;
                 }
             }
 
             _Creature->CastSpell(player, 15851, true);
-            _Creature->MonsterSay("勇敢者，是人类的明灯，是行走的火炬，带来希望与光明。希望你恪守勇敢者准则，不要辱没了这三个字。", 0, 0);
+            MonsterSayLocalized(_Creature, "勇敢者，是人类的明灯，是行走的火炬，带来希望与光明。希望你恪守勇敢者准则，不要辱没了这三个字。");
 
             player->SetHardcore(true);
 
@@ -133,14 +146,14 @@ void SendDefaultMenu_HardcoreNPC2(Player *player, Creature *_Creature, uint32 ac
         case 3: 
             if (strcmp(code, "确认") != 0)
             {
-                _Creature->MonsterSay("你的输入不正确。");
+                MonsterSayLocalized(_Creature, "你的输入不正确。");
 
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
 
             _Creature->CastSpell(player, 25823, true); // 艾露恩灯柱
-            _Creature->MonsterSay("勇敢者，你完成了不可能完成的任务，你是人类的明灯！", 0, 0);
+            MonsterSayLocalized(_Creature, "勇敢者，你完成了不可能完成的任务，你是人类的明灯！");
 
             player->AddAura(461, 0, player); // 正义火焰
             player->RemoveAurasDueToSpell(7363);
@@ -199,34 +212,34 @@ void SendDefaultMenu_TianxuanNPC2(Player* player, Creature* creature, uint32 act
         case 3:
             if (strcmp(code, "天命所归") != 0)
             {
-                creature->MonsterSay("大任未降，心志未定。你的答案不对。", 0, 0);
+                MonsterSayLocalized(creature, "大任未降，心志未定。你的答案不对。");
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
 
             if ((player->IsHardcore() && !player->IsHardcoreRetired()) || player->IsTurtle())
             {
-                creature->MonsterSay("天选之路只属于纯粹的灵魂，你已踏上另一条路，无法兼行。", 0, 0);
+                MonsterSayLocalized(creature, "天选之路只属于纯粹的灵魂，你已踏上另一条路，无法兼行。");
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
 
             if (player->GetLevel() > 5)
             {
-                creature->MonsterSay("天选者之路，须于踏出新手村之前立誓，方得大任降临。", 0, 0);
+                MonsterSayLocalized(creature, "天选者之路，须于踏出新手村之前立誓，方得大任降临。");
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
 
             if (player->IsTianxuan())
             {
-                creature->MonsterSay("大任已临，印记已刻，无需重誓。", 0, 0);
+                MonsterSayLocalized(creature, "大任已临，印记已刻，无需重誓。");
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
 
             player->SendSpellGo(player, 24240); // 闪电视觉
-            creature->MonsterSay("天将降大任，此路唯你独行。愿你动心忍性，曾益其所不能。", 0, 0);
+            MonsterSayLocalized(creature, "天将降大任，此路唯你独行。愿你动心忍性，曾益其所不能。");
 
             player->SetTianxuan(true);
 
@@ -238,34 +251,34 @@ void SendDefaultMenu_TianxuanNPC2(Player* player, Creature* creature, uint32 act
         case 13:
             if (strcmp(code, "抱朴守拙") != 0)
             {
-                creature->MonsterSay("守拙者，须明心中誓言。你的答案不对。", 0, 0);
+                MonsterSayLocalized(creature, "守拙者，须明心中誓言。你的答案不对。");
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
 
             if ((player->IsHardcore() && !player->IsHardcoreRetired()) || player->IsTianxuan())
             {
-                creature->MonsterSay("乌龟之路只属于纯粹的灵魂，你已踏上另一条路，无法兼行。", 0, 0);
+                MonsterSayLocalized(creature, "乌龟之路只属于纯粹的灵魂，你已踏上另一条路，无法兼行。");
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
 
             if (player->GetLevel() > 5)
             {
-                creature->MonsterSay("乌龟之誓，须于踏出新手村之前立下，方得龟甲庇护。", 0, 0);
+                MonsterSayLocalized(creature, "乌龟之誓，须于踏出新手村之前立下，方得龟甲庇护。");
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
 
             if (player->IsTurtle())
             {
-                creature->MonsterSay("龟甲已佩，誓言已立，无需重誓。", 0, 0);
+                MonsterSayLocalized(creature, "龟甲已佩，誓言已立，无需重誓。");
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
 
             player->SendSpellGo(player, 26064); // Shell Shield 视觉
-            creature->MonsterSay("见素抱朴，少私寡欲。此路归于本真，愿你守拙不辍，终抵自然之境。", 0, 0);
+            MonsterSayLocalized(creature, "见素抱朴，少私寡欲。此路归于本真，愿你守拙不辍，终抵自然之境。");
 
             player->SetTurtle(true);
 
@@ -280,7 +293,7 @@ bool GossipHello_TianxuanNPC(Player* player, Creature* creature)
 {
     if (player->IsHardcore() && !player->IsHardcoreRetired())
     {
-        creature->MonsterSay("勇敢者已立生死状，天选与乌龟之路皆不可兼行。", 0, 0);
+        MonsterSayLocalized(creature, "勇敢者已立生死状，天选与乌龟之路皆不可兼行。");
         player->PrepareQuestMenu(creature->GetGUID());
         player->SEND_GOSSIP_MENU(22040, creature->GetGUID());
         return true;
@@ -304,7 +317,7 @@ bool GossipHello_TianxuanNPC(Player* player, Creature* creature)
 
     if (player->GetLevel() > 5)
     {
-        creature->MonsterSay("天选者与乌龟之誓，须于踏出新手村之前立下。", 0, 0);
+        MonsterSayLocalized(creature, "天选者与乌龟之誓，须于踏出新手村之前立下。");
         player->PrepareQuestMenu(creature->GetGUID());
         player->SEND_GOSSIP_MENU(22040, creature->GetGUID());
         return true;
