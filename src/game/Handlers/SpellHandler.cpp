@@ -34,6 +34,7 @@
 #include "ScriptedGossip.h"
 #include "BattleRoyale/BattleRoyaleMgr.h"
 #include "Utilities/Random.h"
+#include "Geometry.h"
 
 using namespace Spells;
 
@@ -399,11 +400,11 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
     // 礼物/圣诞袜/圣诞树/告示牌/欢呼喇叭），10分钟后一起消失。直接复用真实entry，不需要clone/
     // 自定义AI——TRAP类型的自动触发靠引擎原生逻辑（GameObject.cpp:461起），走近的玩家会被180797
     // 自带的26275法术随机变身，可以在存续期间反复触发多次，不是GOOBER那种一次性状态机。
-    // 各对象相对180797（陷阱本体，当参照锚点）的偏移，是用GM `.gobject near`在真实冬幕节场景里
-    // 实测出来的世界坐标反推的（forward/left是把原始世界坐标差值当成"锚点朝向为0时"的偏移量，
-    // 使用时按玩家召唤时的朝向重新旋转，跟餐桌那套手法一样）。180434/180435这两个圣诞袜和
-    // 178667圣诞树在原场景里是挂在墙上/立在高台上的，height差有5+码，召唤到平地上会跟着悬空，
-    // 这是真实场景数据决定的，不是拍错了。
+    // 各对象相对180797（陷阱本体，当参照锚点）的偏移，最初是从GM `.gobject near`截图OCR出来的
+    // 坐标反推的，后来直接查了mangosdev的`gameobject`表核对了一遍——180798的Y坐标OCR漏了个负号，
+    // 已经用DB里的真实精确值改过来，其它几个数值跟OCR版本基本一致。178434/178435圣诞袜和178667
+    // 圣诞树在原场景里是挂在墙上/立在高台上的，height差有5+码，召唤到平地上会跟着悬空，这是真实
+    // 场景数据决定的，不是算错了。
     // 冷却走61006这个纯标记法术手动查/写 Player::IsSpellReady/AddCooldown。
     if (pItem->GetEntry() == 900113)
     {
@@ -417,23 +418,29 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             float x, y, z;
             pUser->GetClosePoint(x, y, z, pUser->GetObjectBoundingRadius(), 2.0f, 0.0f);
             float const orient = pUser->GetOrientation();
-            pUser->SummonGameObject(180797, x, y, z, orient, 0, 0, 0, 0, 600); // 陷阱本体（实际触发变身，锚点）
+            pUser->SummonGameObject(180797, x, y, z, orient, 0, 0, 0, 0, 600); // PX-238冬幕仙境机-陷阱（实际触发变身，锚点）
 
-            auto summonInScene = [&](uint32 entry, float forward, float left, float height)
+            // relOrient：每个对象在真实场景里自己的朝向减去锚点(180797)的朝向，召唤时叠加到玩家
+            // 当前朝向上（Geometry::NormalizeOrientation归一化），这样每个对象不但位置跟着整体
+            // 旋转，自己的朝向也保持跟原场景一致的相对关系，不会全部傻乎乎地朝着同一个方向。
+            // 所有数值（含forward/left/height）都是直接从`gameobject`表里这一组真实坐标/朝向反查
+            // 出来的（不是当初截图OCR的那份，那份180798的Y坐标缺了负号，已用DB数据核对纠正）。
+            auto summonInScene = [&](uint32 entry, float forward, float left, float height, float relOrient)
             {
                 float const px = x + forward * cos(orient) - left * sin(orient);
                 float const py = y + forward * sin(orient) + left * cos(orient);
-                pUser->SummonGameObject(entry, px, py, z + height, orient, 0, 0, 0, 0, 600);
+                float const objOrient = Geometry::NormalizeOrientation(orient + relOrient);
+                pUser->SummonGameObject(entry, px, py, z + height, objOrient, 0, 0, 0, 0, 600);
             };
 
-            summonInScene(180796, -0.300293f, 1.274964f, -0.059997f);  // 装饰机器模型
-            summonInScene(180798, -1.950195f, 3.294007f, -0.093994f);  // 大礼物
-            summonInScene(180799, -2.570312f, 2.575012f, 0.026001f);   // 大礼物
-            summonInScene(178746, 3.429688f, 1.279969f, -0.160003f);   // Smokywood Pastures 告示牌
-            summonInScene(178434, -1.140136f, 3.468994f, 5.229004f);   // 圣诞袜1（原场景挂墙上，会悬空）
-            summonInScene(178435, 1.119629f, 3.083985f, 5.359009f);    // 圣诞袜2（同上）
-            summonInScene(178667, -5.440429f, 1.412964f, 0.399018f);   // 圣诞树
-            summonInScene(180749, -9.030273f, 1.375977f, 0.227997f);   // 欢呼喇叭
+            summonInScene(180796, -0.3f, 1.275f, -0.06f, 3.22885f);    // PX-238冬幕仙境机（装饰模型）
+            summonInScene(180798, -1.95f, 3.294f, -0.094f, 3.59537f);  // 大礼物
+            summonInScene(180799, -2.57f, 2.575f, 0.026f, 3.68264f);  // 大礼物
+            summonInScene(178746, 3.43f, 1.28f, -0.16f, 2.094391f);   // 烟林牧场（告示牌）
+            summonInScene(178434, -1.14f, 3.469f, 5.229f, 2.67035f);  // 圣诞袜1（原场景挂墙上，会悬空）
+            summonInScene(178435, 1.12f, 3.084f, 5.359f, 2.111844f);  // 圣诞袜2（同上）
+            summonInScene(178667, -5.44f, 1.413f, 0.399f, 1.13446f);  // 圣诞树（中）
+            summonInScene(180749, -9.03f, 1.376f, 0.228f, 0.698125f); // 欢呼扬声器
 
             if (cdMarker)
                 pUser->AddCooldown(cdMarker);
