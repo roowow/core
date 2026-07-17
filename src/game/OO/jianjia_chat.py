@@ -254,6 +254,8 @@ def _load_system_prompt(soul_file: str, knowledge_dir: str) -> str:
 
 _SYSTEM_PROMPT_TEMPLATE: str = ""  # soul + knowledge, loaded via _load_system_prompt()
 _KNOWLEDGE_CONTENT: str = ""       # knowledge-only, used by _verify_grounded
+_SERVER_NAME: str = ""             # set by _reload_system_prompt, read by _build_system_prompt
+_SERVER_PHASE: str = ""
 
 
 def _estimate_tokens(text: str) -> int:
@@ -275,7 +277,7 @@ def _reload_system_prompt(svc: dict) -> None:
     are left untouched). Code changes to this .py file still need a real restart —
     Python can't safely hot-swap running function bodies.
     """
-    global _SYSTEM_PROMPT_TEMPLATE, _KNOWLEDGE_CONTENT
+    global _SYSTEM_PROMPT_TEMPLATE, _KNOWLEDGE_CONTENT, _SERVER_NAME, _SERVER_PHASE
     try:
         template = _load_system_prompt(
             svc.get("soul_file", ""),
@@ -288,14 +290,11 @@ def _reload_system_prompt(svc: dict) -> None:
         log.error("System prompt reload failed, keeping previous version: %s", e)
         return
 
-    server_name  = svc.get("server_name",  "").strip()
-    server_phase = svc.get("server_phase", "").strip()
-    parts = [f"今天是 {time.strftime('%Y-%m-%d')}"]
-    if server_name:
-        parts.append(f"当前服务器：{server_name}")
-    if server_phase:
-        parts.append(f"当前阶段：{server_phase}")
-    template += "\n\n[" + "，".join(parts) + "。回答玩家问题时以此为准。]"
+    # Server name/phase are stable across reloads, so they're fine to cache here.
+    # Today's date is NOT — it must be computed fresh per request (see _build_system_prompt),
+    # otherwise it silently goes stale for the entire period the process runs unreloaded.
+    _SERVER_NAME  = svc.get("server_name",  "").strip()
+    _SERVER_PHASE = svc.get("server_phase", "").strip()
 
     _SYSTEM_PROMPT_TEMPLATE = template
 
@@ -323,6 +322,22 @@ def _reload_system_prompt(svc: dict) -> None:
         log.warning("Base system prompt alone is using ~%.0f%% of the context window — "
                     "conversation history / world-channel transcript / verifier calls "
                     "stack on top of this and may get silently truncated by Ollama.", pct)
+
+
+def _build_system_prompt(bot_name: str) -> str:
+    """_SYSTEM_PROMPT_TEMPLATE.format(name=bot_name) plus a freshly-computed date block.
+    Today's date must never be baked into the reload-time template (previously done in
+    _reload_system_prompt), since the service can run for days between reloads and the
+    date would silently go stale (observed in production: the bot confidently stated a
+    date two days in the past because that's what was true when the process last reloaded).
+    """
+    parts = [f"今天是 {time.strftime('%Y-%m-%d')}"]
+    if _SERVER_NAME:
+        parts.append(f"当前服务器：{_SERVER_NAME}")
+    if _SERVER_PHASE:
+        parts.append(f"当前阶段：{_SERVER_PHASE}")
+    date_block = "\n\n[" + "，".join(parts) + "。回答玩家问题时以此为准。]"
+    return _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name) + date_block
 
 
 # Per-event instruction snippets (world/guild/group wake-up rules, the summon prompt,
@@ -755,7 +770,7 @@ class _ConvState:
         _persist_history(self.player, self.bot_name, self.scope, self.history)
 
     def messages_for_ollama(self, extra_context: str = "") -> list[dict]:
-        system = _SYSTEM_PROMPT_TEMPLATE.format(name=self.bot_name)
+        system = _build_system_prompt(self.bot_name)
         if self.memory:
             system += f"\n\n[关于{self.player}的记忆：\n{self.memory}]"
         if self.player_info:
@@ -1385,7 +1400,7 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
         _group_reply_ts[sender] = time.time()
 
     channel_name = _CHANNEL_NAMES.get(chat_context, "频道")
-    system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
+    system = _build_system_prompt(bot_name)
     system += "\n\n" + _PROMPT_TEMPLATES["group_wakeup"].format(channel_name=channel_name)
 
     # Neither raid nor party keeps a permanent per-player MySQL profile — both are
@@ -1472,7 +1487,7 @@ def _verify_grounded(bot_name: str, question: str, reply: str) -> tuple[bool, fl
     Returns (passed, latency_ms) — latency is returned too so callers can log total
     Ollama time spent per event without timing this call separately at every site.
     """
-    kb = _KNOWLEDGE_CONTENT or _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
+    kb = _KNOWLEDGE_CONTENT or _build_system_prompt(bot_name)
     system = _PROMPT_TEMPLATES["verify_grounded"].format(
         bot_name=bot_name, kb=kb, question=question, reply=reply)
     t0 = time.time()
@@ -1501,7 +1516,7 @@ def _summon_deflect(bot_name: str, sender: str, channel_name: str) -> tuple[str,
 
     Returns (reply, latency_ms). Empty string on failure.
     """
-    system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
+    system = _build_system_prompt(bot_name)
     prompt = _PROMPT_TEMPLATES["world_summon_deflect"].format(sender=sender, channel_name=channel_name)
     t0 = time.time()
     try:
@@ -1569,7 +1584,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             _guild_reply_ts[sender] = time.time()
 
         conv = _get_conv(sender, bot_name, realm, scope=f"guild:{context_id}")
-        system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
+        system = _build_system_prompt(bot_name)
         system += "\n\n" + _PROMPT_TEMPLATES["guild_wakeup"].format(channel_name=channel_name)
         if conv.memory:
             system += f"\n\n[关于{sender}的记忆：\n{conv.memory}]"
@@ -1623,7 +1638,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
 
             conv = _get_conv(sender, bot_name, realm, scope="world")
             transcript = _get_world_recent_transcript(realm)
-            system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
+            system = _build_system_prompt(bot_name)
             system += "\n\n" + _PROMPT_TEMPLATES["world_summon"].format(
                 channel_name=channel_name, transcript=transcript, sender=sender)
             if conv.memory:
@@ -1713,7 +1728,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
 
         conv = _get_conv(sender, bot_name, realm, scope="world")
         transcript = _get_world_recent_transcript(realm)
-        system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
+        system = _build_system_prompt(bot_name)
         system += "\n\n" + _PROMPT_TEMPLATES["world_question"].format(
             channel_name=channel_name, sender=sender, transcript=transcript)
         if conv.memory:
@@ -1804,7 +1819,7 @@ def handle_bg_afk(r_pub: "redis.Redis", sender: str, bot_name: str,
         urgency = level_map.get(afk_level, "傲娇地喊他动起来")
         instruction = f"对{sender}喊一句：{urgency}——他的战场活跃度不够，需要更拼一点。"
 
-    system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
+    system = _build_system_prompt(bot_name)
     system += "\n\n" + _PROMPT_TEMPLATES["bg_afk"].format(
         bot_name=bot_name, sender=sender, instruction=instruction)
     if player_info:
@@ -1829,7 +1844,7 @@ def handle_bg_afk(r_pub: "redis.Redis", sender: str, bot_name: str,
 
 def handle_quest_complete(r_pub: "redis.Redis", sender: str, bot_name: str,
                           quest_title: str, player_info: str, out_key: str, realm: int = 0) -> None:
-    system = _SYSTEM_PROMPT_TEMPLATE.format(name=bot_name)
+    system = _build_system_prompt(bot_name)
     if player_info:
         system += (f"\n\n[当前对话玩家的角色信息：{player_info}。"
                    f"这是系统提供的准确信息，不是玩家自己说的；回复时自然融入即可，不需要逐字念出来。"
