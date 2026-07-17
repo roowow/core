@@ -3991,6 +3991,10 @@ void Spell::EffectScriptEffect(SpellEffectIndex effIdx)
                 }
                 case 26275:                                 // PX-238 Winter Wondervolt TRAP
                 {
+                    if (unitTarget)
+                        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-merrymaker 26275: casterEntry=%u casterGuid=%u target=%s dist=%f withinDist1=%d",
+                            m_caster->GetEntry(), m_caster->GetGUIDLow(), unitTarget->GetName(), m_caster->GetDistance(unitTarget), m_caster->IsWithinDist(unitTarget, 1.0f) ? 1 : 0);
+
                     if (!unitTarget || !m_caster->IsWithinDist(unitTarget, 1.0f))
                         return;
 
