@@ -354,9 +354,6 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
     // 冷却本身走61005这个纯标记法术手动查/写 Player::IsSpellReady/AddCooldown（因为壳子本身没冷却）。
     if (pItem->GetEntry() == 900109)
     {
-        uint32 const debugBrEnterMs = WorldTimer::getMSTime();
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-table ENTER t=%u", debugBrEnterMs);
-
         SpellEntry const* cdMarker = sSpellMgr.GetSpellEntry(61005);
         if (cdMarker && !pUser->IsSpellReady(cdMarker))
         {
@@ -373,10 +370,10 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             float const tableOrient = pUser->GetOrientation();
             pUser->SummonGameObject(180879, x, y, z, tableOrient, 0, 0, 0, 0, 600, false);
 
-            // 面包/水/花相对桌子中心的偏移，用GM实测.gobject add摆放出来的真实坐标反推出来的
-            // （forward=沿桌子朝向前方为正，left=沿桌子朝向左侧为正，height=高于桌子原点的Z差），
+            // 面包/水/花/水果相对桌子中心的偏移，用GM实测.gobject add摆放出来的真实坐标+朝向反推
+            // 出来的（forward=沿桌子朝向前方为正，left=沿桌子朝向左侧为正，height=高于桌子原点的Z差），
             // 不是拍脑袋估的。用桌子自己的朝向(tableOrient)做旋转，这样不管玩家用道具时面朝哪个
-            // 方向，摆放关系都保持一致。
+            // 方向，摆放关系都保持一致。水果(180370 Harvest Fruit)直接用原始entry，不需要clone。
             auto summonOnTable = [&](uint32 entry, float forward, float left, float height)
             {
                 float const px = x + forward * cos(tableOrient) - left * sin(tableOrient);
@@ -387,13 +384,13 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             summonOnTable(900109, 0.167f, 0.121f, 1.86f);   // 面包
             summonOnTable(900111, -0.625f, -0.130f, 1.86f); // 水
             summonOnTable(178125, -0.169f, -0.187f, 2.02f); // 花（纯装饰，Lotharian Lotus）
+            summonOnTable(180370, 0.117f, -0.662f, 1.86f);  // 水果（Harvest Fruit，直接用原始entry，不clone）
 
             if (cdMarker)
                 pUser->AddCooldown(cdMarker);
 
             pUser->TextEmote("摆一瓯清水，一方薄饼，君子之交，淡如水。");
         }
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-table BEFORE cancelCast t=%u elapsed=%u", WorldTimer::getMSTime(), WorldTimer::getMSTime() - debugBrEnterMs);
         cancelCast = true;
     }
 
