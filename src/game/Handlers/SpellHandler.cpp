@@ -372,10 +372,14 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
         }
         else
         {
+            // GetClosePoint的z参数已经是按(x,y)这个偏移点算出来的地面高度（内部会调用
+            // UpdateGroundPositionZ），不是玩家自己脚下的高度——斜坡上这两个差得多，之前一直
+            // 用pUser->GetPositionZ()（玩家脚下高度）而不是这里算出来的z，导致桌子在斜坡上
+            // 要么陷进地里、要么悬空。改成直接用这个z当基准。
             float x, y, z;
             pUser->GetClosePoint(x, y, z, pUser->GetObjectBoundingRadius(), 2.0f, 0.0f);
             float const tableOrient = pUser->GetOrientation();
-            pUser->SummonGameObject(180879, x, y, pUser->GetPositionZ(), tableOrient, 0, 0, 0, 0, 300);
+            pUser->SummonGameObject(180879, x, y, z, tableOrient, 0, 0, 0, 0, 300);
 
             // 面包/水/花相对桌子中心的偏移，用GM实测.gobject add摆放出来的真实坐标反推出来的
             // （forward=沿桌子朝向前方为正，left=沿桌子朝向左侧为正，height=高于桌子原点的Z差），
@@ -385,7 +389,7 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             {
                 float const px = x + forward * cos(tableOrient) - left * sin(tableOrient);
                 float const py = y + forward * sin(tableOrient) + left * cos(tableOrient);
-                pUser->SummonGameObject(entry, px, py, pUser->GetPositionZ() + height, tableOrient, 0, 0, 0, 0, 300);
+                pUser->SummonGameObject(entry, px, py, z + height, tableOrient, 0, 0, 0, 0, 300);
             };
 
             summonOnTable(900109, 0.167f, 0.121f, 1.86f);   // 面包
@@ -402,15 +406,16 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
         cancelCast = true;
     }
 
-    // BR 令牌/餐桌(900105/900109)：诊断日志证明通用的cancelCast尾巴（SMSG_INVENTORY_CHANGE_FAILURE
-    // 那个hack）服务端处理和发包都是瞬间完成的（elapsed=0-2ms），排除了服务端耗时/丢包的可能——问题
-    // 是客户端本地预判的施法动作没有被正确取消。这个通用hack是给"库存/装备"类错误用的，不是真正
-    // 针对某个具体法术ID的取消信号。本函数上面118-141行处理"物品目标校验失败"时用的是另一套更
-    // 对症的组合：SendEquipError + Spell::SendCastResult(用道具真实声明的法术ID)——后者是专门告诉
-    // 客户端"这个法术ID的这次施法失败了"，才能让客户端正确对上本地预判、取消施法动作。这里改用
-    // 同一套组合，不动下面这个通用cancelCast尾巴（其它道具还在用，不想影响它们）。
+    // BR 令牌/餐桌(900105/900109)：排查记录——SendEquipError + Spell::SendCastResult(道具真实
+    // 法术ID) 这套比通用cancelCast hack更对症，但单独用仍然不够：实测发现"冷却拒绝"分支（只发
+    // 聊天提示就直接走到这里）必卡，"召唤/报名成功"分支（走到这里之前额外真实完整施法过一次
+    // 5001）反而不卡——说明真正解开客户端本地预判状态的，是"有没有一次真正完整走完的施法广播"，
+    // 不只是发一个失败结果包。所以这里统一补一次真实的静默施法（8067 Party Time!，spellVisual1=0，
+    // 瞬发零消耗零冷却零副作用），不管这次点击是成功召唤还是冷却拒绝，都会有这一次完整广播，
+    // 冷却拒绝时因为是静默法术不会多播出额外特效。
     if (cancelCast && (pItem->GetEntry() == 900105 || pItem->GetEntry() == 900109))
     {
+        pUser->CastSpell(pUser, 8067, true);
         pUser->SendEquipError(EQUIP_ERR_NONE, pItem, nullptr);
         uint32 spellid = proto->Spells[packet.spellSlot].SpellId;
         if (SpellEntry const* spellInfo = sSpellMgr.GetSpellEntry(spellid))
