@@ -113,7 +113,15 @@ struct go_br_refreshment : public GameObjectAI
     bool OnUse(Unit* user) override
     {
         if (Player* player = user->ToPlayer())
-            player->CastSpell(player, me->GetGOInfo()->goober.spellId, true);
+        {
+            uint32 spellId = me->GetGOInfo()->goober.spellId;
+            // 面包(900109)按服务端当前阶段分：22895 Conjured Cinnamon Roll是1.11版本才加入的道具，
+            // 1.11之前的客户端不认识这个item，所以1.11+用61007(产22895魔法肉桂面包)，
+            // 1.11之前继续用配置好的61003(产8076魔法甜面包)。
+            if (me->GetEntry() == 900109 && sWorld.GetWowPatch() >= WOW_PATCH_111)
+                spellId = 61007;
+            player->CastSpell(player, spellId, true);
+        }
         return true;
     }
 };
