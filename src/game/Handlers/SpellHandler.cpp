@@ -325,12 +325,21 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
     }
 
     // BR 报名令牌 — 世界地图远程加入/离开候战席（副本/战场/BR/战斗中不可用）
+    // 壳子换成5001（真实空召唤法术，见 BattleRoyale.sql 900105 的说明）之后，成功报名/离场时不再
+    // cancelCast——直接放行正常施法流程，让这个法术自带的召唤特效当作"入局/离场"的视觉反馈；
+    // 失败/不可用的情况仍然cancelCast，不需要（也不应该）播放这个特效。
     if (pItem->GetEntry() == 900105)
     {
         if (pUser->GetMap()->Instanceable())
+        {
             ChatHandler(pUser).PSendSysMessage("[孤胆称雄] 此地无法使用论剑令，请前往野外。");
+            cancelCast = true;
+        }
         else if (pUser->IsInCombat())
+        {
             ChatHandler(pUser).PSendSysMessage("[孤胆称雄] 战斗中无法使用论剑令。");
+            cancelCast = true;
+        }
         else
         {
             bool inQueue = sBattleRoyaleMgr.IsPlayerInQueue(pUser->GetObjectGuid());
@@ -340,21 +349,25 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             {
                 std::string err;
                 if (!sBattleRoyaleMgr.EnqueuePlayer(pUser, err))
+                {
                     ChatHandler(pUser).PSendSysMessage("[孤胆称雄] %s", err.c_str());
+                    cancelCast = true;
+                }
             }
         }
-        cancelCast = true;
     }
 
     // BR 积分商店 — 餐桌：召唤一张装饰桌 + 面包/水两个可反复点击的道具，5分钟后一起消失
+    // 壳子(5001，跟900105论剑令同款空召唤瞬发法术)冷却检查不通过时cancelCast拦截；召唤成功时
+    // 放行正常施法流程，让5001自带的召唤特效当视觉反馈。
+    // 冷却本身走61005这个纯标记法术手动查/写 Player::IsSpellReady/AddCooldown（因为壳子本身没冷却）。
     if (pItem->GetEntry() == 900109)
     {
-        // 1小时冷却：道具本体走cancelCast那条路，不会走正常施法流程，不会自动记冷却，
-        // 所以借61005这个纯标记法术（从不真正施放）手动查/写 Player::IsSpellReady/AddCooldown。
         SpellEntry const* cdMarker = sSpellMgr.GetSpellEntry(61005);
         if (cdMarker && !pUser->IsSpellReady(cdMarker))
         {
             ChatHandler(pUser).PSendSysMessage("[孤胆称雄] 餐桌还在冷却中，过一会儿再摆。");
+            cancelCast = true;
         }
         else
         {
@@ -383,7 +396,6 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
 
             pUser->TextEmote("摆开一桌酒菜，江湖路远，来者是客！");
         }
-        cancelCast = true;
     }
 
     if (cancelCast)
