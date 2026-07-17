@@ -901,7 +901,10 @@ def _write_conv_log(realm: int, bot: str, event: str, outcome: str, player: str,
         "info":       player_info,
         "user":       user_msg,
         "outcome":    outcome,    # answered | pass | filtered_no_question | filtered_cooldown |
-                                  # filtered_not_awake | verify_rejected | ollama_error | fallback
+                                  # verify_rejected | ollama_error | fallback | deflect | sleep_command
+                                  # (filtered_not_awake is intentionally never logged — see the two
+                                  # "not bot_mentioned and not awake" call sites — every dormant-group
+                                  # message would hit it, dwarfing every other outcome for no signal)
         "reply":      ai_reply,
         "llm_calls":  llm_calls,
         "latency_ms": round(latency_ms, 1),
@@ -934,6 +937,21 @@ _QUESTION_RE = re.compile(r'[？?]|吗\b|怎么|咋|哪里|哪儿|如何|能否|
 # where a spaced variant slipped past the exact-match check and would have been sent on
 # to verification/broadcast as literal garbage text instead of being treated as a pass.
 _PASS_RE = re.compile(r'\[\s*PASS\s*\]', re.IGNORECASE)
+
+# Backstop for a recurring failure mode: the model correctly judges "I shouldn't answer
+# this" but writes that judgment out in natural language instead of emitting a bare
+# [PASS] token (e.g. "这类组队召集的问题，还是去问问其他玩家吧～", "这个问题属于具体游戏
+# 内容讨论，不是在问服务器规则或制度，我就不参与啦～") — prompt reinforcement alone hasn't
+# fully closed this gap after several rounds, so this catches the model explicitly talking
+# about *why* it won't answer (as opposed to a normal helpful reply that happens to end with
+# "去问问其他玩家/查查攻略" as a closing suggestion, which this deliberately does NOT match —
+# only phrasing that names the exclusion category itself, not generic "ask someone else").
+_DECLINE_RE = re.compile(
+    r'我就不(回答|参与)|不属于我的职责|不属于.{0,6}职责范围|'
+    r'这.{0,4}(不回答|不参与|我不参与)|'
+    r'属于具体游戏(内容|玩法)|属于组队召集|'
+    r'知识库(中|里)?(没有|不包含).{0,6}(相关)?(记录|说明|信息)'
+)
 
 # Per-player cooldown for world channel replies (seconds)
 _CHANNEL_REPLY_CD = 30
@@ -1350,8 +1368,8 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
             awake = False
             log.info("%s %d auto-slept (idle > %ds)", chat_context, group_id, _GROUP_AWAKE_TIMEOUT)
     if not bot_mentioned and not awake:
-        _write_conv_log(realm, bot_name, "group_chat", "filtered_not_awake", sender,
-                        user_msg=message, context=chat_context)
+        # Not logged: every message in every party/raid group with the bot dormant would
+        # hit this, dwarfing every other outcome in volume for essentially no signal.
         return
     if bot_mentioned:
         _wake_up(chat_context, group_id)
@@ -1408,7 +1426,7 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
                         latency_ms=(time.time() - t0) * 1000)
         return
     gen_latency_ms = (time.time() - t0) * 1000
-    if not reply or _PASS_RE.search(reply):
+    if not reply or _PASS_RE.search(reply) or _DECLINE_RE.search(reply):
         _write_conv_log(realm, bot_name, "group_chat", "pass", sender, player_info_for_log, message,
                         context=chat_context, llm_calls=1, latency_ms=gen_latency_ms)
         return
@@ -1533,8 +1551,8 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                     awake = False
                 log.info("Guild %d auto-slept (idle > %ds)", context_id, _GUILD_AWAKE_TIMEOUT)
         if not bot_mentioned and not awake:
-            _write_conv_log(realm, bot_name, "channel_chat", "filtered_not_awake", sender,
-                            user_msg=message, context="guild")
+            # Not logged: every message in every guild with the bot dormant would hit
+            # this, dwarfing every other outcome in volume for essentially no signal.
             return
         if bot_mentioned:
             _wake_up("guild", context_id)
@@ -1572,7 +1590,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                             latency_ms=(time.time() - t0) * 1000)
             return
         gen_latency_ms = (time.time() - t0) * 1000
-        if not reply or _PASS_RE.search(reply):
+        if not reply or _PASS_RE.search(reply) or _DECLINE_RE.search(reply):
             _write_conv_log(realm, bot_name, "channel_chat", "pass", sender, player_info, message,
                             context="guild", llm_calls=1, latency_ms=gen_latency_ms)
             return
@@ -1627,7 +1645,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                                 latency_ms=(time.time() - t0) * 1000)
                 return
             gen_latency_ms = (time.time() - t0) * 1000
-            if not reply or _PASS_RE.search(reply):
+            if not reply or _PASS_RE.search(reply) or _DECLINE_RE.search(reply):
                 deflect, deflect_ms = _summon_deflect(bot_name, sender, channel_name)
                 total_latency_ms = gen_latency_ms + deflect_ms
                 if deflect:
@@ -1722,7 +1740,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                             latency_ms=(time.time() - t0) * 1000)
             return
         gen_latency_ms = (time.time() - t0) * 1000
-        if not reply or _PASS_RE.search(reply):
+        if not reply or _PASS_RE.search(reply) or _DECLINE_RE.search(reply):
             with _channel_reply_lock:
                 _channel_reply_ts.pop(sender, None)
             _write_conv_log(realm, bot_name, "channel_chat", "pass", sender, player_info, message,
@@ -1795,31 +1813,18 @@ def handle_bg_afk(r_pub: "redis.Redis", sender: str, bot_name: str,
 
     messages = [{"role": "system", "content": system},
                 {"role": "user", "content": instruction}]
-    t0 = time.time()
     try:
         reply = _ollama_chat(messages)
-    except Exception as e:
-        log.warning("Ollama error for bg_afk (%s): %s — signalling C++ fallback", sender, e)
+    except Exception:
         payload = json.dumps({"target": sender, "channel": "fallback",
                               "stage": stage, "afk_level": afk_level, "notice": notice_type},
                              ensure_ascii=False, separators=(",", ":"))
         r_pub.publish(out_key, payload)
-        _write_conv_log(realm, bot_name, "bg_afk", "ollama_error", sender, player_info,
-                        f"stage={stage} afk_level={afk_level} notice={notice_type}",
-                        context="bg", llm_calls=1, latency_ms=(time.time() - t0) * 1000)
         return
 
     payload = json.dumps({"target": sender, "message": reply, "channel": "bg"},
                          ensure_ascii=False, separators=(",", ":"))
     r_pub.publish(out_key, payload)
-    # notice_type picks which of stage/afk_level is actually meaningful — logging "stage"
-    # unconditionally (as before) printed a stale/irrelevant "stage 0" whenever the
-    # afk_level branch was the one that actually fired.
-    level_desc = f"stage {stage}" if notice_type == "warning" else f"afk_level {afk_level}"
-    log.info("[%s] BG AFK notice to %s (%s, notice=%s): %s", bot_name, sender, level_desc, notice_type, reply)
-    _write_conv_log(realm, bot_name, "bg_afk", "answered", sender, player_info,
-                    f"stage={stage} afk_level={afk_level} notice={notice_type}", reply,
-                    context="bg", llm_calls=1, latency_ms=(time.time() - t0) * 1000)
 
 
 def handle_quest_complete(r_pub: "redis.Redis", sender: str, bot_name: str,
