@@ -346,9 +346,45 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
         cancelCast = true;
     }
 
-    // BR 积分商店 — 餐桌(900109)：不再在这里拦截。壳子法术61005现在是真实施法流程（读条+特效
-    // 正常播放，冷却也是引擎原生处理），真正的召唤逻辑在 SpellEffects.cpp::EffectScriptEffect()
-    // 的 case 61005 里，读条结束后才触发。详见 BattleRoyale.sql 里 900109/61005 的说明。
+    // BR 积分商店 — 餐桌：召唤一张装饰桌 + 面包/水两个可反复点击的道具，5分钟后一起消失
+    if (pItem->GetEntry() == 900109)
+    {
+        // 1小时冷却：道具本体走cancelCast那条路，不会走正常施法流程，不会自动记冷却，
+        // 所以借61005这个纯标记法术（从不真正施放）手动查/写 Player::IsSpellReady/AddCooldown。
+        SpellEntry const* cdMarker = sSpellMgr.GetSpellEntry(61005);
+        if (cdMarker && !pUser->IsSpellReady(cdMarker))
+        {
+            ChatHandler(pUser).PSendSysMessage("[孤胆称雄] 餐桌还在冷却中，过一会儿再摆。");
+        }
+        else
+        {
+            float x, y, z;
+            pUser->GetClosePoint(x, y, z, pUser->GetObjectBoundingRadius(), 2.0f, 0.0f);
+            float const tableOrient = pUser->GetOrientation();
+            pUser->SummonGameObject(180879, x, y, pUser->GetPositionZ(), tableOrient, 0, 0, 0, 0, 300);
+
+            // 面包/水/花相对桌子中心的偏移，用GM实测.gobject add摆放出来的真实坐标反推出来的
+            // （forward=沿桌子朝向前方为正，left=沿桌子朝向左侧为正，height=高于桌子原点的Z差），
+            // 不是拍脑袋估的。用桌子自己的朝向(tableOrient)做旋转，这样不管玩家用道具时面朝哪个
+            // 方向，摆放关系都保持一致。
+            auto summonOnTable = [&](uint32 entry, float forward, float left, float height)
+            {
+                float const px = x + forward * cos(tableOrient) - left * sin(tableOrient);
+                float const py = y + forward * sin(tableOrient) + left * cos(tableOrient);
+                pUser->SummonGameObject(entry, px, py, pUser->GetPositionZ() + height, tableOrient, 0, 0, 0, 0, 300);
+            };
+
+            summonOnTable(900109, 0.167f, 0.121f, 1.86f);   // 面包
+            summonOnTable(900111, -0.625f, -0.130f, 1.86f); // 水
+            summonOnTable(178125, -0.169f, -0.187f, 2.02f); // 花（纯装饰，Lotharian Lotus）
+
+            if (cdMarker)
+                pUser->AddCooldown(cdMarker);
+
+            pUser->TextEmote("摆开一桌酒菜，江湖路远，来者是客！");
+        }
+        cancelCast = true;
+    }
 
     if (cancelCast)
     {
