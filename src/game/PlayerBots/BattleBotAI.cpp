@@ -5030,7 +5030,6 @@ void BattleBotAI::UpdateInCombatAI_Paladin()
                 return;
         }
         if (m_spells.paladin.pConsecration &&
-           (GetAttackersInRangeCount(10.0f) > 2) &&
             CanTryToCastSpell(me, m_spells.paladin.pConsecration))
         {
             if (DoCastSpell(me, m_spells.paladin.pConsecration) == SPELL_CAST_OK)
@@ -6124,6 +6123,14 @@ void BattleBotAI::UpdateInCombatAI_Warlock()
                 return;
         }
 
+        if (m_spells.warlock.pCurseofAgony &&
+            !pVictim->HasAura(m_spells.warlock.pCurseofAgony->Id) &&
+            CanTryToCastSpell(pVictim, m_spells.warlock.pCurseofAgony))
+        {
+            if (DoCastSpell(pVictim, m_spells.warlock.pCurseofAgony) == SPELL_CAST_OK)
+                return;
+        }
+
         if (m_spells.warlock.pSiphonLife &&
             !pVictim->HasAura(m_spells.warlock.pSiphonLife->Id) &&
             CanTryToCastSpell(pVictim, m_spells.warlock.pSiphonLife))
@@ -6644,7 +6651,7 @@ void BattleBotAI::UpdateInCombatAI_Rogue()
                 return;
         }
 
-        if (me->GetComboPoints() > 4)
+        if (me->GetComboPoints() >= 3)
         {
             bool const hasSnd = m_spells.rogue.pSliceAndDice &&
                 me->HasAura(m_spells.rogue.pSliceAndDice->Id);
