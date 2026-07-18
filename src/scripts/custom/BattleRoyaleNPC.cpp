@@ -102,10 +102,11 @@ bool GossipSelect_BattleRoyaleNPC(Player* player, Creature* creature, uint32 /*s
     return true;
 }
 
-// 亲吻/敬礼/跳舞/鞠躬/鼓掌——EmotesText.dbc 里的 text_emote ID（KISS/SALUTE/DANCE/BOW/APPLAUD），
-// 这套ID是1.12客户端自带的静态数据，不是本服自建的，所有基于同一份客户端的核心理论上通用；
-// 数值来自通用的WoW建服资料，本地没有DBC可直接核对，如果实测发现哪个对不上，改这个数组就行。
-static uint32 const BR_TABLE_THANKS_EMOTES[] = { 239, 224, 254, 67, 54 };
+// 亲吻/敬礼/跳舞/鞠躬/鼓掌——EmotesText.dbc 里的 text_emote ID。实测得出：在
+// ChatHandler.cpp::HandleTextEmoteOpcode 里临时加日志打印 packet.textEmote，游戏内依次输入
+// /kiss /salute /dance /bow /clap 各一次，从日志读到的真实数值（测试记录见AloneMode.md同类
+// 排查方式，此处对应 BattleRoyale.md 餐桌功能）。
+static uint32 const BR_TABLE_THANKS_EMOTES[] = { 58, 78, 34, 17, 24 };
 
 // 让player对target做一个"真实"的client文字表情（带动作+"XX对YY做了个YY"聊天提示），
 // 复刻自 ChatHandler.cpp::HandleTextEmoteOpcode 的核心逻辑（那边的 MaNGOS::EmoteChatBuilder

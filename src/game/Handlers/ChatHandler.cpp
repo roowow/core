@@ -774,9 +774,6 @@ void WorldSession::HandleTextEmoteOpcode(WorldPackets::Misc::TextEmote const& pa
         return;
     }
 
-    // DEBUG BR-emote: 临时排查BR餐桌感谢表情的text_emote ID，确认后删除
-    sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG BR-emote: %s used textEmote=%u", GetPlayer()->GetName(), packet.textEmote);
-
     EmotesTextEntry const* em = sEmotesTextStore.LookupEntry(packet.textEmote);
     if (!em)
         return;
