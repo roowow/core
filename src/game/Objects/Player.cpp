@@ -3116,6 +3116,9 @@ void Player::ClearInventoryForTianxuan()
         if (GetItemByPos(INVENTORY_SLOT_BAG_0, i))
             DestroyItem(INVENTORY_SLOT_BAG_0, i, true);
     }
+
+    // 金币重置为出生时初始值
+    SetMoney(sWorld.getConfig(CONFIG_UINT32_START_PLAYER_MONEY));
 }
 
 void Player::SetTurtle(bool on)
