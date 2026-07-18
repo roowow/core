@@ -2686,11 +2686,26 @@ bool BattleBotAI::StartNewPathToObjective()
                 }
 
                 // Only go to Snowfall Graveyard if already close to it.
-                if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
+                // 之前这里不管命中三种状态里的哪一种，GetSingleGameObjectGuid都写死查NEUTRAL_CONTROLLED
+                // 这个event2——旗子一旦被冲击/占领过，中立状态对应的那个GameObject实例早被移除，查出来
+                // 是nullptr，导致机器人只有在旗子还是中立状态时才能找到路径，一旦被冲击过就再也找不到路，
+                // 旗子被反复触发重置5分钟计时器但永远占不满（对应玩家反馈"一直去开旗但一直开不成功"）。
+                // 现在按实际命中的状态去查对应的旗子对象。
                 {
-                    if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED)))
-                        if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
-                            return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);  
+                    uint8 snowfallEvent2 = 0xFF;
+                    if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_ASSAULTED))
+                        snowfallEvent2 = ALLIANCE_ASSAULTED;
+                    else if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, ALLIANCE_CONTROLLED))
+                        snowfallEvent2 = ALLIANCE_CONTROLLED;
+                    else if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
+                        snowfallEvent2 = NEUTRAL_CONTROLLED;
+
+                    if (snowfallEvent2 != 0xFF)
+                    {
+                        if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, snowfallEvent2)))
+                            if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
+                                return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                    }
                 }
 
                 if (!bg->IsActiveEvent(BG_AV_NodeEventCaptainDead_A, 0))
@@ -2745,11 +2760,24 @@ bool BattleBotAI::StartNewPathToObjective()
                 }
 
                 // Only go to Snowfall Graveyard if already close to it.
-                if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_ASSAULTED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_CONTROLLED) || bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
+                // 同Horde分支的坑：不管命中三种状态里的哪一种，之前都写死查NEUTRAL_CONTROLLED，
+                // 旗子被冲击/占领过之后中立状态的GameObject实例已被移除，查出来是nullptr，导致
+                // Alliance机器人同样只有在旗子还是中立状态时才能找到路径。现在按实际命中的状态查。
                 {
-                    if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED)))
-                        if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
-                            return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                    uint8 snowfallEvent2 = 0xFF;
+                    if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_ASSAULTED))
+                        snowfallEvent2 = HORDE_ASSAULTED;
+                    else if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, HORDE_CONTROLLED))
+                        snowfallEvent2 = HORDE_CONTROLLED;
+                    else if (bg->IsActiveEvent(BG_AV_SNOWFALL_GY, NEUTRAL_CONTROLLED))
+                        snowfallEvent2 = NEUTRAL_CONTROLLED;
+
+                    if (snowfallEvent2 != 0xFF)
+                    {
+                        if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, snowfallEvent2)))
+                            if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
+                                return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                    }
                 }
                 
                 // Chance to defend.
