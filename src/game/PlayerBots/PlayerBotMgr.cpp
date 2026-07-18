@@ -1084,21 +1084,26 @@ void PlayerBotMgr::AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam,
 bool PlayerBotMgr::AddBattleRoyaleBot(uint32 brInstanceId)
 {
     // BR: DPS only. Healer specs are prevented by pre-setting m_role before LearnPremadeSpecForClass().
-    // Excluded: Paladin (Holy spec issues in FFA context).
+    // Tier 1 (50%): Warrior, Mage, Warlock, Rogue — 5 each (12.5% per class)
+    // Tier 2 (30%): Priest (shadow), Hunter — 6 each (15% per class)
+    // Tier 3 (20%): Paladin (retri), Druid (feral/balance), Shaman (elem) — ~6-7% each
     std::vector<uint32> availableClasses = {
-        CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR,
-        CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,
-        CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,
-        CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
-        CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK,
-        CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,  // shadow
-        CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,   // balance / feral
-        CLASS_SHAMAN,  CLASS_SHAMAN,  CLASS_SHAMAN,  // elemental / enhancement
+        CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR,
+        CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,
+        CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK,
+        CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
+        CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,
+        CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,
+        CLASS_PALADIN, CLASS_PALADIN, CLASS_PALADIN,
+        CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,
+        CLASS_SHAMAN,  CLASS_SHAMAN,
     };
 
     uint8 botClass = SelectRandomContainerElement(availableClasses);
-    // Shaman is Horde-only in vanilla; force team to avoid a race-lookup failure.
-    Team botTeam = (botClass == CLASS_SHAMAN) ? HORDE : (urand(0, 1) ? ALLIANCE : HORDE);
+    // Shaman is Horde-only; Paladin is Alliance-only in vanilla.
+    Team botTeam = (botClass == CLASS_SHAMAN)  ? HORDE
+                 : (botClass == CLASS_PALADIN) ? ALLIANCE
+                 : (urand(0, 1) ? ALLIANCE : HORDE);
     uint8 botRace = SelectRandomRaceForClass(botClass, botTeam);
     if (!botRace)
         return false;

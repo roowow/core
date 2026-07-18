@@ -3185,8 +3185,8 @@ SpellCastResult CombatBotBaseAI::DoCastSpell(Unit* pTarget, SpellEntry const* pS
         sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
     {
         sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                 "[BRSkill] bot %s guid %u instance %u cast %s on %s (bot hp=%.0f%% mana=%.0f%%, target hp=%.0f%%).",
-                 me->GetName(), me->GetGUIDLow(), me->GetBattleGroundId(),
+                 "[BRSkill] bot %s class %u guid %u instance %u cast %s on %s (bot hp=%.0f%% mana=%.0f%%, target hp=%.0f%%).",
+                 me->GetName(), (uint32)me->GetClass(), me->GetGUIDLow(), me->GetBattleGroundId(),
                  pSpellEntry->SpellName[0].c_str(),
                  pTarget->GetName(),
                  me->GetHealthPercent(),

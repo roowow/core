@@ -89,7 +89,7 @@ enum BattleBotSpells
 #define BB_UPDATE_INTERVAL 1000
 
 #define BR_BOT_HUNT_RANGE 45.0f
-#define BR_BOT_URGENT_THREAT_RANGE 24.0f
+#define BR_BOT_URGENT_THREAT_RANGE 40.0f  // recovery-interrupt scan; raised to 40 so eating bots react before a player reaches melee
 #define BR_BOT_CHASE_TIMEOUT 15
 #define BR_BOT_CHASE_LOS_TIMEOUT 6
 #define BR_BOT_CHASE_PROGRESS_TIMEOUT 8
@@ -2413,10 +2413,19 @@ Unit* BattleBotAI::SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* 
 
         bool const attackingMe = pTarget->GetVictim() == me;
 
-        // Ignore list is always respected, even during urgentOnly recovery scans.
-        // Normally a target actively hitting us bypasses the ignore list — but when the
-        // bot is critically low on HP and fleeing, survival takes priority over retaliation.
-        if (!attackingMe || me->GetHealthPercent() < 20.0f)
+        // A real player actively fighting a nearby ally bot counts as an "assist" opportunity.
+        // Bypass the ignore list in this case so a passing bot immediately joins the fight
+        // instead of wandering past because of a stale chase-timeout ignore entry.
+        bool const fightingNearbyBot = !pTarget->IsBot() &&
+            pTarget->GetVictim() &&
+            pTarget->GetVictim()->GetTypeId() == TYPEID_PLAYER &&
+            static_cast<Player const*>(pTarget->GetVictim())->IsBot() &&
+            me->GetDistance(pTarget) < 30.0f;
+
+        // Ignore list is always respected unless actively attacking us OR assisting a nearby bot.
+        // When critically low on HP the bot flees regardless — survival over retaliation.
+        bool const bypassIgnore = (attackingMe && me->GetHealthPercent() >= 20.0f) || fightingNearbyBot;
+        if (!bypassIgnore)
         {
             ObjectGuid const tg = pTarget->GetObjectGuid();
             bool ignored = false;
@@ -2431,7 +2440,9 @@ Unit* BattleBotAI::SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* 
         if (distance > maxRange)
             continue;
 
-        if (urgentOnly && !attackingMe && distance > 18.0f)
+        // In urgentOnly (recovery-interrupt) mode: non-attacking players within 30 yards
+        // wake the bot; beyond that let the bot finish healing before engaging.
+        if (urgentOnly && !attackingMe && distance > 30.0f)
             continue;
 
         float score = 100.0f - distance * 1.3f;
@@ -2650,7 +2661,7 @@ void BattleBotAI::UpdateWaypointMovement()
     if (StartNewPathFromBeginning())
         return;
 
-    if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+    if ((m_isBattleRoyaleBot ? sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG) : sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG)))
     {
         BattleGround* dbgBg = me->GetBattleGround();
         sLog.Out(LOG_BG, LOG_LVL_BASIC,
@@ -2664,6 +2675,15 @@ void BattleBotAI::UpdateWaypointMovement()
 
 void BattleBotAI::OnJustDied()
 {
+    if (m_isBattleRoyaleBot && sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
+    {
+        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                 "[BRDeath] bot %s class %u instance %u pos %.1f %.1f.",
+                 me->GetName(), (uint32)me->GetClass(),
+                 me->GetBattleGroundId(),
+                 me->GetPositionX(), me->GetPositionY());
+    }
+
     ClearPath();
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
         StopMoving();
@@ -3001,13 +3021,14 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             {
                 case CLASS_WARRIOR:
                 case CLASS_ROGUE:
+                case CLASS_PALADIN:
                     m_role = ROLE_MELEE_DPS;
                     break;
                 case CLASS_DRUID:
                     m_role = urand(0, 1) ? ROLE_MELEE_DPS : ROLE_RANGE_DPS; // Feral or Balance
                     break;
                 case CLASS_SHAMAN:
-                    m_role = urand(0, 1) ? ROLE_MELEE_DPS : ROLE_RANGE_DPS; // Enhancement or Elemental
+                    m_role = ROLE_RANGE_DPS; // Elemental only
                     break;
                 default:
                     m_role = ROLE_RANGE_DPS; // Mage / Hunter / Warlock / Shadow Priest
@@ -3331,8 +3352,10 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                         if (me->GetDistance2d(ownFlag.x, ownFlag.y) > 25.0f &&
                             me->GetDistance2d(enemyFlag.x, enemyFlag.y) > 25.0f)
                         {
-                            if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                            if ((m_isBattleRoyaleBot ? sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG) : sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG)) &&
+                                ++m_bgIndoorStuckLogTicks >= 30)
                             {
+                                m_bgIndoorStuckLogTicks = 0;
                                 BattleGround* dbgBg = me->GetBattleGround();
                                 sLog.Out(LOG_BG, LOG_LVL_BASIC,
                                          "[BattleGroundMovement] indoor-stuck bot %s guid %u bg %u pos %.2f %.2f %.2f.",
@@ -3349,7 +3372,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
             if (dropCombat)
             {
-                if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                if ((m_isBattleRoyaleBot ? sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG) : sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG)))
                 {
                     BattleGround* dbgBg = me->GetBattleGround();
                     Unit* victim = me->GetVictim();
@@ -3381,7 +3404,7 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                 {
                     if (me->GetDistance2d(m_bgProgressX, m_bgProgressY) < 15.0f)
                     {
-                        if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                        if ((m_isBattleRoyaleBot ? sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG) : sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG)))
                         {
                             BattleGround* dbgBg = me->GetBattleGround();
                             sLog.Out(LOG_BG, LOG_LVL_BASIC,
@@ -4055,8 +4078,8 @@ void BattleBotAI::UpdateBattleRoyaleAI()
 
         // If we are fighting a bot and a real player enters nearby range, switch immediately.
         // Two bots wearing each other down while a player watches is a free-kill setup.
-        // Exception: if the bot is nearly dead (<15% HP), finish the kill first.
-        if (!dropChase && victim->GetTypeId() == TYPEID_PLAYER && static_cast<Player const*>(victim)->IsBot() && victim->GetHealthPercent() > 15.0f)
+        // Exception: if the bot target is low (<25% HP), finish the kill before switching.
+        if (!dropChase && victim->GetTypeId() == TYPEID_PLAYER && static_cast<Player const*>(victim)->IsBot() && victim->GetHealthPercent() > 25.0f)
         {
             Player* pRealPlayer = nullptr;
             float bestPlayerDist = BR_BOT_PLAYER_INTERCEPT_RANGE;
@@ -4126,13 +4149,23 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         bool stuck = false;
         char const* stuckReason = nullptr;
 
-        // Aerial check: if the bot is above ground during a chase the movement generator
-        // has fallen back to a straight-line (fly-through) path. Abort immediately so the
-        // next tick's snap-to-ground triggers before any new movement is issued.
+        // Aerial check: if the bot is noticeably above ground during a chase the movement
+        // generator has fallen back to a straight-line (fly-through) path.  Stop movement
+        // so the snap-to-ground at the top of this function fires next tick and corrects
+        // the Z position without abandoning the target.  Only treat it as a real "stuck"
+        // (→ drop target) at the same hard threshold that snap uses, so a gentle slope
+        // (< BR_BOT_AIRBORNE_SOFT_HEIGHT) never triggers a spurious target-drop.
         {
             float const myGZ = getBattleRoyaleGroundZ(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ());
-            if (myGZ > INVALID_HEIGHT && me->GetPositionZ() > myGZ + 0.5f)
+            if (myGZ > INVALID_HEIGHT && me->GetPositionZ() > myGZ + BR_BOT_AIRBORNE_SOFT_HEIGHT)
             {
+                // Below the hard threshold: just stop movement, snap will handle it.
+                if (me->GetPositionZ() - myGZ <= BR_BOT_AIRBORNE_HARD_HEIGHT)
+                {
+                    me->StopMoving();
+                    return;
+                }
+                // Above the hard threshold: genuine fly-through path, abandon target.
                 stuck = true;
                 stuckReason = "airborne";
             }
@@ -4286,8 +4319,9 @@ void BattleBotAI::UpdateBattleRoyaleAI()
                          zone.GetCenterX(), zone.GetCenterY(), zone.GetCurrentRadius(), safeRecoveryRadius,
                          uint32(m_brSafeRecoveryFailTicks));
             }
-            // After 15 consecutive failures (~15 s) teleport to the nearest in-zone spawn point.
-            if (m_brSafeRecoveryFailTicks >= 15)
+            // After 5 consecutive failures (~5 s) teleport to the nearest in-zone spawn point.
+            // Bots that fall into the void (Z << ground) can't path out; teleport fast.
+            if (m_brSafeRecoveryFailTicks >= 5)
             {
                 BattleRoyaleTemplate const* tmpl = br->GetTemplate();
                 if (tmpl && !tmpl->spawnPoints.empty())
@@ -4336,6 +4370,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         if (canReachBattleRoyaleTarget(pTarget))
         {
             // Out-of-combat openers before AttackStart; each class gets one setup action.
+
             switch (me->GetClass())
             {
                 case CLASS_WARRIOR:
@@ -4366,6 +4401,18 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             }
             if (startBattleRoyaleAttack(pTarget))
                 return;
+        }
+        else if (!pTarget->IsBot())
+        {
+            // Real player detected but temporarily unreachable (navmesh gap / slope).
+            // Stop any patrol movement so the bot doesn't drift away from the threat;
+            // face the player and wait — the next tick or two of movement will likely
+            // bring us close enough for canReach to pass and attack to start.
+            if (me->IsMoving())
+            {
+                ClearPath();
+                StopMoving();
+            }
         }
     }
 
@@ -5324,6 +5371,13 @@ void BattleBotAI::UpdateInCombatAI_Hunter()
                 return;
         }
 
+        if (m_spells.hunter.pRapidFire &&
+            CanTryToCastSpell(me, m_spells.hunter.pRapidFire))
+        {
+            if (DoCastSpell(me, m_spells.hunter.pRapidFire) == SPELL_CAST_OK)
+                return;
+        }
+
         if (m_spells.hunter.pAimedShot &&
             CanTryToCastSpell(pVictim, m_spells.hunter.pAimedShot))
         {
@@ -6068,6 +6122,22 @@ void BattleBotAI::UpdateInCombatAI_Warlock()
                 return;
         }
 
+        if (m_spells.warlock.pCorruption &&
+            !pVictim->HasAura(m_spells.warlock.pCorruption->Id) &&
+            CanTryToCastSpell(pVictim, m_spells.warlock.pCorruption))
+        {
+            if (DoCastSpell(pVictim, m_spells.warlock.pCorruption) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (m_spells.warlock.pSiphonLife &&
+            !pVictim->HasAura(m_spells.warlock.pSiphonLife->Id) &&
+            CanTryToCastSpell(pVictim, m_spells.warlock.pSiphonLife))
+        {
+            if (DoCastSpell(pVictim, m_spells.warlock.pSiphonLife) == SPELL_CAST_OK)
+                return;
+        }
+
         if (m_spells.warlock.pDrainLife &&
            (me->GetHealthPercent() < 35.0f) &&
             CanTryToCastSpell(pVictim, m_spells.warlock.pDrainLife))
@@ -6319,8 +6389,11 @@ void BattleBotAI::UpdateInCombatAI_Warrior()
                 return;
 
             // ── DPS: offensive cooldowns ────────────────────────────────────
-            // Berserker Rage: fear immunity + rage gen — use broadly in Berserker Stance
-            if (WarriorCast(this, me, m_spells.warrior.pBerserkerRage))
+            // Berserker Rage: fear immunity + rage gen.
+            // Use vs fear/CC classes (priest/warlock/druid) or when low on HP for rage.
+            if (m_spells.warrior.pBerserkerRage &&
+                (!IsPhysicalDamageClass(pVictim->GetClass()) || me->GetHealthPercent() < 40.0f) &&
+                WarriorCast(this, me, m_spells.warrior.pBerserkerRage))
                 return;
 
             // Recklessness (Battle Stance): vs casters who might fear/kite
@@ -6579,6 +6652,9 @@ void BattleBotAI::UpdateInCombatAI_Rogue()
 
         if (me->GetComboPoints() > 4)
         {
+            bool const hasSnd = m_spells.rogue.pSliceAndDice &&
+                me->HasAura(m_spells.rogue.pSliceAndDice->Id);
+
             if ((pVictim->IsCaster() || CombatBotBaseAI::IsHealerClass(pVictim->GetClass())) &&
                 m_spells.rogue.pKidneyShot &&
                 CanTryToCastSpell(pVictim, m_spells.rogue.pKidneyShot))
@@ -6587,11 +6663,12 @@ void BattleBotAI::UpdateInCombatAI_Rogue()
                     return;
             }
 
-            if (pVictim->GetHealthPercent() < 45.0f &&
-                TryRogueEviscerate(this, pVictim, true))
+            // Primary damage finisher when S&D is already running
+            if (hasSnd && TryRogueEviscerate(this, pVictim, false))
                 return;
 
-            if (m_spells.rogue.pSliceAndDice &&
+            if (!hasSnd &&
+                m_spells.rogue.pSliceAndDice &&
                 CanTryToCastSpell(pVictim, m_spells.rogue.pSliceAndDice))
             {
                 if (DoCastSpell(pVictim, m_spells.rogue.pSliceAndDice) == SPELL_CAST_OK)
@@ -7086,7 +7163,7 @@ void BattleBotAI::UpdateInCombatAI_Druid()
                     return;
                 }
 
-                if (me->GetComboPoints() > 4)
+                if (me->GetComboPoints() >= 3)
                 {
                     bool const hasRip = m_spells.druid.pRip && pVictim->HasAura(m_spells.druid.pRip->Id);
                     if (!hasRip &&

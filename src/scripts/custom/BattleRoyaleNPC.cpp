@@ -1,6 +1,9 @@
 #include "scriptPCH.h"
 #include "BattleRoyale/BattleRoyaleMgr.h"
 #include "Chat/Chat.h"
+#include "Database/DBCStores.h"
+#include "ObjectAccessor.h"
+#include "Opcodes.h"
 
 static bool BRPlayerHasWon(Player* player)
 {
@@ -99,6 +102,49 @@ bool GossipSelect_BattleRoyaleNPC(Player* player, Creature* creature, uint32 /*s
     return true;
 }
 
+// 亲吻/敬礼/跳舞/鞠躬/鼓掌——EmotesText.dbc 里的 text_emote ID（KISS/SALUTE/DANCE/BOW/APPLAUD），
+// 这套ID是1.12客户端自带的静态数据，不是本服自建的，所有基于同一份客户端的核心理论上通用；
+// 数值来自通用的WoW建服资料，本地没有DBC可直接核对，如果实测发现哪个对不上，改这个数组就行。
+static uint32 const BR_TABLE_THANKS_EMOTES[] = { 239, 224, 254, 67, 54 };
+
+// 让player对target做一个"真实"的client文字表情（带动作+"XX对YY做了个YY"聊天提示），
+// 复刻自 ChatHandler.cpp::HandleTextEmoteOpcode 的核心逻辑（那边的 MaNGOS::EmoteChatBuilder
+// 是文件内私有类，没有导出头文件，这里就没有再依赖localization/CameraDistWorker那一整套，
+// 简化成直接用玩家当前语言环境的名字广播，对这种小彩蛋功能足够）。
+static void DoTargetedTextEmote(Player* player, Unit* target, uint32 textEmoteId)
+{
+    EmotesTextEntry const* em = sEmotesTextStore.LookupEntry(textEmoteId);
+    if (!em)
+        return;
+
+    switch (em->textid)
+    {
+        case EMOTE_STATE_SLEEP:
+        case EMOTE_STATE_SIT:
+        case EMOTE_STATE_KNEEL:
+        case EMOTE_ONESHOT_NONE:
+            break;
+        default:
+            player->HandleEmote(em->textid);
+            break;
+    }
+
+    char const* name = target ? target->GetName() : nullptr;
+    uint32 const namlen = (name ? uint32(strlen(name)) : 0) + 1;
+
+    WorldPacket data(SMSG_TEXT_EMOTE, 20 + namlen);
+    data << player->GetObjectGuid();
+    data << uint32(textEmoteId);
+    data << uint32(0); // emoteNum：配合动作播放的额外数字表情，这里不需要
+    data << uint32(namlen);
+    if (namlen > 1)
+        data.append(name, namlen);
+    else
+        data << uint8(0);
+
+    player->SendMessageToSet(&data, true);
+}
+
 // BR 积分商店 - 餐桌的面包/水道具：点一下直接施法给点击者、立刻返回true。
 // 不能用GOOBER默认的"进入使用中状态->等冷却->回到就绪"这条路——这两个道具是SummonGameObject
 // 野生召唤出来的，没有数据库出生记录（m_spawnedByDefault=false），只要它真的走完一次冷却到期的
@@ -121,6 +167,14 @@ struct go_br_refreshment : public GameObjectAI
             if (me->GetEntry() == 900109 && sWorld.GetWowPatch() >= WOW_PATCH_111)
                 spellId = 61007;
             player->CastSpell(player, spellId, true);
+
+            // 对摆桌子的玩家随机做一个感谢表情（亲吻/敬礼/跳舞/鞠躬/鼓掌）。摆桌子时
+            // SpellHandler.cpp 里 SummonGameObject 后手动 SetOwnerGuid 打了标记，这里反查回去；
+            // 自己吃自己摆的桌子就不用对自己做表情了。
+            if (ObjectGuid ownerGuid = me->GetOwnerGuid())
+                if (ownerGuid != player->GetObjectGuid())
+                    if (Player* summoner = ObjectAccessor::FindPlayer(ownerGuid))
+                        DoTargetedTextEmote(player, summoner, BR_TABLE_THANKS_EMOTES[urand(0, 4)]);
         }
         return true;
     }

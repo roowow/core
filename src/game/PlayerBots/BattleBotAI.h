@@ -214,6 +214,9 @@ public:
     uint8 m_bgProgressTicks = 0;
     float m_bgProgressX = 0.0f;
     float m_bgProgressY = 0.0f;
+
+    // Throttle repeated indoor-stuck log lines: only log every 30 ticks (~60 s)
+    uint8 m_bgIndoorStuckLogTicks = 0;
 };
 
 #endif

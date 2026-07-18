@@ -379,7 +379,16 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             {
                 float const px = x + forward * cos(tableOrient) - left * sin(tableOrient);
                 float const py = y + forward * sin(tableOrient) + left * cos(tableOrient);
-                pUser->SummonGameObject(entry, px, py, z + height, tableOrient, 0, 0, 0, 0, 600, false);
+                GameObject* go = pUser->SummonGameObject(entry, px, py, z + height, tableOrient, 0, 0, 0, 0, 600, false);
+                // 只给面包/水（900109/900111，我们自己clone的GOOBER，OnUse在go_br_refreshment里
+                // 完全接管）打主人标记，方便那边反查"这桌子是谁摆的"去触发感谢表情。SetOwnerGuid
+                // 只是写一下OBJECT_FIELD_CREATED_BY这个原始GUID字段，跟attach=true会做的
+                // Unit::AddGameObject（把GO注册进玩家的拥有物列表）是两回事——后者才是欢乐制造器
+                // 那个陷阱owner-cast距离判定失效bug的根源，只影响GAMEOBJECT_TYPE_TRAP，这里不涉及。
+                // 花/水果/烛台是真实原版entry、走引擎默认OnUse，不打标记，避免节外生枝影响到
+                // 它们各自原有的行为。
+                if (go && (entry == 900109 || entry == 900111))
+                    go->SetOwnerGuid(pUser->GetObjectGuid());
             };
 
             summonOnTable(900109, 0.167f, 0.121f, 1.86f);   // 面包
