@@ -260,6 +260,8 @@ enum ConditionType
     CONDITION_AREA_EXPLORED         = 59,                   // Checks if the player has explored the specified area.
                                                             // Requirement: Player Target
                                                             // Value1: area_id
+    CONDITION_IS_TIANXUAN           = 60,                   // Checks if the player currently has Tianxuan (天选者/自强模式) status active.
+                                                            // Requirement: Player Target
 };
 
 enum ConditionFlags

@@ -110,6 +110,7 @@ uint8 const ConditionTargetsInternal[] =
     CONDITION_REQ_SOURCE_CREATURE,    //  57
     CONDITION_REQ_SOURCE_CREATURE,    //  58
     CONDITION_REQ_TARGET_PLAYER,      //  59
+    CONDITION_REQ_TARGET_PLAYER,      //  60
 };
 
 // Starts from 4th element so that -3 will return first element.
@@ -669,6 +670,10 @@ bool inline ConditionEntry::Evaluate(WorldObject const* target, Map const* map, 
             uint32 currFields = target->GetUInt32Value(PLAYER_EXPLORED_ZONES_1 + offset);
             return (currFields & val) != 0;
         }
+        case CONDITION_IS_TIANXUAN:
+        {
+            return target->ToPlayer()->IsTianxuan();
+        }
     }
     return false;
 }
@@ -967,6 +972,7 @@ bool ConditionEntry::IsValid()
             break;
         }
         case CONDITION_AD_COMMISSION_AURA:
+        case CONDITION_IS_TIANXUAN:
         {
             if (m_value1)
                 sLog.Out(LOG_DBERROR, LOG_LVL_MINIMAL, "Quest condition (entry %u, type %i) has useless data in value1 (%i)!", m_entry, m_condition, m_value1);
