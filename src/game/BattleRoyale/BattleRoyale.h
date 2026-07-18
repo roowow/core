@@ -99,6 +99,7 @@ private:
     uint32  m_totalCount       = 0;
     uint32  m_finishTimer      = 0;
     uint32  m_runningTime      = 0;
+    uint32  m_flareTimer       = 0;   // 照明弹周期计时器，见 BR_FLARE_INTERVAL_MS
 };
 
 #endif // MANGOS_BATTLEROYALE_H

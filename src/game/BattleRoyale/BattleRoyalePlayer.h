@@ -11,6 +11,9 @@ struct BattleRoyalePlayer
     ObjectGuid    guid;
     bool          alive             = true;
     bool          bot               = false;  // true = AI bot, does not receive rewards
+    bool          isGM              = false;  // 账号安全等级 > SEC_PLAYER 的真人玩家（典型场景：.br join 进场观察）；
+                                               // 不参与队列加入播报、不计入 AwardSeasonScore / character_log_battle_royale，
+                                               // 也不广播自己的淘汰消息，方便GM混入对局观察其他玩家而不暴露/不干扰排行榜
     bool          outsideZone       = false;
     uint32        zoneWarnTimer     = 0;
     uint32        placementRank     = 0;      // 0 = still in game, 1 = winner, N = Nth eliminated

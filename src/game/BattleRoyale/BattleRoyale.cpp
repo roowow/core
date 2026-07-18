@@ -26,6 +26,10 @@
 
 static uint32 const BR_FINISH_DELAY_MS           = 10000;
 static float  const BR_LANDING_CORRECTION_DISTANCE = 5.0f;
+
+// 每隔这么久给所有存活玩家(含bot)脚下打一发照明弹，防止潜行者一直蹲草不动
+static uint32 const BR_FLARE_INTERVAL_MS = 60000;
+static uint32 const BR_FLARE_SPELL_ID    = 1543; // Flare
 // Orbit path ID is now per-template (BattleRoyaleTemplate::orbitPathId).
 static float  const BR_TWO_PI                    = 6.2831853071795864769f;
 
@@ -112,7 +116,7 @@ static uint32 const BR_ITEM_ENTRIES[] =
 BattleRoyale::BattleRoyale(BattleRoyaleTemplate const* tmpl, BattleGroundBR* host)
     : m_status(BattleRoyaleStatus::DEPLOYING), m_tmpl(tmpl), m_host(host),
       m_landedCount(0),
-      m_aliveCount(0), m_totalCount(0), m_finishTimer(0), m_runningTime(0)
+      m_aliveCount(0), m_totalCount(0), m_finishTimer(0), m_runningTime(0), m_flareTimer(BR_FLARE_INTERVAL_MS)
 {
     m_zone.Init(tmpl);
 }
@@ -125,6 +129,8 @@ void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, u
     brPlayer.guid             = guid;
     brPlayer.alive            = true;
     brPlayer.bot              = isBot;
+    // GM账号（典型：.br join 混入观察）：不广播其加入/淘汰、不计入积分日志，见 BattleRoyalePlayer::isGM
+    brPlayer.isGM             = !isBot && player->GetSession() && player->GetSession()->GetSecurity() > SEC_PLAYER;
     brPlayer.outsideZone      = false;
     brPlayer.zoneWarnTimer    = 0;
     brPlayer.placementRank    = 0;
@@ -180,6 +186,17 @@ void BattleRoyale::Update(uint32 diff)
             ReturnPendingPlayers(map);
         }
 
+        // 每 BR_FLARE_INTERVAL_MS 给全体存活玩家(含bot)脚下打一发照明弹(1543)，逼出附近潜行/隐匿的人，
+        // 避免有人一直蹲草不动苟到最后。
+        bool fireFlare = false;
+        if (m_flareTimer <= diff)
+        {
+            fireFlare = true;
+            m_flareTimer = BR_FLARE_INTERVAL_MS;
+        }
+        else
+            m_flareTimer -= diff;
+
         // Check for player deaths and re-enforce FFA.
         // Player::UpdateArea() clears PLAYER_FLAGS_FFA_PVP on every sub-zone change (AB has
         // several sub-zones), so we re-apply it each update if it was cleared.
@@ -200,6 +217,8 @@ void BattleRoyale::Update(uint32 diff)
                     player->SetFFAPvP(true);
                 if (player->IsMounted())
                     player->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+                if (fireFlare)
+                    player->CastSpell(player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), BR_FLARE_SPELL_ID, true);
             }
             for (ObjectGuid const& guid : toEliminate)
                 Eliminate(guid);
@@ -625,7 +644,8 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
     if (notify && player)
         ChatHandler(player).PSendSysMessage("[孤胆称雄] 此番江湖路止于此，最终名次第 %u。", it->second.placementRank);
 
-    // Broadcast to survivors
+    // Broadcast to survivors — 跳过GM观察者自己的淘汰播报，不暴露其在场
+    if (!it->second.isGM)
     {
         char buf[384];
         std::string victimName = player ? player->GetName() : "一名试炼者";
@@ -709,8 +729,9 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
         BroadcastToAll(buf);
     }
 
-    // Send battle report mail before returning the player
-    if (!it->second.bot)
+    // Send battle report mail before returning the player（GM观察者跳过，避免收到一封宣称"本局积分+N"但
+    // 实际从未写入 AwardSeasonScore 的战报邮件）
+    if (!it->second.bot && !it->second.isGM)
         SendBattleReport(guid, it->second, survivalSec);
 
     // Fill BR loot on the corpse — applies to all death types (PvP, zone damage, etc.).
@@ -817,7 +838,7 @@ void BattleRoyale::Finish()
                 }
             }
         }
-        if (!it->second.bot)
+        if (!it->second.bot && !it->second.isGM)
             SendBattleReport(it->first, it->second, finishSurvivalSec);
     }
 
@@ -833,7 +854,8 @@ void BattleRoyale::Finish()
 
     for (auto const& kv : m_players)
     {
-        if (!kv.second.bot)
+        // GM观察者（kv.second.isGM）不计入赛季积分/对局日志，不参与排行榜
+        if (!kv.second.bot && !kv.second.isGM)
         {
             auto survIt = survivalMap.find(kv.first);
             uint32 const survSec = (survIt != survivalMap.end()) ? survIt->second : 0;

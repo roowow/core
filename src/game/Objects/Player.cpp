@@ -19753,6 +19753,7 @@ void Player::LeaveBattleground(bool teleportToEntryPoint)
         if (!IsGameMaster() &&
                 sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_CAST_DESERTER) &&
                 !sWorld.IsStopped() &&
+                bg->GetTypeID() != BATTLEGROUND_BR &&  // BR 主动离开不加逃逸惩罚
                 (bg->GetStatus() == STATUS_IN_PROGRESS || bg->GetStatus() == STATUS_WAIT_JOIN)
                 )
         {

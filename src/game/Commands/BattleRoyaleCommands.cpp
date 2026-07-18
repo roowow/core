@@ -7,6 +7,7 @@
 #include "BattleRoyale/BattleRoyaleTemplate.h"
 #include "Battlegrounds/BattleGroundBR.h"
 #include "Database/DatabaseEnv.h"
+#include "World.h"
 
 #include <algorithm>
 #include <cctype>
@@ -52,14 +53,14 @@ BattleRoyaleTemplate const* ResolveBattleRoyaleTemplateArg(char const* arg)
 bool ChatHandler::HandleBREnableCommand(char* /*args*/)
 {
     sBattleRoyaleMgr.SetEnabled(true);
-    SendSysMessage("[孤胆称雄] 已开放，玩家可以排队报名。");
+    sWorld.SendGlobalText("[孤胆称雄] 江湖再起风云，论剑帖已张贴，速往令使处，赴一场生死豪局！", nullptr);
     return true;
 }
 
 bool ChatHandler::HandleBRDisableCommand(char* /*args*/)
 {
     sBattleRoyaleMgr.SetEnabled(false);
-    SendSysMessage("[孤胆称雄] 已关闭，玩家无法新加入队列。");
+    sWorld.SendGlobalText("[孤胆称雄] 风波暂歇，论剑帖已收，江湖路远，来日方长。", nullptr);
     return true;
 }
 

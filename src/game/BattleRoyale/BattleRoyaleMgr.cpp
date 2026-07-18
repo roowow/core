@@ -358,15 +358,19 @@ bool BattleRoyaleMgr::EnqueuePlayer(Player* player, std::string& outError)
                 queued, sWorld.getConfig(CONFIG_UINT32_BATTLE_ROYALE_COUNTDOWN_SEC));
     }
 
-    // 通知队列中其他等待的玩家
-    for (ObjectGuid const& other : m_queue)
+    // 通知队列中其他等待的玩家（GM账号混入观察时跳过，不暴露其在场，见 BattleRoyalePlayer::isGM）
+    bool const isGMJoin = player->GetSession() && player->GetSession()->GetSecurity() > SEC_PLAYER;
+    if (!isGMJoin)
     {
-        if (other == guid)
-            continue;
-        if (Player* p = sObjectMgr.GetPlayer(other))
-            ChatHandler(p).PSendSysMessage(
-                "[孤胆称雄] %s 接下论剑帖，当前候战 %u 人。",
-                player->GetName(), queued);
+        for (ObjectGuid const& other : m_queue)
+        {
+            if (other == guid)
+                continue;
+            if (Player* p = sObjectMgr.GetPlayer(other))
+                ChatHandler(p).PSendSysMessage(
+                    "[孤胆称雄] %s 接下论剑帖，当前候战 %u 人。",
+                    player->GetName(), queued);
+        }
     }
 
     return true;

@@ -1189,23 +1189,35 @@ void PlayerBotMgr::RequestReplaceWithBot(BattleGround* bg, Team team)
 
 void PlayerBotMgr::SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId)
 {
+    char const* bgName = nullptr;
     switch (bgTypeId)
     {
         case 1:
             m_confBattleBotAutoJoin_1 = payload;
             sObjectMgr.SetSavedVariable(VAR_BATTLEBOT_AUTOJOIN_AV,  payload ? 1 : 0, true);
+            bgName = "奥特兰克山谷";
             break;
         case 2:
             m_confBattleBotAutoJoin_2 = payload;
             sObjectMgr.SetSavedVariable(VAR_BATTLEBOT_AUTOJOIN_WSG, payload ? 1 : 0, true);
+            bgName = "战歌峡谷";
             break;
         case 3:
             m_confBattleBotAutoJoin_3 = payload;
             sObjectMgr.SetSavedVariable(VAR_BATTLEBOT_AUTOJOIN_AB,  payload ? 1 : 0, true);
+            bgName = "阿拉希盆地";
             break;
         default:
-            break;
+            return;
     }
+
+    // GM 开关战场机器人自动填充，等同于该战场对玩家来说"开启/关闭"，发全服公告
+    char msg[128];
+    if (payload)
+        snprintf(msg, sizeof(msg), "[战场] 号角已鸣，%s战鼓再擂，速往战场指挥官处，一展身手！", bgName);
+    else
+        snprintf(msg, sizeof(msg), "[战场] 烽烟渐息，%s暂偃旗鼓，且待来日再战。", bgName);
+    sWorld.SendGlobalText(msg, nullptr);
 }
 
 bool PlayerBotMgr::ForceAccountConnection(WorldSession* sess)
