@@ -5371,17 +5371,17 @@ void BattleBotAI::UpdateInCombatAI_Hunter()
                 return;
         }
 
-        if (m_spells.hunter.pArcaneShot &&
-            CanTryToCastSpell(pVictim, m_spells.hunter.pArcaneShot))
-        {
-            if (DoCastSpell(pVictim, m_spells.hunter.pArcaneShot) == SPELL_CAST_OK)
-                return;
-        }
-
         if (m_spells.hunter.pAimedShot &&
             CanTryToCastSpell(pVictim, m_spells.hunter.pAimedShot))
         {
             if (DoCastSpell(pVictim, m_spells.hunter.pAimedShot) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (m_spells.hunter.pArcaneShot &&
+            CanTryToCastSpell(pVictim, m_spells.hunter.pArcaneShot))
+        {
+            if (DoCastSpell(pVictim, m_spells.hunter.pArcaneShot) == SPELL_CAST_OK)
                 return;
         }
 

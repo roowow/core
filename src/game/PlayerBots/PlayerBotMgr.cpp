@@ -1084,16 +1084,17 @@ void PlayerBotMgr::AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam,
 bool PlayerBotMgr::AddBattleRoyaleBot(uint32 brInstanceId)
 {
     // BR: DPS only. Healer specs are prevented by pre-setting m_role before LearnPremadeSpecForClass().
-    // Tier 1 (50%): Warrior, Mage, Warlock, Rogue — 5 each (12.5% per class)
-    // Tier 2 (30%): Priest (shadow), Hunter — 6 each (15% per class)
-    // Tier 3 (20%): Paladin (retri), Druid (feral/balance), Shaman (elem) — ~6-7% each
+    // Tier 1 (65%): Warrior 8 (20%), Rogue 8 (20%), Mage 5 (12.5%), Warlock 5 (12.5%)
+    // Tier 2 (15%): Priest (shadow) 6 (15%)
+    // Tier 3 (20%): Paladin (retri) 3, Druid (feral) 3, Shaman (elem) 2
     std::vector<uint32> availableClasses = {
         CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR,
+        CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR,
         CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,
         CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK,
         CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
+        CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
         CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,
-        CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,
         CLASS_PALADIN, CLASS_PALADIN, CLASS_PALADIN,
         CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,
         CLASS_SHAMAN,  CLASS_SHAMAN,
