@@ -4402,7 +4402,8 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             if (startBattleRoyaleAttack(pTarget))
                 return;
         }
-        else if (!pTarget->IsBot())
+        else if (pTarget->GetTypeId() == TYPEID_PLAYER &&
+                 !static_cast<Player const*>(pTarget)->IsBot())
         {
             // Real player detected but temporarily unreachable (navmesh gap / slope).
             // Stop any patrol movement so the bot doesn't drift away from the threat;
@@ -5368,13 +5369,6 @@ void BattleBotAI::UpdateInCombatAI_Hunter()
         if (Unit* pConcussiveTarget = SelectHunterConcussiveShotTarget(this))
         {
             if (DoCastSpell(pConcussiveTarget, m_spells.hunter.pConcussiveShot) == SPELL_CAST_OK)
-                return;
-        }
-
-        if (m_spells.hunter.pRapidFire &&
-            CanTryToCastSpell(me, m_spells.hunter.pRapidFire))
-        {
-            if (DoCastSpell(me, m_spells.hunter.pRapidFire) == SPELL_CAST_OK)
                 return;
         }
 
