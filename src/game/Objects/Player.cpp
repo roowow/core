@@ -19178,6 +19178,16 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
     // （season_points 不是真实货币，商品价格应该是固定的，不该因为玩家跟这个NPC的阵营声望而浮动）
     bool const isBrPointsVendor = (pCreature->GetEntry() == 900100 || pCreature->GetEntry() == 900102);
 
+    // 兑换商店1.9版本之前不开放：物品依然在货架上可见（不从npc_vendor移除），只是点击兑换时
+    // 会被拦下，用GetPatchName()告诉玩家还差哪个阶段。跟NPC本身的显示门槛（1.5，见creature表
+    // patch_min）是两回事——NPC 1.5起就能看到/交互，兑换功能单独晚一点在1.9才开放。
+    if (isBrPointsVendor && sWorld.GetWowPatch() < WOW_PATCH_109)
+    {
+        ChatHandler(this).PSendSysMessage("[孤胆称雄] 兑换尚未开放，需等到「%s」阶段。", sWorld.GetPatchName());
+        SendBuyError(BUY_ERR_RANK_REQUIRE, pCreature, item, 0);
+        return false;
+    }
+
     // reputation discount (does not apply to the BR points shop, see above)
     if (!isBrPointsVendor)
         price = uint32(price * GetReputationPriceDiscount(pCreature) + 0.5f);
