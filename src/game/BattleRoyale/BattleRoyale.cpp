@@ -43,6 +43,10 @@ static uint32 const BR_SCORE_RANK3    = 1;
 static uint32 const BR_SCORE_PER_KILL = 1;
 static uint32 const BR_WINNER_CELEBRATION_SPELL_ID = 27571;
 
+// 夺冠音效：按获胜者阵营播放原版战场胜利号角，只发给获胜者本人（PlayDirectSound 传target就是单播）
+static uint32 const BR_WINNER_SOUND_ALLIANCE = 8455; // PVPVictoryAlliance
+static uint32 const BR_WINNER_SOUND_HORDE    = 8454; // PVPVictoryHorde
+
 static uint32 const BR_KILL_REWARD_BUFFS[] =
 {
     10938, // Power Word: Fortitude
@@ -783,31 +787,18 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
 
     // Win condition: last survivor, or all real players eliminated (no point continuing bot-only)
     bool noRealPlayersAlive = true;
-    ObjectGuid winnerGuid;
-    bool winnerIsBot = false;
     for (auto const& jt : m_players)
     {
         if (!jt.second.alive)
             continue;
         if (!jt.second.bot)
             noRealPlayersAlive = false;
-        if (!winnerGuid)
-        {
-            winnerGuid = jt.first;
-            winnerIsBot = jt.second.bot;
-        }
     }
 
+    // 冠军播报统一交给 Finish() 结尾那条广播处理（发给本局所有真人参与者，不只是冠军自己），
+    // 这里不再单独私聊冠军一句"唯你执剑而立"——不然冠军会连续收到两条内容重复的夺冠消息。
     if (m_aliveCount <= 1 || noRealPlayersAlive)
-    {
-        if (m_aliveCount == 1 && winnerGuid && !winnerIsBot)
-        {
-            if (Player* winner = map ? map->GetPlayer(winnerGuid) : nullptr)
-                ChatHandler(winner).PSendSysMessage("[孤胆称雄] 群雄皆寂，唯你执剑而立。此局魁首，江湖记名。");
-        }
-
         Finish();
-    }
 }
 
 void BattleRoyale::Finish()
@@ -819,6 +810,7 @@ void BattleRoyale::Finish()
     // Assign rank 1 to the last survivor, capture log context, and send battle report
     uint32 const finishSurvivalSec = m_runningTime / 1000;
     Map* map = m_host ? m_host->GetBgMap() : nullptr;
+    std::string winnerName;
     for (auto it = m_players.begin(); it != m_players.end(); ++it)
     {
         if (!it->second.alive)
@@ -829,6 +821,8 @@ void BattleRoyale::Finish()
             if (Player* p = map->GetPlayer(it->first))
             {
                 p->CastSpell(p, BR_WINNER_CELEBRATION_SPELL_ID, true);
+                p->PlayDirectSound(p->GetTeam() == ALLIANCE ? BR_WINNER_SOUND_ALLIANCE : BR_WINNER_SOUND_HORDE, p);
+                winnerName = p->GetName();
                 if (p->GetSession())
                 {
                     it->second.logName = p->GetName();
@@ -869,7 +863,24 @@ void BattleRoyale::Finish()
     m_status      = BattleRoyaleStatus::FINISHED;
     m_finishTimer = BR_FINISH_DELAY_MS;
     m_zone.Cleanup(m_host ? m_host->GetBgMap() : nullptr);
-    BroadcastToAll("[孤胆称雄] 尘埃落定，论剑已终。十息之后，各归来处。");
+
+    // 播报本局冠军给所有参与这局的真人玩家（不含bot）。用sObjectMgr全服查找而不是
+    // BroadcastToAll那种"只发给还在BR地图上的人"，因为更早出局的玩家这时候大多已经被
+    // ReturnPlayer送回原位置、离开了BR地图，但同样应该收到"谁赢了"这条播报。
+    if (!winnerName.empty())
+    {
+        char buf[192];
+        snprintf(buf, sizeof(buf), "[孤胆称雄] 尘埃落定，%s 技压群雄，独占鳌头！论剑已终，十息之后，战场消散。", winnerName.c_str());
+        for (auto const& kv : m_players)
+        {
+            if (kv.second.bot)
+                continue;
+            if (Player* p = sObjectMgr.GetPlayer(kv.first))
+                ChatHandler(p).PSendSysMessage("%s", buf);
+        }
+    }
+    else
+        BroadcastToAll("[孤胆称雄] 尘埃落定，论剑已终。十息之后，各归来处。");
 }
 
 void BattleRoyale::Cancel()
