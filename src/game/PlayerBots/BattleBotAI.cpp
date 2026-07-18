@@ -4382,6 +4382,17 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     if (!skipBattleRoyaleRecovery && DrinkAndEat())
         return;
 
+    // Rogues proactively enter stealth while roaming so they always approach from stealth.
+    // This fires before target selection so the rogue is already cloaked when a target appears.
+    if (me->GetClass() == CLASS_ROGUE &&
+        m_spells.rogue.pStealth &&
+        !me->HasAuraType(SPELL_AURA_MOD_STEALTH) &&
+        CanTryToCastSpell(me, m_spells.rogue.pStealth))
+    {
+        DoCastSpell(me, m_spells.rogue.pStealth);
+        return;
+    }
+
     // Once recovered, visible enemies should interrupt travel setup immediately.
     if (Unit* pTarget = SelectBattleRoyaleTarget(zone))
     {
@@ -4396,6 +4407,17 @@ void BattleBotAI::UpdateBattleRoyaleAI()
                     if (m_spells.warrior.pCharge &&
                         CanTryToCastSpell(pTarget, m_spells.warrior.pCharge))
                         DoCastSpell(pTarget, m_spells.warrior.pCharge);
+                    break;
+                case CLASS_ROGUE:
+                    // If not yet stealthed when target is in range (e.g. stealth was broken
+                    // and not yet re-applied), try once more before engaging.
+                    if (m_spells.rogue.pStealth &&
+                        !me->HasAuraType(SPELL_AURA_MOD_STEALTH) &&
+                        CanTryToCastSpell(me, m_spells.rogue.pStealth))
+                    {
+                        DoCastSpell(me, m_spells.rogue.pStealth);
+                        return;
+                    }
                     break;
                 case CLASS_HUNTER:
                     // Switch from Cheetah (patrol speed) to Hawk (damage) before engaging,

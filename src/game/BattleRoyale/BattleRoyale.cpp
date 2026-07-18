@@ -318,7 +318,7 @@ void BattleRoyale::AssignBotFactions()
 
     // Shuffle so faction assignment is random, then distribute round-robin into 4 factions.
     std::shuffle(botGuids.begin(), botGuids.end(), std::default_random_engine(urand(0, 0xFFFFFF)));
-    uint8 const numFactions = 4;
+    uint8 const numFactions = static_cast<uint8>(urand(3, 5));
     uint8 faction = 1;
     for (ObjectGuid const& guid : botGuids)
     {
