@@ -5163,6 +5163,21 @@ void Player::ResurrectPlayer(float restore_percent, bool applySickness)
     }
     /// Hardcore
 
+    /// Tianxuan
+    // 死亡时 RemoveAllAurasOnDeath 会清掉 spell 21970（非 passive、非死亡持续），复活后需补回
+    if (IsTianxuan() && !HasAura(21970) && !HasItemWithIdEquipped(17774))
+    {
+        if (SpellAuraHolder* holder = AddAura(21970, ADD_AURA_PERMANENT, this))
+        {
+            holder->SetPermanent(false);
+            holder->SetAuraDuration(-1);
+            holder->SetAuraMaxDuration(-1);
+            holder->UpdateAuraDuration();
+            holder->SetPermanent(true);
+        }
+    }
+    /// Tianxuan
+
     if (!applySickness)
         return;
 
