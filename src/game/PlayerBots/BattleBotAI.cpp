@@ -5371,17 +5371,17 @@ void BattleBotAI::UpdateInCombatAI_Hunter()
                 return;
         }
 
-        if (m_spells.hunter.pAimedShot &&
-            CanTryToCastSpell(pVictim, m_spells.hunter.pAimedShot))
-        {
-            if (DoCastSpell(pVictim, m_spells.hunter.pAimedShot) == SPELL_CAST_OK)
-                return;
-        }
-
         if (m_spells.hunter.pArcaneShot &&
             CanTryToCastSpell(pVictim, m_spells.hunter.pArcaneShot))
         {
             if (DoCastSpell(pVictim, m_spells.hunter.pArcaneShot) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (m_spells.hunter.pAimedShot &&
+            CanTryToCastSpell(pVictim, m_spells.hunter.pAimedShot))
+        {
+            if (DoCastSpell(pVictim, m_spells.hunter.pAimedShot) == SPELL_CAST_OK)
                 return;
         }
 
@@ -7164,7 +7164,7 @@ void BattleBotAI::UpdateInCombatAI_Druid()
                     return;
                 }
 
-                if (me->GetComboPoints() >= 3)
+                if (me->GetComboPoints() >= 2)
                 {
                     bool const hasRip = m_spells.druid.pRip && pVictim->HasAura(m_spells.druid.pRip->Id);
                     if (!hasRip &&
@@ -7204,6 +7204,7 @@ void BattleBotAI::UpdateInCombatAI_Druid()
                 }
 
                 if (m_spells.druid.pTigersFury &&
+                    me->GetPower(POWER_ENERGY) > 50 &&
                     CanTryToCastSpell(me, m_spells.druid.pTigersFury))
                 {
                     if (DoCastSpell(me, m_spells.druid.pTigersFury) == SPELL_CAST_OK)
