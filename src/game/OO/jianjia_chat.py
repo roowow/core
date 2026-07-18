@@ -948,7 +948,10 @@ _CHANNEL_NAMES = {"party": "小队", "raid": "团队", "bg": "战场", "world": 
 #   - added 没有...说明/介绍/攻略/教程/规则: statements pointing out missing info ("没有关于
 #     自强的详细说明") are an implicit request for that info even without a "吗/?" — a real
 #     case was silently dropped by filtered_no_question before this was added.
-_QUESTION_RE = re.compile(r'[？?]|吗\b|怎么|咋|哪里|哪儿|如何|能否|有没有|在哪|什么时候|为什么|是否|可以吗|怎样|几级|多少|什么是|哪个|会不会|没有.{0,10}(说明|介绍|攻略|教程|规则)')
+#   - added 是不是/能不能/对不对/好不好/行不行: the "A-not-A" question form (正反问) is a
+#     completely standard way to ask yes/no questions in Chinese and was missing entirely —
+#     "是否" was covered but not "是不是", so "自强模式是不是不能组队" was silently dropped.
+_QUESTION_RE = re.compile(r'[？?]|吗\b|怎么|咋|哪里|哪儿|如何|能否|有没有|在哪|什么时候|为什么|是否|可以吗|怎样|几级|多少|什么是|哪个|会不会|没有.{0,10}(说明|介绍|攻略|教程|规则)|是不是|能不能|对不对|好不好|行不行')
 
 # Tolerant PASS-token detector: a plain exact-substring check for "[PASS]" misses
 # variants the model actually produces (e.g. "[ PASS ]", "[pass]") — observed in testing,
