@@ -21,8 +21,10 @@
 #include "Database/DatabaseEnv.h"
 
 #include "Utilities/Random.h"
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <random>
 
 static uint32 const BR_FINISH_DELAY_MS           = 10000;
 static float  const BR_LANDING_CORRECTION_DISTANCE = 5.0f;
@@ -228,6 +230,11 @@ void BattleRoyale::Update(uint32 diff)
                 Eliminate(guid);
             ReturnPendingPlayers(map);
         }
+
+        // Phase 2: break bot alliances when only 1 human player remains.
+        if (!m_allianceBroken && GetAliveHumanCount() <= 1)
+            m_allianceBroken = true;
+
         return;
     }
 
@@ -281,6 +288,43 @@ void BattleRoyale::OnPlayerLeftMap(ObjectGuid guid)
 uint32 BattleRoyale::GetAliveCount() const
 {
     return m_aliveCount;
+}
+
+uint32 BattleRoyale::GetAliveHumanCount() const
+{
+    uint32 count = 0;
+    for (auto const& kv : m_players)
+        if (kv.second.alive && !kv.second.bot)
+            ++count;
+    return count;
+}
+
+uint8 BattleRoyale::GetBotFaction(ObjectGuid guid) const
+{
+    auto it = m_botFactions.find(guid);
+    return it != m_botFactions.end() ? it->second : 0;
+}
+
+void BattleRoyale::AssignBotFactions()
+{
+    std::vector<ObjectGuid> botGuids;
+    botGuids.reserve(m_players.size());
+    for (auto const& kv : m_players)
+        if (kv.second.bot && kv.second.alive)
+            botGuids.push_back(kv.first);
+
+    if (botGuids.empty())
+        return;
+
+    // Shuffle so faction assignment is random, then distribute round-robin into 4 factions.
+    std::shuffle(botGuids.begin(), botGuids.end(), std::default_random_engine(urand(0, 0xFFFFFF)));
+    uint8 const numFactions = 4;
+    uint8 faction = 1;
+    for (ObjectGuid const& guid : botGuids)
+    {
+        m_botFactions[guid] = faction;
+        faction = (faction % numFactions) + 1;
+    }
 }
 
 bool BattleRoyale::IsAlive(ObjectGuid guid) const
@@ -608,6 +652,7 @@ void BattleRoyale::StartRunning()
 
     BroadcastPhaseChange(0);
 
+    AssignBotFactions();
 }
 
 void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid)

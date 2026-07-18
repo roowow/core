@@ -2445,6 +2445,20 @@ Unit* BattleBotAI::SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* 
         if (urgentOnly && !attackingMe && distance > 30.0f)
             continue;
 
+        // Alliance phase: skip faction mates (bot-vs-bot only; never skip human targets).
+        // Once the alliance is broken (humans reduced to ≤1), all targets are valid.
+        if (m_brFactionId != 0 && pTarget->IsBot())
+        {
+            BattleGround* brBg = me->GetBattleGround();
+            if (brBg && brBg->GetTypeID() == BATTLEGROUND_BR)
+            {
+                BattleRoyale* brInst = static_cast<BattleGroundBR*>(brBg)->GetOwner();
+                if (brInst && !brInst->IsAllianceBroken() &&
+                    brInst->GetBotFaction(pTarget->GetObjectGuid()) == m_brFactionId)
+                    continue;
+            }
+        }
+
         float score = 100.0f - distance * 1.3f;
         score += (100.0f - pTarget->GetHealthPercent()) * 1.1f;
 
@@ -3703,6 +3717,10 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     BattleRoyale* br = static_cast<BattleGroundBR*>(bg)->GetOwner();
     if (!br || br->GetStatus() != BattleRoyaleStatus::RUNNING)
         return;
+
+    // Cache faction ID once after BR starts (faction 0 = not yet assigned).
+    if (m_brFactionId == 0)
+        m_brFactionId = br->GetBotFaction(me->GetObjectGuid());
 
     // BR is meant to be fought on foot; mounted bots cross the shrinking field too quickly.
     if (me->IsMounted())

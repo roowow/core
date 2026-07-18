@@ -126,6 +126,7 @@ public:
     bool   m_isBattleRoyaleBot  = false;
     uint32 m_brInstanceId       = 0;
     bool   m_brReadyNotified    = false;
+    uint8  m_brFactionId        = 0;   // bot faction for alliance phase (0 = unassigned)
     ObjectGuid m_brChaseTargetGuid;
     struct BrIgnoreEntry { ObjectGuid guid; time_t expireTime = 0; };
     std::array<BrIgnoreEntry, 4> m_brIgnoredTargets{};

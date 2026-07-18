@@ -9,6 +9,7 @@
 
 #include <map>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 class Player;
@@ -61,6 +62,10 @@ public:
     BattleGroundBR*         GetHost()     const { return m_host; }
     BattleRoyaleTemplate const* GetTemplate() const { return m_tmpl; }
 
+    // Bot alliance queries (used by BattleBotAI::SelectBattleRoyaleTarget)
+    uint8 GetBotFaction(ObjectGuid guid) const;
+    bool  IsAllianceBroken()             const { return m_allianceBroken; }
+
     // GM helpers
     void ForceSetPhase(uint32 phase);
     void ForceSetRadius(float r);
@@ -83,14 +88,17 @@ private:
                                  uint32 zone, uint32 mapId);
     void BroadcastToAll(std::string const& msg);
     void BroadcastPhaseChange(uint32 phase);
+    void AssignBotFactions();
+    uint32 GetAliveHumanCount() const;
 
     BattleRoyaleStatus  m_status;
     BattleRoyaleZone    m_zone;
     BattleRoyaleTemplate const* m_tmpl;
     BattleGroundBR*     m_host;
 
-    std::map<ObjectGuid, BattleRoyalePlayer> m_players;
-    std::vector<BRRankEntry>                 m_ranks;
+    std::map<ObjectGuid, BattleRoyalePlayer>          m_players;
+    std::vector<BRRankEntry>                           m_ranks;
+    std::unordered_map<ObjectGuid, uint8>              m_botFactions;    // bot guid → faction id (1-4)
 
     uint32  m_pendingBotCount  = 0;   // bots created but not yet added via AddPlayer
     bool    m_orbitStarted     = false;
@@ -100,6 +108,7 @@ private:
     uint32  m_finishTimer      = 0;
     uint32  m_runningTime      = 0;
     uint32  m_flareTimer       = 0;   // 照明弹周期计时器，见 BR_FLARE_INTERVAL_MS
+    bool    m_allianceBroken   = false;
 };
 
 #endif // MANGOS_BATTLEROYALE_H
