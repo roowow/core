@@ -1039,9 +1039,12 @@ GameObjectAI* GetAIgo_egg_raz(GameObject* pGo)
 
 struct go_ai_suppression : public GameObjectAI
 {
-    go_ai_suppression(GameObject* go) : GameObjectAI(go), m_uiFumeTimer(urand(0, 5 * IN_MILLISECONDS)) {}
+    go_ai_suppression(GameObject* go) : GameObjectAI(go),
+        m_uiFumeTimer(urand(0, 5 * IN_MILLISECONDS)),
+        m_disabledUntil(0) {}
 
     uint32 m_uiFumeTimer;
+    time_t m_disabledUntil; // unix timestamp: device is inactive until this time
 
     // Returns all creatures in range regardless of entry, for use with CreatureListSearcher
     struct AllCreaturesInRange
@@ -1062,21 +1065,20 @@ struct go_ai_suppression : public GameObjectAI
             pCreature->RemoveAurasDueToSpell(SPELL_SUPPRESSION_AURA);
     }
 
-    void HandleDeactivation()
+    void Deactivate()
     {
+        // Device stays visible (spawntimesecs=0 prevents the engine from despawning it).
+        // Use GO_STATE_ACTIVE to show the "powered off" visual, reactivating after 30s-2min.
         ScriptedInstance* pInstance = (ScriptedInstance*)me->GetMap()->GetInstanceData();
-        if (!pInstance)
-            return;
+        bool lashlayerDone = pInstance && pInstance->GetData(TYPE_LASHLAYER) == DONE;
 
-        // Set respawn timer: rearms 30s-2min while Broodlord is alive, effectively permanent after his death
-        if (pInstance->GetData(TYPE_LASHLAYER) != DONE)
-            me->SetRespawnTime(urand(30, 2 * MINUTE));
-        else
-            me->SetRespawnTime(7 * 24 * HOUR);
+        m_disabledUntil = lashlayerDone
+            ? time(nullptr) + 7 * 24 * 3600  // effectively permanent after Broodlord dies
+            : time(nullptr) + urand(30, 2 * MINUTE);
 
-        // Remove suppression aura from all players in the instance regardless of range.
-        // Whole-map iteration because the GO's world position may be invalid by the time
-        // a range-based search runs; other active devices reapply it on their next tick.
+        me->SetGoState(GO_STATE_ACTIVE); // "powered off" visual
+
+        // Remove suppression from all players in the instance immediately.
         Map::PlayerList const& playerList = me->GetMap()->GetPlayers();
         for (const auto& ref : playerList)
         {
@@ -1084,7 +1086,7 @@ struct go_ai_suppression : public GameObjectAI
                 pPlayer->RemoveAurasDueToSpell(SPELL_SUPPRESSION_AURA);
         }
 
-        // Remove from nearby creatures (core trap can apply the aura to them)
+        // Remove from nearby creatures too (core trap may have applied it)
         float radius = (float)me->GetGOInfo()->trap.radius;
         if (radius < 1.0f) radius = 30.0f;
         RemoveSuppressionFromNearbyCreatures(radius);
@@ -1092,11 +1094,11 @@ struct go_ai_suppression : public GameObjectAI
 
     void OnLootStateChange() override
     {
-        // Handle both GO_ACTIVATED (normal trap trigger / Disarm Trap) and
-        // GO_JUST_DEACTIVATED (some rogue disarm paths skip GO_ACTIVATED)
+        // Fires when rogue opens the lock (GO_JUST_DEACTIVATED via the loot release path)
+        // or via Disarm Trap (GO_ACTIVATED).
         LootState state = me->getLootState();
         if (state == GO_ACTIVATED || state == GO_JUST_DEACTIVATED)
-            HandleDeactivation();
+            Deactivate();
     }
 
     // Visual effects for each GO is played on a 5 seconds timer. Sniff show that the GO should also be used (trap spell is cast)
@@ -1107,13 +1109,18 @@ struct go_ai_suppression : public GameObjectAI
         {
             if (m_uiFumeTimer <= uiDiff)
             {
-                if (me->getLootState() == GO_READY)
+                float radius = (float)me->GetGOInfo()->trap.radius;
+                if (radius < 1.0f) radius = 30.0f;
+
+                if (me->getLootState() == GO_READY && time(nullptr) >= m_disabledUntil)
                 {
+                    // Active: restore visual if needed, then cast on players
+                    if (me->GetGoState() != GO_STATE_READY)
+                        me->SetGoState(GO_STATE_READY);
+
                     me->SendGameObjectCustomAnim(me->GetObjectGuid());
                     // Cast only on players - creatures must not be slowed by suppression devices
                     uint32 spellId = me->GetGOInfo()->trap.spellId;
-                    float radius = (float)me->GetGOInfo()->trap.radius;
-                    if (radius < 1.0f) radius = 30.0f;
                     std::list<Player*> players;
                     me->GetAlivePlayerListInRange(me, players, radius);
                     for (Player* pPlayer : players)
@@ -1123,6 +1130,17 @@ struct go_ai_suppression : public GameObjectAI
                     }
                     // Remove from any creatures the core trap may have applied it to
                     RemoveSuppressionFromNearbyCreatures(radius);
+                }
+                else if (m_disabledUntil > 0 && time(nullptr) < m_disabledUntil)
+                {
+                    // Still disabled: keep clearing auras so no residual suppression lingers
+                    RemoveSuppressionFromNearbyCreatures(radius);
+                    Map::PlayerList const& playerList = me->GetMap()->GetPlayers();
+                    for (const auto& ref : playerList)
+                    {
+                        if (Player* pPlayer = ref.getSource())
+                            pPlayer->RemoveAurasDueToSpell(SPELL_SUPPRESSION_AURA);
+                    }
                 }
                 m_uiFumeTimer = 5 * IN_MILLISECONDS;
             }
