@@ -3061,8 +3061,37 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             AutoAssignRole();
 
         AutoEquipGear(sWorld.getConfig(CONFIG_UINT32_BATTLE_BOT_AUTO_EQUIP));
+
+        if (m_isBattleRoyaleBot && me->GetClass() == CLASS_ROGUE)
+        {
+            // Ensure rogue knows Crippling Poison so PopulateSpellData picks it up.
+            if (!me->HasSpell(11202) && !me->HasSpell(3408))
+                me->LearnSpell(11202, false, false);
+        }
+
         ResetSpellData();
         PopulateSpellData();
+
+        if (m_isBattleRoyaleBot && me->GetClass() == CLASS_ROGUE)
+        {
+            // Pin off-hand to Crippling Poison for reliable slowing in PvP.
+            SpellEntry const* pBestCrippling = nullptr;
+            for (uint32 i = 0; i < sSpellMgr.GetMaxSpellId(); ++i)
+            {
+                SpellEntry const* pEntry = sSpellMgr.GetSpellEntry(i);
+                if (pEntry &&
+                    pEntry->Effect[0] == SPELL_EFFECT_ENCHANT_ITEM_TEMPORARY &&
+                    pEntry->SpellName[0] == "Crippling Poison" &&
+                    pEntry->spellLevel <= me->GetLevel() &&
+                    (!pBestCrippling || pBestCrippling->spellLevel < pEntry->spellLevel))
+                {
+                    pBestCrippling = pEntry;
+                }
+            }
+            if (pBestCrippling)
+                m_spells.rogue.pOffHandPoison = pBestCrippling;
+        }
+
         AddAllSpellReagents();
         me->UpdateSkillsToMaxSkillsForLevel();
 
@@ -4259,6 +4288,17 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         // Target is reachable: run the full class combat rotation.
         // UpdateBattleGroundAI() returns true, so UpdateInCombatAI() in UpdateAI()
         // is never reached — we must call it explicitly here.
+
+        // Ranged classes should stand and fire rather than path around terrain.
+        // If the target is within casting range and we have LoS, stop chasing so
+        // the class AI can cast without interruption from movement.
+        if (IsRangedDamageClass(me->GetClass()) &&
+            hasLineOfSight && victimDistance <= 36.0f &&
+            me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
+        {
+            me->GetMotionMaster()->MoveIdle();
+        }
+
         UpdateInCombatAI();
         return;
     }
@@ -6011,6 +6051,16 @@ void BattleBotAI::UpdateInCombatAI_Priest()
                 return;
         }
 
+        // Kite melee attackers: back away so we can cast without interruption.
+        if (pVictim->CanReachWithMeleeAutoAttack(me) &&
+            pVictim->GetVictim() == me &&
+            !me->HasUnitState(UNIT_STATE_CAN_NOT_MOVE) &&
+            me->GetMotionMaster()->GetCurrentMovementGeneratorType() != DISTANCING_MOTION_TYPE)
+        {
+            me->GetMotionMaster()->MoveDistance(pVictim, 29.0f);
+            return;
+        }
+
         if (m_spells.priest.pMindFlay &&
             m_role != ROLE_HEALER &&
            (!GetAttackersInRangeCount(10.0f) || me->HasAuraType(SPELL_AURA_SCHOOL_ABSORB)) &&
@@ -6020,8 +6070,10 @@ void BattleBotAI::UpdateInCombatAI_Priest()
                 return;
         }
 
+        // Only chase if we can't cast from here (out of range or no LoS).
         if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == IDLE_MOTION_TYPE
-            && me->GetDistance(pVictim) > 30.0f)
+            && me->GetDistance(pVictim) > 30.0f
+            && !(m_spells.priest.pSmite && CanTryToCastSpell(pVictim, m_spells.priest.pSmite)))
         {
             BeginChasing(pVictim);
         }
@@ -6227,8 +6279,10 @@ void BattleBotAI::UpdateInCombatAI_Warlock()
                 return;
         }
 
+        // Only chase if Shadow Bolt can't reach from here.
         if (me->GetMotionMaster()->GetCurrentMovementGeneratorType() == IDLE_MOTION_TYPE
-            && me->GetDistance(pVictim) > 30.0f)
+            && me->GetDistance(pVictim) > 30.0f
+            && !(m_spells.warlock.pShadowBolt && CanTryToCastSpell(pVictim, m_spells.warlock.pShadowBolt)))
         {
             BeginChasing(pVictim);
         }
