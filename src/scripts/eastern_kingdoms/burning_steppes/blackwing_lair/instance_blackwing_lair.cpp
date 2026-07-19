@@ -1090,8 +1090,7 @@ struct go_ai_suppression : public GameObjectAI
                 std::list<Player*> players;
                 me->GetAlivePlayerListInRange(me, players, radius);
                 for (Player* pPlayer : players)
-                    if (!pPlayer->HasAura(spellId))
-                        me->CastSpell(pPlayer, spellId, true);
+                    me->CastSpell(pPlayer, spellId, true);
             }
             else if (m_disabledUntil > 0 && time(nullptr) < m_disabledUntil)
             {
