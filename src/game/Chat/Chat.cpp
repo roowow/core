@@ -1226,8 +1226,8 @@ ChatCommand * ChatHandler::getCommandTable()
 
     static ChatCommand brCommandTable[] =
     {
-        { "enable",  SEC_DEVELOPER, false, &ChatHandler::HandleBREnableCommand,  "", nullptr },
-        { "disable", SEC_DEVELOPER, false, &ChatHandler::HandleBRDisableCommand, "", nullptr },
+        { "enable",  SEC_DEVELOPER, true,  &ChatHandler::HandleBREnableCommand,  "", nullptr },
+        { "disable", SEC_DEVELOPER, true,  &ChatHandler::HandleBRDisableCommand, "", nullptr },
         { "start",  SEC_DEVELOPER, false, &ChatHandler::HandleBRStartCommand,  "", nullptr },
         { "join",   SEC_DEVELOPER, false, &ChatHandler::HandleBRJoinCommand,   "", nullptr },
         { "status", SEC_DEVELOPER, true,  &ChatHandler::HandleBRStatusCommand, "", nullptr },
@@ -1246,7 +1246,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "character",      SEC_DEVELOPER,   true, nullptr,                                         "", characterCommandTable},
         { "charge",         SEC_ADMINISTRATOR,     false, &ChatHandler::HandleChargeCommand,              "", nullptr },
         { "cheat",          SEC_ADMINISTRATOR,     false, nullptr,                                        "", cheatCommandTable    },
-        { "br",             SEC_DEVELOPER,   false, nullptr,                                        "", brCommandTable       },
+        { "br",             SEC_DEVELOPER,   true,  nullptr,                                        "", brCommandTable       },
         { "debug",          SEC_DEVELOPER,   true, nullptr,                                         "", debugCommandTable    },
         { "deplenish",      SEC_ADMINISTRATOR,     false, &ChatHandler::HandleDeplenishCommand,           "", nullptr              },
         { "replenish",      SEC_ADMINISTRATOR,     false, &ChatHandler::HandleReplenishCommand,           "", nullptr              },
