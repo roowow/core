@@ -7179,7 +7179,12 @@ void Player::UpdateArea(uint32 newArea)
     {
         // remove ffa flag only if not ffapvp realm
         // removal in sanctuaries and capitals is handled in zone update
-        if (IsFFAPvP() && !sWorld.IsFFAPvPRealm())
+        // BR（孤胆称雄）全程强制FFA，不该被子区域切换清掉——AV/AB/Azshara Crater这些复用的战场地图
+        // 里子区域(area)划分很密，玩家/bot稍微走动就会频繁跨越边界，每跨一次这里就会先把FFA标记清掉，
+        // 要等BattleRoyale::Update()下一次tick扫到才补回来（见该函数里"re-enforce FFA"那段注释），
+        // 这段窗口期名牌就会在红/绿之间闪烁。直接在源头跳过BR玩家，不清空标记，也就没有这个窗口期了。
+        bool const isBRMatch = GetBattleGround() && GetBattleGround()->GetTypeID() == BATTLEGROUND_BR;
+        if (!isBRMatch && IsFFAPvP() && !sWorld.IsFFAPvPRealm())
             SetFFAPvP(false);
     }
 
