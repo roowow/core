@@ -6219,9 +6219,12 @@ SpellCastResult Spell::CheckCast(bool strict)
             case SPELL_EFFECT_TELEPORT_UNITS_FACE_CASTER:
             {
                 // not allow use this effect at battleground until battleground start (Nostalrius: Blizzlike)
+                // BR不走原生战场的STATUS状态机（BattleGroundBR从不调用SetStatus，GetStatus()永远停在
+                // 构造函数给的默认值STATUS_NONE，玩法进度全靠BattleRoyale类自己的状态维护），这个判断
+                // 对BR恒为true，导致闪现/其他LEAP类位移法术在BR里全程无法使用——排除BATTLEGROUND_BR。
                 if (m_caster->IsPlayer())
                     if (BattleGround const* bg = ((Player*)m_caster)->GetBattleGround())
-                        if (bg->GetStatus() != STATUS_IN_PROGRESS)
+                        if (bg->GetTypeID() != BATTLEGROUND_BR && bg->GetStatus() != STATUS_IN_PROGRESS)
                             return SPELL_FAILED_TRY_AGAIN;
                 // Blizzlike: no blink on transport (client does not handle it)
                 if (m_caster->GetTransport())
