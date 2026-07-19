@@ -4289,14 +4289,20 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         // UpdateBattleGroundAI() returns true, so UpdateInCombatAI() in UpdateAI()
         // is never reached — we must call it explicitly here.
 
-        // Ranged classes should stand and fire rather than path around terrain.
-        // If the target is within casting range and we have LoS, stop chasing so
-        // the class AI can cast without interruption from movement.
+        // Ranged classes should not blindly path around terrain to reach a target.
         if (IsRangedDamageClass(me->GetClass()) &&
-            hasLineOfSight && victimDistance <= 36.0f &&
             me->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
         {
-            me->GetMotionMaster()->MoveIdle();
+            if (hasLineOfSight && victimDistance <= 36.0f)
+            {
+                // Have LoS and in range: stand still and let class AI cast.
+                me->GetMotionMaster()->MoveIdle();
+            }
+            else if (!hasLineOfSight)
+            {
+                // No LoS: fleeing is better than pathing around terrain while being shot.
+                me->GetMotionMaster()->MoveDistance(victim, 50.0f);
+            }
         }
 
         UpdateInCombatAI();
@@ -4486,7 +4492,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
                             return;
                         }
                         // Opener out of melee range: hold stealth and let movement close the gap.
-                        if (!me->IsWithinMeleeRange(pTarget))
+                        if (!me->CanReachWithMeleeAutoAttack(pTarget))
                             return;
                         // In melee but both openers on cooldown (rare): fall through to attack.
                     }
