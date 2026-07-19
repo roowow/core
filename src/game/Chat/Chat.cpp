@@ -1233,6 +1233,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "status", SEC_DEVELOPER, true,  &ChatHandler::HandleBRStatusCommand, "", nullptr },
         { "cancel", SEC_DEVELOPER, false, &ChatHandler::HandleBRCancelCommand, "", nullptr },
         { "info",   SEC_DEVELOPER, false, &ChatHandler::HandleBRInfoCommand,   "", nullptr },
+        { "list",   SEC_DEVELOPER, false, &ChatHandler::HandleBRListCommand,   "", nullptr },
         { "spawn",  SEC_DEVELOPER, false, nullptr,                              "", brSpawnCommandTable },
         { nullptr,  0,             false, nullptr,                              "", nullptr },
     };

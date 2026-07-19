@@ -88,8 +88,10 @@ enum BattleBotSpells
 
 #define BB_UPDATE_INTERVAL 1000
 
-#define BR_BOT_HUNT_RANGE 45.0f
-#define BR_BOT_URGENT_THREAT_RANGE 40.0f  // recovery-interrupt scan; raised to 40 so eating bots react before a player reaches melee
+#define BR_BOT_PLAYER_HUNT_RANGE 90.0f    // AI detecting human players — near full visual range, gated by LOS
+#define BR_BOT_BOT_HUNT_RANGE    35.0f    // AI detecting other bots — keep bot-vs-bot fights local
+#define BR_BOT_HUNT_RANGE        BR_BOT_PLAYER_HUNT_RANGE  // scan radius (use the larger of the two)
+#define BR_BOT_URGENT_THREAT_RANGE 60.0f  // recovery-interrupt scan for human players
 #define BR_BOT_CHASE_TIMEOUT 15
 #define BR_BOT_CHASE_LOS_TIMEOUT 6
 #define BR_BOT_CHASE_PROGRESS_TIMEOUT 8
@@ -2420,7 +2422,7 @@ Unit* BattleBotAI::SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* 
             pTarget->GetVictim() &&
             pTarget->GetVictim()->GetTypeId() == TYPEID_PLAYER &&
             static_cast<Player const*>(pTarget->GetVictim())->IsBot() &&
-            me->GetDistance(pTarget) < 30.0f;
+            me->GetDistance(pTarget) < 55.0f;
 
         // Ignore list is always respected unless actively attacking us OR assisting a nearby bot.
         // When critically low on HP the bot flees regardless — survival over retaliation.
@@ -2437,12 +2439,15 @@ Unit* BattleBotAI::SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* 
             continue;
 
         float const distance = me->GetDistance(pTarget);
-        if (distance > maxRange)
+        // Human players use full hunt range; bot targets use a shorter range so
+        // bot-vs-bot fights stay local and don't pull bots from across the map.
+        float const effectiveRange = pTarget->IsBot() ? BR_BOT_BOT_HUNT_RANGE : maxRange;
+        if (distance > effectiveRange)
             continue;
 
-        // In urgentOnly (recovery-interrupt) mode: non-attacking players within 30 yards
-        // wake the bot; beyond that let the bot finish healing before engaging.
-        if (urgentOnly && !attackingMe && distance > 30.0f)
+        // In urgentOnly (recovery-interrupt) mode: only human players at extended range
+        // interrupt recovery; bots nearby in the same range still count if attackingMe.
+        if (urgentOnly && !attackingMe && distance > 40.0f)
             continue;
 
         // Alliance phase: skip faction mates (bot-vs-bot only; never skip human targets).
@@ -4409,12 +4414,47 @@ void BattleBotAI::UpdateBattleRoyaleAI()
                         DoCastSpell(pTarget, m_spells.warrior.pCharge);
                     break;
                 case CLASS_ROGUE:
-                    // If not yet stealthed when target is in range (e.g. stealth was broken
-                    // and not yet re-applied), try once more before engaging.
-                    if (m_spells.rogue.pStealth &&
-                        !me->HasAuraType(SPELL_AURA_MOD_STEALTH) &&
-                        CanTryToCastSpell(me, m_spells.rogue.pStealth))
+                    if (me->HasAuraType(SPELL_AURA_MOD_STEALTH) && me->GetHealthPercent() < 50.0f)
                     {
+                        // Post-vanish decision: press the attack only if the target is nearly dead.
+                        // If they still have substantial HP we are likely to lose again — hide and recover.
+                        if (pTarget->GetHealthPercent() > 35.0f)
+                        {
+                            // Try to eat/drink while hidden.
+                            if (DrinkAndEat())
+                                return;
+                            // No food available: ignore this target for 20 s so the bot
+                            // drifts away to a patrol point instead of immediately re-engaging.
+                            addToBrIgnoreList(pTarget->GetObjectGuid(), 20);
+                            return;
+                        }
+                        // Target is low HP (<=35%) — risk it and go for the kill.
+                    }
+                    else if (me->HasAuraType(SPELL_AURA_MOD_STEALTH))
+                    {
+                        // Healthy + stealthed: fire stealth opener before any ability breaks stealth.
+                        if (m_spells.rogue.pCheapShot &&
+                            CanTryToCastSpell(pTarget, m_spells.rogue.pCheapShot))
+                        {
+                            DoCastSpell(pTarget, m_spells.rogue.pCheapShot);
+                            return;
+                        }
+                        if (m_spells.rogue.pAmbush &&
+                            CanTryToCastSpell(pTarget, m_spells.rogue.pAmbush))
+                        {
+                            DoCastSpell(pTarget, m_spells.rogue.pAmbush);
+                            return;
+                        }
+                        // Opener out of melee range: hold stealth and let movement close the gap.
+                        if (!me->IsWithinMeleeRange(pTarget))
+                            return;
+                        // In melee but both openers on cooldown (rare): fall through to attack.
+                    }
+                    else if (m_spells.rogue.pStealth &&
+                             !me->HasAuraType(SPELL_AURA_MOD_STEALTH) &&
+                             CanTryToCastSpell(me, m_spells.rogue.pStealth))
+                    {
+                        // Not yet stealthed when target is in range — try once more before engaging.
                         DoCastSpell(me, m_spells.rogue.pStealth);
                         return;
                     }

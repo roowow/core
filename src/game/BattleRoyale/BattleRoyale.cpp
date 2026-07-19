@@ -223,7 +223,7 @@ void BattleRoyale::Update(uint32 diff)
                     player->SetFFAPvP(true);
                 if (player->IsMounted())
                     player->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
-                if (fireFlare)
+                if (fireFlare && !it->second.isGM)
                     player->CastSpell(player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), BR_FLARE_SPELL_ID, true);
             }
             for (ObjectGuid const& guid : toEliminate)
@@ -251,6 +251,8 @@ void BattleRoyale::Update(uint32 diff)
                     Player* player = map->GetPlayer(it->first);
                     if (player)
                         ReturnPlayer(player, it->second);
+                    else if (!it->second.bot)
+                        sBattleRoyaleMgr.ClearPendingRestore(it->first);
                 }
             }
             m_status = BattleRoyaleStatus::CANCELLED;
@@ -942,6 +944,8 @@ void BattleRoyale::Cancel()
             player->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER | UNIT_FLAG_IMMUNE_TO_NPC);
             ReturnPlayer(player, it->second);
         }
+        else if (!it->second.bot)
+            sBattleRoyaleMgr.ClearPendingRestore(it->first);
     }
 }
 

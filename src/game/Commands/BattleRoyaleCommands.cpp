@@ -243,6 +243,51 @@ bool ChatHandler::HandleBRSpawnListCommand(char* /*args*/)
     return true;
 }
 
+// .br list  — list all players in the BR instance the GM is in
+bool ChatHandler::HandleBRListCommand(char* /*args*/)
+{
+    Player* player = m_session->GetPlayer();
+    BattleRoyale* br = sBattleRoyaleMgr.GetInstanceForPlayer(player->GetObjectGuid());
+    if (!br)
+    {
+        SendSysMessage("[BR] 你不在对局中。");
+        return true;
+    }
+
+    BattleGroundBR* host = br->GetHost();
+    Map* map = host ? host->GetBgMap() : nullptr;
+
+    bool const allianceBroken = br->IsAllianceBroken();
+
+    PSendSysMessage("[BR] 存活 %u / %u  联盟: %s",
+                    br->GetAliveCount(), br->GetTotalCount(),
+                    allianceBroken ? "已破裂" : "阶段1");
+
+    auto const& players = br->GetPlayers();
+    for (auto const& kv : players)
+    {
+        BattleRoyalePlayer const& bp = kv.second;
+        if (bp.bot)
+            continue;
+
+        char const* tag = bp.isGM ? "[GM]" : "[玩]";
+        char const* aliveStr = bp.alive ? "存活" : "阵亡";
+
+        std::string name;
+        if (map)
+        {
+            Player* p = map->GetPlayer(kv.first);
+            name = p ? p->GetName() : "(离线)";
+        }
+        else
+            name = "(无地图)";
+
+        PSendSysMessage("[BR] %s %-16s  %s  击杀:%u",
+                        tag, name.c_str(), aliveStr, bp.killCount);
+    }
+    return true;
+}
+
 // .br cancel  — cancel the BR instance the GM is in
 bool ChatHandler::HandleBRCancelCommand(char* /*args*/)
 {
