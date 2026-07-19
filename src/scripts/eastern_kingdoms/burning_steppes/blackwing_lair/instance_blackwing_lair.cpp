@@ -1086,11 +1086,10 @@ struct go_ai_suppression : public GameObjectAI
 
                 me->SendGameObjectCustomAnim(me->GetObjectGuid());
                 uint32 spellId = me->GetGOInfo()->trap.spellId;
-                // Cast only on players; creatures must not be affected by suppression devices
                 std::list<Player*> players;
                 me->GetAlivePlayerListInRange(me, players, radius);
                 for (Player* pPlayer : players)
-                    me->CastSpell(pPlayer, spellId, true);
+                    pPlayer->AddAura(spellId);
             }
             else if (m_disabledUntil > 0 && time(nullptr) < m_disabledUntil)
             {
