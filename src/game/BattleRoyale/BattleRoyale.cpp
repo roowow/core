@@ -1109,13 +1109,12 @@ void BattleRoyale::SendBattleReport(ObjectGuid playerGuid, BattleRoyalePlayer co
 
 void BattleRoyale::BroadcastToAll(std::string const& msg)
 {
-    Map* map = m_host ? m_host->GetBgMap() : nullptr;
-    if (!map)
-        return;
+    // 全服查找而不是只查BR地图上的人：玩家死亡淘汰后会被ReturnPlayer送回原位置、离开BR地图，
+    // 但在这局真正结束（Finish/Cancel）之前，应该继续收到后续播报（谁又出局了、进入第几层圈
+    // 之类），不能因为人已经不在地图上就收不到。
     for (auto it = m_players.begin(); it != m_players.end(); ++it)
     {
-        Player* player = map->GetPlayer(it->first);
-        if (player)
+        if (Player* player = sObjectMgr.GetPlayer(it->first))
             ChatHandler(player).PSendSysMessage("%s", msg.c_str());
     }
 }
