@@ -954,7 +954,9 @@ _CHANNEL_NAMES = {"party": "小队", "raid": "团队", "bg": "战场", "world": 
 #   - added 介绍(一下)?/说说/讲讲/讲一下/说一下: imperative-form info requests ("介绍一下自强
 #     模式的规则") carry no question marker at all but are just as much a request for an
 #     answer as a "吗/?" question — another real case silently dropped before this was added.
-_QUESTION_RE = re.compile(r'[？?]|吗\b|怎么|咋|哪里|哪儿|如何|能否|有没有|在哪|什么时候|为什么|是否|可以吗|怎样|几级|多少|什么是|哪个|会不会|没有.{0,10}(说明|介绍|攻略|教程|规则)|是不是|能不能|对不对|好不好|行不行|介绍(一下)?|说说|讲讲|讲一下|说一下')
+#   - added 是什么: "什么是" (what-is-X) was covered but not the equally common reverse word
+#     order "X是什么" (X-is-what) — "天选者是什么模式" was silently dropped before this was added.
+_QUESTION_RE = re.compile(r'[？?]|吗\b|怎么|咋|哪里|哪儿|如何|能否|有没有|在哪|什么时候|为什么|是否|可以吗|怎样|几级|多少|什么是|是什么|哪个|会不会|没有.{0,10}(说明|介绍|攻略|教程|规则)|是不是|能不能|对不对|好不好|行不行|介绍(一下)?|说说|讲讲|讲一下|说一下')
 
 # Tolerant PASS-token detector: a plain exact-substring check for "[PASS]" misses
 # variants the model actually produces (e.g. "[ PASS ]", "[pass]") — observed in testing,
