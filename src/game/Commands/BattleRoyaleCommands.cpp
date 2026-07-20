@@ -8,6 +8,7 @@
 #include "Battlegrounds/BattleGroundBR.h"
 #include "Database/DatabaseEnv.h"
 #include "World.h"
+#include "OO/WebChatMgr.h"
 
 #include <algorithm>
 #include <cctype>
@@ -54,6 +55,7 @@ bool ChatHandler::HandleBREnableCommand(char* /*args*/)
 {
     sBattleRoyaleMgr.SetEnabled(true);
     sWorld.SendGlobalText("[孤胆称雄] 江湖再起风云，论剑帖已张贴，速往令使处，赴一场生死豪局！", nullptr);
+    sWebChatMgr.WriteBroadcast("[孤胆称雄] 江湖再起风云，论剑帖已张贴，速往令使处，赴一场生死豪局！");
     return true;
 }
 
@@ -61,6 +63,7 @@ bool ChatHandler::HandleBRDisableCommand(char* /*args*/)
 {
     sBattleRoyaleMgr.SetEnabled(false);
     sWorld.SendGlobalText("[孤胆称雄] 风波暂歇，论剑帖已收，江湖路远，来日方长。", nullptr);
+    sWebChatMgr.WriteBroadcast("[孤胆称雄] 风波暂歇，论剑帖已收，江湖路远，来日方长。");
     return true;
 }
 

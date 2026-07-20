@@ -86,8 +86,6 @@ enum BattleBotSpells
     BB_ITEM_BULLET = 2516,
 };
 
-#define BB_UPDATE_INTERVAL 1000
-
 #define BR_BOT_PLAYER_HUNT_RANGE 90.0f    // AI detecting human players — near full visual range, gated by LOS
 #define BR_BOT_BOT_HUNT_RANGE    35.0f    // AI detecting other bots — keep bot-vs-bot fights local
 #define BR_BOT_HUNT_RANGE        BR_BOT_PLAYER_HUNT_RANGE  // scan radius (use the larger of the two)
@@ -3016,7 +3014,15 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 {
     m_updateTimer.Update(diff);
     if (m_updateTimer.Passed())
-        m_updateTimer.Reset(BB_UPDATE_INTERVAL);
+    {
+        // 常规战场(AV/WS/AB)和BR分开配置AI决策间隔，见 mangosd.conf 的 BattleBot.UpdateMs /
+        // BattleBot.UpdateMs.BR（默认1000/400ms）——BR默认更短，提升混战反应速度
+        BattleGround* bg = me->GetBattleGround();
+        uint32 const interval = (bg && bg->GetTypeID() == BATTLEGROUND_BR)
+            ? sPlayerBotMgr.m_confBattleBotUpdateMsBR
+            : sPlayerBotMgr.m_confBattleBotUpdateMs;
+        m_updateTimer.Reset(interval);
+    }
     else
         return;
 

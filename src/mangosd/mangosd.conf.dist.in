@@ -2989,6 +2989,21 @@ AHBot.itemcount = 50
 #    PlayerBot.UpdateMs
 #        How often the AI of bots will be updated. A bigger delay will make them less responsive.
 #        Default: 1000 (1 second)
+#        Note: this is a PlayerBotMgr-level housekeeping throttle (bot spawn/despawn/queue
+#        simulation), NOT the battleground bot's combat AI decision interval. For that, see
+#        BattleBot.UpdateMs / BattleBot.UpdateMs.BR below.
+#
+#    BattleBot.UpdateMs
+#        How often a battleground bot (AV/WS/AB) re-evaluates its combat AI decisions
+#        (BattleBotAI::UpdateAI). A bigger delay will make bots less responsive in combat.
+#        Default: 1000 (1 second)
+#
+#    BattleBot.UpdateMs.BR
+#        Same as BattleBot.UpdateMs, but specific to 孤胆称雄/Battle Royale bots. Kept separate
+#        so BR's free-for-all pacing can use a shorter, more responsive interval without
+#        affecting regular AV/WS/AB bots (a shorter interval means more frequent full AI
+#        decision passes per bot — costs more CPU per bot, scales with concurrent BR bot count).
+#        Default: 400
 #
 #    PlayerBot.ShowInWhoList
 #        Enables displaying characters controlled by bots in /who results.
@@ -3044,6 +3059,8 @@ PartyBot.RandomGearLevelDifference = 10
 
 BattleBot.AutoEquip = 1
 BattleBot.AutoJoin = 0
+BattleBot.UpdateMs = 1000
+BattleBot.UpdateMs.BR = 400
 
 ###################################################################################################################
 #    Mail flooding mitigation

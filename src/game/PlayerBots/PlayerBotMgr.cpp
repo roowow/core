@@ -2,6 +2,7 @@
 #include "Policies/SingletonImp.h"
 #include "PlayerBotMgr.h"
 #include "OO/OOMgr.h"
+#include "OO/WebChatMgr.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "World.h"
@@ -39,6 +40,8 @@ PlayerBotMgr::PlayerBotMgr()
     m_confBattleBotAutoJoin_1   = false;
     m_confBattleBotAutoJoin_2   = false;
     m_confBattleBotAutoJoin_3   = false;
+    m_confBattleBotUpdateMs     = 1000;
+    m_confBattleBotUpdateMsBR   = 400;
 
     // Time
     m_elapsedTime = 0;
@@ -64,6 +67,8 @@ void PlayerBotMgr::LoadConfig()
     m_confBattleBotAutoJoin_1 = sConfig.GetBoolDefault("BattleBot.AutoJoin.AV", false);
     m_confBattleBotAutoJoin_2 = sConfig.GetBoolDefault("BattleBot.AutoJoin.WSG", false);
     m_confBattleBotAutoJoin_3 = sConfig.GetBoolDefault("BattleBot.AutoJoin.AB", false);
+    m_confBattleBotUpdateMs   = sConfig.GetIntDefault("BattleBot.UpdateMs", 1000);
+    m_confBattleBotUpdateMsBR = sConfig.GetIntDefault("BattleBot.UpdateMs.BR", 400);
 
     if (!sWorld.getConfig(CONFIG_BOOL_FORCE_LOGOUT_DELAY))
         m_tempBots.clear();
@@ -1224,6 +1229,7 @@ void PlayerBotMgr::SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId)
     else
         snprintf(msg, sizeof(msg), "[战场] 烽烟渐息，%s暂偃旗鼓，且待来日再战。", bgName);
     sWorld.SendGlobalText(msg, nullptr);
+    sWebChatMgr.WriteBroadcast(msg);
 }
 
 bool PlayerBotMgr::ForceAccountConnection(WorldSession* sess)
