@@ -100,6 +100,8 @@ enum BattleBotSpells
 #define BR_BOT_AIRBORNE_SOFT_HEIGHT 1.0f
 #define BR_BOT_AIRBORNE_HARD_HEIGHT 5.0f
 #define BR_BOT_AIRBORNE_TELEPORT_TICKS 2
+#define BR_ROGUE_FLEE_HP_MARGIN 25.0f  // 己方血量百分比落后对方超过这个差值就判定"打不过"，主动脱离
+#define BR_BOT_GROUP_DETECT_RADIUS 15.0f  // 候选目标周围这个半径内还有几个敌对玩家，判定"扎堆"，避免孤身送人头
 
 #define GO_WSG_DROPPED_SILVERWING_FLAG 179785
 #define GO_WSG_DROPPED_WARSONG_FLAG 179786
@@ -2486,6 +2488,30 @@ Unit* BattleBotAI::SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* 
             distance < 14.0f)
             score -= 80.0f;
 
+        // Don't go looking for a fight I'll lose 1-vs-many: if this candidate has other
+        // hostiles clustered close to them (players moving/fighting together — BR has no real
+        // grouping, but nothing stops two humans from sticking together and ganging up on a
+        // lone bot), heavily discourage picking them as a fresh target. Doesn't apply if
+        // they're already attacking me — that's not a fight I get to opt out of by ignoring it.
+        if (!attackingMe)
+        {
+            uint32 clusterCount = 0;
+            for (Player* pOther : players)
+            {
+                if (!pOther || pOther == me || pOther == pTarget)
+                    continue;
+                if (!IsValidHostileTarget(pOther) || IsBadPlayer(pOther))
+                    continue;
+                if (pTarget->GetDistance(pOther) <= BR_BOT_GROUP_DETECT_RADIUS)
+                    ++clusterCount;
+            }
+
+            if (clusterCount >= 2)
+                score -= 150.0f;
+            else if (clusterCount == 1)
+                score -= 50.0f;
+        }
+
         // Small randomness keeps BR from feeling like every bot has perfect target selection.
         score += float(urand(0, 10));
 
@@ -3080,7 +3106,9 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
         if (m_isBattleRoyaleBot && me->GetClass() == CLASS_ROGUE)
         {
-            // Pin off-hand to Crippling Poison for reliable slowing in PvP.
+            // Pin BOTH hands to Crippling Poison for reliable slowing in PvP (BR request:
+            // 双手都同时用致残毒药 — every successful hit from either weapon has a chance to
+            // slow the target, not just one of the two).
             SpellEntry const* pBestCrippling = nullptr;
             for (uint32 i = 0; i < sSpellMgr.GetMaxSpellId(); ++i)
             {
@@ -3095,11 +3123,27 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                 }
             }
             if (pBestCrippling)
-                m_spells.rogue.pOffHandPoison = pBestCrippling;
+            {
+                m_spells.rogue.pMainHandPoison = pBestCrippling;
+                m_spells.rogue.pOffHandPoison  = pBestCrippling;
+            }
         }
 
         AddAllSpellReagents();
         me->UpdateSkillsToMaxSkillsForLevel();
+
+        // 出生时就把毒药抹上武器，不能只指望后面 UpdateOutOfCombatAI_Rogue() 那条"脱离战斗才补毒"的
+        // 逻辑——BR从落地开始基本全程处于紧张状态（缩圈+四处都是敌人），盗贼bot很可能整局比赛都等
+        // 不到一次真正 me->IsInCombat()==false 的窗口，导致武器从头到尾都没上过毒。这里保证在真正
+        // 开打之前（此时必然不在战斗状态）先上一次，UpdateOutOfCombatAI_Rogue() 后续仍会在有机会时
+        // 补充/重新上毒，两者不冲突。
+        if (m_isBattleRoyaleBot && me->GetClass() == CLASS_ROGUE)
+        {
+            if (m_spells.rogue.pMainHandPoison)
+                CastWeaponBuff(m_spells.rogue.pMainHandPoison, EQUIPMENT_SLOT_MAINHAND);
+            if (m_spells.rogue.pOffHandPoison)
+                CastWeaponBuff(m_spells.rogue.pOffHandPoison, EQUIPMENT_SLOT_OFFHAND);
+        }
 
         if (uint32 mountSpellId = GetMountSpellId())
             if (!me->HasSpell(mountSpellId))
@@ -6748,6 +6792,21 @@ void BattleBotAI::UpdateInCombatAI_Rogue()
         }
         else
         {
+            // BR专属："打得过就打，打不过就跑"——己方掉血比例明显落后于对方(差值超过
+            // BR_ROGUE_FLEE_HP_MARGIN)时主动脱离，不硬拼到底。有冲刺(Sprint)就先加速，
+            // 没有就直接跑。这跟下面"HP<10%用Vanish紧急遁走"是两道不同阶段的保命机制——
+            // 这里基于双方血量对比更早判断"这场大概率打不过"，Vanish是撤退没跑掉/没来得及
+            // 时的最后一搏，两者互不冲突。
+            if (m_isBattleRoyaleBot &&
+                me->GetHealthPercent() + BR_ROGUE_FLEE_HP_MARGIN < pVictim->GetHealthPercent())
+            {
+                if (m_spells.rogue.pSprint && CanTryToCastSpell(me, m_spells.rogue.pSprint))
+                    DoCastSpell(me, m_spells.rogue.pSprint);
+
+                if (me->GetMotionMaster()->MoveDistance(pVictim, 30.0f))
+                    return;
+            }
+
             if (m_spells.rogue.pVanish &&
                 (me->GetHealthPercent() < 10.0f))
             {
