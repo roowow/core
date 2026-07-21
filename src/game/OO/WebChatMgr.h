@@ -39,14 +39,16 @@ public:
     bool        IsJianJiaActive() const { return !m_jianJiaName.empty() && m_pubCtx != nullptr; }
     void        ForwardWhisperToJianJia(std::string const& senderName, std::string const& message,
                     uint8 level = 0, uint8 cls = 0, uint8 race = 0,
-                    std::string const& zone = "");
+                    std::string const& zone = "", bool hardcore = false, bool tianxuan = false);
     void        ForwardGroupChatToJianJia(std::string const& senderName, std::string const& message,
-                    char const* chatContext, uint32 groupId = 0);  // chatContext: "party"/"raid"/"bg"
+                    char const* chatContext, uint32 groupId = 0,
+                    bool hardcore = false, bool tianxuan = false);  // chatContext: "party"/"raid"/"bg"
     void        ForwardChannelChatToJianJia(std::string const& senderName, std::string const& message,
                     char const* chatContext, uint8 level = 0, uint8 cls = 0, uint8 race = 0,
-                    uint32 contextId = 0);  // chatContext: "world"/"guild"; contextId: guild_id for guild
+                    uint32 contextId = 0, bool hardcore = false, bool tianxuan = false);  // chatContext: "world"/"guild"; contextId: guild_id for guild
     bool        NotifyBgAfkViaJianJia(Player* player, BattleGround* bg, uint8 stage, uint8 afkLevel,
                     char const* noticeType);   // returns false → caller should use fallback
+    void        NotifyWorldBroadcastToJianJia(std::string const& broadcastMsg, std::string const& sender = "");
     void        SpeakAsJianJia(std::string const& targetName, std::string const& message, ChatMsg groupType = CHAT_MSG_WHISPER);
     void        SpeakInBgAsJianJia(std::string const& targetName, std::string const& message);
     void        SpeakInWorldChannelAsJianJia(std::string const& message);

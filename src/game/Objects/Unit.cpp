@@ -38,6 +38,7 @@
 #include "ObjectAccessor.h"
 #include "CreatureAI.h"
 #include "GameObjectAI.h"
+#include "OO/WebChatMgr.h"
 #include "TemporarySummon.h"
 #include "Formulas.h"
 #include "Util.h"
@@ -1269,6 +1270,7 @@ void Unit::Kill(Unit* pVictim, SpellEntry const* spellProto, bool durabilityLoss
                     {
                         sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
                         sWorld.SendServerMessage(SERVER_MSG_CUSTOM, "勇敢者，行走的火炬，燃烧自己，照亮前方。我勇敢一生，无怨而无悔！");
+                        sWebChatMgr.NotifyWorldBroadcastToJianJia(message, pPlayerVictim->GetName());
                     }
                     else
                     {

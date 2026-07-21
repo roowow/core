@@ -3461,11 +3461,39 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                                          dbgBg ? dbgBg->GetInstanceID() : 0u,
                                          curX, curY, me->GetPositionZ());
                             }
-                            ClearPath();
-                            StartNewPathToObjective();
+                            if (++m_bgIndoorStuckTeleportTicks >= 10)
+                            {
+                                m_bgIndoorStuckTeleportTicks = 0;
+                                // Teleport to own graveyard to break the stuck loop
+                                float const gyX = (me->GetTeam() == HORDE) ? 1029.14f : 1415.33f;
+                                float const gyY = (me->GetTeam() == HORDE) ? 1387.49f : 1554.79f;
+                                float const gyZ = (me->GetTeam() == HORDE) ? 340.836f : 343.156f;
+                                if (sWorld.getConfig(m_isBattleRoyaleBot ? CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG : CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                                {
+                                    BattleGround* dbgBg = me->GetBattleGround();
+                                    sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                                             "[BattleGroundMovement] indoor-stuck teleport bot %s guid %u bg %u from %.2f %.2f %.2f.",
+                                             me->GetName(), me->GetGUIDLow(),
+                                             dbgBg ? dbgBg->GetInstanceID() : 0u,
+                                             curX, curY, me->GetPositionZ());
+                                }
+                                ClearPath();
+                                me->NearTeleportTo(gyX, gyY, gyZ, me->GetOrientation());
+                            }
+                            else
+                            {
+                                ClearPath();
+                                StartNewPathToObjective();
+                            }
                         }
+                        else
+                            m_bgIndoorStuckTeleportTicks = 0;
                     }
+                    else
+                        m_bgIndoorStuckTeleportTicks = 0;
                 }
+                else
+                    m_bgIndoorStuckTeleportTicks = 0;
             }
 
             if (dropCombat)
@@ -4137,17 +4165,19 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         char const* dropReason = nullptr;
         float const victimDistance = me->GetDistance(victim);
         bool const victimAttackingMe = victim->GetVictim() == me;
+        bool const victimLowHp = victim->GetHealthPercent() < 30.0f;
+        float const effectiveHardDistance = victimLowHp ? BR_BOT_CHASE_HARD_DISTANCE + 15.0f : BR_BOT_CHASE_HARD_DISTANCE;
         if (!zone.IsInsideZone(victim->GetPositionX(), victim->GetPositionY()))
         {
             dropChase = true;
             dropReason = "outside-zone";
         }
-        if (!dropChase && victimDistance > BR_BOT_CHASE_HARD_DISTANCE)
+        if (!dropChase && victimDistance > effectiveHardDistance)
         {
             dropChase = true;
             dropReason = "far";
         }
-        if (!dropChase && !victimAttackingMe && victimDistance > BR_BOT_CHASE_SOFT_DISTANCE)
+        if (!dropChase && !victimAttackingMe && !victimLowHp && victimDistance > BR_BOT_CHASE_SOFT_DISTANCE)
         {
             dropChase = true;
             dropReason = "soft-far";

@@ -218,6 +218,8 @@ public:
 
     // Throttle repeated indoor-stuck log lines: only log every 30 ticks (~60 s)
     uint8 m_bgIndoorStuckLogTicks = 0;
+    // Consecutive ticks spent stuck indoors away from flags; teleport to graveyard when threshold hit
+    uint8 m_bgIndoorStuckTeleportTicks = 0;
 };
 
 #endif

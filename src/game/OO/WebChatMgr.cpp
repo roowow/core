@@ -435,7 +435,7 @@ bool WebChatMgr::IsJianJiaName(std::string const& name) const
 }
 
 void WebChatMgr::ForwardWhisperToJianJia(std::string const& senderName, std::string const& message,
-    uint8 level, uint8 cls, uint8 race, std::string const& zone)
+    uint8 level, uint8 cls, uint8 race, std::string const& zone, bool hardcore, bool tianxuan)
 {
     if (!m_pubCtx || senderName.empty()) return;
     SigpipeGuard guard;
@@ -453,7 +453,11 @@ void WebChatMgr::ForwardWhisperToJianJia(std::string const& senderName, std::str
     j += std::to_string(race);
     j += ",\"zone\":\"";
     j += EscapeJson(zone);
-    j += "\",\"message\":\"";
+    j += "\",\"hardcore\":";
+    j += (hardcore ? "true" : "false");
+    j += ",\"tianxuan\":";
+    j += (tianxuan ? "true" : "false");
+    j += ",\"message\":\"";
     j += EscapeJson(message);
     j += "\"}";
     redisReply* r = (redisReply*)redisCommand(m_pubCtx, "PUBLISH %s %b",
@@ -463,7 +467,7 @@ void WebChatMgr::ForwardWhisperToJianJia(std::string const& senderName, std::str
 }
 
 void WebChatMgr::ForwardGroupChatToJianJia(std::string const& senderName, std::string const& message,
-    char const* chatContext, uint32 groupId)
+    char const* chatContext, uint32 groupId, bool hardcore, bool tianxuan)
 {
     if (!m_pubCtx || senderName.empty() || !chatContext) return;
     SigpipeGuard guard;
@@ -477,6 +481,10 @@ void WebChatMgr::ForwardGroupChatToJianJia(std::string const& senderName, std::s
     j += EscapeJson(chatContext);
     j += "\",\"group_id\":";
     j += std::to_string(groupId);
+    j += ",\"hardcore\":";
+    j += (hardcore ? "true" : "false");
+    j += ",\"tianxuan\":";
+    j += (tianxuan ? "true" : "false");
     j += ",\"message\":\"";
     j += EscapeJson(message);
     j += "\"}";
@@ -487,7 +495,8 @@ void WebChatMgr::ForwardGroupChatToJianJia(std::string const& senderName, std::s
 }
 
 void WebChatMgr::ForwardChannelChatToJianJia(std::string const& senderName, std::string const& message,
-    char const* chatContext, uint8 level, uint8 cls, uint8 race, uint32 contextId)
+    char const* chatContext, uint8 level, uint8 cls, uint8 race, uint32 contextId,
+    bool hardcore, bool tianxuan)
 {
     if (!m_pubCtx || senderName.empty() || !chatContext) return;
     if (IsJianJiaName(senderName)) return;
@@ -508,6 +517,10 @@ void WebChatMgr::ForwardChannelChatToJianJia(std::string const& senderName, std:
     j += std::to_string(cls);
     j += ",\"race\":";
     j += std::to_string(race);
+    j += ",\"hardcore\":";
+    j += (hardcore ? "true" : "false");
+    j += ",\"tianxuan\":";
+    j += (tianxuan ? "true" : "false");
     j += ",\"message\":\"";
     j += EscapeJson(message);
     j += "\"}";
@@ -554,6 +567,25 @@ bool WebChatMgr::NotifyBgAfkViaJianJia(Player* player, BattleGround* /*bg*/, uin
     if (r) { freeReplyObject(r); return true; }
     ReconnectPub();
     return false;
+}
+
+void WebChatMgr::NotifyWorldBroadcastToJianJia(std::string const& broadcastMsg, std::string const& sender)
+{
+    if (!m_pubCtx || m_jianJiaName.empty() || broadcastMsg.empty()) return;
+    SigpipeGuard guard;
+    std::lock_guard<std::mutex> lock(m_pubMutex);
+    if (!m_pubCtx) return;
+    std::string j = "{\"event\":\"world_broadcast\",\"sender\":\"";
+    j += EscapeJson(sender);
+    j += "\",\"bot_name\":\"";
+    j += EscapeJson(m_jianJiaName);
+    j += "\",\"broadcast_msg\":\"";
+    j += EscapeJson(broadcastMsg);
+    j += "\"}";
+    redisReply* r = (redisReply*)redisCommand(m_pubCtx, "PUBLISH %s %b",
+        m_keyJianJiaIn.c_str(), j.data(), j.size());
+    if (r) freeReplyObject(r);
+    else ReconnectPub();
 }
 
 void WebChatMgr::SpeakAsJianJia(std::string const& targetName, std::string const& message, ChatMsg groupType)

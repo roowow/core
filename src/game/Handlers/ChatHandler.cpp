@@ -319,7 +319,8 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
                     {
                         sWebChatMgr.WriteWebChat("world", playerPointer->GetName(), uint32(playerPointer->GetTeam()), uint32(_player->GetClass()), "", packet.message, 0, _player->IsHardcore(), _player->IsTianxuan(), _player->IsTurtle());
                         sWebChatMgr.ForwardChannelChatToJianJia(playerPointer->GetName(), packet.message, "world",
-                            playerPointer->GetLevel(), playerPointer->GetClass(), playerPointer->GetRace());
+                            playerPointer->GetLevel(), playerPointer->GetClass(), playerPointer->GetRace(), 0,
+                            _player->IsHardcore(), _player->IsTianxuan());
                     }
 
                     if (packet.lang != LANG_ADDON && chn->HasFlag(Channel::ChannelFlags::CHANNEL_FLAG_GENERAL))
@@ -426,7 +427,8 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
                     sObjectMgr.GetAreaLocaleString(zoneEntry->Id, DB_LOCALE_zhCN, &zoneName);
                 }
                 sWebChatMgr.ForwardWhisperToJianJia(masterPlr->GetName(), packet.message,
-                    masterPlr->GetLevel(), masterPlr->GetClass(), masterPlr->GetRace(), zoneName);
+                    masterPlr->GetLevel(), masterPlr->GetClass(), masterPlr->GetRace(), zoneName,
+                    _player->IsHardcore(), _player->IsTianxuan());
                 WorldPacket informData;
                 PlayerCacheData const* botCache = sObjectMgr.GetPlayerDataByName(packet.whisperTargetOrChannel.c_str());
                 ObjectGuid botGuid = botCache ? ObjectGuid(HIGHGUID_PLAYER, botCache->uiGuid) : ObjectGuid();
@@ -526,7 +528,8 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
             {
                 sWorld.LogChat(this, "Group", packet.message.c_str(), nullptr, group->GetId());
                 sWebChatMgr.WriteWebChat("party", _player->GetName(), uint32(_player->GetTeam()), uint32(_player->GetClass()), "", packet.message, group->GetId(), _player->IsHardcore(), _player->IsTianxuan(), _player->IsTurtle());
-                sWebChatMgr.ForwardGroupChatToJianJia(_player->GetName(), packet.message, "party", group->GetId());
+                sWebChatMgr.ForwardGroupChatToJianJia(_player->GetName(), packet.message, "party", group->GetId(),
+                    _player->IsHardcore(), _player->IsTianxuan());
             }
         }
         break;
@@ -541,7 +544,8 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
                 sWorld.LogChat(this, "Guild", packet.message.c_str(), nullptr, GetMasterPlayer()->GetGuildId());
                 sWebChatMgr.WriteWebChat("guild", GetMasterPlayer()->GetName(), uint32(GetMasterPlayer()->GetTeam()), uint32(_player->GetClass()), "", packet.message, GetMasterPlayer()->GetGuildId(), _player->IsHardcore(), _player->IsTianxuan(), _player->IsTurtle());
                 sWebChatMgr.ForwardChannelChatToJianJia(GetMasterPlayer()->GetName(), packet.message, "guild",
-                    _player->GetLevel(), _player->GetClass(), _player->GetRace(), GetMasterPlayer()->GetGuildId());
+                    _player->GetLevel(), _player->GetClass(), _player->GetRace(), GetMasterPlayer()->GetGuildId(),
+                    _player->IsHardcore(), _player->IsTianxuan());
             }
             break;
         }
@@ -578,7 +582,8 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
             {
                 sWorld.LogChat(this, "Raid", packet.message.c_str(), nullptr, group->GetId());
                 sWebChatMgr.WriteWebChat("raid", _player->GetName(), uint32(_player->GetTeam()), uint32(_player->GetClass()), "", packet.message, group->GetId(), _player->IsHardcore(), _player->IsTianxuan(), _player->IsTurtle());
-                sWebChatMgr.ForwardGroupChatToJianJia(_player->GetName(), packet.message, "raid", group->GetId());
+                sWebChatMgr.ForwardGroupChatToJianJia(_player->GetName(), packet.message, "raid", group->GetId(),
+                    _player->IsHardcore(), _player->IsTianxuan());
             }
         }
         break;

@@ -1230,6 +1230,7 @@ void PlayerBotMgr::SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId)
         snprintf(msg, sizeof(msg), "[战场] 烽烟渐息，%s暂偃旗鼓，且待来日再战。", bgName);
     sWorld.SendGlobalText(msg, nullptr);
     sWebChatMgr.WriteBroadcast(msg);
+    sWebChatMgr.NotifyWorldBroadcastToJianJia(msg);
 }
 
 bool PlayerBotMgr::ForceAccountConnection(WorldSession* sess)

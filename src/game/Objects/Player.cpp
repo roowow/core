@@ -80,6 +80,7 @@
 #include "MovementBroadcaster.h"
 #include "PlayerBroadcaster.h"
 #include "CharacterDatabaseCache.h"
+#include "OO/WebChatMgr.h"
 #include "GameEventMgr.h"
 #include "world/scourge_invasion.h"
 #include "world/world_event_wareffort.h"
@@ -803,6 +804,7 @@ uint32 Player::EnvironmentalDamage(EnvironmentalDamageType type, uint32 damage)
                 + std::string("）|r，我在 ") + areaOrZoneName + damageReason;
             sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
             sWorld.SendServerMessage(SERVER_MSG_CUSTOM, "勇敢者，行走的火炬，燃烧自己，照亮前方。我勇敢一生，无怨而无悔！");
+            sWebChatMgr.NotifyWorldBroadcastToJianJia(message, GetName());
         }
 
         // 跨越深海
@@ -3661,6 +3663,7 @@ void Player::GiveLevel(uint32 level)
     {
         std::string message = std::string("勇敢者 |cFF") + sOOMgr.GetClassColor(GetClass()) + GetName() + std::string("|r，完成了重重考验，晋升到了60！");
         sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
+        sWebChatMgr.NotifyWorldBroadcastToJianJia(message, GetName());
     }
 }
 

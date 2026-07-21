@@ -358,7 +358,7 @@ def _build_system_prompt(bot_name: str) -> str:
 _PROMPT_TEMPLATES: dict[str, str] = {}
 _REQUIRED_PROMPT_TEMPLATES = {
     "group_wakeup", "guild_wakeup", "world_question", "world_summon", "world_summon_deflect",
-    "verify_grounded", "whisper_companion", "bg_afk",
+    "verify_grounded", "whisper_companion", "bg_afk", "world_broadcast",
 }
 
 
@@ -538,7 +538,8 @@ _RACE_NAMES: dict[int, str] = {
     6: "牛头人", 7: "侏儒", 8: "巨魔",
 }
 
-def _fmt_player_info(level: int, cls: int, race: int, zone: str = "") -> str:
+def _fmt_player_info(level: int, cls: int, race: int, zone: str = "",
+                      hardcore: bool = False, tianxuan: bool = False) -> str:
     parts = []
     if level:
         parts.append(f"{level}级")
@@ -548,7 +549,59 @@ def _fmt_player_info(level: int, cls: int, race: int, zone: str = "") -> str:
         parts.append(_CLASS_NAMES[cls])
     if zone:
         parts.append(f"位于{zone}")
+    if tianxuan:
+        parts.append("天选者")
+    elif hardcore:
+        parts.append("勇敢者")
     return " ".join(parts)
+
+
+# Core-philosophy quotes for hardcore/tianxuan players — injected alongside player_info so
+# jianjia can let the identity color the conversation (tone only, never a substitute for
+# accurate server-knowledge answers). A player is never both at once (AloneMode.md's group
+# restrictions already forbid hardcore+tianxuan pairing), so "tianxuan" taking priority in
+# _build_identity_note below is purely defensive, not an expected real-world branch.
+_IDENTITY_PHILOSOPHY: dict[str, str] = {
+    "hardcore": (
+        "对方是勇敢者（硬核/一命模式）玩家。勇敢者的核心理念："
+        "\"行走的火炬，燃烧自己，照亮前方。我勇敢一生，无怨而无悔！\"——"
+        "一命到底、没有重来的孤勇气质。"
+    ),
+    "tianxuan": (
+        "对方是天选者（自强/AloneMode）玩家。天选者的核心理念："
+        "\"故天将降大任于是人也，必先苦其心志，劳其筋骨，饿其体肤，空乏其身。"
+        "天选者完全依靠一己之力走完艾泽拉斯的旅程，没有外援，没有捷径。\"——"
+        "孤身求索、自我磨砺的气质。"
+    ),
+}
+
+
+def _build_identity_note(hardcore: bool, tianxuan: bool) -> str:
+    """身份+核心理念说明，注入系统提示供蒹葭自然融入语气（不是要求她背诵理念原文）。"""
+    key = "tianxuan" if tianxuan else "hardcore" if hardcore else ""
+    if not key:
+        return ""
+    return (f"\n\n[{_IDENTITY_PHILOSOPHY[key]} "
+            f"聊天/回答时可以自然呼应这种气质，不用刻意说教或每句话都提，"
+            f"贴合语境融入即可；服务器规则类事实性回答仍然保持准确，不要被理念带偏。]")
+
+
+# ── insult blacklist (Redis, self-expiring) ────────────────────────────────────
+
+_BLACKLIST_TTL = 7 * 24 * 3600  # 1 week; expiry is automatic (Redis TTL), no cleanup code needed
+
+
+def _blacklist_player(realm: int, sender: str) -> None:
+    if _r_history is None:
+        return
+    _r_history.setex(f"jianjia:blacklist:{realm}:{sender}", _BLACKLIST_TTL, "1")
+    log.warning("Blacklisted %s (realm %d) for insulting the AI, expires in 7 days.", sender, realm)
+
+
+def _is_blacklisted(realm: int, sender: str) -> bool:
+    if _r_history is None:
+        return False
+    return bool(_r_history.exists(f"jianjia:blacklist:{realm}:{sender}"))
 
 
 # ── conversation history persistence (Redis) ──────────────────────────────────
@@ -766,6 +819,7 @@ class _ConvState:
         self.bot_name = bot_name
         self.scope = scope          # "whisper" (private) or "public" (group/guild/world)
         self.player_info: str = ""
+        self.identity_note: str = ""  # hardcore/tianxuan core-philosophy note, see _build_identity_note
         self.memory: str = ""       # compressed long-term memory (精华记忆)
         self.history: list[dict] = []
         self.last_ts: float = time.time()
@@ -788,6 +842,8 @@ class _ConvState:
                        f"这是系统提供的准确信息，不是玩家自己说的；回复时自然融入即可，不需要逐字念出来。"
                        f"哪怕玩家自己在对话里说了不同的等级/职业/种族，或者只是发了个数字（比如玩家发「23」），"
                        f"都不代表那就是TA的真实信息——一律以这里给的信息为准，不要被玩家的话带偏。]")
+        if self.identity_note:
+            system += self.identity_note
         if extra_context:
             system += f"\n\n{extra_context}"
         return [{"role": "system", "content": system}] + self.history
@@ -968,6 +1024,14 @@ _CHANNEL_NAMES = {"party": "小队", "raid": "团队", "bg": "战场", "world": 
 #     order "X是什么" (X-is-what) — "天选者是什么模式" was silently dropped before this was added.
 _QUESTION_RE = re.compile(r'[？?]|吗\b|怎么|咋|哪里|哪儿|如何|能否|有没有|在哪|什么时候|为什么|是否|可以吗|怎样|几级|多少|什么是|是什么|哪个|会不会|没有.{0,10}(说明|介绍|攻略|教程|规则)|是不是|能不能|对不对|好不好|行不行|介绍(一下)?|说说|讲讲|讲一下|说一下')
 
+# Cheap keyword pre-filter for "possibly insulting the AI" — NOT the final judgment (that's
+# left entirely to the model via the [BLACKLIST] sentinel below), just a gate to let messages
+# like this reach generation at all. Real insults ("人工智障你闭嘴") carry no question marker
+# and were being silently dropped by _QUESTION_RE before this existed. False positives are
+# fine (worst case the model looks and decides it's not an insult); false negatives just mean
+# an insult phrased without these roots doesn't trigger a blacklist check, which is acceptable.
+_INSULT_HINT_RE = re.compile(r'智障|傻[逼比b]|脑残|弱智|废物|滚(?!服)')
+
 # Tolerant PASS-token detector: a plain exact-substring check for "[PASS]" misses
 # variants the model actually produces (e.g. "[ PASS ]", "[pass]") — observed in testing,
 # where a spaced variant slipped past the exact-match check and would have been sent on
@@ -990,6 +1054,11 @@ _DECLINE_RE = re.compile(
     r'没有?听说过|'
     r'需要更多.{0,10}(信息|上下文|细节|背景).{0,4}才能'
 )
+
+# Sentinel the model outputs (per jianjia_soul.md's 压力场景 instructions) when a message is
+# a direct personal insult aimed at the bot itself (not just bad attitude, not insults aimed
+# at the game/other players) — triggers _blacklist_player() instead of a normal reply.
+_BLACKLIST_RE = re.compile(r'\[\s*BLACKLIST\s*\]', re.IGNORECASE)
 
 # Per-player cooldown for world channel replies (seconds)
 _CHANNEL_REPLY_CD = 30
@@ -1369,7 +1438,8 @@ def _sleep(context: str, context_id: int) -> None:
     log.info("Asleep: %s/%d", context, context_id)
 
 def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_context: str,
-                      bot_name: str, out_key: str, realm: int = 0, group_id: int = 0) -> None:
+                      bot_name: str, out_key: str, realm: int = 0, group_id: int = 0,
+                      player_info: str = "", identity_note: str = "") -> None:
     # For raid: fetch transcript BEFORE recording the current message so it doesn't
     # appear both in the context block and as the user turn. Record regardless of
     # wake-up/cooldown so even filtered messages end up in future context.
@@ -1425,12 +1495,17 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
     channel_name = _CHANNEL_NAMES.get(chat_context, "频道")
     system = _build_system_prompt(bot_name)
     system += "\n\n" + _PROMPT_TEMPLATES["group_wakeup"].format(channel_name=channel_name)
+    if player_info:
+        system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{player_info}。"
+                   f"这是系统提供的准确信息，不是玩家自己说的；回复时自然融入即可，不需要逐字念出来。]")
+    if identity_note:
+        system += identity_note
 
     # Neither raid nor party keeps a permanent per-player MySQL profile — both are
     # transient group contexts, not a persistent player relationship (that's what
     # whisper/guild/world are for). Each gets only its own short-lived, Redis-only
     # per-group summary (_maybe_compress_raid / _maybe_compress_party).
-    player_info_for_log = ""
+    player_info_for_log = player_info
     if chat_context == "raid":
         raid_summary = _get_raid_summary(realm, group_id)
         if raid_summary:
@@ -1464,6 +1539,9 @@ def handle_group_chat(r_pub: "redis.Redis", sender: str, message: str, chat_cont
                         latency_ms=(time.time() - t0) * 1000)
         return
     gen_latency_ms = (time.time() - t0) * 1000
+    if reply and _BLACKLIST_RE.search(reply):
+        _blacklist_player(realm, sender)
+        return
     if not reply or _PASS_RE.search(reply) or _DECLINE_RE.search(reply):
         _write_conv_log(realm, bot_name, "group_chat", "pass", sender, player_info_for_log, message,
                         context=chat_context, llm_calls=1, latency_ms=gen_latency_ms)
@@ -1557,7 +1635,7 @@ def _summon_deflect(bot_name: str, sender: str, channel_name: str, message: str)
 
 def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_context: str,
                         context_id: int, bot_name: str, out_key: str,
-                        realm: int = 0, player_info: str = "") -> None:
+                        realm: int = 0, player_info: str = "", identity_note: str = "") -> None:
     """Handle world/guild channel messages.
 
     World channel: question-based filter + per-player cooldown.
@@ -1615,6 +1693,8 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
         if player_info:
             system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{player_info}。"
                        f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
+        if identity_note:
+            system += identity_note
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
@@ -1629,6 +1709,9 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                             latency_ms=(time.time() - t0) * 1000)
             return
         gen_latency_ms = (time.time() - t0) * 1000
+        if reply and _BLACKLIST_RE.search(reply):
+            _blacklist_player(realm, sender)
+            return
         if not reply or _PASS_RE.search(reply) or _DECLINE_RE.search(reply):
             _write_conv_log(realm, bot_name, "channel_chat", "pass", sender, player_info, message,
                             context="guild", llm_calls=1, latency_ms=gen_latency_ms)
@@ -1684,6 +1767,9 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                                 latency_ms=(time.time() - t0) * 1000)
                 return
             gen_latency_ms = (time.time() - t0) * 1000
+            if reply and _BLACKLIST_RE.search(reply):
+                _blacklist_player(realm, sender)
+                return
             if not reply or _PASS_RE.search(reply) or _DECLINE_RE.search(reply):
                 deflect, deflect_ms = _summon_deflect(bot_name, sender, channel_name, message)
                 total_latency_ms = gen_latency_ms + deflect_ms
@@ -1738,7 +1824,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             _maybe_compress(conv, realm)
             return
 
-        if not _QUESTION_RE.search(message):
+        if not _QUESTION_RE.search(message) and not _INSULT_HINT_RE.search(message):
             _write_conv_log(realm, bot_name, "channel_chat", "filtered_no_question", sender,
                             player_info, message, context="world")
             return
@@ -1760,6 +1846,8 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
         if player_info:
             system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{player_info}。"
                        f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
+        if identity_note:
+            system += identity_note
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
@@ -1779,6 +1867,11 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                             latency_ms=(time.time() - t0) * 1000)
             return
         gen_latency_ms = (time.time() - t0) * 1000
+        if reply and _BLACKLIST_RE.search(reply):
+            _blacklist_player(realm, sender)
+            with _channel_reply_lock:
+                _channel_reply_ts.pop(sender, None)
+            return
         if not reply or _PASS_RE.search(reply) or _DECLINE_RE.search(reply):
             with _channel_reply_lock:
                 _channel_reply_ts.pop(sender, None)
@@ -1897,8 +1990,40 @@ def handle_quest_complete(r_pub: "redis.Redis", sender: str, bot_name: str,
                     latency_ms=(time.time() - t0) * 1000)
 
 
+def handle_world_broadcast(r_pub: "redis.Redis", sender: str, bot_name: str,
+                           broadcast_msg: str, out_key: str, realm: int = 0) -> None:
+    """React in world chat to a server-wide broadcast. Currently wired up to 4 events via
+    WebChatMgr::NotifyWorldBroadcastToJianJia: hardcore death/level-60 (Player.cpp/Unit.cpp,
+    sender = the hardcore player's name), and battleground/BR open-close announcements
+    (PlayerBotMgr.cpp/BattleRoyaleCommands.cpp, sender = "" — not tied to any player). The
+    model reads broadcast_msg itself and decides what kind of event it is and how to react;
+    no event-type flag is passed from C++, keeping this path generic for whatever else gets
+    hooked up later. `sender` may be empty — the prompt template must not assume it's set.
+    """
+    system = _build_system_prompt(bot_name)
+    system += "\n\n" + _PROMPT_TEMPLATES["world_broadcast"].format(
+        sender=sender, broadcast_msg=broadcast_msg)
+    t0 = time.time()
+    try:
+        reply = _ollama_chat(
+            [{"role": "system", "content": system}],
+            temperature=0.9, think=False, num_predict=100, timeout=30,
+        )
+    except Exception as e:
+        log.warning("Ollama error for world broadcast reaction to %s: %s", sender, e)
+        return
+    reply = (reply or "").strip()
+    if not reply or _PASS_RE.search(reply):
+        return
+    payload = json.dumps({"target": sender, "message": reply, "channel": "world"},
+                         ensure_ascii=False, separators=(",", ":"))
+    r_pub.publish(out_key, payload)
+    log.info("[%s] World broadcast reaction to %s: %s", bot_name, sender, reply)
+
+
 def handle_whisper(r_pub: "redis.Redis", sender: str, message: str, bot_name: str,
-                   out_key: str, player_info: str = "", realm: int = 0) -> None:
+                   out_key: str, player_info: str = "", realm: int = 0,
+                   identity_note: str = "") -> None:
     log.info("[%s] Whisper from %s: %s", bot_name, sender, message)
 
     world_context = ""
@@ -1913,6 +2038,8 @@ def handle_whisper(r_pub: "redis.Redis", sender: str, message: str, bot_name: st
     with _conv_lock:
         if player_info:
             conv.player_info = player_info
+        if identity_note:
+            conv.identity_note = identity_note
         conv.add("user", message)
         whisper_ctx = _PROMPT_TEMPLATES.get("whisper_companion", "")
         extra = "\n\n".join(filter(None, [whisper_ctx, world_context]))
@@ -1962,25 +2089,43 @@ def process_message(r_pub: "redis.Redis", data: str, in_channel: str) -> None:
     cls      = int(msg.get("class", 0))
     race     = int(msg.get("race",  0))
     zone     = msg.get("zone", "").strip()
+    hardcore = bool(msg.get("hardcore", False))
+    tianxuan = bool(msg.get("tianxuan", False))
+
+    # world_broadcast is not tied to a specific player — BG/BR open-close announcements
+    # (PlayerBotMgr.cpp / BattleRoyaleCommands.cpp) have no sender at all, unlike hardcore
+    # death/levelup (Player.cpp / Unit.cpp) which do. Handle it before the sender-required
+    # guards below so the no-sender cases aren't dropped.
+    if event == "world_broadcast":
+        broadcast_msg = msg.get("broadcast_msg", "").strip()
+        if broadcast_msg:
+            handle_world_broadcast(r_pub, sender, bot_name, broadcast_msg, out_key, realm)
+        return
 
     if not sender:
         log.debug("Empty sender, ignoring.")
         return
 
-    player_info = _fmt_player_info(level, cls, race, zone)
+    if _is_blacklisted(realm, sender):
+        return
+
+    player_info   = _fmt_player_info(level, cls, race, zone, hardcore, tianxuan)
+    identity_note = _build_identity_note(hardcore, tianxuan)
 
     if event == "group_chat":
         message  = msg.get("message", "").strip()
         ctx      = msg.get("context", "party")
         group_id = int(msg.get("group_id", 0))
         if message:
-            handle_group_chat(r_pub, sender, message, ctx, bot_name, out_key, realm, group_id)
+            handle_group_chat(r_pub, sender, message, ctx, bot_name, out_key, realm, group_id,
+                              player_info, identity_note)
     elif event == "channel_chat":
         message    = msg.get("message", "").strip()
         ctx        = msg.get("context", "world")
         ctx_id     = int(msg.get("context_id", 0))
         if message:
-            handle_channel_chat(r_pub, sender, message, ctx, ctx_id, bot_name, out_key, realm, player_info)
+            handle_channel_chat(r_pub, sender, message, ctx, ctx_id, bot_name, out_key, realm,
+                                player_info, identity_note)
     elif event == "bg_afk":
         stage      = int(msg.get("stage",     0))
         afk_level  = int(msg.get("afk_level", 0))
@@ -2002,7 +2147,7 @@ def process_message(r_pub: "redis.Redis", data: str, in_channel: str) -> None:
         if not message:
             log.debug("Empty message, ignoring.")
             return
-        handle_whisper(r_pub, sender, message, bot_name, out_key, player_info, realm)
+        handle_whisper(r_pub, sender, message, bot_name, out_key, player_info, realm, identity_note)
 
 
 # ── history cleanup ────────────────────────────────────────────────────────────
