@@ -324,14 +324,24 @@ def _reload_system_prompt(svc: dict) -> None:
                     "stack on top of this and may get silently truncated by Ollama.", pct)
 
 
+_WEEKDAY_NAMES = ["一", "二", "三", "四", "五", "六", "日"]  # tm_wday: 0=Monday..6=Sunday
+
+
 def _build_system_prompt(bot_name: str) -> str:
     """_SYSTEM_PROMPT_TEMPLATE.format(name=bot_name) plus a freshly-computed date block.
     Today's date must never be baked into the reload-time template (previously done in
     _reload_system_prompt), since the service can run for days between reloads and the
     date would silently go stale (observed in production: the bot confidently stated a
     date two days in the past because that's what was true when the process last reloaded).
+
+    The weekday is computed here too (not left for the model to derive from the date) —
+    observed in production giving three different, all-wrong weekdays for the same day
+    in one conversation. LLMs are unreliable at calendar arithmetic the same way they're
+    unreliable comparing version numbers (see world_question.md's date-comparison notes);
+    the fix is the same: compute the answer in code and hand it over, don't make the model do it.
     """
-    parts = [f"今天是 {time.strftime('%Y-%m-%d')}"]
+    now = time.localtime()
+    parts = [f"今天是 {time.strftime('%Y-%m-%d', now)}（星期{_WEEKDAY_NAMES[now.tm_wday]}）"]
     if _SERVER_NAME:
         parts.append(f"当前服务器：{_SERVER_NAME}")
     if _SERVER_PHASE:

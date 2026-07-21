@@ -1063,11 +1063,15 @@ struct go_ai_suppression : public GameObjectAI
         float radius = float(me->GetGOInfo()->trap.radius);
         if (radius < 1.0f) radius = 30.0f;
 
-        // Remove aura from players in range; other active devices keep suppressing their own area
+        // Remove aura from players (and their pets) in range; other active devices keep suppressing their own area
         std::list<Player*> players;
         me->GetAlivePlayerListInRange(me, players, radius);
         for (Player* pPlayer : players)
+        {
             pPlayer->RemoveAurasDueToSpell(SPELL_SUPPRESSION_AURA);
+            if (Pet* pet = pPlayer->GetPet())
+                pet->RemoveAurasDueToSpell(SPELL_SUPPRESSION_AURA);
+        }
     }
 
     // Visual effects for each GO is played on a 5 seconds timer. Sniff show that the GO should also be used (trap spell is cast)
@@ -1084,19 +1088,27 @@ struct go_ai_suppression : public GameObjectAI
                 if (me->GetGoState() != GO_STATE_READY)
                     me->SetGoState(GO_STATE_READY);
 
-                me->SendGameObjectCustomAnim(me->GetObjectGuid());
+                me->SendGameObjectCustomAnim();
                 uint32 spellId = me->GetGOInfo()->trap.spellId;
                 std::list<Player*> players;
                 me->GetAlivePlayerListInRange(me, players, radius);
                 for (Player* pPlayer : players)
+                {
                     pPlayer->AddAura(spellId);
+                    if (Pet* pet = pPlayer->GetPet())
+                        pet->AddAura(spellId);
+                }
             }
             else if (m_disabledUntil > 0 && time(nullptr) < m_disabledUntil)
             {
                 std::list<Player*> players;
                 me->GetAlivePlayerListInRange(me, players, radius);
                 for (Player* pPlayer : players)
+                {
                     pPlayer->RemoveAurasDueToSpell(SPELL_SUPPRESSION_AURA);
+                    if (Pet* pet = pPlayer->GetPet())
+                        pet->RemoveAurasDueToSpell(SPELL_SUPPRESSION_AURA);
+                }
             }
             m_uiFumeTimer = 5 * IN_MILLISECONDS;
         }
