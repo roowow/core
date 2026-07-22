@@ -211,7 +211,7 @@ void OOMgr::BuildBannedTransformDisplayIds()
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u banned transform display ids", uint32(m_bannedTransformDisplayIds.size()));
 }
 
-// 勇敢者/天选者满60级音效：全服所有在线玩家按各自阵营先听3次钟响（1秒1次），
+// 勇敢者/天选者满60级音效：全服所有在线玩家按各自阵营先听3次钟响（3秒1次），
 // 然后再听一次欢呼——用 m_level60Timer/m_level60BellsLeft 这对状态在 Update() 里分步播放，
 // 不能在同一帧里连续排3个PlaySound包，那样客户端会把3声钟响糊在一起同时播放。
 static uint32 const LEVEL60_BELL_ALLIANCE   = 6594; // BellTollAlliance
@@ -219,7 +219,7 @@ static uint32 const LEVEL60_BELL_HORDE      = 6595; // BellTollHorde
 static uint32 const LEVEL60_CHEER_ALLIANCE  = 8571; // CrowdCheerAlliance1
 static uint32 const LEVEL60_CHEER_HORDE     = 8573; // CrowdCheerHorde1
 static uint32 const LEVEL60_BELL_RING_COUNT = 3;
-static uint32 const LEVEL60_STEP_DELAY_MS   = 1000; // 钟声间隔，以及最后一声钟响到欢呼的间隔
+static uint32 const LEVEL60_STEP_DELAY_MS   = 3000; // 钟声间隔，以及最后一声钟响到欢呼的间隔
 
 static void PlaySoundToAllOnline(uint32 allianceSoundId, uint32 hordeSoundId)
 {
