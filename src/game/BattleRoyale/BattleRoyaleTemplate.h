@@ -55,8 +55,8 @@ struct BattleRoyaleTemplate
     float GetOrbitCenterX() const { return hasCustomOrbitCenter ? orbitCenterX : centerX; }
     float GetOrbitCenterY() const { return hasCustomOrbitCenter ? orbitCenterY : centerY; }
 
-    // 盘旋入场绕几圈轨道再切入个人下降航线，默认1圈（原有行为，AB/AV/Azshara Crater不受影响）。
-    uint32 orbitLapCount = 1;
+    // 盘旋入场绕几圈轨道再切入个人下降航线，默认2圈（原有行为，AB/AV/Azshara Crater不受影响）。
+    uint32 orbitLapCount = 2;
 
     std::vector<BRSpawnPoint> spawnPoints;
     std::vector<BRZonePhase>  phases;
@@ -150,7 +150,7 @@ inline BattleRoyaleTemplate& GetAzsharaCraterTemplate()
         t.enabled     = true;
         // First orbit node should be center + 60 yards east, high above the arena center.
         t.deploymentStart = { 217.216248f, 74.673859f, 430.783401f, 0.0f };
-        t.orbitLapCount = 2;
+        t.orbitLapCount = 3;
 
         BRZonePhase const phases[] = {
             { 460.0f, 320.0f, 3 * 60 * 1000,  2.0f  }, // phase 1:  0:00,  2%/s (~50s to die)
@@ -193,13 +193,19 @@ inline BattleRoyaleTemplate& GetHyjalTemplate()
         t.centerY     = -3611.911377f;
         t.maxPlayers  = 30; // TODO: 待定，先用跟 AB/Azshara Crater 一样的规模占位
         t.enabled     = false; // 出生点录制中 + 未实测，先不进正式轮换
-        // 轨道节点0在圆心正东60码（角度0：cos0=1,sin0=0），跟 BattleRoyale.sql 里
-        // 生成轨道节点的公式对齐；staging高度1700，跟轨道节点/落地螺旋起点保持一致。
-        t.deploymentStart = { 5562.959961f, -3611.911377f, 1700.0f, 0.0f };
+        // 轨道节点0在盘旋圆心(orbitCenterX/Y，见下面)正东60码（角度0：cos0=1,sin0=0），
+        // 跟 BattleRoyale.sql 里生成轨道节点的公式对齐；staging高度1700，跟轨道节点/
+        // 落地螺旋起点保持一致。注意这里不是 centerX/centerY（那是毒圈中心）。
+        t.deploymentStart = { 5521.397949f, -3512.822510f, 1700.0f, 0.0f };
         t.hostMode    = BRMapHostMode::OPEN_WORLD;
         // 绕2圈再切入个人下降航线，比默认1圈（约11-12秒）长一倍，给玩家多看看
-        // 海加尔山的风景；轨道中心暂时还是用 centerX/Y（没有单独设置风景点）。
-        t.orbitLapCount = 2;
+        // 海加尔山的风景。
+        t.orbitLapCount = 3;
+        // 盘旋入场单独设置了风景点（世界之树附近），跟毒圈真正的中心点
+        // （centerX/centerY）分开，缩圈范围不受影响。
+        t.hasCustomOrbitCenter = true;
+        t.orbitCenterX = 5461.397949f;
+        t.orbitCenterY = -3512.822510f;
         // 实测边界框（BattleRoyale.md「硬边界数据格式」），Y方向在出生点录制完成后
         // 发现比最初四方向探测的范围更宽（有6个出生点落在原边界外），已按实际出生点
         // 范围外扩重新调整，留出安全余量，不贴着出生点边缘。
