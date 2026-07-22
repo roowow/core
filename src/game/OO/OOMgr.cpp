@@ -262,29 +262,37 @@ void OOMgr::Update(uint32 diff)
     }
 
     // 勇敢者/天选者满60级音效：分步播放剩余的钟响，最后补一次欢呼
-    if (m_level60Timer)
+    // 用 while 而不是 if：如果某次世界tick卡顿导致 diff 一次性超过好几个1000ms
+    // （比如一次卡了2.5秒），if 每次只推进一步，多出来那部分时间会被直接丢弃，
+    // 该播的钟声/欢呼就会被跳过；while 能在同一次 Update() 里把欠的步骤一次性补完，
+    // 保证不管 diff 多大，3声钟响+欢呼总数始终不会少。
+    while (m_level60Timer && diff >= m_level60Timer)
     {
-        if (diff >= m_level60Timer)
+        diff -= m_level60Timer;
+        if (m_level60BellsLeft > 0)
         {
-            if (m_level60BellsLeft > 0)
-            {
-                PlaySoundToAllOnline(LEVEL60_BELL_ALLIANCE, LEVEL60_BELL_HORDE);
-                --m_level60BellsLeft;
-                m_level60Timer = LEVEL60_STEP_DELAY_MS;
-            }
-            else
-            {
-                PlaySoundToAllOnline(LEVEL60_CHEER_ALLIANCE, LEVEL60_CHEER_HORDE);
-                m_level60Timer = 0;
-            }
+            PlaySoundToAllOnline(LEVEL60_BELL_ALLIANCE, LEVEL60_BELL_HORDE);
+            --m_level60BellsLeft;
+            m_level60Timer = LEVEL60_STEP_DELAY_MS;
         }
         else
-            m_level60Timer -= diff;
+        {
+            PlaySoundToAllOnline(LEVEL60_CHEER_ALLIANCE, LEVEL60_CHEER_HORDE);
+            m_level60Timer = 0;
+        }
     }
+    if (m_level60Timer)
+        m_level60Timer -= diff;
 }
 
 void OOMgr::AnnounceLevel60Fanfare()
 {
+    // 如果上一次的钟声/欢呼序列还没播完就再次触发（比如短时间内连续测试，或者
+    // 两个玩家前后脚满60级），不能直接重置状态——那样会打断上一次还没播完的
+    // 钟声，只让人听到一声就没了。已有序列在播就先不重复触发，等它播完。
+    if (m_level60Timer || m_level60BellsLeft)
+        return;
+
     // 立即播放第一声钟响，剩下 (LEVEL60_BELL_RING_COUNT - 1) 声由 Update() 按1秒间隔接力播放，
     // 全部播完后再自动补一次欢呼。
     PlaySoundToAllOnline(LEVEL60_BELL_ALLIANCE, LEVEL60_BELL_HORDE);
