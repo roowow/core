@@ -137,11 +137,43 @@ inline BattleRoyaleTemplate& GetAzsharaCraterTemplate()
     return tmpl;
 }
 
+// Mount Hyjal (World Tree area, Map:1 Kalimdor) — 野外开放世界地图，占位模板。
+// mapId=1 是大陆地图，不是战场类型地图，IsBattleRoyaleTemplateBattlegroundMap() 会拒绝它，
+// 所以 enabled=false，且无论如何都进不了真实对局的随机/指定选择（见 BattleRoyaleMgr.cpp
+// IsBattleRoyaleTemplateStartable() / CreateInstance() 里的多处硬性检查）。
+// 这个占位模板存在的唯一目的：让 .br spawn add / .br spawn list 命令能识别 map 1，
+// 方便在真正的 OPEN_WORLD 地图承载层（见 BattleRoyale.md「分层设计草案」）落地之前，
+// 先把出生点坐标录进 battle_royale_spawn_point 表。orbitPathId/deploymentStart/phases
+// 都是未定的占位值，承载层实现完之后再回来补齐、把 enabled 改成 true。
+inline BattleRoyaleTemplate& GetHyjalTemplate()
+{
+    static BattleRoyaleTemplate tmpl = []() -> BattleRoyaleTemplate
+    {
+        BattleRoyaleTemplate t;
+        t.id          = 4;
+        t.mapId       = 1; // Kalimdor（海加尔山 世界之树）
+        t.orbitPathId = 0; // TODO: 需要新建一条 taxi 环绕路线，承载层落地后再补
+        t.centerX     = 5502.959961f; // 实测边界框中心（BattleRoyale.md 已记录）
+        t.centerY     = -3611.911377f;
+        t.maxPlayers  = 30; // TODO: 待定，先用跟 AB/Azshara Crater 一样的规模占位
+        t.enabled     = false; // 承载层没实现完之前绝不能进正式轮换
+        t.deploymentStart = { 5502.959961f, -3611.911377f, 1700.0f, 0.0f }; // TODO: 待定占位
+
+        // spawnPoints 由 BattleRoyaleMgr::LoadSpawnPoints() 从数据库加载，此处留空。
+        // 使用 .br spawn add 命令在游戏内站到目标位置后记录坐标。
+
+        // TODO: 缩圈阶段数据，等地图承载层确定能用之后再定，这里先留空。
+
+        return t;
+    }();
+    return tmpl;
+}
+
 // All enabled templates in random-selection order.
 // Add new templates here when they are ready.
-inline std::array<BattleRoyaleTemplate*, 3> GetAllBRTemplates()
+inline std::array<BattleRoyaleTemplate*, 4> GetAllBRTemplates()
 {
-    return { &GetABTemplate(), &GetAVTemplate(), &GetAzsharaCraterTemplate() };
+    return { &GetABTemplate(), &GetAVTemplate(), &GetAzsharaCraterTemplate(), &GetHyjalTemplate() };
 }
 
 #endif // MANGOS_BATTLEROYALETEMPLATE_H
