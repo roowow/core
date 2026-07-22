@@ -642,16 +642,19 @@ void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
     m_playerInstMap[bot->GetObjectGuid()] = instanceId;
 
     ApplyBattleRoyaleStagingMount(bot, deploymentPathId);
-    // TODO 临时调试日志：追踪机器人同地图(near)传送卡住的问题，排查完删除。
-    sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-             "[BR-DEBUG] OnBotReady: bot %s currently map=%u (%.1f,%.1f,%.1f) -> TeleportTo map=%u (%.1f,%.1f,%.1f)",
-             bot->GetName(), bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(),
-             tmpl.mapId, start.x, start.y, start.z);
-    bool const teleportResult = bot->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o);
-    sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-             "[BR-DEBUG] OnBotReady: bot %s TeleportTo returned %d, IsBeingTeleportedNear=%d IsBeingTeleportedFar=%d",
-             bot->GetName(), teleportResult, bot->IsBeingTeleportedNear(), bot->IsBeingTeleportedFar());
-    if (!teleportResult)
+    if (bot->GetMapId() == tmpl.mapId)
+    {
+        // 同地图（OPEN_WORLD 模板，比如海加尔山：机器人登录用的GM岛暂存点和BR比赛
+        // 本身都在 map 1）。Player::TeleportTo() 的"近传送"分支依赖客户端一来一回
+        // 确认（MSG_MOVE_TELEPORT_ACK），机器人这边确认包能收发但不生效（具体卡在
+        // 引擎哪一层没有继续深挖），实测机器人位置最终完全不变。机器人不需要那套
+        // "客户端平滑过渡"的仪式，直接调用 TeleportPositionRelocation() 强制定位，
+        // 跳过整个确认流程。跨地图（AV/AB/Azshara Crater）不受影响，走原来的 TeleportTo()。
+        bot->DisableSpline();
+        bot->SetFallInformation(0.0f);
+        bot->TeleportPositionRelocation(start.x, start.y, start.z, start.o);
+    }
+    else if (!bot->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o))
     {
         if (bot->IsMounted())
             bot->Unmount();

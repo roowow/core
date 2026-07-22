@@ -3052,17 +3052,6 @@ void BattleBotAI::UpdateAI(uint32 const diff)
     else
         return;
 
-    // TODO 临时调试日志：追踪机器人传送/飞行卡住的问题，排查完删除。
-    if (m_isBattleRoyaleBot)
-    {
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-                 "[BR-DEBUG] BattleBotAI::UpdateAI: bot %s map=%u (%.1f,%.1f,%.1f) IsInWorld=%d "
-                 "IsBeingTeleportedNear=%d IsBeingTeleportedFar=%d IsTaxiFlying=%d movegen=%d",
-                 me->GetName(), me->GetMapId(), me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
-                 me->IsInWorld(), me->IsBeingTeleportedNear(), me->IsBeingTeleportedFar(), me->IsTaxiFlying(),
-                 int(me->GetMotionMaster()->GetCurrentMovementGeneratorType()));
-    }
-
     if (!me->IsInWorld() || me->IsBeingTeleported() || m_doingGraveyardJump)
         return;
 
