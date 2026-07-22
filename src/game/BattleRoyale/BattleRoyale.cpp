@@ -427,7 +427,13 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         // through immediately instead of waiting for the client round trip, so the
         // combined flight always starts from the correct staging point.
         if (player->IsBeingTeleportedNear())
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BR-DEBUG] UpdateDeploying: %s forcing pending near teleport, pos before=(%.3f,%.3f,%.3f)",
+                     player->GetName(), player->GetPositionX(), player->GetPositionY(), player->GetPositionZ());
             player->ExecuteTeleportNear();
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BR-DEBUG] UpdateDeploying: %s pos after=(%.3f,%.3f,%.3f)",
+                     player->GetName(), player->GetPositionX(), player->GetPositionY(), player->GetPositionZ());
+        }
 
         // Player hasn't started the combined flight yet.
         // Hold them in place with hover until the flight starts.
