@@ -3758,7 +3758,7 @@ void CombatBotBaseAI::OnPacketReceived(WorldPacket const* packet)
     // Must always check "me" player pointer here!
     //printf("Bot received %s\n", LookupOpcodeName(packet->GetOpcode()));
     // TODO 临时调试日志：追踪机器人同地图(near)传送卡住的问题，排查完删除。
-    if (me && me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_BR &&
+    if (me && me->GetBattleGroundTypeId() == BATTLEGROUND_BR &&
         (packet->GetOpcode() == SMSG_NEW_WORLD || packet->GetOpcode() == MSG_MOVE_TELEPORT_ACK ||
          packet->GetOpcode() == SMSG_TRANSFER_PENDING))
     {
