@@ -922,13 +922,15 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
         br->AddPlayer(player, sp, deploymentPathId);
         m_playerInstMap[player->GetObjectGuid()] = instanceId;
 
-        // Teleport before mounting: mounting first was interfering with the same-map
-        // ("near teleport") handshake when the player was already standing on the
-        // target map (e.g. already on Kalimdor for the Hyjal OPEN_WORLD template) —
-        // observed as the player never actually teleporting, just taking off and
-        // slowly flying from wherever they already were. Cross-map ("far") teleport
-        // was unaffected either way.
-        bool const teleported = player->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o);
+        // TELE_TO_FORCE_MAP_CHANGE forces the "far" teleport path even when the player
+        // is already on the target map (e.g. already on Kalimdor for the Hyjal
+        // OPEN_WORLD template). The same-map "near" teleport ceremony depends on a
+        // client round trip (MSG_MOVE_TELEPORT_ACK) that, even force-completed
+        // server-side (see UpdateDeploying's IsBeingTeleportedNear() check), still
+        // left the client showing the character taking off and slowly flying from
+        // wherever it actually was instead of an instant teleport. Far teleport
+        // (confirmed working for cross-map entries) sidesteps that ceremony entirely.
+        bool const teleported = player->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o, TELE_TO_FORCE_MAP_CHANGE);
         ApplyBattleRoyaleStagingMount(player, deploymentPathId);
         if (!teleported)
         {
