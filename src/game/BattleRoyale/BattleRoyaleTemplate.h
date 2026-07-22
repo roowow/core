@@ -150,6 +150,7 @@ inline BattleRoyaleTemplate& GetAzsharaCraterTemplate()
         t.enabled     = true;
         // First orbit node should be center + 60 yards east, high above the arena center.
         t.deploymentStart = { 217.216248f, 74.673859f, 430.783401f, 0.0f };
+        t.orbitLapCount = 2;
 
         BRZonePhase const phases[] = {
             { 460.0f, 320.0f, 3 * 60 * 1000,  2.0f  }, // phase 1:  0:00,  2%/s (~50s to die)
