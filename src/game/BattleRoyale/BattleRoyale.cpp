@@ -502,6 +502,11 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         spreadNode.delay = 0;
         combined.push_back(spreadNode);
 
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                 "[BR-DEBUG] UpdateDeploying: %s startNode.z=%.3f spreadNode.z=%.3f orbitNode[0].z=%.3f dropNode0.z=%.3f",
+                 player->GetName(), startNode.z, spreadNode.z, (*orbitNodes)[0].z,
+                 dropIt->second.nodes.empty() ? -1.0f : dropIt->second.nodes.front().z);
+
         for (uint32 lap = 0; lap < orbitLaps; ++lap)
         {
             for (size_t i = 0; i < orbitCount; ++i)

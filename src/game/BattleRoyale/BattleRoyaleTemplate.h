@@ -194,17 +194,17 @@ inline BattleRoyaleTemplate& GetHyjalTemplate()
         t.maxPlayers  = 30; // TODO: 待定，先用跟 AB/Azshara Crater 一样的规模占位
         t.enabled     = false; // 出生点录制中 + 未实测，先不进正式轮换
         // 轨道节点0在盘旋圆心(orbitCenterX/Y，见下面)正东120码（角度0：cos0=1,sin0=0；
-        // 海加尔山盘旋圈半径和高度都是其它模板的2倍：半径60->120，高度1700->3400），
-        // 跟 BattleRoyale.sql 里生成轨道节点的公式对齐。落地航线的node0/1/2高度也
-        // 跟着同步改了（1700->3400，1685->3385），保持衔接连续；node3往后的下降螺旋
-        // 是相对落点地面高度的偏移量，没有改，所以node2->node3之间会有一段更陡的俯冲
-        // （之前~15码高度差，现在变成~1700码，玩家会看到明显更快的俯冲下降）。
-        // 注意这里不是 centerX/centerY（那是毒圈中心）。
-        t.deploymentStart = { 5581.397949f, -3512.822510f, 3400.0f, 0.0f };
+        // 海加尔山盘旋圈半径是其它模板的2倍：60->120），跟 BattleRoyale.sql 里生成
+        // 轨道节点的公式对齐。高度用用户实地飞行验证过的GPS读数1850.940063（之前试过
+        // 直接把1700翻倍到3400，实测太高看不清风景，改成这个校验过的高度）。落地航线的
+        // node0/1/2高度也跟着同步改了（1850.940063 / 1835.940063，维持原来staging比
+        // 30%混合点高15码的关系），保持衔接连续；node3往后的下降螺旋是相对落点地面高度
+        // 的偏移量，没有改。注意这里不是 centerX/centerY（那是毒圈中心）。
+        t.deploymentStart = { 5581.397949f, -3512.822510f, 1850.940063f, 0.0f };
         t.hostMode    = BRMapHostMode::OPEN_WORLD;
         // 绕2圈再切入个人下降航线，比默认1圈（约11-12秒）长一倍，给玩家多看看
         // 海加尔山的风景。
-        t.orbitLapCount = 3;
+        t.orbitLapCount = 2;
         // 盘旋入场单独设置了风景点（世界之树附近），跟毒圈真正的中心点
         // （centerX/centerY）分开，缩圈范围不受影响。
         t.hasCustomOrbitCenter = true;
