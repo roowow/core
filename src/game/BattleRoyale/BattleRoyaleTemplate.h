@@ -46,6 +46,18 @@ struct BattleRoyaleTemplate
     float openWorldMinY = 0.0f;
     float openWorldMaxY = 0.0f;
 
+    // 盘旋入场轨道的中心点，默认跟毒圈中心(centerX/centerY)一致。如果想让盘旋路线
+    // 落在别的风景点（不影响毒圈缩圈的实际中心），设置 orbitCenterX/Y 并把
+    // hasCustomOrbitCenter 置 true；用 GetOrbitCenterX()/GetOrbitCenterY() 取值。
+    float orbitCenterX = 0.0f;
+    float orbitCenterY = 0.0f;
+    bool  hasCustomOrbitCenter = false;
+    float GetOrbitCenterX() const { return hasCustomOrbitCenter ? orbitCenterX : centerX; }
+    float GetOrbitCenterY() const { return hasCustomOrbitCenter ? orbitCenterY : centerY; }
+
+    // 盘旋入场绕几圈轨道再切入个人下降航线，默认1圈（原有行为，AB/AV/Azshara Crater不受影响）。
+    uint32 orbitLapCount = 1;
+
     std::vector<BRSpawnPoint> spawnPoints;
     std::vector<BRZonePhase>  phases;
 };
@@ -184,6 +196,9 @@ inline BattleRoyaleTemplate& GetHyjalTemplate()
         // 生成轨道节点的公式对齐；staging高度1700，跟轨道节点/落地螺旋起点保持一致。
         t.deploymentStart = { 5562.959961f, -3611.911377f, 1700.0f, 0.0f };
         t.hostMode    = BRMapHostMode::OPEN_WORLD;
+        // 绕2圈再切入个人下降航线，比默认1圈（约11-12秒）长一倍，给玩家多看看
+        // 海加尔山的风景；轨道中心暂时还是用 centerX/Y（没有单独设置风景点）。
+        t.orbitLapCount = 2;
         // 实测边界框（BattleRoyale.md「硬边界数据格式」），Y方向在出生点录制完成后
         // 发现比最初四方向探测的范围更宽（有6个出生点落在原边界外），已按实际出生点
         // 范围外扩重新调整，留出安全余量，不贴着出生点边缘。
@@ -195,7 +210,19 @@ inline BattleRoyaleTemplate& GetHyjalTemplate()
         // spawnPoints 由 BattleRoyaleMgr::LoadSpawnPoints() 从数据库加载，此处留空。
         // 使用 .br spawn add 命令在游戏内站到目标位置后记录坐标。
 
-        // TODO: 缩圈阶段数据，等地图承载层确定能用之后再定，这里先留空。
+        // 缩圈阶段数据（之前留空导致毒圈完全不生效：BattleRoyaleZone::Update() 一开头
+        // 就检查 phases.empty() 直接返回，缩圈/伤害/圈标记GameObject全部跳过不执行）。
+        // 起始半径600码：实测圆心到硬边界四个角最远约457码，600码留了足够余量把出生点
+        // 全部包进圈内。节奏跟AB/艾萨拉环形山同款，15分钟5阶段。
+        BRZonePhase const phases[] = {
+            { 600.0f, 450.0f, 3 * 60 * 1000,  2.0f  }, // phase 1:  0:00,  2%/s (~50s to die)
+            { 450.0f, 300.0f, 3 * 60 * 1000,  4.0f  }, // phase 2:  3:00,  4%/s (~25s to die)
+            { 300.0f, 180.0f, 3 * 60 * 1000,  8.0f  }, // phase 3:  6:00,  8%/s (~12s to die)
+            { 180.0f,  80.0f, 3 * 60 * 1000, 15.0f  }, // phase 4:  9:00, 15%/s (~7s to die)
+            {  80.0f,   0.0f, 3 * 60 * 1000, 25.0f  }, // phase 5: 12:00, keeps shrinking to 0
+        }; // total: 15 min
+        for (BRZonePhase const& ph : phases)
+            t.phases.push_back(ph);
 
         return t;
     }();

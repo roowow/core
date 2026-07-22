@@ -470,9 +470,11 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
 
         // Build a personal combined path. Everyone starts from the staging point,
         // immediately fans out to a different point on the orbit ring, then follows
-        // the shared orbit from a rotated node before taking their own drop path.
+        // the shared orbit (possibly several laps, see orbitLapCount) from a rotated
+        // node before taking their own drop path.
+        uint32 const orbitLaps = m_tmpl ? std::max(1u, m_tmpl->orbitLapCount) : 1;
         std::vector<TaxiPathNodeEntry> combined;
-        combined.reserve(orbitNodes->size() + dropIt->second.nodes.size() + 2);
+        combined.reserve(orbitNodes->size() * orbitLaps + dropIt->second.nodes.size() + 2);
 
         uint32 const seed = BattleRoyaleMixSeed(player->GetObjectGuid().GetCounter() ^ brPlayer.deploymentPathId);
         size_t const orbitCount = orbitNodes->size();
@@ -489,8 +491,8 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         startNode.delay = 0;
         combined.push_back(startNode);
 
-        float const centerX = m_tmpl ? m_tmpl->centerX : (*orbitNodes)[orbitStart].x;
-        float const centerY = m_tmpl ? m_tmpl->centerY : (*orbitNodes)[orbitStart].y;
+        float const centerX = m_tmpl ? m_tmpl->GetOrbitCenterX() : (*orbitNodes)[orbitStart].x;
+        float const centerY = m_tmpl ? m_tmpl->GetOrbitCenterY() : (*orbitNodes)[orbitStart].y;
         float const radiusX = (*orbitNodes)[orbitStart].x - centerX;
         float const radiusY = (*orbitNodes)[orbitStart].y - centerY;
         float radius = std::sqrt(radiusX * radiusX + radiusY * radiusY);
@@ -506,11 +508,14 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         spreadNode.delay = 0;
         combined.push_back(spreadNode);
 
-        for (size_t i = 0; i < orbitCount; ++i)
+        for (uint32 lap = 0; lap < orbitLaps; ++lap)
         {
-            TaxiPathNodeEntry node = (*orbitNodes)[(orbitStart + i) % orbitCount];
-            node.index = uint32(combined.size());
-            combined.push_back(node);
+            for (size_t i = 0; i < orbitCount; ++i)
+            {
+                TaxiPathNodeEntry node = (*orbitNodes)[(orbitStart + i) % orbitCount];
+                node.index = uint32(combined.size());
+                combined.push_back(node);
+            }
         }
 
         uint32 const offset = uint32(combined.size());
