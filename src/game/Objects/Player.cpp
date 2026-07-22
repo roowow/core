@@ -3664,6 +3664,16 @@ void Player::GiveLevel(uint32 level)
         std::string message = std::string("勇敢者 |cFF") + sOOMgr.GetClassColor(GetClass()) + GetName() + std::string("|r，完成了重重考验，晋升到了60！");
         sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
         sWebChatMgr.NotifyWorldBroadcastToJianJia(message, GetName());
+        sOOMgr.AnnounceLevel60Fanfare();
+    }
+
+    // Tianxuan OnLevelChanged
+    if (IsTianxuan() && level == 60)
+    {
+        std::string message = std::string("天选者 |cFF") + sOOMgr.GetClassColor(GetClass()) + GetName() + std::string("|r，历尽天将降下的大任考验，终得大任功成，晋升到了60！");
+        sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
+        sWebChatMgr.NotifyWorldBroadcastToJianJia(message, GetName());
+        sOOMgr.AnnounceLevel60Fanfare();
     }
 }
 

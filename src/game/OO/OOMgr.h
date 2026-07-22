@@ -93,6 +93,10 @@ class OOMgr
 
         void HandleBGKillAnnounce(Player* killer, Player* victim);
 
+        // 勇敢者/天选者满60级音效：全服所有在线玩家按各自阵营依次听到"钟声x3（1秒1次）→欢呼"
+        // （分步播放逻辑见 Update() 里 m_level60Timer/m_level60BellsLeft 的处理）
+        void AnnounceLevel60Fanfare();
+
         // 派对入场券/随机变身（Party Time! spell=8067）禁止出现的模型ID：
         // 勇敢者&天选者满级奖励专属模型、PX-238系列节日装扮、以及碰撞半径过大的巨型boss模型。
         // 在 Load() 里统一计算填充，见 OOMgr.cpp。
@@ -140,6 +144,9 @@ class OOMgr
 
         std::map<ObjectGuid, PathRecordingSession> m_pathRecordings;
         uint32 m_pathRecordPollTimer = 0;
+
+        uint32 m_level60Timer = 0;      // 距下一步（下一声钟响，或最后的欢呼）还有多久，0=无待播放
+        uint32 m_level60BellsLeft = 0;  // 还剩几声钟响没播（播完才轮到欢呼）
 
         std::set<uint32> m_bannedTransformDisplayIds;
 
