@@ -420,6 +420,15 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
             continue;
         }
 
+        // The initial deployment TeleportTo() (same-map "near" teleport) can be
+        // deferred by Player::SetDelayedTeleportFlagIfCan() and not actually applied
+        // yet — observed as the player never visibly teleporting to deploymentStart,
+        // just taking off and slowly flying from wherever they really were. Force it
+        // through immediately instead of waiting for the client round trip, so the
+        // combined flight always starts from the correct staging point.
+        if (player->IsBeingTeleportedNear())
+            player->ExecuteTeleportNear();
+
         // Player hasn't started the combined flight yet.
         // Hold them in place with hover until the flight starts.
         if (!player->IsHovering() && !player->HasPendingMovementChange(SET_HOVER))
@@ -476,12 +485,17 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         float const angle = BR_TWO_PI * float(brPlayer.orbitSlot % totalSlots) / float(totalSlots);
         size_t const orbitStart = size_t(angle / BR_TWO_PI * float(orbitCount) + 0.5f) % orbitCount;
 
+        // Use the template's staging point instead of the player's live position.
+        // A same-map ("near") teleport can be deferred (Player::SetDelayedTeleportFlagIfCan())
+        // and not yet applied by the time this runs, so GetPosition* here could still read
+        // the pre-teleport location — observed as the player never visibly teleporting,
+        // just taking off and slowly flying from wherever they actually were.
         TaxiPathNodeEntry startNode = (*orbitNodes)[orbitStart];
         startNode.index = 0;
         startNode.mapid = player->GetMapId();
-        startNode.x = player->GetPositionX();
-        startNode.y = player->GetPositionY();
-        startNode.z = player->GetPositionZ();
+        startNode.x = m_tmpl ? m_tmpl->deploymentStart.x : player->GetPositionX();
+        startNode.y = m_tmpl ? m_tmpl->deploymentStart.y : player->GetPositionY();
+        startNode.z = m_tmpl ? m_tmpl->deploymentStart.z : player->GetPositionZ();
         startNode.delay = 0;
         combined.push_back(startNode);
 
