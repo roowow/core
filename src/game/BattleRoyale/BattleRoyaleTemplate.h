@@ -160,8 +160,14 @@ inline BattleRoyaleTemplate& GetAzsharaCraterTemplate()
 // 那道"必须是战场类型地图"检查约束。
 // enabled 暂时=false：出生点还在录制中（.br spawn add），且这条 OPEN_WORLD 分支本身刚实现完还
 // 没有实测过，等出生点录够、真人测试确认没问题后再手动改成 true。
-// orbitPathId/deploymentStart/phases 仍是未定的占位值，不影响承载层本身能否工作
-// （orbitPathId 缺失时 BattleRoyale::UpdateDeploying() 会优雅降级成直接传送到出生点，不会崩）。
+//
+// orbitPathId 曾经是0（占位），实测发现这会导致一个真实bug：没有环绕飞行路线时，
+// 真人玩家会在部署阶段第一个tick就直接完成落地，这时候机器人还没来得及异步登录
+// 加入 m_players，UpdateDeploying() 里 m_landedCount>=m_totalCount 就已经成立，
+// 直接转入RUNNING——等机器人登录完成再想加入，会被"迟到机器人拒收"逻辑全部拒绝
+// （BattleRoyaleMgr.cpp::OnBotReady() 检查 GetStatus()!=DEPLOYING）。
+// 已在 BattleRoyale.sql 里补了真实的环绕轨道（909996 br_hyjal_orbit）+ 每个出生点的
+// 下降螺旋落地路线（940000+spawn_index），deploymentStart 对齐轨道节点0的位置。
 inline BattleRoyaleTemplate& GetHyjalTemplate()
 {
     static BattleRoyaleTemplate tmpl = []() -> BattleRoyaleTemplate
@@ -169,12 +175,14 @@ inline BattleRoyaleTemplate& GetHyjalTemplate()
         BattleRoyaleTemplate t;
         t.id          = 4;
         t.mapId       = 1; // Kalimdor（海加尔山 世界之树）
-        t.orbitPathId = 0; // TODO: 需要新建一条 taxi 环绕路线
+        t.orbitPathId = 909996; // br_hyjal_orbit，见 BattleRoyale.sql
         t.centerX     = 5502.959961f; // 实测边界框中心（BattleRoyale.md 已记录）
         t.centerY     = -3611.911377f;
         t.maxPlayers  = 30; // TODO: 待定，先用跟 AB/Azshara Crater 一样的规模占位
         t.enabled     = false; // 出生点录制中 + 未实测，先不进正式轮换
-        t.deploymentStart = { 5502.959961f, -3611.911377f, 1700.0f, 0.0f }; // TODO: 待定占位
+        // 轨道节点0在圆心正东60码（角度0：cos0=1,sin0=0），跟 BattleRoyale.sql 里
+        // 生成轨道节点的公式对齐；staging高度1700，跟轨道节点/落地螺旋起点保持一致。
+        t.deploymentStart = { 5562.959961f, -3611.911377f, 1700.0f, 0.0f };
         t.hostMode    = BRMapHostMode::OPEN_WORLD;
         // 实测边界框（BattleRoyale.md「硬边界数据格式」），Y方向在出生点录制完成后
         // 发现比最初四方向探测的范围更宽（有6个出生点落在原边界外），已按实际出生点
