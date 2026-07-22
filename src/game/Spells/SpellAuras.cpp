@@ -26,6 +26,7 @@
 #include "Log.h"
 #include "World.h"
 #include "ObjectMgr.h"
+#include "OO/OOMgr.h"
 #include "SpellMgr.h"
 #include "Player.h"
 #include "PlayerAI.h"
@@ -1633,7 +1634,7 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
                                 {
                                     uint32 displayIdIndex = urand(1, maxEntry);
                                     CreatureDisplayInfoAddon const* minfo = sCreatureDisplayInfoAddonStorage.LookupEntry<CreatureDisplayInfoAddon>(displayIdIndex);
-                                    if (minfo)
+                                    if (minfo && !sOOMgr.IsBannedTransformDisplayId(minfo->display_id))
                                     {
                                         pPlayer->SetDisplayId(minfo->display_id);
                                         std::string msg = std::string("派对时间！(") + std::to_string(minfo->display_id) + std::string("）");

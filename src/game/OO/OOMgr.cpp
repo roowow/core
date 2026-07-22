@@ -11,6 +11,8 @@
 #include "Player.h"
 #include "BattleGround.h"
 #include "WorldPacket.h"
+#include "CreatureDefines.h"
+#include "SQLStorages.h"
 
 #include "Config/Config.h"
 #include "Utilities/Random.h"
@@ -167,6 +169,42 @@ void OOMgr::Load()
     // sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
     // sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u OOAutoBroadCast messages", count);
 
+    BuildBannedTransformDisplayIds();
+}
+
+// 派对入场券随机变身（8067 Party Time!）/手动指定变身，两个入口共用的黑名单。
+// 之所以不直接从 creature_display_info_addon 里删行，是因为这张表同时也是
+// 真实生物（比如下面的 Furbolg/Ogre）的碰撞体积/移动速度数据来源，删掉会影响
+// 这些生物本身在世界里正常生成时的表现——黑名单只在"随机挑变身"/"手动指定变身"
+// 这两处生效，不影响其他任何读取这张表的地方。
+// 依赖 creature_display_info_addon 已经加载完毕（World.cpp 里 sObjectMgr.LoadCreatureDisplayInfoAddon()
+// 在 sOOMgr.Load() 之前执行），.reload creature_display_info_addon 后也要记得重新调用一次本函数。
+void OOMgr::BuildBannedTransformDisplayIds()
+{
+    m_bannedTransformDisplayIds.clear();
+
+    // 勇敢者/天选者满级奖励专属变身，不允许在派对入场券里出现，保持这两个模型的专属感
+    // 905462 达托尔的变形棒 -> creature_template 3925 -> display_id1 6823（熊怪）
+    // 918258 戈多克食人魔套装 -> creature_template 14353 -> display_id1 14406（食人魔）
+    m_bannedTransformDisplayIds.insert(6823);
+    m_bannedTransformDisplayIds.insert(14406);
+
+    // 欢乐制造器 PX-238 Winter Wondervolt 系列变身（spell 26157/26272/26273/26274 各自的巨大化冬日精灵）
+    static uint32 const PX238_DISPLAY_IDS[] = { 15687, 15803, 15806, 15807, 15799, 15800, 15795, 15796 };
+    for (uint32 displayId : PX238_DISPLAY_IDS)
+        m_bannedTransformDisplayIds.insert(displayId);
+
+    // 过滤大体型boss/特效模型：碰撞半径明显超出玩家可变身模型的正常范围
+    // （抽样数据：普通人形/野兽多在1.0以下，2.5以上基本是Ony/C'Thun触手/Colossus这类巨型或特效模型）
+    static float const LARGE_BOSS_BOUNDING_RADIUS = 2.5f;
+    for (uint32 i = 1; i < sCreatureDisplayInfoAddonStorage.GetMaxEntry(); ++i)
+    {
+        if (CreatureDisplayInfoAddon const* minfo = sCreatureDisplayInfoAddonStorage.LookupEntry<CreatureDisplayInfoAddon>(i))
+            if (minfo->bounding_radius > LARGE_BOSS_BOUNDING_RADIUS)
+                m_bannedTransformDisplayIds.insert(minfo->display_id);
+    }
+
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ">> Loaded %u banned transform display ids", uint32(m_bannedTransformDisplayIds.size()));
 }
 
 void OOMgr::Update(uint32 diff)

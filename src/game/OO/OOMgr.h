@@ -8,6 +8,7 @@
 #include "ObjectGuid.h"
 
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -92,6 +93,12 @@ class OOMgr
 
         void HandleBGKillAnnounce(Player* killer, Player* victim);
 
+        // 派对入场券/随机变身（Party Time! spell=8067）禁止出现的模型ID：
+        // 勇敢者&天选者满级奖励专属模型、PX-238系列节日装扮、以及碰撞半径过大的巨型boss模型。
+        // 在 Load() 里统一计算填充，见 OOMgr.cpp。
+        void BuildBannedTransformDisplayIds();
+        bool IsBannedTransformDisplayId(uint32 display_id) const { return m_bannedTransformDisplayIds.count(display_id) > 0; }
+
         // Path recording
         void StartPathRecording(ObjectGuid playerGuid, std::string const& name);
         void StopPathRecording(ObjectGuid playerGuid, std::string& outMessage);
@@ -133,6 +140,8 @@ class OOMgr
 
         std::map<ObjectGuid, PathRecordingSession> m_pathRecordings;
         uint32 m_pathRecordPollTimer = 0;
+
+        std::set<uint32> m_bannedTransformDisplayIds;
 
     private:
         void LoadBotNameThemes();

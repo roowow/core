@@ -24,6 +24,7 @@
 #include "Language.h"
 #include "AccountMgr.h"
 #include "ObjectMgr.h"
+#include "OO/OOMgr.h"
 #include "ScriptMgr.h"
 #include "GuildMgr.h"
 #include "SystemConfig.h"
@@ -1857,6 +1858,7 @@ bool ChatHandler::HandleReloadFactionChangeMounts(char*)
 bool ChatHandler::HandleReloadCreatureDisplayInfoAddon(char*)
 {
     sObjectMgr.LoadCreatureDisplayInfoAddon();
+    sOOMgr.BuildBannedTransformDisplayIds();
     SendSysMessage(">> Table `creature_display_info_addon` reloaded.");
     return true;
 }

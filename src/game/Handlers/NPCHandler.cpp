@@ -28,6 +28,7 @@
 #include "Opcodes.h"
 #include "Log.h"
 #include "ObjectMgr.h"
+#include "OO/OOMgr.h"
 #include "SpellMgr.h"
 #include "Player.h"
 #include "GossipDef.h"
@@ -451,6 +452,12 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::Npc::GossipSelec
                     }
 
                     CreatureDisplayInfoAddon const* minfo = sCreatureDisplayInfoAddonStorage.LookupEntry<CreatureDisplayInfoAddon>(std::stoi(code));
+                    if (minfo && sOOMgr.IsBannedTransformDisplayId(minfo->display_id))
+                    {
+                        ChatHandler(_player).SendSysMessage("该模型不允许指定。");
+                        pMenu->CloseGossip();
+                        break;
+                    }
                     if (minfo)
                     {
                         _player->CastSpell(_player, 8067, true);
