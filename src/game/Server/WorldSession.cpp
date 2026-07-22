@@ -40,6 +40,8 @@
 #include "Anticheat.h"
 #include "Language.h"
 #include "Chat.h"
+#include "Mail.h"
+#include "Util.h"
 #include "MasterPlayer.h"
 #include "PlayerBroadcaster.h"
 #include "Crypto/Hash/MD5.h"
@@ -1218,6 +1220,7 @@ MovementAnticheat* WorldSession::GetCheatData()
 void WorldSession::ProcessAnticheatAction(char const* detector, char const* reason, uint32 cheatAction, uint32 banSeconds)
 {
     char const* action = "";
+    bool penaltyAppliedToPlayer = false; // 只有真的对这个（非GM）玩家执行了踢出/封禁，才需要发通知邮件
     if (cheatAction & CHEAT_ACTION_MUTE_PUB_CHANS)
     {
         action = "Muted from public channels.";
@@ -1237,6 +1240,7 @@ void WorldSession::ProcessAnticheatAction(char const* detector, char const* reas
             std::stringstream banIpReason;
             banIpReason << "Cf account " << GetUsername();
             sWorld.BanAccount(BAN_IP, GetRemoteAddress(), banSeconds, banIpReason.str(), detector);
+            penaltyAppliedToPlayer = true;
         }
     }
     else if (cheatAction & CHEAT_ACTION_BAN_ACCOUNT)
@@ -1244,18 +1248,43 @@ void WorldSession::ProcessAnticheatAction(char const* detector, char const* reas
         action = "Banned.";
         std::string _reason = std::string("CHEAT") + ": " + reason;
         if (GetSecurity() == SEC_PLAYER)
+        {
             sWorld.BanAccount(BAN_ACCOUNT, GetUsername(), banSeconds, _reason, detector);
+            penaltyAppliedToPlayer = true;
+        }
     }
     else if (cheatAction & CHEAT_ACTION_KICK)
     {
         action = "Kicked.";
         if (GetSecurity() == SEC_PLAYER)
+        {
             KickPlayer();
+            penaltyAppliedToPlayer = true;
+        }
     }
     else if (cheatAction & CHEAT_ACTION_REPORT_GMS)
         action = "Announced to GMs.";
     else if (!(cheatAction & CHEAT_ACTION_LOG))
         return;
+
+    // 被踢/被封的玩家发一封系统邮件说明原因，方便对方申诉时知道自己是因为什么被处理的。
+    // 注意：KickPlayer()/BanAccount() 都不会立刻销毁 _player，这里读它仍然安全。
+    if (penaltyAppliedToPlayer && _player && !_player->IsBot())
+    {
+        std::string durationText;
+        if (cheatAction & (CHEAT_ACTION_BAN_ACCOUNT | CHEAT_ACTION_BAN_IP_ACCOUNT))
+            durationText = std::string("\n处罚时长：") + (banSeconds ? secsToTimeString(banSeconds) : "永久");
+
+        std::string body = std::string("尊敬的玩家：\n\n")
+            + "系统反作弊模块检测到你的账号存在异常行为，已自动执行以下处理：\n\n"
+            + "触发原因：" + reason + "\n"
+            + "处罚结果：" + action
+            + durationText
+            + "\n\n如果你认为这是误判，请通过论坛申诉。";
+
+        MailDraft("反作弊系统通知", body)
+            .SendMailTo(MailReceiver(_player->GetObjectGuid()), MailSender(MAIL_NORMAL, uint32(0), MAIL_STATIONERY_DEFAULT));
+    }
 
     std::string playerDesc;
     if (_player)

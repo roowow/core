@@ -361,6 +361,7 @@ ChatCommand * ChatHandler::getCommandTable()
     static ChatCommand debugCommandTable[] =
     {
         { "anim",           SEC_ADMINISTRATOR,     false, &ChatHandler::HandleDebugAnimCommand,                "", nullptr },
+        { "anticheat",      SEC_ADMINISTRATOR,     false, &ChatHandler::HandleDebugAnticheatMailCommand,       "", nullptr },
         { "bg",             SEC_ADMINISTRATOR,  true,  &ChatHandler::HandleDebugBattlegroundCommand,        "", nullptr },
         { "avinfo",         SEC_ADMINISTRATOR,  false, &ChatHandler::HandleDebugAVInfoCommand,              "", nullptr },
         { "bytes1",         SEC_DEVELOPER,      true,  &ChatHandler::HandleDebugUnitBytes1Command,          "", nullptr },

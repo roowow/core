@@ -470,6 +470,7 @@ class ChatHandler
         bool HandleCharacterHasItemCommand(char* args);
 
         bool HandleDebugAnimCommand(char* args);
+        bool HandleDebugAnticheatMailCommand(char* args);
         bool HandleDebugBattlegroundCommand(char* args);
         bool HandleDebugAVInfoCommand(char* args);
 

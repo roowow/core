@@ -41,6 +41,7 @@
 #include "ScriptMgr.h"
 #include "Conditions.h"
 #include "Utilities/Random.h"
+#include "Anticheat.h"
 // VMAPS
 #include "VMapFactory.h"
 #include "ModelInstance.h"
@@ -1161,6 +1162,32 @@ bool ChatHandler::HandleDebugAnimCommand(char* args)
         return false;
 
     m_session->GetPlayer()->HandleEmoteCommand(emote_id);
+    return true;
+}
+
+bool ChatHandler::HandleDebugAnticheatMailCommand(char* /*args*/)
+{
+    // 测试反作弊踢人/封号邮件通知：选中一个非GM身份的测试角色后执行，
+    // 会对它触发一次模拟的CHEAT_ACTION_KICK，实际把它踢下线，同时按正常流程发送说明邮件。
+    // GM账号本身不受反作弊处罚约束（ProcessAnticheatAction 里按 SEC_PLAYER 判断），
+    // 选中GM角色测试不会有任何效果。
+    Player* target = GetSelectedPlayer();
+    if (!target)
+    {
+        SendSysMessage("请先选中一个非GM身份的测试角色。");
+        SetSentErrorMessage(true);
+        return false;
+    }
+
+    if (target->GetSession()->GetSecurity() != SEC_PLAYER)
+    {
+        SendSysMessage("选中的角色是GM身份，反作弊处罚对GM不生效，不会发邮件，请换一个普通权限的测试角色。");
+        SetSentErrorMessage(true);
+        return false;
+    }
+
+    target->GetSession()->ProcessAnticheatAction("Test", "GM手动测试反作弊邮件通知", CHEAT_ACTION_KICK | CHEAT_ACTION_LOG, 0);
+    PSendSysMessage("已对 %s 触发一次模拟反作弊踢出，去检查对方邮箱是否收到通知邮件。", target->GetName());
     return true;
 }
 
