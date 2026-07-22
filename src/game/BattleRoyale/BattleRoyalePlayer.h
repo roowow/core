@@ -19,6 +19,7 @@ struct BattleRoyalePlayer
     uint32        placementRank     = 0;      // 0 = still in game, 1 = winner, N = Nth eliminated
     BRSpawnPoint  landingPoint      = { 0.0f, 0.0f, 0.0f, 0.0f };
     uint32        deploymentPathId  = 0;
+    uint32        orbitSlot         = 0;      // join order (0-based); spreads entry angles evenly around the orbit
     bool          orbitStarted      = false;  // currently riding the shared orbit taxi
     bool          deploymentStarted = false;  // currently riding the individual drop taxi
     bool          landed            = false;

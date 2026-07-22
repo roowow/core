@@ -193,10 +193,14 @@ inline BattleRoyaleTemplate& GetHyjalTemplate()
         t.centerY     = -3611.911377f;
         t.maxPlayers  = 30; // TODO: 待定，先用跟 AB/Azshara Crater 一样的规模占位
         t.enabled     = false; // 出生点录制中 + 未实测，先不进正式轮换
-        // 轨道节点0在盘旋圆心(orbitCenterX/Y，见下面)正东60码（角度0：cos0=1,sin0=0），
-        // 跟 BattleRoyale.sql 里生成轨道节点的公式对齐；staging高度1700，跟轨道节点/
-        // 落地螺旋起点保持一致。注意这里不是 centerX/centerY（那是毒圈中心）。
-        t.deploymentStart = { 5521.397949f, -3512.822510f, 1700.0f, 0.0f };
+        // 轨道节点0在盘旋圆心(orbitCenterX/Y，见下面)正东120码（角度0：cos0=1,sin0=0；
+        // 海加尔山盘旋圈半径和高度都是其它模板的2倍：半径60->120，高度1700->3400），
+        // 跟 BattleRoyale.sql 里生成轨道节点的公式对齐。落地航线的node0/1/2高度也
+        // 跟着同步改了（1700->3400，1685->3385），保持衔接连续；node3往后的下降螺旋
+        // 是相对落点地面高度的偏移量，没有改，所以node2->node3之间会有一段更陡的俯冲
+        // （之前~15码高度差，现在变成~1700码，玩家会看到明显更快的俯冲下降）。
+        // 注意这里不是 centerX/centerY（那是毒圈中心）。
+        t.deploymentStart = { 5581.397949f, -3512.822510f, 3400.0f, 0.0f };
         t.hostMode    = BRMapHostMode::OPEN_WORLD;
         // 绕2圈再切入个人下降航线，比默认1圈（约11-12秒）长一倍，给玩家多看看
         // 海加尔山的风景。

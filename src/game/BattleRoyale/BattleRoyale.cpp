@@ -78,16 +78,6 @@ static char const* PickBattleRoyaleLine(char const* const* lines, uint32 count)
     return lines[urand(0, count - 1)];
 }
 
-static uint32 BattleRoyaleMixSeed(uint32 value)
-{
-    value ^= value >> 16;
-    value *= 0x7feb352d;
-    value ^= value >> 15;
-    value *= 0x846ca68b;
-    value ^= value >> 16;
-    return value;
-}
-
 static float GetBattleRoyaleLandingZ(Map* map, BRSpawnPoint const& landing)
 {
     if (!map)
@@ -142,6 +132,7 @@ void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, u
     brPlayer.placementRank    = 0;
     brPlayer.landingPoint     = landingPoint;
     brPlayer.deploymentPathId = deploymentPathId;
+    brPlayer.orbitSlot        = m_totalCount; // 0-based join order, fixed denominator (maxPlayers) spreads angles evenly
     brPlayer.savedPosition    = WorldLocation(player->GetMapId(),
                                               player->GetPositionX(),
                                               player->GetPositionY(),
@@ -476,11 +467,14 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         std::vector<TaxiPathNodeEntry> combined;
         combined.reserve(orbitNodes->size() * orbitLaps + dropIt->second.nodes.size() + 2);
 
-        uint32 const seed = BattleRoyaleMixSeed(player->GetObjectGuid().GetCounter() ^ brPlayer.deploymentPathId);
+        // Even fan-out: each player's join order (orbitSlot) gets its own fixed-width
+        // slice of the circle (denominator = maxPlayers, not live join count, so slots
+        // assigned to early joiners don't shift as later players/bots join). A random
+        // per-player hash used to be here, but with ~30 entrants it visibly clustered.
         size_t const orbitCount = orbitNodes->size();
-        uint32 const angleBucket = seed % 10000;
-        float const angle = BR_TWO_PI * float(angleBucket) / 10000.0f;
-        size_t const orbitStart = size_t(float(angleBucket) * float(orbitCount) / 10000.0f + 0.5f) % orbitCount;
+        uint32 const totalSlots = m_tmpl ? std::max(1u, m_tmpl->maxPlayers) : 30;
+        float const angle = BR_TWO_PI * float(brPlayer.orbitSlot % totalSlots) / float(totalSlots);
+        size_t const orbitStart = size_t(angle / BR_TWO_PI * float(orbitCount) + 0.5f) % orbitCount;
 
         TaxiPathNodeEntry startNode = (*orbitNodes)[orbitStart];
         startNode.index = 0;
