@@ -673,6 +673,14 @@ void WorldSession::HandleInitiateTradeOpcode(WorldPackets::Trade::InitiateTrade 
         return;
     }
 
+    // 天选者模式禁止与他人交易（双向）
+    if (pOther->IsTianxuan())
+    {
+        ChatHandler(GetPlayer()).PSendSysMessage("[天选者] %s 天命独行，不接受他人交易。", pOther->GetName());
+        SendTradeStatus(TRADE_STATUS_TRADE_CANCELED);
+        return;
+    }
+
     if (_player->GetDistance3dToCenter(pOther) > TRADE_DISTANCE)
     {
         SendTradeStatus(TRADE_STATUS_TARGET_TO_FAR);

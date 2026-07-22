@@ -3757,6 +3757,14 @@ void CombatBotBaseAI::OnPacketReceived(WorldPacket const* packet)
 {
     // Must always check "me" player pointer here!
     //printf("Bot received %s\n", LookupOpcodeName(packet->GetOpcode()));
+    // TODO 临时调试日志：追踪机器人同地图(near)传送卡住的问题，排查完删除。
+    if (me && me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_BR &&
+        (packet->GetOpcode() == SMSG_NEW_WORLD || packet->GetOpcode() == MSG_MOVE_TELEPORT_ACK ||
+         packet->GetOpcode() == SMSG_TRANSFER_PENDING))
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BR-DEBUG] OnPacketReceived: bot %s opcode=%s (%u)",
+                 me->GetName(), LookupOpcodeName(packet->GetOpcode()), packet->GetOpcode());
+    }
     switch (packet->GetOpcode())
     {
         case SMSG_NEW_WORLD:
@@ -3780,6 +3788,8 @@ void CombatBotBaseAI::OnPacketReceived(WorldPacket const* packet)
 #endif
             data->time = uint32(time(nullptr));
             me->GetSession()->QueuePacket(std::move(data));
+            // TODO 临时调试日志：确认这次自动回执确实发出去了，排查完删除。
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BR-DEBUG] OnPacketReceived: bot %s queued MoveTeleportAck reply", me->GetName());
             break;
         }
         case SMSG_LOGIN_SETTIMESPEED:

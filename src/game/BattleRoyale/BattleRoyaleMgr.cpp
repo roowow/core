@@ -642,7 +642,16 @@ void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
     m_playerInstMap[bot->GetObjectGuid()] = instanceId;
 
     ApplyBattleRoyaleStagingMount(bot, deploymentPathId);
-    if (!bot->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o))
+    // TODO 临时调试日志：追踪机器人同地图(near)传送卡住的问题，排查完删除。
+    sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+             "[BR-DEBUG] OnBotReady: bot %s currently map=%u (%.1f,%.1f,%.1f) -> TeleportTo map=%u (%.1f,%.1f,%.1f)",
+             bot->GetName(), bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(),
+             tmpl.mapId, start.x, start.y, start.z);
+    bool const teleportResult = bot->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o);
+    sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+             "[BR-DEBUG] OnBotReady: bot %s TeleportTo returned %d, IsBeingTeleportedNear=%d IsBeingTeleportedFar=%d",
+             bot->GetName(), teleportResult, bot->IsBeingTeleportedNear(), bot->IsBeingTeleportedFar());
+    if (!teleportResult)
     {
         if (bot->IsMounted())
             bot->Unmount();
