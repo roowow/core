@@ -18,6 +18,15 @@ struct BRZonePhase
     float  damagePercent; // % of max health per second, bypasses all mitigation
 };
 
+// INSTANCED：现有做法，走 CreateBgMap() 建一个专属 BattleGroundMap（AB/AV/Azshara Crater 都是这个）。
+// OPEN_WORLD：挂到服务器本来就常驻加载的那张地图上（sMapMgr.FindMap(mapId, 0)），不新建实例。
+// 见 BattleRoyale.md「分层设计草案」。
+enum class BRMapHostMode : uint8
+{
+    INSTANCED,
+    OPEN_WORLD,
+};
+
 struct BattleRoyaleTemplate
 {
     uint32 id;
@@ -28,6 +37,14 @@ struct BattleRoyaleTemplate
     uint32 maxPlayers;
     bool   enabled;
     BRSpawnPoint deploymentStart;
+    BRMapHostMode hostMode = BRMapHostMode::INSTANCED;
+
+    // 硬边界（仅 hostMode==OPEN_WORLD 使用）：越出这个矩形范围立即淘汰传送回原位。
+    // 平面判断 x < minX || x > maxX || y < minY || y > maxY，不判高度。
+    float openWorldMinX = 0.0f;
+    float openWorldMaxX = 0.0f;
+    float openWorldMinY = 0.0f;
+    float openWorldMaxY = 0.0f;
 
     std::vector<BRSpawnPoint> spawnPoints;
     std::vector<BRZonePhase>  phases;
@@ -137,14 +154,14 @@ inline BattleRoyaleTemplate& GetAzsharaCraterTemplate()
     return tmpl;
 }
 
-// Mount Hyjal (World Tree area, Map:1 Kalimdor) — 野外开放世界地图，占位模板。
-// mapId=1 是大陆地图，不是战场类型地图，IsBattleRoyaleTemplateBattlegroundMap() 会拒绝它，
-// 所以 enabled=false，且无论如何都进不了真实对局的随机/指定选择（见 BattleRoyaleMgr.cpp
-// IsBattleRoyaleTemplateStartable() / CreateInstance() 里的多处硬性检查）。
-// 这个占位模板存在的唯一目的：让 .br spawn add / .br spawn list 命令能识别 map 1，
-// 方便在真正的 OPEN_WORLD 地图承载层（见 BattleRoyale.md「分层设计草案」）落地之前，
-// 先把出生点坐标录进 battle_royale_spawn_point 表。orbitPathId/deploymentStart/phases
-// 都是未定的占位值，承载层实现完之后再回来补齐、把 enabled 改成 true。
+// Mount Hyjal (World Tree area, Map:1 Kalimdor) — 第一个野外开放世界BR地图。
+// hostMode=OPEN_WORLD：走 BattleRoyaleMgr::CreateInstance() 里的 OPEN_WORLD 分支，
+// 挂到常驻的 Kalimdor 地图上，不新建 BattleGroundMap，不受 IsBattleRoyaleTemplateBattlegroundMap()
+// 那道"必须是战场类型地图"检查约束。
+// enabled 暂时=false：出生点还在录制中（.br spawn add），且这条 OPEN_WORLD 分支本身刚实现完还
+// 没有实测过，等出生点录够、真人测试确认没问题后再手动改成 true。
+// orbitPathId/deploymentStart/phases 仍是未定的占位值，不影响承载层本身能否工作
+// （orbitPathId 缺失时 BattleRoyale::UpdateDeploying() 会优雅降级成直接传送到出生点，不会崩）。
 inline BattleRoyaleTemplate& GetHyjalTemplate()
 {
     static BattleRoyaleTemplate tmpl = []() -> BattleRoyaleTemplate
@@ -152,12 +169,20 @@ inline BattleRoyaleTemplate& GetHyjalTemplate()
         BattleRoyaleTemplate t;
         t.id          = 4;
         t.mapId       = 1; // Kalimdor（海加尔山 世界之树）
-        t.orbitPathId = 0; // TODO: 需要新建一条 taxi 环绕路线，承载层落地后再补
+        t.orbitPathId = 0; // TODO: 需要新建一条 taxi 环绕路线
         t.centerX     = 5502.959961f; // 实测边界框中心（BattleRoyale.md 已记录）
         t.centerY     = -3611.911377f;
         t.maxPlayers  = 30; // TODO: 待定，先用跟 AB/Azshara Crater 一样的规模占位
-        t.enabled     = false; // 承载层没实现完之前绝不能进正式轮换
+        t.enabled     = false; // 出生点录制中 + 未实测，先不进正式轮换
         t.deploymentStart = { 5502.959961f, -3611.911377f, 1700.0f, 0.0f }; // TODO: 待定占位
+        t.hostMode    = BRMapHostMode::OPEN_WORLD;
+        // 实测边界框（BattleRoyale.md「硬边界数据格式」），Y方向在出生点录制完成后
+        // 发现比最初四方向探测的范围更宽（有6个出生点落在原边界外），已按实际出生点
+        // 范围外扩重新调整，留出安全余量，不贴着出生点边缘。
+        t.openWorldMinX = 5199.093262f; // 最南点.X（X方向出生点范围5217.87~5757.23，原边界够用，未调整）
+        t.openWorldMaxX = 5806.826172f; // 最北点.X
+        t.openWorldMinY = -3900.0f; // 原-3842.36，出生点128实测到-3875.23，外扩到-3900留余量
+        t.openWorldMaxY = -3270.0f; // 原-3381.46，出生点117实测到-3298.06，外扩到-3270留余量
 
         // spawnPoints 由 BattleRoyaleMgr::LoadSpawnPoints() 从数据库加载，此处留空。
         // 使用 .br spawn add 命令在游戏内站到目标位置后记录坐标。

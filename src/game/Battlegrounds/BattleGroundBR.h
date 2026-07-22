@@ -30,8 +30,23 @@ public:
     void RemovePlayerAtLeave(ObjectGuid guid, bool transport, bool sendPacket) override;
     void HandleKillPlayer(Player* victim, Player* killer) override;
 
+    // --- Open-world map hosting (see BattleRoyale.md「分层设计草案」) ---
+    // For OPEN_WORLD templates there is no dedicated BattleGroundMap: instead we attach to
+    // whatever persistent Map the server already has loaded for that mapId (e.g. Kalimdor).
+    // GetBgMap()/m_map (base class) stay untouched/null in this mode — GetHostMap() is the
+    // one accessor BattleRoyale.cpp should use instead of GetBgMap() everywhere.
+    Map* GetHostMap() { return m_openWorldMap ? m_openWorldMap : GetBgMap(); }
+    void SetOpenWorldMap(Map* map, uint32 instanceId) { m_openWorldMap = map; m_openWorldInstanceId = instanceId; }
+    bool IsOpenWorldHosted() const { return m_openWorldMap != nullptr; }
+
+    // GetInstanceID() (base class) derives from m_map, which stays null in open-world mode —
+    // override so registration with BattleGroundMgr uses a real synthetic id instead of 0.
+    uint32 GetInstanceID() override { return m_openWorldMap ? m_openWorldInstanceId : BattleGround::GetInstanceID(); }
+
 private:
     BattleRoyale* m_owner = nullptr;
+    Map* m_openWorldMap = nullptr;
+    uint32 m_openWorldInstanceId = 0;
 };
 
 #endif // MANGOS_BATTLEGROUNDBR_H

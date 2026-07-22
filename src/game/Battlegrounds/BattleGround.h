@@ -100,7 +100,9 @@ class BattleGround
         BattleGroundBracketId GetBracketId() const { return m_bracketId; }
         // the instanceId check is also used to determine a bg-template
         // that's why the m_map hack is here..
-        uint32 GetInstanceID()              { return m_map ? GetBgMap()->GetInstanceId() : 0; }
+        // virtual: BattleGroundBR overrides this for open-world-hosted BR instances,
+        // which have no BattleGroundMap (m_map stays null) and need a synthetic instance id.
+        virtual uint32 GetInstanceID()       { return m_map ? GetBgMap()->GetInstanceId() : 0; }
         BattleGroundStatus GetStatus() const { return m_status; }
         uint32 GetClientInstanceID() const  { return m_clientInstanceId; }
         uint32 GetStartTime() const         { return m_startTime; }

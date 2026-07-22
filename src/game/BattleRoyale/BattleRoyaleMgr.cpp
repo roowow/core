@@ -78,9 +78,19 @@ bool IsBattleRoyaleTemplateBattlegroundMap(BattleRoyaleTemplate const& tmpl)
     return mapEntry && mapEntry->IsBattleGround();
 }
 
+// INSTANCED 模板的地图必须是战场类型（走 CreateBgMap()）；OPEN_WORLD 模板的地图
+// 天生就不是战场类型（比如 Kalimdor 大陆），改成检查目标地图当前是否已经常驻加载
+// （sMapMgr.FindMap 找已存在地图，不创建新的）。
+bool IsBattleRoyaleTemplateMapReady(BattleRoyaleTemplate const& tmpl)
+{
+    if (tmpl.hostMode == BRMapHostMode::OPEN_WORLD)
+        return sMapMgr.FindMap(tmpl.mapId, 0) != nullptr;
+    return IsBattleRoyaleTemplateBattlegroundMap(tmpl);
+}
+
 bool IsBattleRoyaleTemplateStartable(BattleRoyaleTemplate const& tmpl)
 {
-    return tmpl.enabled && !tmpl.spawnPoints.empty() && IsBattleRoyaleTemplateBattlegroundMap(tmpl);
+    return tmpl.enabled && !tmpl.spawnPoints.empty() && IsBattleRoyaleTemplateMapReady(tmpl);
 }
 
 uint32 GetBattleRoyaleStagingMountDisplayId(Player* player, uint32 deploymentPathId)
@@ -183,7 +193,21 @@ void BattleRoyaleMgr::LoadSpawnPoints()
 
 void BattleRoyaleMgr::Update(uint32 diff)
 {
-    // BattleRoyale::Update is driven by BattleGroundMap::Update -> BattleGroundBR::Update.
+    // BattleRoyale::Update 正常情况下是靠 BattleGroundMap::Update -> BattleGroundBR::Update
+    // 这条链驱动的（每个战场地图每帧自动调用挂在它身上的 BattleGround）。OPEN_WORLD 模式
+    // 没有专属 BattleGroundMap（挂的是服务器常驻地图，那张地图完全不知道 host 这个对象存在），
+    // 这条驱动链不存在，所以这里手动补上——对每个还在进行中的 OPEN_WORLD 对局直接调用
+    // host->Update(diff)。INSTANCED 对局不受影响，仍然只靠地图自己驱动，这里跳过它们。
+    for (auto const& kv : m_instances)
+    {
+        BattleRoyale* br = kv.second;
+        if (br->GetStatus() == BattleRoyaleStatus::CANCELLED)
+            continue;
+        if (BattleGroundBR* host = br->GetHost())
+            if (host->IsOpenWorldHosted())
+                host->Update(diff);
+    }
+
     // Here we only check for completed instances and clean them up.
     for (auto it = m_instances.begin(); it != m_instances.end(); )
     {
@@ -686,12 +710,12 @@ bool BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers, uint32 templateId, st
             return false;
         }
 
-        if (!IsBattleRoyaleTemplateBattlegroundMap(*selectedTemplate))
+        if (!IsBattleRoyaleTemplateMapReady(*selectedTemplate))
         {
             sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-                     "[BattleRoyaleMgr] Template %u map %u is not a battleground map; current BR creation only supports battleground maps.",
+                     "[BattleRoyaleMgr] Template %u map %u is not ready (not a battleground map, or open-world map not loaded).",
                      selectedTemplate->id, selectedTemplate->mapId);
-            SetBattleRoyaleStartError(outError, "指定模板地图不是战场类型，当前不能创建 BR 对局。");
+            SetBattleRoyaleStartError(outError, "指定模板地图未就绪（不是战场类型，或野外地图未加载），当前不能创建 BR 对局。");
             return false;
         }
     }
@@ -797,25 +821,45 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
         return nullptr;
     }
 
-    if (!IsBattleRoyaleTemplateBattlegroundMap(tmpl))
-    {
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-                 "[BattleRoyaleMgr] Template %u map %u is not a battleground map; refusing to create BattleGroundMap.",
-                 tmpl.id, tmpl.mapId);
-        return nullptr;
-    }
-
     auto* host = new BattleGroundBR();
     host->SetMaxPlayers(tmpl.maxPlayers);
     host->SetMinPlayers(1);
     host->SetMapId(tmpl.mapId);
 
-    Map* map = sMapMgr.CreateBgMap(tmpl.mapId, host);
-    if (!map)
+    if (tmpl.hostMode == BRMapHostMode::OPEN_WORLD)
     {
-        delete host;
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleMgr] Failed to create BG map %u.", tmpl.mapId);
-        return nullptr;
+        // 挂到服务器常驻加载的那张地图上（continent/persistent map 的 instanceId 恒为0），
+        // 不走 CreateBgMap()——那条路径内部会 new 一个 BattleGroundMap 并
+        // MANGOS_ASSERT(map->IsBattleGround())，对 Kalimdor 这种非战场类型地图必炸。
+        Map* map = sMapMgr.FindMap(tmpl.mapId, 0);
+        if (!map)
+        {
+            delete host;
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleMgr] Template %u: open-world map %u is not currently loaded.", tmpl.id, tmpl.mapId);
+            return nullptr;
+        }
+        // GetInstanceID() 需要一个非0的合成ID，不能直接用地图自己的instanceId=0
+        // （0在这套注册表体系里另有含义，见 BattleGround.h::GetInstanceID() 的注释）。
+        host->SetOpenWorldMap(map, sMapMgr.GenerateInstanceId());
+    }
+    else
+    {
+        if (!IsBattleRoyaleTemplateBattlegroundMap(tmpl))
+        {
+            delete host;
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                     "[BattleRoyaleMgr] Template %u map %u is not a battleground map; refusing to create BattleGroundMap.",
+                     tmpl.id, tmpl.mapId);
+            return nullptr;
+        }
+
+        Map* map = sMapMgr.CreateBgMap(tmpl.mapId, host);
+        if (!map)
+        {
+            delete host;
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleRoyaleMgr] Failed to create BG map %u.", tmpl.mapId);
+            return nullptr;
+        }
     }
 
     sBattleGroundMgr.AddBattleGround(host->GetInstanceID(), BATTLEGROUND_BR, host);

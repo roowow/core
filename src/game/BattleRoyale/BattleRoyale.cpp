@@ -169,7 +169,7 @@ void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, u
 
 void BattleRoyale::Update(uint32 diff)
 {
-    Map* map = m_host ? m_host->GetBgMap() : nullptr;
+    Map* map = m_host ? m_host->GetHostMap() : nullptr;
 
     if (m_status == BattleRoyaleStatus::DEPLOYING)
     {
@@ -219,6 +219,23 @@ void BattleRoyale::Update(uint32 diff)
                     toEliminate.push_back(it->first);
                     continue;
                 }
+
+                // 野外开放世界地图（OPEN_WORLD）没有天然的地形/地图边界墙，玩家理论上可以无限
+                // 往外走，跟缩圈是两回事——缩圈是"圈外持续扣血"，这里是硬边界，越界直接淘汰。
+                // 复用现有 Eliminate()/ReturnPendingPlayers() 流程，走跟"离开地图"完全一样的路径，
+                // 连播报文案都共用 Eliminate() 里已有的"未能脱出险境"那组 hazardLines，无需新增文案。
+                if (m_tmpl && m_tmpl->hostMode == BRMapHostMode::OPEN_WORLD)
+                {
+                    float const x = player->GetPositionX();
+                    float const y = player->GetPositionY();
+                    if (x < m_tmpl->openWorldMinX || x > m_tmpl->openWorldMaxX ||
+                        y < m_tmpl->openWorldMinY || y > m_tmpl->openWorldMaxY)
+                    {
+                        toEliminate.push_back(it->first);
+                        continue;
+                    }
+                }
+
                 if (!player->IsFFAPvP())
                     player->SetFFAPvP(true);
                 if (player->IsMounted())
@@ -338,14 +355,14 @@ bool BattleRoyale::IsAlive(ObjectGuid guid) const
 void BattleRoyale::ForceSetPhase(uint32 phase)
 {
     m_zone.ForcePhase(phase);
-    if (Map* map = m_host ? m_host->GetBgMap() : nullptr)
+    if (Map* map = m_host ? m_host->GetHostMap() : nullptr)
         m_zone.RefreshMarkers(map);
 }
 
 void BattleRoyale::ForceSetRadius(float radius)
 {
     m_zone.ForceRadius(radius);
-    if (Map* map = m_host ? m_host->GetBgMap() : nullptr)
+    if (Map* map = m_host ? m_host->GetHostMap() : nullptr)
         m_zone.RefreshMarkers(map);
 }
 
@@ -580,7 +597,7 @@ void BattleRoyale::CompleteDeployment(Player* player, BattleRoyalePlayer& brPlay
         // don't float at spawn points that are slightly above the ground mesh.
         if (brPlayer.bot)
         {
-            Map* bgMap = m_host ? m_host->GetBgMap() : nullptr;
+            Map* bgMap = m_host ? m_host->GetHostMap() : nullptr;
             landZ = GetBattleRoyaleLandingZ(bgMap, landing);
         }
         player->TeleportTo(m_tmpl->mapId, landing.x, landing.y, landZ, landing.o);
@@ -592,7 +609,7 @@ void BattleRoyale::CompleteDeployment(Player* player, BattleRoyalePlayer& brPlay
         // Bots also need a terrain-Z snap because they do not fall via client physics.
         BRSpawnPoint const& landing = brPlayer.landingPoint;
         float landZ = landing.z;
-        Map* bgMap = m_host ? m_host->GetBgMap() : nullptr;
+        Map* bgMap = m_host ? m_host->GetHostMap() : nullptr;
         if (brPlayer.bot && bgMap)
             landZ = GetBattleRoyaleLandingZ(bgMap, landing);
 
@@ -618,7 +635,7 @@ void BattleRoyale::StartRunning()
     m_status = BattleRoyaleStatus::RUNNING;
     m_pendingBotCount = 0; // any bot that hasn't arrived is abandoned; clear the counter
 
-    Map* map = m_host ? m_host->GetBgMap() : nullptr;
+    Map* map = m_host ? m_host->GetHostMap() : nullptr;
 
     // Re-apply FFA PvP now that players are on the BG map.
     // Player::UpdateArea() clears the flag when entering a non-arena area,
@@ -684,12 +701,12 @@ void BattleRoyale::Eliminate(ObjectGuid guid, bool notify, ObjectGuid killerGuid
         {
             ++killerIt->second.killCount;
             killerKillCount = killerIt->second.killCount;
-            if (Map* map = m_host ? m_host->GetBgMap() : nullptr)
+            if (Map* map = m_host ? m_host->GetHostMap() : nullptr)
                 ApplyBattleRoyaleKillRewardBuff(map->GetPlayer(killerGuid));
         }
     }
 
-    Map* map = m_host ? m_host->GetBgMap() : nullptr;
+    Map* map = m_host ? m_host->GetHostMap() : nullptr;
     Player* player = map ? map->GetPlayer(guid) : nullptr;
 
     if (notify && player)
@@ -856,7 +873,7 @@ void BattleRoyale::Finish()
 
     // Assign rank 1 to the last survivor, capture log context, and send battle report
     uint32 const finishSurvivalSec = m_runningTime / 1000;
-    Map* map = m_host ? m_host->GetBgMap() : nullptr;
+    Map* map = m_host ? m_host->GetHostMap() : nullptr;
     std::string winnerName;
     for (auto it = m_players.begin(); it != m_players.end(); ++it)
     {
@@ -909,7 +926,7 @@ void BattleRoyale::Finish()
 
     m_status      = BattleRoyaleStatus::FINISHED;
     m_finishTimer = BR_FINISH_DELAY_MS;
-    m_zone.Cleanup(m_host ? m_host->GetBgMap() : nullptr);
+    m_zone.Cleanup(m_host ? m_host->GetHostMap() : nullptr);
 
     // 播报本局冠军给所有参与这局的真人玩家（不含bot）。用sObjectMgr全服查找而不是
     // BroadcastToAll那种"只发给还在BR地图上的人"，因为更早出局的玩家这时候大多已经被
@@ -933,9 +950,9 @@ void BattleRoyale::Finish()
 void BattleRoyale::Cancel()
 {
     m_status = BattleRoyaleStatus::CANCELLED;
-    m_zone.Cleanup(m_host ? m_host->GetBgMap() : nullptr);
+    m_zone.Cleanup(m_host ? m_host->GetHostMap() : nullptr);
 
-    Map* map = m_host ? m_host->GetBgMap() : nullptr;
+    Map* map = m_host ? m_host->GetHostMap() : nullptr;
     for (auto it = m_players.begin(); it != m_players.end(); ++it)
     {
         Player* player = map ? map->GetPlayer(it->first) : nullptr;
