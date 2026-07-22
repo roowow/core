@@ -922,8 +922,15 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
         br->AddPlayer(player, sp, deploymentPathId);
         m_playerInstMap[player->GetObjectGuid()] = instanceId;
 
+        // Teleport before mounting: mounting first was interfering with the same-map
+        // ("near teleport") handshake when the player was already standing on the
+        // target map (e.g. already on Kalimdor for the Hyjal OPEN_WORLD template) —
+        // observed as the player never actually teleporting, just taking off and
+        // slowly flying from wherever they already were. Cross-map ("far") teleport
+        // was unaffected either way.
+        bool const teleported = player->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o);
         ApplyBattleRoyaleStagingMount(player, deploymentPathId);
-        if (!player->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o))
+        if (!teleported)
         {
             if (player->IsMounted())
                 player->Unmount();
