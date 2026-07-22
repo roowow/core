@@ -16206,6 +16206,12 @@ void Player::LoadAura(AuraSaveStruct& s, uint32 timediff)
 
 void Player::LoadCorpse()
 {
+    // A hardcore-dead player who logged out before releasing spirit has no ghost flag,
+    // so LoadFromDB leaves them ALIVE. Force DEAD here so the vanilla "no corpse" path
+    // below reaches ResurrectPlayer, whose hardcore guard then blocks the resurrection.
+    if (IsAlive() && IsHardcore() && !IsHardcoreRetired() && IsHardcoreDead())
+        m_deathState = DEAD;
+
     if (IsAlive())
         sObjectAccessor.ConvertCorpseForPlayer(GetObjectGuid());
     else
@@ -17407,8 +17413,14 @@ bool Player::SaveAura(SpellAuraHolder const* holder, AuraSaveStruct& saveStruct)
         return false;
 
     // Permanent auras (mode identification buffs) are re-applied on every login; no need to persist.
+    // Exception: ghost spells (8326 / 20584) must be saved — their presence in the DB is the
+    // signal that LoadFromDB uses (via PLAYER_FLAGS_GHOST) to restore the DEAD death-state.
     if (holder->IsPermanent())
-        return false;
+    {
+        uint32 const spellId = holder->GetSpellProto()->Id;
+        if (spellId != 8326 && spellId != 20584) // SPELL_GHOST / SPELL_WISP_SPIRIT_GHOST
+            return false;
+    }
 
     //skip all holders from spells that are passive or channeled
     //do not save single target holders (unless they were cast by the player)
