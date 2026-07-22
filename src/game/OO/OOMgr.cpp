@@ -194,13 +194,16 @@ void OOMgr::BuildBannedTransformDisplayIds()
     for (uint32 displayId : PX238_DISPLAY_IDS)
         m_bannedTransformDisplayIds.insert(displayId);
 
-    // 过滤大体型boss/特效模型：碰撞半径明显超出玩家可变身模型的正常范围
-    // （抽样数据：普通人形/野兽多在1.0以下，2.5以上基本是Ony/C'Thun触手/Colossus这类巨型或特效模型）
+    // 过滤大体型boss/特效模型。碰撞半径(bounding_radius)只能抓到"胖"的模型（Colossus这类），
+    // 抓不到奥妮克希亚(8570)这类细长的龙——它bounding_radius只有1.8，但combat_reach高达23.4。
+    // 实测数据：combat_reach>5 这个阈值只命中113条记录，抽样全是团本/世界boss/稀有（拉格纳罗斯、
+    // 萨菲隆、四条绿龙、Onyxia、Patchwerk等），没有误伤正常野兽/人形模型，所以两个条件任一超标就过滤。
     static float const LARGE_BOSS_BOUNDING_RADIUS = 2.5f;
+    static float const LARGE_BOSS_COMBAT_REACH = 5.0f;
     for (uint32 i = 1; i < sCreatureDisplayInfoAddonStorage.GetMaxEntry(); ++i)
     {
         if (CreatureDisplayInfoAddon const* minfo = sCreatureDisplayInfoAddonStorage.LookupEntry<CreatureDisplayInfoAddon>(i))
-            if (minfo->bounding_radius > LARGE_BOSS_BOUNDING_RADIUS)
+            if (minfo->bounding_radius > LARGE_BOSS_BOUNDING_RADIUS || minfo->combat_reach > LARGE_BOSS_COMBAT_REACH)
                 m_bannedTransformDisplayIds.insert(minfo->display_id);
     }
 
