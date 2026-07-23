@@ -39,6 +39,10 @@ static float  const BR_TWO_PI                    = 6.2831853071795864769f;
 // Reference loot table entry for BR corpse drops (reference_loot_template.entry).
 static uint32 const BR_CORPSE_LOOT_REF_ID = 9001;
 
+// How long an eliminated player's corpse (with BR loot on it) stays lootable on
+// the map after they're returned, before BattleRoyaleMgr cleans it up.
+static uint32 const BR_CORPSE_CLEANUP_DELAY_MS = 120000;
+
 // Season score awarded per placement and per kill.
 static uint32 const BR_SCORE_RANK1    = 5;
 static uint32 const BR_SCORE_RANK2    = 3;
@@ -1107,14 +1111,13 @@ void BattleRoyale::ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlay
     // never an issue — the whole match map unloads and takes every corpse with it —
     // but OPEN_WORLD (Hyjal) hosts on the persistent Kalimdor map, so an unlooted
     // corpse would otherwise sit there for up to the default 3-day resurrectable
-    // timeout (Corpse::IsExpired). Delete it outright here instead of letting it
-    // decay into bones, since the owner is never coming back to reclaim it.
-    if (Corpse* corpse = player->GetCorpse())
-    {
-        sObjectAccessor.RemoveCorpse(corpse);
-        corpse->DeleteFromDB();
-        delete corpse;
-    }
+    // timeout (Corpse::IsExpired). Schedule it for cleanup after a short loot window
+    // instead of deleting immediately — other participants are usually still nearby
+    // right after a kill and should get a chance to loot it (see BR_CORPSE_CLEANUP_DELAY_MS).
+    // Scheduled on BattleRoyaleMgr, not this instance, since this BattleRoyale object
+    // can be destroyed almost immediately after the last ReturnPlayer() calls at match end.
+    if (player->GetCorpse())
+        sBattleRoyaleMgr.ScheduleCorpseCleanup(player->GetObjectGuid(), BR_CORPSE_CLEANUP_DELAY_MS);
 
     player->SetFFAPvP(brPlayer.savedFFAPvP);
     player->SetBGTeam(TEAM_NONE);

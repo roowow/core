@@ -199,7 +199,7 @@ inline BattleRoyaleTemplate& GetHyjalTemplate()
         t.centerX     = 5502.959961f; // 实测边界框中心（BattleRoyale.md 已记录）
         t.centerY     = -3611.911377f;
         t.maxPlayers  = 30; // 已确定：只用来控制机器人补位数量，见 uncapRealPlayers
-        t.enabled     = false; // 出生点录制中 + 未实测，先不进正式轮换
+        t.enabled     = true; // 出生点录制完成，多轮实测确认地图承载/传送/机器人加入没问题，纳入正式随机轮换
         // 真人报名不设上限：30人只是机器人补位的目标基数（真人不够30个才补机器人），
         // 报名超过30人也全部放进这一局，不会把多出来的人留在队列等下一局。出生点不够
         // 时靠spawnIndex取模自动重叠使用，不需要额外处理。

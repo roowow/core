@@ -63,6 +63,13 @@ public:
     // Safe to call at runtime (e.g., after .br spawn add).
     void LoadSpawnPoints();
 
+    // Delete a player's corpse (with BR loot on it) after delayMs — gives other
+    // participants a window to loot it first. Tracked here (not on the per-match
+    // BattleRoyale instance) because that instance can be destroyed almost
+    // immediately after the last ReturnPlayer() calls at match end (see Update()'s
+    // CANCELLED cleanup), before a multi-minute timer tracked on it could ever fire.
+    void ScheduleCorpseCleanup(ObjectGuid guid, uint32 delayMs);
+
 private:
     bool CanEnqueue(Player* player, std::string& outError) const;
     bool TryCreateGame(bool ignoreMinPlayers = false, uint32 templateId = 0, std::string* outError = nullptr);
@@ -73,6 +80,7 @@ private:
     std::map<uint32, BattleRoyale*>               m_instances;       // instanceId -> BattleRoyale
     std::map<ObjectGuid, uint32>                  m_playerInstMap;   // playerGuid -> instanceId
     std::map<uint32, std::vector<uint32>>          m_botSpawnIndexes; // instanceId -> remaining shuffled spawn indexes for bots
+    std::vector<std::pair<ObjectGuid, int32>>      m_pendingCorpseCleanup; // guid, remaining ms (see ScheduleCorpseCleanup)
 
     uint32  m_countdownTimer    = 0;
     uint32  m_nextReminderSec   = 0;

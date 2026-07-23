@@ -5,6 +5,7 @@
 #include "Player.h"
 #include "ObjectMgr.h"
 #include "ObjectAccessor.h"
+#include "Corpse.h"
 #include "MapManager.h"
 #include "Map.h"
 #include "BattleGroundMgr.h"
@@ -191,8 +192,34 @@ void BattleRoyaleMgr::LoadSpawnPoints()
     }
 }
 
+void BattleRoyaleMgr::ScheduleCorpseCleanup(ObjectGuid guid, uint32 delayMs)
+{
+    m_pendingCorpseCleanup.emplace_back(guid, int32(delayMs));
+}
+
 void BattleRoyaleMgr::Update(uint32 diff)
 {
+    // Delete BR corpses once their loot window expires. Tracked here rather than on
+    // the BattleRoyale instance itself, since that object can be destroyed almost
+    // immediately after match end.
+    for (auto it = m_pendingCorpseCleanup.begin(); it != m_pendingCorpseCleanup.end(); )
+    {
+        it->second -= int32(diff);
+        if (it->second > 0)
+        {
+            ++it;
+            continue;
+        }
+
+        if (Corpse* corpse = sObjectAccessor.GetCorpseForPlayerGUID(it->first))
+        {
+            sObjectAccessor.RemoveCorpse(corpse);
+            corpse->DeleteFromDB();
+            delete corpse;
+        }
+        it = m_pendingCorpseCleanup.erase(it);
+    }
+
     // BattleRoyale::Update 正常情况下是靠 BattleGroundMap::Update -> BattleGroundBR::Update
     // 这条链驱动的（每个战场地图每帧自动调用挂在它身上的 BattleGround）。OPEN_WORLD 模式
     // 没有专属 BattleGroundMap（挂的是服务器常驻地图，那张地图完全不知道 host 这个对象存在），
