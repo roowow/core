@@ -3851,7 +3851,9 @@ bool BattleBotAI::TryUseBRPotion()
 
     // Free Action Potion when snared or rooted
     // 法师优先用Blink脱离减速（Blink CD短+保留药水CD），只有Blink也在CD时才用药水
-    if (me->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED) || me->HasAuraType(SPELL_AURA_MOD_ROOT))
+    // 隐身自带减速aura，排除隐身状态避免盗贼开局白白浪费FAP
+    if (!me->HasAuraType(SPELL_AURA_MOD_STEALTH) &&
+        (me->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED) || me->HasAuraType(SPELL_AURA_MOD_ROOT)))
     {
         bool const mageCanBlink = (me->GetClass() == CLASS_MAGE) &&
             m_spells.mage.pBlink &&
