@@ -789,7 +789,18 @@ void instance_blackrock_spire::Update(uint32 uiDiff)
                     && py > -354.0f && py < -244.0f
                     && pz >   68.5f && pz <   95.0f;
                 if (inUBRSZone && !pPlayer->HasItemCount(12344, 1))
+                {
+                    // Mirror the "Dungeon anti-exploit" pattern in LogoutPlayer()
+                    // (WorldSession.cpp): TeleportTo entrance + ExecuteSingleDelayedTeleport
+                    // executes the cross-map move synchronously before the kick, so
+                    // SaveToDB records the entrance position and next login is safe.
+                    if (AreaTriggerTeleport const* at = sObjectMgr.GetGoBackTrigger(instance->GetId()))
+                        pPlayer->TeleportTo(at->destination);
+                    else
+                        pPlayer->TeleportToHomebind();
+                    sMapMgr.ExecuteSingleDelayedTeleport(pPlayer);
                     pPlayer->GetSession()->ProcessAnticheatAction("UBRS", "entered UBRS without Seal of Ascension (door bypass)", CHEAT_ACTION_KICK);
+                }
             }
         }
         else
