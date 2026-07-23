@@ -37,6 +37,12 @@ public:
     bool ForceStartNow(uint32 templateId = 0, std::string* outError = nullptr); // bypasses MIN_PLAYERS for single-GM testing
     BattleRoyale* GetInstanceForPlayer(ObjectGuid guid);
 
+    // Anonymous display name for a real player currently in an active BR match
+    // (see BattleRoyalePlayer::anonName; GM observers get one too, same as any
+    // other real player). Returns false for bots or players not currently in a
+    // match — callers should fall back to the real name.
+    bool TryGetAnonName(ObjectGuid guid, std::string& outName);
+
     // Real players are restored to their pre-BR position on normal exit, relog,
     // or after a server restart. Bots are not persisted.
     void SavePendingRestore(Player const* player, uint32 instanceId) const;

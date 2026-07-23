@@ -13,6 +13,7 @@
 #include "MotionMaster.h"
 #include "ObjectMgr.h"
 #include "PlayerBotMgr.h"
+#include "OO/OOMgr.h"
 
 #include "Mail.h"
 #include "Corpse.h"
@@ -133,6 +134,12 @@ void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, u
     brPlayer.landingPoint     = landingPoint;
     brPlayer.deploymentPathId = deploymentPathId;
     brPlayer.orbitSlot        = m_totalCount; // 0-based join order, fixed denominator (maxPlayers) spreads angles evenly
+    // Bots already show a fictional name; only real players need an anonymous
+    // stand-in so opponents can't identify them by name during the match (see
+    // WorldSession::SendNameQueryOpcode). Reuses the same name pool/theme bots
+    // use, keyed to this instance, so anonymized players and bots look consistent.
+    if (!isBot)
+        brPlayer.anonName = sOOMgr.GetBotName(m_host ? m_host->GetInstanceID() : 0, player->GetTeam() == ALLIANCE);
     brPlayer.savedPosition    = WorldLocation(player->GetMapId(),
                                               player->GetPositionX(),
                                               player->GetPositionY(),
@@ -427,13 +434,7 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         // through immediately instead of waiting for the client round trip, so the
         // combined flight always starts from the correct staging point.
         if (player->IsBeingTeleportedNear())
-        {
-            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BR-DEBUG] UpdateDeploying: %s forcing pending near teleport, pos before=(%.3f,%.3f,%.3f)",
-                     player->GetName(), player->GetPositionX(), player->GetPositionY(), player->GetPositionZ());
             player->ExecuteTeleportNear();
-            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BR-DEBUG] UpdateDeploying: %s pos after=(%.3f,%.3f,%.3f)",
-                     player->GetName(), player->GetPositionX(), player->GetPositionY(), player->GetPositionZ());
-        }
 
         // Player hasn't started the combined flight yet.
         // Hold them in place with hover until the flight starts.
@@ -521,11 +522,6 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         spreadNode.z = (*orbitNodes)[orbitStart].z;
         spreadNode.delay = 0;
         combined.push_back(spreadNode);
-
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-                 "[BR-DEBUG] UpdateDeploying: %s startNode.z=%.3f spreadNode.z=%.3f orbitNode[0].z=%.3f dropNode0.z=%.3f",
-                 player->GetName(), startNode.z, spreadNode.z, (*orbitNodes)[0].z,
-                 dropIt->second.nodes.empty() ? -1.0f : dropIt->second.nodes.front().z);
 
         for (uint32 lap = 0; lap < orbitLaps; ++lap)
         {

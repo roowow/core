@@ -450,6 +450,21 @@ BattleRoyale* BattleRoyaleMgr::GetInstanceForPlayer(ObjectGuid guid)
     return jt != m_instances.end() ? jt->second : nullptr;
 }
 
+bool BattleRoyaleMgr::TryGetAnonName(ObjectGuid guid, std::string& outName)
+{
+    BattleRoyale* br = GetInstanceForPlayer(guid);
+    if (!br)
+        return false;
+
+    auto const& players = br->GetPlayers();
+    auto it = players.find(guid);
+    if (it == players.end() || it->second.bot || it->second.anonName.empty())
+        return false;
+
+    outName = it->second.anonName;
+    return true;
+}
+
 void BattleRoyaleMgr::SavePendingRestore(Player const* player, uint32 instanceId) const
 {
     if (!player || player->IsSavingDisabled())
@@ -913,8 +928,6 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
         uint32 deploymentPathId = ResolveBattleRoyaleDeploymentPath(tmpl.id, spawnIndex, deploymentPaths);
 
         BRSpawnPoint const& start = tmpl.deploymentStart;
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BR-DEBUG] CreateInstance: tmpl.id=%u deploymentStart=(%.3f,%.3f,%.3f) for player %s",
-                 tmpl.id, start.x, start.y, start.z, player->GetName());
 
         // Register player BEFORE TeleportTo so BattleGroundMap::CanEnter()
         // finds the correct instanceId when the transfer is processed.
@@ -937,8 +950,6 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
             if (player->IsMounted())
                 player->Unmount();
         }
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BR-DEBUG] CreateInstance: after TeleportTo, player %s actual pos=(%.3f,%.3f,%.3f)",
-                 player->GetName(), player->GetPositionX(), player->GetPositionY(), player->GetPositionZ());
     }
 
     // Fill remaining slots with bots

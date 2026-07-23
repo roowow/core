@@ -26,6 +26,12 @@ struct BattleRoyalePlayer
     uint32        killCount         = 0;
     bool          pendingReturn     = false;  // defer teleport out until Unit::Kill has finished
 
+    // Anonymous display name shown to OTHER participants while the match is active
+    // (real players only; bots already use a fictional name, see OOMgr::GetBotName).
+    // Assigned once at AddPlayer() so it stays stable for the whole match. Internal
+    // logging/broadcasts still use the real player->GetName(), never this field.
+    std::string   anonName;
+
     // Captured just before ReturnPlayer() while the player is still in the BR map.
     // Used for character_log_battle_royale at match end.
     std::string   logName;

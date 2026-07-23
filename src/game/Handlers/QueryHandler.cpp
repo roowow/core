@@ -30,6 +30,7 @@
 #include "ObjectMgr.h"
 #include "ObjectGuid.h"
 #include "Player.h"
+#include "BattleRoyaleMgr.h"
 
 void WorldSession::SendNameQueryOpcode(Player* p)
 {
@@ -38,7 +39,22 @@ void WorldSession::SendNameQueryOpcode(Player* p)
 
     auto nameResponse = std::make_unique<WorldPackets::Query::NameQueryResponse>();
     nameResponse->playerGuid = p->GetObjectGuid();
-    nameResponse->name = p->GetName();
+
+    // Anonymize BR opponents' names to each other while the match is active — both
+    // sides must currently be in the SAME BR instance, otherwise fall back to the
+    // real name. Internal BR broadcasts/logs never go through this path, so they
+    // are unaffected and always use the real name.
+    std::string anonName;
+    Player* requester = GetPlayer();
+    if (requester && requester != p &&
+        requester->GetBattleGroundTypeId() == BATTLEGROUND_BR &&
+        p->GetBattleGroundTypeId() == BATTLEGROUND_BR &&
+        requester->GetBattleGroundId() == p->GetBattleGroundId() &&
+        sBattleRoyaleMgr.TryGetAnonName(p->GetObjectGuid(), anonName))
+        nameResponse->name = anonName;
+    else
+        nameResponse->name = p->GetName();
+
     nameResponse->race = p->GetRace();
     nameResponse->gender = p->GetGender();
     nameResponse->class_ = p->GetClass();
