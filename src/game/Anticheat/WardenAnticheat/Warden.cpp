@@ -347,6 +347,27 @@ void Warden::ReadScanResults(ByteBuffer& buff)
             //if (!!(s->flags & InWorld) && !inWorld)
             //    continue;
 
+            // For the UBRS door bypass check, snapshot the player's in-game position before any
+            // penalty (kick/ban) is applied, so the log captures where they actually were.
+            if (s->checkId == 97)
+            {
+                uint32 const accountId = m_accountId;
+                uint32 const sessionGuid = m_sessionGuid;
+                sWorld.GetMessager().AddMessage([accountId, sessionGuid](World* world)
+                {
+                    WorldSession* session = world->FindSession(accountId);
+                    if (!session || session->GetGUID() != sessionGuid)
+                        return;
+                    Player* player = session->GetPlayer();
+                    if (!player || !player->IsInWorld())
+                        return;
+                    sLog.Out(LOG_ANTICHEAT, LOG_LVL_MINIMAL,
+                        "[UBRS][Warden] check97 snapshot: %s (guid %u, ip %s) map=%u pos=(%.1f,%.1f,%.1f)",
+                        player->GetName(), player->GetGUIDLow(), session->GetRemoteAddress().c_str(),
+                        player->GetMapId(), player->GetPositionX(), player->GetPositionY(), player->GetPositionZ());
+                });
+            }
+
             ApplyPenalty("", WARDEN_ACTION_MAX, s);
             LogPositiveToDB(s);
         }

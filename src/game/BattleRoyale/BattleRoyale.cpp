@@ -1019,24 +1019,6 @@ void BattleRoyale::ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlay
     player->SetBattleGroundId(0, BATTLEGROUND_TYPE_NONE);
     player->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER | UNIT_FLAG_IMMUNE_TO_NPC);
 
-    // The client-side GUID->name cache doesn't invalidate on its own, so anyone who
-    // queried this player's anonymized name earlier in the match could keep showing
-    // it after the match ends. Proactively push the real name now — the BG type/id
-    // clear above means SendNameQueryOpcode will already answer with the real name.
-    // Only reaches other still-tracked participants; anyone eliminated earlier and
-    // already gone from this lookup won't be corrected (smaller, accepted edge case).
-    if (!brPlayer.bot && !brPlayer.anonName.empty())
-    {
-        for (auto const& kv : m_players)
-        {
-            if (kv.first == player->GetObjectGuid() || kv.second.bot)
-                continue;
-            if (Player* other = sObjectMgr.GetPlayer(kv.first))
-                if (other->GetSession())
-                    other->GetSession()->SendNameQueryOpcode(player);
-        }
-    }
-
     if (brPlayer.bot)
     {
         // Bots are removed from the world when the session is cleaned up
