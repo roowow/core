@@ -3812,6 +3812,65 @@ bool BattleBotAI::UpdateBattleGroundAI()
     return false;
 }
 
+bool BattleBotAI::TryUseBRPotion()
+{
+    if (me->IsNonMeleeSpellCasted(false))
+        return false;
+
+    // Scan only the main backpack where StoreNewItem places items.
+    auto findInBag = [this](uint32 entry) -> Item*
+    {
+        for (int i = INVENTORY_SLOT_ITEM_START; i < INVENTORY_SLOT_ITEM_END; ++i)
+        {
+            Item* pItem = me->GetItemByPos(INVENTORY_SLOT_BAG_0, i);
+            if (pItem && pItem->GetEntry() == entry)
+                return pItem;
+        }
+        return nullptr;
+    };
+
+    bool const debugLog = sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG);
+    auto logItemUse = [&](Item* pItem, char const* reason)
+    {
+        if (debugLog)
+            sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                     "[BRSkill] bot %s guid %u instance %u used %s (%s hp=%.0f%% mana=%.0f%%).",
+                     me->GetName(), me->GetGUIDLow(), me->GetBattleGroundId(),
+                     pItem->GetProto()->Name1,
+                     reason,
+                     me->GetHealthPercent(),
+                     me->GetMaxPower(POWER_MANA) > 0 ? me->GetPowerPercent(POWER_MANA) : 0.0f);
+    };
+
+    // Healing potion when below 40% HP
+    if (me->GetHealthPercent() < 40.0f)
+    {
+        static uint32 const healEntries[] = { 900234, 900213, 900210 };
+        for (uint32 entry : healEntries)
+            if (Item* pItem = findInBag(entry))
+                if (UseItemEffect(pItem, false))
+                    { logItemUse(pItem, "hp-low"); return true; }
+    }
+
+    // Mana potion when below 25% mana (skip non-mana classes)
+    if (me->GetMaxPower(POWER_MANA) > 0 && me->GetPowerPercent(POWER_MANA) < 25.0f)
+    {
+        static uint32 const manaEntries[] = { 900233, 900211 };
+        for (uint32 entry : manaEntries)
+            if (Item* pItem = findInBag(entry))
+                if (UseItemEffect(pItem, false))
+                    { logItemUse(pItem, "mana-low"); return true; }
+    }
+
+    // Free Action Potion when snared or rooted
+    if (me->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED) || me->HasAuraType(SPELL_AURA_MOD_ROOT))
+        if (Item* pItem = findInBag(900218))
+            if (UseItemEffect(pItem, false))
+                { logItemUse(pItem, "snared"); return true; }
+
+    return false;
+}
+
 void BattleBotAI::UpdateBattleRoyaleAI()
 {
     // During deployment (taxi) or protection period (immune): stay put
@@ -3840,6 +3899,8 @@ void BattleBotAI::UpdateBattleRoyaleAI()
         me->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
         return;
     }
+
+    TryUseBRPotion();
 
     BattleRoyaleZone const& zone = br->GetZone();
     auto getBattleRoyaleGroundZ = [this](float x, float y, float referenceZ) -> float

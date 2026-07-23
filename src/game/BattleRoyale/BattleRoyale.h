@@ -41,6 +41,13 @@ public:
     // Called by BattleRoyaleMgr
     void AddPlayer(Player* player, BRSpawnPoint const& landingPoint, uint32 deploymentPathId, bool isBot = false);
     void SetPendingBotCount(uint32 count) { m_pendingBotCount = count; }
+    // Denominator for the even orbit-entry fan-out (see UpdateDeploying). Normally
+    // just m_tmpl->maxPlayers, but uncapRealPlayers templates can end up with more
+    // total participants than maxPlayers (no bots fill in when real players alone
+    // already exceed it) — CreateInstance() sets the actual final headcount here
+    // once real player count is known, so entry angles don't start colliding once
+    // headcount grows past maxPlayers.
+    void SetOrbitTotalSlots(uint32 n) { m_orbitTotalSlots = n; }
     void DecrementPendingBotCount() { if (m_pendingBotCount > 0) --m_pendingBotCount; }
     void Update(uint32 diff);
     void Cancel();
@@ -101,6 +108,7 @@ private:
     std::unordered_map<ObjectGuid, uint8>              m_botFactions;    // bot guid → faction id (1-4)
 
     uint32  m_pendingBotCount  = 0;   // bots created but not yet added via AddPlayer
+    uint32  m_orbitTotalSlots  = 0;   // 0 = unset, falls back to m_tmpl->maxPlayers (see SetOrbitTotalSlots)
     bool    m_orbitStarted     = false;
     uint32  m_landedCount      = 0;
     uint32  m_aliveCount       = 0;

@@ -50,27 +50,101 @@ static uint32 const BR_WINNER_CELEBRATION_SPELL_ID = 27571;
 static uint32 const BR_WINNER_SOUND_ALLIANCE = 8455; // PVPVictoryAlliance
 static uint32 const BR_WINNER_SOUND_HORDE    = 8454; // PVPVictoryHorde
 
-static uint32 const BR_KILL_REWARD_BUFFS[] =
+// 物理系职业（战士/盗贼/猎人）击杀奖励池：AP/力量/敏捷/攻速向
+static uint32 const BR_KILL_BUFFS_PHYSICAL[] =
+{
+    10938, // Power Word: Fortitude  (通用)
+    9885,  // Mark of the Wild       (通用)
+    20217, // Blessing of Kings      (通用)
+    16618, // Spirit of the Wind     (通用, +30% 移速)
+    19838, // Blessing of Might      (+185 AP)
+    16329, // Juju Might             (+40 AP)
+    16323, // Juju Power             (+30 力量)
+    16327, // Juju Guile             (+30 敏捷)
+    16322, // Juju Flurry            (攻速提升)
+    17013, // Agamaggan's Agility    (+10 敏捷)
+    16612, // Agamaggan's Strength   (+10 力量)
+};
+
+// 法系职业（法师/术士/牧师）击杀奖励池：智力/精神向
+static uint32 const BR_KILL_BUFFS_CASTER[] =
+{
+    10938, // Power Word: Fortitude  (通用)
+    9885,  // Mark of the Wild       (通用)
+    20217, // Blessing of Kings      (通用)
+    16618, // Spirit of the Wind     (通用, +30% 移速)
+    10157, // Arcane Intellect       (+31 智力)
+    7764,  // Wisdom of Agamaggan    (+10 智力)
+    10767, // Rising Spirit          (+25 精神)
+};
+
+// 混合职业（圣骑士/萨满/德鲁伊）：全量池
+static uint32 const BR_KILL_BUFFS_HYBRID[] =
 {
     10938, // Power Word: Fortitude
-    14819, // Divine Spirit
-    10958, // Shadow Protection
-    10157, // Arcane Intellect
     9885,  // Mark of the Wild
-    9910,  // Thorns
-    19838, // Blessing of Might
-    19979, // Blessing of Light
     20217, // Blessing of Kings
-    19853, // Blessing of Wisdom
+    16618, // Spirit of the Wind
+    19838, // Blessing of Might
+    10157, // Arcane Intellect
+    16329, // Juju Might
+    16323, // Juju Power
+    16327, // Juju Guile
+    16322, // Juju Flurry
+    17013, // Agamaggan's Agility
+    16612, // Agamaggan's Strength
+    7764,  // Wisdom of Agamaggan
+    10767, // Rising Spirit
 };
+
+static bool GiveBRItemToBot(Player* bot, uint32 entry, uint32 count = 1)
+{
+    ItemPosCountVec dest;
+    if (bot->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, entry, count) == EQUIP_ERR_OK)
+    {
+        bot->StoreNewItem(dest, entry, true);
+        return true;
+    }
+    return false;
+}
 
 static void ApplyBattleRoyaleKillRewardBuff(Player* killer)
 {
     if (!killer || !killer->IsAlive())
         return;
 
-    uint32 const buffCount = sizeof(BR_KILL_REWARD_BUFFS) / sizeof(BR_KILL_REWARD_BUFFS[0]);
-    uint32 const spellId = BR_KILL_REWARD_BUFFS[urand(0, buffCount - 1)];
+    uint32 const* pool     = BR_KILL_BUFFS_HYBRID;
+    uint32        poolSize = sizeof(BR_KILL_BUFFS_HYBRID) / sizeof(BR_KILL_BUFFS_HYBRID[0]);
+
+    switch (killer->GetClass())
+    {
+        case CLASS_WARRIOR:
+        case CLASS_ROGUE:
+        case CLASS_HUNTER:
+            pool     = BR_KILL_BUFFS_PHYSICAL;
+            poolSize = sizeof(BR_KILL_BUFFS_PHYSICAL) / sizeof(BR_KILL_BUFFS_PHYSICAL[0]);
+            break;
+        case CLASS_MAGE:
+        case CLASS_WARLOCK:
+        case CLASS_PRIEST:
+            pool     = BR_KILL_BUFFS_CASTER;
+            poolSize = sizeof(BR_KILL_BUFFS_CASTER) / sizeof(BR_KILL_BUFFS_CASTER[0]);
+            break;
+        default: // CLASS_PALADIN, CLASS_SHAMAN, CLASS_DRUID → 混合全量池
+            break;
+    }
+
+    // 优先给还没有的 buff，避免重复；若全部已有则随机覆盖一个。
+    uint32 available[14];
+    uint32 availableCount = 0;
+    for (uint32 i = 0; i < poolSize; ++i)
+        if (!killer->HasAura(pool[i]))
+            available[availableCount++] = pool[i];
+
+    uint32 const spellId = availableCount > 0
+        ? available[urand(0, availableCount - 1)]
+        : pool[urand(0, poolSize - 1)];
+
     killer->CastSpell(killer, spellId, true);
 }
 
@@ -133,7 +207,7 @@ void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, u
     brPlayer.placementRank    = 0;
     brPlayer.landingPoint     = landingPoint;
     brPlayer.deploymentPathId = deploymentPathId;
-    brPlayer.orbitSlot        = m_totalCount; // 0-based join order, fixed denominator (maxPlayers) spreads angles evenly
+    brPlayer.orbitSlot        = m_totalCount; // 0-based join order; see m_orbitTotalSlots for the fixed denominator that spreads angles evenly
     // Bots already show a fictional name; only real players need an anonymous
     // stand-in so opponents can't identify them by name during the match (see
     // WorldSession::SendNameQueryOpcode). Reuses the same name pool/theme bots
@@ -484,11 +558,15 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         combined.reserve(orbitNodes->size() * orbitLaps + dropIt->second.nodes.size() + 2);
 
         // Even fan-out: each player's join order (orbitSlot) gets its own fixed-width
-        // slice of the circle (denominator = maxPlayers, not live join count, so slots
-        // assigned to early joiners don't shift as later players/bots join). A random
-        // per-player hash used to be here, but with ~30 entrants it visibly clustered.
+        // slice of the circle. The denominator (totalSlots) is fixed once per match
+        // (m_orbitTotalSlots, set in CreateInstance — normally maxPlayers, or the
+        // real headcount if that's larger for an uncapRealPlayers template), not the
+        // live join count, so slots assigned to early joiners don't shift as later
+        // players/bots join. A random per-player hash used to be here, but with
+        // ~30 entrants it visibly clustered.
         size_t const orbitCount = orbitNodes->size();
-        uint32 const totalSlots = m_tmpl ? std::max(1u, m_tmpl->maxPlayers) : 30;
+        uint32 const totalSlots = m_orbitTotalSlots ? m_orbitTotalSlots
+                                : (m_tmpl ? std::max(1u, m_tmpl->maxPlayers) : 30);
         float const angle = BR_TWO_PI * float(brPlayer.orbitSlot % totalSlots) / float(totalSlots);
         size_t const orbitStart = size_t(angle / BR_TWO_PI * float(orbitCount) + 0.5f) % orbitCount;
 
@@ -687,6 +765,16 @@ void BattleRoyale::StartRunning()
         if (!player)
             continue;
         player->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER | UNIT_FLAG_IMMUNE_TO_NPC);
+
+        if (it->second.bot)
+        {
+            GiveBRItemToBot(player, 900234, 5); // 大型治疗药水
+            GiveBRItemToBot(player, 900218, 5); // 自由行动药水
+            uint8 const cls = player->GetClass();
+            if (cls == CLASS_MAGE   || cls == CLASS_PRIEST  || cls == CLASS_WARLOCK ||
+                cls == CLASS_DRUID  || cls == CLASS_SHAMAN  || cls == CLASS_PALADIN)
+                GiveBRItemToBot(player, 900233, 5); // 卓越法力药水
+        }
     }
 
     BroadcastPhaseChange(0);
@@ -1013,6 +1101,20 @@ void BattleRoyale::ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlay
     // their original location alive, not as a ghost.
     if (!player->IsAlive())
         player->ResurrectPlayer(1.0f);
+
+    // Resurrecting only revives the player; the corpse GameObject (with BR loot on it)
+    // is a separate object left behind on the map. For INSTANCED templates this was
+    // never an issue — the whole match map unloads and takes every corpse with it —
+    // but OPEN_WORLD (Hyjal) hosts on the persistent Kalimdor map, so an unlooted
+    // corpse would otherwise sit there for up to the default 3-day resurrectable
+    // timeout (Corpse::IsExpired). Delete it outright here instead of letting it
+    // decay into bones, since the owner is never coming back to reclaim it.
+    if (Corpse* corpse = player->GetCorpse())
+    {
+        sObjectAccessor.RemoveCorpse(corpse);
+        corpse->DeleteFromDB();
+        delete corpse;
+    }
 
     player->SetFFAPvP(brPlayer.savedFFAPvP);
     player->SetBGTeam(TEAM_NONE);

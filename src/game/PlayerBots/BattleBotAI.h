@@ -100,6 +100,7 @@ public:
     void UpdateFlagCarrierAI();
     bool UpdateBattleGroundAI();
     void UpdateBattleRoyaleAI();
+    bool TryUseBRPotion();
     bool TryUseBattleGroundFlag(uint32 entry);
     void UpdateInCombatAI() final;
     void UpdateOutOfCombatAI() final;

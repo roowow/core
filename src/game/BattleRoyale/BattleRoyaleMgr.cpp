@@ -796,7 +796,11 @@ bool BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers, uint32 templateId, st
             continue;
         }
 
-        if (uint32(players.size()) < tmpl.maxPlayers)
+        // uncapRealPlayers templates (e.g. Hyjal) take every eligible queued real
+        // player into this same match — maxPlayers there only sizes the bot fill-in
+        // below, it doesn't cap real admission. Other templates keep the original
+        // cap: overflow stays queued for the next game.
+        if (tmpl.uncapRealPlayers || uint32(players.size()) < tmpl.maxPlayers)
             players.push_back(p);
         else
             remaining.push_back(guid);
@@ -893,6 +897,10 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
 
     auto* br = new BattleRoyale(&tmpl, host);
     host->SetOwner(br);
+    // uncapRealPlayers templates can end up with more participants than maxPlayers
+    // (real players alone already over the bot-fill target, so no bots join) — lock
+    // in the real final headcount now so orbit entry-angle slots don't collide.
+    br->SetOrbitTotalSlots(std::max(tmpl.maxPlayers, uint32(players.size())));
 
     uint32 instanceId = host->GetInstanceID();
     m_instances[instanceId] = br;

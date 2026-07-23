@@ -58,6 +58,13 @@ struct BattleRoyaleTemplate
     // 盘旋入场绕几圈轨道再切入个人下降航线，默认2圈（原有行为，AB/AV/Azshara Crater不受影响）。
     uint32 orbitLapCount = 2;
 
+    // 默认false：TryCreateGame() 收报名玩家时最多收maxPlayers个真人，超出的留在队列等下一局
+    // （AB/AV/Azshara Crater这种小地图容量本来就有限，不适合超员）。
+    // true时：maxPlayers只用来算"真人不够时补几个机器人"（realCount<maxPlayers时补齐），
+    // 不再限制真人数量——报名超过maxPlayers也全部放进这一局，出生点不够就按spawnIndex取模
+    // 重叠使用（已有逻辑天然支持，不用额外处理）。海加尔山这种开放世界地图设为true。
+    bool uncapRealPlayers = false;
+
     std::vector<BRSpawnPoint> spawnPoints;
     std::vector<BRZonePhase>  phases;
 };
@@ -191,8 +198,12 @@ inline BattleRoyaleTemplate& GetHyjalTemplate()
         t.orbitPathId = 909996; // br_hyjal_orbit，见 BattleRoyale.sql
         t.centerX     = 5502.959961f; // 实测边界框中心（BattleRoyale.md 已记录）
         t.centerY     = -3611.911377f;
-        t.maxPlayers  = 30; // TODO: 待定，先用跟 AB/Azshara Crater 一样的规模占位
+        t.maxPlayers  = 30; // 已确定：只用来控制机器人补位数量，见 uncapRealPlayers
         t.enabled     = false; // 出生点录制中 + 未实测，先不进正式轮换
+        // 真人报名不设上限：30人只是机器人补位的目标基数（真人不够30个才补机器人），
+        // 报名超过30人也全部放进这一局，不会把多出来的人留在队列等下一局。出生点不够
+        // 时靠spawnIndex取模自动重叠使用，不需要额外处理。
+        t.uncapRealPlayers = true;
         // 轨道节点0在盘旋圆心(orbitCenterX/Y，见下面)正东120码（角度0：cos0=1,sin0=0；
         // 海加尔山盘旋圈半径是其它模板的2倍：60->120），跟 BattleRoyale.sql 里生成
         // 轨道节点的公式对齐。高度用用户实地飞行验证过的GPS读数1850.940063（之前试过
