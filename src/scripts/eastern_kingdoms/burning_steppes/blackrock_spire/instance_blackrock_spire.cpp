@@ -26,6 +26,7 @@ EndScriptData */
 #include "WaypointManager.h"
 #include "CreatureGroups.h"
 #include "Anticheat/Anticheat.h"
+#include "Maps/MapManager.h"
 
 //#define DEBUG_ON
 
