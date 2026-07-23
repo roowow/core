@@ -1844,7 +1844,7 @@ bool BattleBotAI::DrinkAndEat()
     bool const isEating = me->HasAura(BB_SPELL_FOOD);
     bool const isDrinking = me->HasAura(BB_SPELL_DRINK);
 
-    if (!isEating && needToEat)
+    if ((!isEating && needToEat) || (!isDrinking && needToDrink))
     {
         if (me->GetClass() == CLASS_DRUID && me->GetShapeshiftForm() != FORM_NONE)
         {
@@ -1857,33 +1857,24 @@ bool BattleBotAI::DrinkAndEat()
             ClearPath();
             StopMoving();
         }
-        if (SpellEntry const* pSpellEntry = sSpellMgr.GetSpellEntry(BB_SPELL_FOOD))
-        {
-            me->CastSpell(me, pSpellEntry, true);
-            me->RemoveSpellCooldown(pSpellEntry);
-        }
-        return true;
-    }
 
-    if (!isDrinking && needToDrink)
-    {
-        if (me->GetClass() == CLASS_DRUID && me->GetShapeshiftForm() != FORM_NONE)
+        if (!isEating && needToEat)
         {
-            me->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
-            return true;
+            if (SpellEntry const* pSpellEntry = sSpellMgr.GetSpellEntry(BB_SPELL_FOOD))
+            {
+                me->CastSpell(me, pSpellEntry, true);
+                me->RemoveSpellCooldown(pSpellEntry);
+            }
         }
 
-        if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
+        if (!isDrinking && needToDrink)
         {
-            ClearPath();
-            StopMoving();
+            if (SpellEntry const* pSpellEntry = sSpellMgr.GetSpellEntry(BB_SPELL_DRINK))
+            {
+                me->CastSpell(me, pSpellEntry, true);
+                me->RemoveSpellCooldown(pSpellEntry);
+            }
         }
-        if (SpellEntry const* pSpellEntry = sSpellMgr.GetSpellEntry(BB_SPELL_DRINK))
-        {
-            me->CastSpell(me, pSpellEntry, true);
-            me->RemoveSpellCooldown(pSpellEntry);
-        }
-        return true;
     }
 
     return needToEat || needToDrink;
@@ -4533,9 +4524,14 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             // Bots that fall into the void (Z << ground) can't path out; teleport fast.
             if (m_brSafeRecoveryFailTicks >= 5)
             {
+                float destX = cx, destY = cy;
+                float destZ = me->GetPositionZ();
+                bool found = false;
+
                 BattleRoyaleTemplate const* tmpl = br->GetTemplate();
                 if (tmpl && !tmpl->spawnPoints.empty())
                 {
+                    float const buffer = std::max(0.0f, zone.GetCurrentRadius() - 10.0f);
                     BRSpawnPoint const* bestSP = nullptr;
                     float bestDist = FLT_MAX;
                     for (BRSpawnPoint const& sp : tmpl->spawnPoints)
@@ -4544,23 +4540,33 @@ void BattleBotAI::UpdateBattleRoyaleAI()
                             continue;
                         float const dxsp = sp.x - cx;
                         float const dysp = sp.y - cy;
-                        if (std::sqrt(dxsp * dxsp + dysp * dysp) > zone.GetCurrentRadius() - 30.0f)
-                            continue; // must be at least 30 yards inside the zone
+                        if (std::sqrt(dxsp * dxsp + dysp * dysp) > buffer)
+                            continue;
                         float const d = std::hypot(sp.x - me->GetPositionX(), sp.y - me->GetPositionY());
                         if (d < bestDist) { bestDist = d; bestSP = &sp; }
                     }
                     if (bestSP)
                     {
-                        if (sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
-                            sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                                     "[BattleRoyaleMovement] safe recovery teleport bot %s guid %u instance %u from %.2f %.2f %.2f to %.2f %.2f %.2f.",
-                                     me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(),
-                                     me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
-                                     bestSP->x, bestSP->y, bestSP->z);
-                        me->NearTeleportTo(bestSP->x, bestSP->y, bestSP->z, me->GetOrientation());
-                        m_brSafeRecoveryFailTicks = 0;
+                        destX = bestSP->x; destY = bestSP->y; destZ = bestSP->z;
+                        found = true;
                     }
                 }
+
+                // Fallback: teleport directly to zone center when no spawn point qualifies.
+                if (!found)
+                {
+                    if (me->GetMap())
+                        destZ = me->GetMap()->GetHeight(destX, destY, destZ + 5.0f);
+                }
+
+                if (sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
+                    sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                             "[BattleRoyaleMovement] safe recovery teleport bot %s guid %u instance %u from %.2f %.2f %.2f to %.2f %.2f %.2f (%s).",
+                             me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(),
+                             me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
+                             destX, destY, destZ, found ? "spawn" : "center");
+                me->NearTeleportTo(destX, destY, destZ, me->GetOrientation());
+                m_brSafeRecoveryFailTicks = 0;
             }
         }
         else

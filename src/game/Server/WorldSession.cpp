@@ -1277,10 +1277,10 @@ void WorldSession::ProcessAnticheatAction(char const* detector, char const* reas
 
         std::string body = std::string("尊敬的玩家：\n\n")
             + "系统反作弊模块检测到你的账号存在异常行为，已自动执行以下处理：\n\n"
-            + "触发原因：" + reason + "\n"
+            + "触发原因：" + reason + "\n\n"
             + "处罚结果：" + action
             + durationText
-            + "\n\n如果你认为这是误判，请通过论坛申诉。";
+            + "\n\n如果你频繁收到此类邮件或经常被踢掉线，可前往论坛反馈。";
 
         MailDraft("反作弊系统通知", body)
             .SendMailTo(MailReceiver(_player->GetObjectGuid()), MailSender(MAIL_NORMAL, uint32(0), MAIL_STATIONERY_DEFAULT));
