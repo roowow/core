@@ -891,6 +891,11 @@ void CombatBotBaseAI::PopulateSpellData()
                     if (IsHigherRankSpell(m_spells.mage.pCombustion))
                         m_spells.mage.pCombustion = pSpellEntry;
                 }
+                else if (pSpellEntry->SpellName[0].find("Cold Snap") != std::string::npos)
+                {
+                    if (IsHigherRankSpell(m_spells.mage.pColdSnap))
+                        m_spells.mage.pColdSnap = pSpellEntry;
+                }
                 break;
             }
             case CLASS_PRIEST:

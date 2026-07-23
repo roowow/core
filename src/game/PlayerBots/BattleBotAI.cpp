@@ -3836,28 +3836,33 @@ bool BattleBotAI::TryUseBRPotion()
     // Healing potion when below 40% HP
     if (me->GetHealthPercent() < 40.0f)
     {
-        static uint32 const healEntries[] = { 900234, 900213, 900210 };
-        for (uint32 entry : healEntries)
-            if (Item* pItem = findInBag(entry))
-                if (UseItemEffect(pItem, false))
-                    { logItemUse(pItem, "hp-low"); return true; }
+        if (Item* pItem = findInBag(900234))
+            if (UseItemEffect(pItem, false))
+                { logItemUse(pItem, "hp-low"); return true; }
     }
 
     // Mana potion when below 25% mana (skip non-mana classes)
     if (me->GetMaxPower(POWER_MANA) > 0 && me->GetPowerPercent(POWER_MANA) < 25.0f)
     {
-        static uint32 const manaEntries[] = { 900233, 900211 };
-        for (uint32 entry : manaEntries)
-            if (Item* pItem = findInBag(entry))
-                if (UseItemEffect(pItem, false))
-                    { logItemUse(pItem, "mana-low"); return true; }
+        if (Item* pItem = findInBag(900233))
+            if (UseItemEffect(pItem, false))
+                { logItemUse(pItem, "mana-low"); return true; }
     }
 
     // Free Action Potion when snared or rooted
+    // 法师优先用Blink脱离减速（Blink CD短+保留药水CD），只有Blink也在CD时才用药水
     if (me->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED) || me->HasAuraType(SPELL_AURA_MOD_ROOT))
-        if (Item* pItem = findInBag(900218))
-            if (UseItemEffect(pItem, false))
-                { logItemUse(pItem, "snared"); return true; }
+    {
+        bool const mageCanBlink = (me->GetClass() == CLASS_MAGE) &&
+            m_spells.mage.pBlink &&
+            me->IsSpellReady(m_spells.mage.pBlink);
+        if (!mageCanBlink)
+        {
+            if (Item* pItem = findInBag(900218))
+                if (UseItemEffect(pItem, false))
+                    { logItemUse(pItem, "snared"); return true; }
+        }
+    }
 
     return false;
 }
@@ -5760,6 +5765,8 @@ void BattleBotAI::UpdateOutOfCombatAI_Mage()
 
 void BattleBotAI::UpdateInCombatAI_Mage()
 {
+    bool const mageDebug = m_isBattleRoyaleBot && sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG);
+
     if (Unit* pVictim = me->GetVictim())
     {
         bool const useBurst = BattleBotShouldUseMageBurst(this, pVictim);
@@ -5801,13 +5808,36 @@ void BattleBotAI::UpdateInCombatAI_Mage()
                 return;
         }
 
-        if (m_spells.mage.pIceBlock &&
-           (me->GetHealthPercent() < 25.0f) &&
-           (!me->GetAttackers().empty() || GetIncomingdamage(me) > 0) &&
-            CanTryToCastSpell(me, m_spells.mage.pIceBlock))
+        // Ice Block：受到大量近期伤害或血量过低时触发
         {
-            if (DoCastSpell(me, m_spells.mage.pIceBlock) == SPELL_CAST_OK)
-                return;
+            uint32 const incomingDmg = GetIncomingdamage(me);
+            bool const heavyPressure = incomingDmg > me->GetMaxHealth() * 0.15f;
+            bool const needsIceBlock = (me->GetHealthPercent() < 25.0f && (!me->GetAttackers().empty() || incomingDmg > 0)) ||
+                                       (me->GetHealthPercent() < 40.0f && heavyPressure);
+            if (m_spells.mage.pIceBlock && needsIceBlock &&
+                CanTryToCastSpell(me, m_spells.mage.pIceBlock))
+            {
+                if (DoCastSpell(me, m_spells.mage.pIceBlock) == SPELL_CAST_OK)
+                {
+                    if (mageDebug)
+                        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MageAI] %s IceBlock at hp=%.0f%% incoming=%u heavy=%d",
+                            me->GetName(), me->GetHealthPercent(), incomingDmg, heavyPressure ? 1 : 0);
+                    return;
+                }
+            }
+            // Ice Block 冷却中但仍危险 → Cold Snap 重置 Ice Block
+            if (m_spells.mage.pIceBlock && m_spells.mage.pColdSnap && needsIceBlock &&
+                !me->IsSpellReady(m_spells.mage.pIceBlock) &&
+                CanTryToCastSpell(me, m_spells.mage.pColdSnap))
+            {
+                if (DoCastSpell(me, m_spells.mage.pColdSnap) == SPELL_CAST_OK)
+                {
+                    if (mageDebug)
+                        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MageAI] %s ColdSnap to reset IceBlock at hp=%.0f%%",
+                            me->GetName(), me->GetHealthPercent());
+                    return; // 下一tick IceBlock冷却已重置，会直接触发
+                }
+            }
         }
 
         if (m_spells.mage.pManaShield &&
@@ -5835,31 +5865,65 @@ void BattleBotAI::UpdateInCombatAI_Mage()
                 (pVictim->GetVictim() == me) &&
                 (me->GetMotionMaster()->GetCurrentMovementGeneratorType() != DISTANCING_MOTION_TYPE))
         {
-            bool rootedTarget = pVictim->HasUnitState(UNIT_STATE_ROOT) ||
+            bool const rootedTarget = pVictim->HasUnitState(UNIT_STATE_ROOT) ||
                 pVictim->HasUnitState(UNIT_STATE_CAN_NOT_REACT_OR_LOST_CONTROL);
 
+            // Cold Snap：FrostNova冷却中 + 目标未冻住 + 贴身危险 → 重置FrostNova
+            if (!rootedTarget &&
+                m_spells.mage.pColdSnap &&
+                m_spells.mage.pFrostNova &&
+                !me->IsSpellReady(m_spells.mage.pFrostNova) &&
+                CanTryToCastSpell(me, m_spells.mage.pColdSnap))
+            {
+                if (DoCastSpell(me, m_spells.mage.pColdSnap) == SPELL_CAST_OK)
+                {
+                    if (mageDebug)
+                        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MageAI] %s ColdSnap->FrostNova reset, hp=%.0f%% victim_hp=%.0f%%",
+                            me->GetName(), me->GetHealthPercent(), pVictim->GetHealthPercent());
+                    return; // 下一tick FrostNova冷却已重置
+                }
+            }
+
+            // FrostNova 冻住目标后不立刻走路——等GCD结束后Blink块自动触发
+            // 若直接MoveDistance会设置DISTANCING状态，导致Blink的外层条件失败，永远无法Blink
             if (!rootedTarget &&
                 m_spells.mage.pFrostNova &&
                 CanTryToCastSpell(me, m_spells.mage.pFrostNova))
             {
                 if (DoCastSpell(me, m_spells.mage.pFrostNova) == SPELL_CAST_OK)
                 {
-                    me->GetMotionMaster()->MoveDistance(pVictim, 29.0f);
-                    return;
+                    if (mageDebug)
+                        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MageAI] %s FrostNova cast, dist=%.1f hp=%.0f%% (waiting GCD for Blink)",
+                            me->GetName(), me->GetDistance(pVictim), me->GetHealthPercent());
+                    return; // GCD结束后Blink触发
                 }
             }
 
+            // Blink：贴身/被减速/被控时立刻闪现
+            // 注意：FrostNova成功后rootedTarget=true，此处仍可通过CanReachWithMeleeAutoAttack触发
             if (m_spells.mage.pBlink &&
                (me->HasUnitState(UNIT_STATE_CAN_NOT_MOVE) ||
                 me->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED) ||
                 pVictim->CanReachWithMeleeAutoAttack(me)) &&
                 CanTryToCastSpell(me, m_spells.mage.pBlink))
             {
+                // 闪现前转身背对目标，确保向远离目标的方向Blink
+                float const blinkAngle = me->GetAngle(pVictim) + static_cast<float>(M_PI);
+                me->SetFacingTo(blinkAngle);
                 if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
                     me->GetMotionMaster()->MoveIdle();
 
                 if (DoCastSpell(me, m_spells.mage.pBlink) == SPELL_CAST_OK)
+                {
+                    if (mageDebug)
+                        sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MageAI] %s Blink, pre_dist=%.1f slowed=%d immob=%d victim_rooted=%d",
+                            me->GetName(), me->GetDistance(pVictim),
+                            me->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED) ? 1 : 0,
+                            me->HasUnitState(UNIT_STATE_CAN_NOT_MOVE) ? 1 : 0,
+                            rootedTarget ? 1 : 0);
+                    me->GetMotionMaster()->MoveDistance(pVictim, 29.0f); // Blink后继续拉开
                     return;
+                }
             }
 
             if (m_spells.mage.pConeofCold &&
@@ -5957,13 +6021,20 @@ void BattleBotAI::UpdateInCombatAI_Mage()
                 return;
         }
 
+        // Evocation需要8秒引导，只在安全距离外（无任何近距离威胁）才使用
         if (m_spells.mage.pEvocation &&
            (me->GetPowerPercent(POWER_MANA) < 30.0f) &&
-           (GetAttackersInRangeCount(10.0f) == 0) &&
+           (GetAttackersInRangeCount(30.0f) == 0) &&
+           (me->GetDistance(pVictim) > 25.0f) &&
             CanTryToCastSpell(me, m_spells.mage.pEvocation))
         {
             if (DoCastSpell(me, m_spells.mage.pEvocation) == SPELL_CAST_OK)
+            {
+                if (mageDebug)
+                    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MageAI] %s Evocation at mana=%.0f%% dist=%.1f",
+                        me->GetName(), me->GetPowerPercent(POWER_MANA), me->GetDistance(pVictim));
                 return;
+            }
         }
 
         if (me->HasSpell(BB_SPELL_SHOOT_WAND) &&
