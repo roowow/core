@@ -142,6 +142,7 @@ class instance_blackrock_spire : public ScriptedInstance, private DialogueHelper
 
         uint32 m_uiUBRSDoor_Timer;
         uint32 m_uiUBRSDoor_Step;
+        uint32 m_uiDoorBypassCheckTimer;
 
         uint32 m_uiStadiumEventTimer;
         uint8 m_uiStadiumWaves;

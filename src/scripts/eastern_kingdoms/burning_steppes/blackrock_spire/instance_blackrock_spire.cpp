@@ -25,6 +25,7 @@ EndScriptData */
 #include "blackrock_spire.h"
 #include "WaypointManager.h"
 #include "CreatureGroups.h"
+#include "Anticheat/Anticheat.h"
 
 //#define DEBUG_ON
 
@@ -183,6 +184,7 @@ instance_blackrock_spire::instance_blackrock_spire(Map* pMap) : ScriptedInstance
 
     m_uiUBRSDoor_Timer(0),
     m_uiUBRSDoor_Step(0),
+    m_uiDoorBypassCheckTimer(5000),
 
     m_uiStadiumEventTimer(0),
     m_uiStadiumWaves(0),
@@ -760,6 +762,38 @@ void instance_blackrock_spire::Update(uint32 uiDiff)
             }
             else
                 m_uiFatherFlame_timer -= uiDiff;
+    }
+
+    // Door bypass detection: poll players inside the instance every 5 s.
+    // AreaTriggers are client-driven (client reads AreaTrigger.dbc), so a custom server-side AT
+    // placed on the inside of the door would never fire for a cheater using a door-bypass patch.
+    // Instead, we periodically scan all players against a 3D bounding box derived from a
+    // recorded in-game path of the entire UBRS area past the door (136 waypoints, 2026-07-23).
+    // Door GO 164725 is at X=126.879; X > 128 is solidly inside. Y/Z bounds from path extremes
+    // plus padding to cover the full walkable zone (ground floor Z≈70.9, ramp Z≈76.9, Rookery Z≈91.5).
+    if (GetData(TYPE_EVENT_DOOR_UBRS) != DONE)
+    {
+        if (m_uiDoorBypassCheckTimer <= uiDiff)
+        {
+            m_uiDoorBypassCheckTimer = 5000;
+            Map::PlayerList const& players = instance->GetPlayers();
+            for (auto const& ref : players)
+            {
+                Player* pPlayer = ref.getSource();
+                if (!pPlayer || !pPlayer->IsInWorld() || pPlayer->IsGameMaster() || pPlayer->IsBot())
+                    continue;
+                float const px = pPlayer->GetPositionX();
+                float const py = pPlayer->GetPositionY();
+                float const pz = pPlayer->GetPositionZ();
+                bool const inUBRSZone = px > 128.0f
+                    && py > -354.0f && py < -244.0f
+                    && pz >   68.5f && pz <   95.0f;
+                if (inUBRSZone && !pPlayer->HasItemCount(12344, 1))
+                    pPlayer->GetSession()->ProcessAnticheatAction("UBRS", "entered UBRS without Seal of Ascension (door bypass)", CHEAT_ACTION_KICK);
+            }
+        }
+        else
+            m_uiDoorBypassCheckTimer -= uiDiff;
     }
 }
 
