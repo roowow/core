@@ -800,7 +800,7 @@ void instance_blackrock_spire::Update(uint32 uiDiff)
                     else
                         pPlayer->TeleportToHomebind();
                     sMapMgr.ExecuteSingleDelayedTeleport(pPlayer);
-                    pPlayer->GetSession()->ProcessAnticheatAction("UBRS", "entered UBRS without Seal of Ascension (door bypass)", CHEAT_ACTION_KICK);
+                    pPlayer->GetSession()->ProcessAnticheatAction("UBRS", "未持有晋升印章进入黑石塔上层门禁区域（穿门作弊）", CHEAT_ACTION_KICK);
                 }
             }
         }

@@ -1245,7 +1245,7 @@ void WorldSession::ProcessAnticheatAction(char const* detector, char const* reas
     }
     else if (cheatAction & CHEAT_ACTION_BAN_ACCOUNT)
     {
-        action = "Banned.";
+        action = "封禁账号";
         std::string _reason = std::string("CHEAT") + ": " + reason;
         if (GetSecurity() == SEC_PLAYER)
         {
@@ -1255,7 +1255,7 @@ void WorldSession::ProcessAnticheatAction(char const* detector, char const* reas
     }
     else if (cheatAction & CHEAT_ACTION_KICK)
     {
-        action = "Kicked.";
+        action = "踢出游戏";
         if (GetSecurity() == SEC_PLAYER)
         {
             KickPlayer();
@@ -1263,7 +1263,7 @@ void WorldSession::ProcessAnticheatAction(char const* detector, char const* reas
         }
     }
     else if (cheatAction & CHEAT_ACTION_REPORT_GMS)
-        action = "Announced to GMs.";
+        action = "已通报GM";
     else if (!(cheatAction & CHEAT_ACTION_LOG))
         return;
 
