@@ -2418,7 +2418,9 @@ Unit* BattleBotAI::SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* 
         // At close range the terrain obstacle that caused the ignore is almost certainly gone.
         // canReachBattleRoyaleTarget() will still gate the actual attack, so false-positives
         // just fall back to the normal scan loop without any side effects.
-        bool const veryClose = (me->GetDistance(pTarget) < 15.0f);
+        // HP gate mirrors attackingMe: a critically-low-HP bot that just fled must not be dragged
+        // back into combat by the veryClose bypass — that causes low-hp-flee → re-engage oscillation.
+        bool const veryClose = (me->GetDistance(pTarget) < 15.0f) && (me->GetHealthPercent() >= 20.0f);
 
         // Ignore list is always respected unless actively attacking us, assisting a nearby bot,
         // or target is right next to us (LoS already confirmed above).
@@ -5192,15 +5194,16 @@ void BattleBotAI::UpdateOutOfCombatAI_Paladin()
 
     if (m_spells.paladin.pBlessingBuff)
     {
-        if (Player* pTarget = SelectBuffTarget(m_spells.paladin.pBlessingBuff))
+        Player* pTarget = SelectBuffTarget(m_spells.paladin.pBlessingBuff);
+        // BR中机器人没有组队，SelectBuffTarget找不到任何人，回退到给自己加
+        if (!pTarget && IsValidBuffTarget(me, m_spells.paladin.pBlessingBuff))
+            pTarget = me;
+        if (pTarget && CanTryToCastSpell(pTarget, m_spells.paladin.pBlessingBuff))
         {
-            if (CanTryToCastSpell(pTarget, m_spells.paladin.pBlessingBuff))
+            if (DoCastSpell(pTarget, m_spells.paladin.pBlessingBuff) == SPELL_CAST_OK)
             {
-                if (DoCastSpell(pTarget, m_spells.paladin.pBlessingBuff) == SPELL_CAST_OK)
-                {
-                    m_isBuffing = true;
-                    return;
-                }
+                m_isBuffing = true;
+                return;
             }
         }
     }
@@ -6131,6 +6134,14 @@ void BattleBotAI::UpdateOutOfCombatAI_Priest()
                 return;
             }
         }
+    }
+
+    if (m_spells.priest.pShadowform &&
+        m_role != ROLE_HEALER &&
+        CanTryToCastSpell(me, m_spells.priest.pShadowform))
+    {
+        if (DoCastSpell(me, m_spells.priest.pShadowform) == SPELL_CAST_OK)
+            return;
     }
 
     if (m_spells.priest.pInnerFire &&
