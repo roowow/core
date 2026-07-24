@@ -87,7 +87,7 @@ bool ChatHandler::HandleBRStartCommand(char* args)
             requestedTemplate = ResolveBattleRoyaleTemplateArg(args);
             if (!requestedTemplate)
             {
-                SendSysMessage("[孤胆称雄] 未识别的模板。可用：1/ab/529，2/av/30。3/ac/azshara/37 当前暂未开放。");
+                SendSysMessage("[孤胆称雄] 未识别的模板。可用：1/ab/529，2/av/30，3/ac/azshara/37，4（海加尔山，map 1），5（GM岛，map 1——跟海加尔山同地图，只能用模板id选，不能用map参数）。GM岛出生点未录制，暂未启用。");
                 return true;
             }
             templateId = requestedTemplate->id;

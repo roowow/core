@@ -254,11 +254,88 @@ inline BattleRoyaleTemplate& GetHyjalTemplate()
     return tmpl;
 }
 
+// GM岛（Map:1 Kalimdor，Zone/Area:876）— 第二个野外开放世界BR地图，复用海加尔山的
+// OPEN_WORLD 分层设计（BRMapHostMode/GetHostMap()/CreateInstance() 的 OPEN_WORLD 分支），
+// 不需要再验证一遍架构可行性。
+//
+// GM岛本身也是海加尔山模板机器人异步登录期间的暂存点（同map 1，见
+// BattleRoyaleMgr.cpp::OnBotReady() 里"同地图直接TeleportPositionRelocation"那段注释）——
+// 两个OPEN_WORLD模板可以在同一张常驻地图上同时开局互不冲突：CreateInstance() 用
+// sMapMgr.GenerateInstanceId() 给每个OPEN_WORLD对局生成独立的合成instanceId，
+// m_instances 按这个ID区分，不依赖mapId唯一性；GM岛本来就是玩家/生物到不了的隔离小岛，
+// 跟海加尔山那边的比赛不会有视觉/移动上的交集。
+//
+// enabled=false：centerX/Y（用户截图中心点）和硬边界（openWorldMinX/MaxX/MinY/MaxY，
+// 用户实地探路四个方向测出）已经是实测值，phases 的起始半径也已经按实测边界重新核算过。
+// 还剩下面几件事做完再改成true：
+//   1. 用 .br spawn add 站到各个预定出生点记录 spawnPoints（数据库表，这里留空）。
+//   2. 飞行验证一个合适的绕圈高度/半径，更新 deploymentStart 和下面 SQL 里
+//      909995 轨道路径的坐标（当前占位：半径60码、地图ground+150码高度，
+//      这两个数值还没实地验证过）。
+//   3. 出生点录完后，核对是否有出生点落在220码的缩圈起始半径之外，超出的话
+//      调大 phases 第一阶段的 startRadius（同步调整后续阶段维持相对节奏）。
+inline BattleRoyaleTemplate& GetGMIslandTemplate()
+{
+    static BattleRoyaleTemplate tmpl = []() -> BattleRoyaleTemplate
+    {
+        BattleRoyaleTemplate t;
+        t.id          = 5;
+        t.mapId       = 1; // Kalimdor（GM岛）
+        t.orbitPathId = 909995; // br_gm_island_orbit，见 BattleRoyale.sql
+        t.centerX     = 16283.500000f; // 用户截图读出的GM岛中心点GPS坐标
+        t.centerY     = 16297.299805f;
+        t.maxPlayers  = 20; // 用户指定：小岛容量按20人左右设计
+        t.enabled     = false; // 出生点还没录、绕圈高度/半径还没实地验证，见上方注释的3步清单
+        t.hostMode    = BRMapHostMode::OPEN_WORLD;
+
+        // 占位：地面高度实测12.702100（截图GPS），绕圈高度先按 地面+150 估一个，
+        // 半径沿用默认60码（未像海加尔山那样特殊放大，等实地看过风景再决定要不要调整）。
+        // 轨道节点0 = 圆心正东60码。
+        t.deploymentStart = { 16343.500000f, 16297.299805f, 162.702100f, 0.0f };
+
+        // 实测边界：用户实地探路四个方向站到岛边缘读的GPS坐标（北 16384.062500/16275.951172，
+        // 南 16141.498047/16254.906250，东 16235.166992/16172.987305，西 16218.019531/16348.754883）。
+        // 北/南两点在X上差异最大（242.6码），东/西两点在Y上差异最大（175.8码）——
+        // 确认这张地图跟海加尔山一样是标准WoW坐标系（X轴对应南北，Y轴对应东西）。
+        // 直接取四点的X/Y极值做矩形边界，没有额外加安全余量（用户站的就是边缘，
+        // 如果实测发现某个方向卡得太紧/太松，再单独调整那一侧）。
+        // 注意：北/南/东三个点液位数据显示是站在深水区上方（地面在水面以下15~72码），
+        // 说明这三个方向的"边缘"是往外海延伸了一段距离才停下，不是贴着陆地边缘；
+        // 只有西点是站在实地上（GroundZ跟玩家Z几乎相同，30.72）。
+        t.openWorldMinX = 16141.498047f; // 南
+        t.openWorldMaxX = 16384.062500f; // 北
+        t.openWorldMinY = 16172.987305f; // 东
+        t.openWorldMaxY = 16348.754883f; // 西
+
+        // spawnPoints 由 BattleRoyaleMgr::LoadSpawnPoints() 从数据库加载，此处留空。
+        // 使用 .br spawn add 命令在游戏内站到目标位置后记录坐标。
+
+        // 缩圈阶段：中心点(16283.5, 16297.3)到矩形边界四个角最远约188.7码（东南角），
+        // 起始半径220码留了约30码余量（参照海加尔山"留足余量把出生点全部包进圈内"的
+        // 做法）；出生点录完后如果发现有出生点落在220码圈外，要相应调大。中心点跟
+        // 边界框的几何中心并不完全重合（框中心约16262.8/16260.9，跟用户截图给的
+        // 16283.5/16297.3 相差20~36码），毒圈范围以centerX/Y（截图中心点）为准，
+        // 目前留了足够余量，这点偏差不影响220码起始半径的覆盖结论。
+        BRZonePhase const phases[] = {
+            { 220.0f, 165.0f, 3 * 60 * 1000,  2.0f  }, // phase 1: 0:00,  2%/s
+            { 165.0f, 110.0f, 2 * 60 * 1000,  4.0f  }, // phase 2: 3:00,  4%/s
+            { 110.0f,  65.0f, 2 * 60 * 1000,  8.0f  }, // phase 3: 5:00,  8%/s
+            {  65.0f,  25.0f, 1 * 60 * 1000, 15.0f  }, // phase 4: 7:00, 15%/s
+            {  25.0f,   0.0f, 2 * 60 * 1000, 25.0f  }, // phase 5: 8:00, keeps shrinking to 0
+        }; // total: 10 min（小岛+少人数，比大地图短；出生点录完后如有需要再微调半径）
+        for (BRZonePhase const& ph : phases)
+            t.phases.push_back(ph);
+
+        return t;
+    }();
+    return tmpl;
+}
+
 // All enabled templates in random-selection order.
 // Add new templates here when they are ready.
-inline std::array<BattleRoyaleTemplate*, 4> GetAllBRTemplates()
+inline std::array<BattleRoyaleTemplate*, 5> GetAllBRTemplates()
 {
-    return { &GetABTemplate(), &GetAVTemplate(), &GetAzsharaCraterTemplate(), &GetHyjalTemplate() };
+    return { &GetABTemplate(), &GetAVTemplate(), &GetAzsharaCraterTemplate(), &GetHyjalTemplate(), &GetGMIslandTemplate() };
 }
 
 #endif // MANGOS_BATTLEROYALETEMPLATE_H
