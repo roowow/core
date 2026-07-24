@@ -193,7 +193,8 @@ enum GarrAdds : uint32
     SPELL_MASSIVE_ERUPTION  = 20483,
 
     // Events
-    EVENT_IMMOLATE = 1
+    EVENT_IMMOLATE     = 1,
+    EVENT_THREAT_CHECK = 2
 };
 
 struct mob_fireswornAI : ScriptedAI
@@ -274,6 +275,7 @@ struct mob_fireswornAI : ScriptedAI
     void ScheduleCombatEvents()
     {
         m_CombatEvents.RescheduleEvent(EVENT_IMMOLATE, Seconds(10));
+        m_CombatEvents.RescheduleEvent(EVENT_THREAT_CHECK, Seconds(3));
     }
 
     void UpdateEvents()
@@ -292,6 +294,30 @@ struct mob_fireswornAI : ScriptedAI
 
                     // Cast Failed: Try again in 1s
                     m_CombatEvents.Repeat(Seconds(1));
+                    return;
+                }
+                case EVENT_THREAT_CHECK:
+                {
+                    // 玩家会卡视线/地形把 Firesworn 拉住，同时贴脸打 Garr 的近战完全不在
+                    // 这只小怪的仇恨表里，导致小怪永远不会转去打近战。这里每3秒给附近
+                    // （20码内，对齐 Separation Anxiety 要求 Firesworn 离 Garr 不超过20码的范围）
+                    // 还没上仇恨表的玩家一笔保底仇恨，让小怪迟早会注意到他们。
+                    std::list<Player*> nearby;
+                    GetPlayersWithinRange(nearby, 20.0f);
+                    for (Player* pPlayer : nearby)
+                    {
+                        if (!pPlayer->IsAlive() || !m_creature->IsValidAttackTarget(pPlayer))
+                        {
+                            continue;
+                        }
+
+                        if (m_creature->GetThreatManager().getThreat(pPlayer) <= 0.0f)
+                        {
+                            m_creature->AddThreat(pPlayer, 50.0f);
+                        }
+                    }
+
+                    m_CombatEvents.Repeat(Seconds(3));
                     return;
                 }
             }
