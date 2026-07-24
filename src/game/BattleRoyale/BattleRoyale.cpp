@@ -43,6 +43,13 @@ static uint32 const BR_CORPSE_LOOT_REF_ID = 9001;
 // the map after they're returned, before BattleRoyaleMgr cleans it up.
 static uint32 const BR_CORPSE_CLEANUP_DELAY_MS = 120000;
 
+// How many orbit laps a bot's holding-loop flight gets while waiting for real
+// players to be admitted (see UpdateDeploying() / BattleRoyaleMgr's countdown
+// lock mechanism). Generously large — it only needs to comfortably outlast the
+// remaining pre-match countdown, since ReleaseHoldingBots() interrupts it well
+// before this many laps could ever actually complete.
+static uint32 const BR_HOLDING_LOOP_LAP_COUNT = 50;
+
 // Season score awarded per placement and per kill.
 static uint32 const BR_SCORE_RANK1    = 5;
 static uint32 const BR_SCORE_RANK2    = 3;
@@ -61,11 +68,10 @@ static uint32 const BR_KILL_BUFFS_PHYSICAL[] =
     9885,  // Mark of the Wild       (通用)
     20217, // Blessing of Kings      (通用)
     16618, // Spirit of the Wind     (通用, +30% 移速)
-    19838, // Blessing of Might      (+185 AP)
+    19838, // Blessing of Might      (+155 AP)
     16329, // Juju Might             (+40 AP)
     16323, // Juju Power             (+30 力量)
-    16327, // Juju Guile             (+30 敏捷)
-    16322, // Juju Flurry            (攻速提升)
+    16322, // Juju Flurry            (+3% 攻速)
     17013, // Agamaggan's Agility    (+10 敏捷)
     16612, // Agamaggan's Strength   (+10 力量)
 };
@@ -78,6 +84,7 @@ static uint32 const BR_KILL_BUFFS_CASTER[] =
     20217, // Blessing of Kings      (通用)
     16618, // Spirit of the Wind     (通用, +30% 移速)
     10157, // Arcane Intellect       (+31 智力)
+    16327, // Juju Guile             (+30 智力)
     7764,  // Wisdom of Agamaggan    (+10 智力)
     10767, // Rising Spirit          (+25 精神)
 };
@@ -89,16 +96,16 @@ static uint32 const BR_KILL_BUFFS_HYBRID[] =
     9885,  // Mark of the Wild
     20217, // Blessing of Kings
     16618, // Spirit of the Wind
-    19838, // Blessing of Might
-    10157, // Arcane Intellect
-    16329, // Juju Might
-    16323, // Juju Power
-    16327, // Juju Guile
-    16322, // Juju Flurry
-    17013, // Agamaggan's Agility
-    16612, // Agamaggan's Strength
-    7764,  // Wisdom of Agamaggan
-    10767, // Rising Spirit
+    19838, // Blessing of Might      (+155 AP)
+    10157, // Arcane Intellect       (+31 智力)
+    16329, // Juju Might             (+40 AP)
+    16323, // Juju Power             (+30 力量)
+    16327, // Juju Guile             (+30 智力)
+    16322, // Juju Flurry            (+3% 攻速)
+    17013, // Agamaggan's Agility    (+10 敏捷)
+    16612, // Agamaggan's Strength   (+10 力量)
+    7764,  // Wisdom of Agamaggan    (+10 智力)
+    10767, // Rising Spirit          (+25 精神)
 };
 
 static bool GiveBRItemToBot(Player* bot, uint32 entry, uint32 count = 1)
@@ -468,6 +475,34 @@ void BattleRoyale::ReturnPendingPlayers(Map* map)
     }
 }
 
+void BattleRoyale::ReleaseHoldingBots(Map* map)
+{
+    if (!map)
+        return;
+
+    // While m_awaitingRealPlayers was true, the only flights UpdateDeploying() ever
+    // assigned were bots' looping holding flights — real players aren't added to
+    // m_players at all until AdmitPendingRealPlayers() runs. So any bot still
+    // mid-flight here (not yet deploymentStarted, not yet landed) must be one of
+    // those; interrupt it so the next UpdateDeploying() pass reassigns the real
+    // combined descent flight, same as any fresh participant.
+    for (auto& kv : m_players)
+    {
+        BattleRoyalePlayer& brPlayer = kv.second;
+        if (!brPlayer.bot || brPlayer.deploymentStarted || brPlayer.landed)
+            continue;
+
+        if (Player* bot = map->GetPlayer(kv.first))
+        {
+            if (bot->IsTaxiFlying())
+            {
+                bot->GetMotionMaster()->MovementExpired();
+                bot->GetTaxi().ClearTaxiDestinations();
+            }
+        }
+    }
+}
+
 void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
 {
     if (!map)
@@ -532,7 +567,18 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
             continue;
         }
 
-        if (!brPlayer.deploymentPathId)
+        // Bots that join while we're still waiting for real players (see
+        // BattleRoyaleMgr's countdown lock mechanism) get a long looping orbit-only
+        // flight instead of a real one, so it looks like the match is already
+        // underway by the time real players are teleported in. They never reach
+        // CompleteDeployment() this way
+        // (deploymentStarted stays false, so IsTaxiFlying() keeps them skipped above
+        // every tick) — ReleaseHoldingBots() interrupts this flight once real players
+        // are admitted, and the very next pass through this loop assigns the real
+        // combined descent flight normally, same as any fresh participant.
+        bool const holdingLoop = m_awaitingRealPlayers;
+
+        if (!holdingLoop && !brPlayer.deploymentPathId)
         {
             // No drop path — land directly.
             player->SetHover(false);
@@ -541,8 +587,8 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
             continue;
         }
 
-        auto const dropIt = taxiPaths.find(brPlayer.deploymentPathId);
-        if (dropIt == taxiPaths.end() || dropIt->second.nodes.empty())
+        auto const dropIt = holdingLoop ? taxiPaths.end() : taxiPaths.find(brPlayer.deploymentPathId);
+        if (!holdingLoop && (dropIt == taxiPaths.end() || dropIt->second.nodes.empty()))
         {
             sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
                      "[BattleRoyale] Drop path %u not loaded for %s; teleporting to landing point.",
@@ -556,10 +602,12 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         // Build a personal combined path. Everyone starts from the staging point,
         // immediately fans out to a different point on the orbit ring, then follows
         // the shared orbit (possibly several laps, see orbitLapCount) from a rotated
-        // node before taking their own drop path.
-        uint32 const orbitLaps = m_tmpl ? std::max(1u, m_tmpl->orbitLapCount) : 1;
+        // node before taking their own drop path (or, if holdingLoop, many more laps
+        // and no drop path at all — see above).
+        uint32 const orbitLaps = holdingLoop ? BR_HOLDING_LOOP_LAP_COUNT
+                                : (m_tmpl ? std::max(1u, m_tmpl->orbitLapCount) : 1);
         std::vector<TaxiPathNodeEntry> combined;
-        combined.reserve(orbitNodes->size() * orbitLaps + dropIt->second.nodes.size() + 2);
+        combined.reserve(orbitNodes->size() * orbitLaps + (holdingLoop ? 0 : dropIt->second.nodes.size()) + 2);
 
         // Even fan-out: each player's join order (orbitSlot) gets its own fixed-width
         // slice of the circle. The denominator (totalSlots) is fixed once per match
@@ -615,12 +663,15 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
             }
         }
 
-        uint32 const offset = uint32(combined.size());
-        for (auto const& n : dropIt->second.nodes)
+        if (!holdingLoop)
         {
-            TaxiPathNodeEntry node = n;
-            node.index = offset + n.index;
-            combined.push_back(node);
+            uint32 const offset = uint32(combined.size());
+            for (auto const& n : dropIt->second.nodes)
+            {
+                TaxiPathNodeEntry node = n;
+                node.index = offset + n.index;
+                combined.push_back(node);
+            }
         }
 
         // Setup and start combined flight (mirrors CustomTaxiMgr::Play internals).
@@ -645,7 +696,7 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         }
 
         // Prefer the drop path's own mountDisplayId, then orbit path's, then faction default.
-        uint32 mountDisplayId = dropIt->second.mountDisplayId
+        uint32 mountDisplayId = (!holdingLoop && dropIt->second.mountDisplayId)
             ? dropIt->second.mountDisplayId
             : orbitIt->second.mountDisplayId;
         if (!mountDisplayId)
@@ -667,16 +718,23 @@ void BattleRoyale::UpdateDeploying(uint32 diff, Map* map)
         player->SetHoverReal(false);
         player->GetSession()->SendDoFlight(mountDisplayId, 0);
 
-        brPlayer.orbitStarted    = true;
-        brPlayer.deploymentStarted = true;
-        ChatHandler(player).PSendSysMessage("[孤胆称雄] 长风送客，御空而下。落地之后，刀剑无情，唯凭本事。");
+        if (!holdingLoop)
+        {
+            brPlayer.orbitStarted    = true;
+            brPlayer.deploymentStarted = true;
+            ChatHandler(player).PSendSysMessage("[孤胆称雄] 长风送客，御空而下。落地之后，刀剑无情，唯凭本事。");
+        }
     }
 
     // m_pendingBotCount tracks bots requested but not yet arrived. A bot whose
     // creation failed never calls OnBotReady, so it never calls AddPlayer and
     // never enters m_totalCount. Excluding it from the trigger would stall the
     // game indefinitely, so we only gate on the players we actually registered.
-    if (m_landedCount >= m_totalCount)
+    // Also gated on !m_awaitingRealPlayers: while true, m_totalCount only reflects
+    // bots that have joined so far (real players are deferred, see
+    // BeginAwaitingRealPlayers) — without this the trigger could fire on bots
+    // alone before any real player has even been admitted.
+    if (!m_awaitingRealPlayers && m_landedCount >= m_totalCount)
         StartRunning();
 }
 

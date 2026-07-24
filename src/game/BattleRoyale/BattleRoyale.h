@@ -52,6 +52,20 @@ public:
     void Update(uint32 diff);
     void Cancel();
 
+    // Real players' actual join is deferred for every match now (see
+    // BattleRoyaleMgr's countdown lock mechanism): bots join and start their
+    // holding-loop flight (UpdateDeploying()) while the pre-match countdown's
+    // final ~60s run out, then BattleRoyaleMgr::AdmitPendingRealPlayers() admits
+    // the real players and calls ReleaseHoldingBots() below. Called by
+    // BattleRoyaleMgr::CreateInstance() right after construction.
+    void BeginAwaitingRealPlayers() { m_awaitingRealPlayers = true; }
+    // Interrupts any bot still mid holding-loop flight so UpdateDeploying()'s next
+    // pass assigns it the real combined descent flight instead. Called by
+    // BattleRoyaleMgr::AdmitPendingRealPlayers() after it finishes adding the real
+    // players, followed by MarkRealPlayersAdmitted().
+    void ReleaseHoldingBots(Map* map);
+    void MarkRealPlayersAdmitted() { m_awaitingRealPlayers = false; }
+
     // Called by BattleGroundBR when a player leaves the map
     void OnPlayerLeftMap(ObjectGuid guid);
     // Called by BattleGroundBR::HandleKillPlayer; killer may be null guid for zone deaths
@@ -109,6 +123,7 @@ private:
 
     uint32  m_pendingBotCount  = 0;   // bots created but not yet added via AddPlayer
     uint32  m_orbitTotalSlots  = 0;   // 0 = unset, falls back to m_tmpl->maxPlayers (see SetOrbitTotalSlots)
+    bool    m_awaitingRealPlayers = false; // see BeginAwaitingRealPlayers
     bool    m_orbitStarted     = false;
     uint32  m_landedCount      = 0;
     uint32  m_aliveCount       = 0;

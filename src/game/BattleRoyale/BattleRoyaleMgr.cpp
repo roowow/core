@@ -26,6 +26,14 @@ INSTANTIATE_SINGLETON_1(BattleRoyaleMgr);
 
 namespace
 {
+// Once the pre-match countdown drops to this many ms remaining, the queued
+// players + template for the upcoming match are locked in and CreateInstance()
+// runs right away (bots start logging in and circling) — instead of waiting for
+// the countdown to hit zero, which is when real players actually get teleported
+// in (see BattleRoyaleMgr::Update()/AdmitPendingRealPlayers()). Gives bots the
+// rest of the countdown to join, no matter which template ends up selected.
+uint32 const BR_LOCK_THRESHOLD_MS = 60000;
+
 // Each template gets its own 10000-wide path ID block:
 //   template 1 (AB): 910000 + spawnIndex
 //   template 2 (AV): 920000 + spawnIndex
@@ -264,6 +272,16 @@ void BattleRoyaleMgr::Update(uint32 diff)
             // which unregisters the host and schedules the BG map for unloading.
             delete host;
             m_botSpawnIndexes.erase(instanceId);
+            m_pendingRealPlayerJoins.erase(instanceId);
+            // Locked instances are normally admitted (see Update()'s countdown-zero
+            // branch) before ever reaching CANCELLED, but a GM can cancel one
+            // directly (.br cancel) while it's still mid-lock — don't leave m_locked
+            // pointing at a now-deleted instance.
+            if (m_locked && instanceId == m_lockedInstanceId)
+            {
+                m_locked = false;
+                m_lockedInstanceId = 0;
+            }
             it = m_instances.erase(it);
         }
         else
@@ -305,9 +323,25 @@ void BattleRoyaleMgr::Update(uint32 diff)
         SendMsgToParticipants(buf);
     }
 
+    // Distinct from hasActiveInstance above: once locked, the just-created instance
+    // (m_lockedInstanceId) is itself "active" in m_instances (DEPLOYING, with bots
+    // already circling) for the rest of THIS SAME countdown — that must not pause
+    // its own countdown, only some genuinely separate previous match should.
+    bool hasOtherActiveInstance = false;
+    for (auto const& kv : m_instances)
+    {
+        if (m_locked && kv.first == m_lockedInstanceId)
+            continue;
+        if (kv.second->GetStatus() != BattleRoyaleStatus::CANCELLED)
+        {
+            hasOtherActiveInstance = true;
+            break;
+        }
+    }
+
     if (m_countdownActive)
     {
-        if (hasActiveInstance)
+        if (hasOtherActiveInstance)
         {
             // Previous game still running — pause the countdown
         }
@@ -315,23 +349,68 @@ void BattleRoyaleMgr::Update(uint32 diff)
         {
             m_countdownActive = false;
             m_countdownTimer  = 0;
-            TryCreateGame();
+            if (m_locked)
+            {
+                // Bots have had the rest of the countdown to log in and circle
+                // (see the lock branch below) — teleport the real players in now.
+                auto it = m_instances.find(m_lockedInstanceId);
+                if (it != m_instances.end())
+                    AdmitPendingRealPlayers(m_lockedInstanceId, it->second);
+                m_locked = false;
+                m_lockedInstanceId = 0;
+            }
+            else
+            {
+                // Countdown was configured shorter than BR_LOCK_THRESHOLD_MS (or the
+                // lock attempt below never succeeded) — create and admit back to
+                // back right now instead of waiting any further.
+                BattleRoyale* br = nullptr;
+                if (TryCreateGame(m_forcedTemplateId, nullptr, &br))
+                {
+                    m_forcedTemplateId = 0;
+                    AdmitPendingRealPlayers(br->GetHost()->GetInstanceID(), br);
+                }
+            }
         }
         else
         {
-            // Cancel countdown if online queue drops below minimum mid-tick.
-            uint32 const minPlayers = sWorld.getConfig(CONFIG_UINT32_BATTLE_ROYALE_MIN_PLAYERS);
-            uint32 onlineCount = 0;
-            for (ObjectGuid const& g : m_queue)
-                if (Player* p = sObjectMgr.GetPlayer(g))
-                    if (p->IsInWorld())
-                        ++onlineCount;
-            if (onlineCount < minPlayers)
+            if (!m_locked && m_countdownTimer <= BR_LOCK_THRESHOLD_MS)
             {
-                m_countdownActive = false;
-                m_countdownTimer  = 0;
-                SendMsgToParticipants("[孤胆称雄] 候战人数不足，本局取消，重新等待。");
-                return;
+                // Lock this batch in: select + validate real players and a template
+                // now, and create the instance (bots start logging in and circling
+                // immediately) — but don't teleport real players in yet, that
+                // happens once the countdown actually reaches zero, above.
+                BattleRoyale* br = nullptr;
+                if (TryCreateGame(m_forcedTemplateId, nullptr, &br))
+                {
+                    m_locked = true;
+                    m_lockedInstanceId = br->GetHost()->GetInstanceID();
+                    m_forcedTemplateId = 0;
+                }
+                // If it fails (e.g. the queue emptied out at the last moment), just
+                // don't lock — this check retries every tick until the countdown
+                // reaches zero and falls through to the immediate-fallback branch.
+            }
+
+            // Skip the "not enough online players" cancellation once locked: the
+            // match is already committed with its own player list at that point,
+            // independent of how many (if any) are left in m_queue afterward.
+            if (!m_locked)
+            {
+                // Cancel countdown if online queue drops below minimum mid-tick.
+                uint32 const minPlayers = sWorld.getConfig(CONFIG_UINT32_BATTLE_ROYALE_MIN_PLAYERS);
+                uint32 onlineCount = 0;
+                for (ObjectGuid const& g : m_queue)
+                    if (Player* p = sObjectMgr.GetPlayer(g))
+                        if (p->IsInWorld())
+                            ++onlineCount;
+                if (onlineCount < minPlayers)
+                {
+                    m_countdownActive = false;
+                    m_countdownTimer  = 0;
+                    SendMsgToParticipants("[孤胆称雄] 候战人数不足，本局取消，重新等待。");
+                    return;
+                }
             }
 
             m_countdownTimer -= diff;
@@ -458,14 +537,30 @@ bool BattleRoyaleMgr::IsPlayerInGame(ObjectGuid guid) const
 
 bool BattleRoyaleMgr::ForceStartNow(uint32 templateId, std::string* outError)
 {
-    bool const started = TryCreateGame(true, templateId, outError); // ignore MIN_PLAYERS for GM testing
-    if (started)
+    // No longer bypasses the minimum-player/countdown gate — just forces which
+    // template the next lock (or immediate fallback, see Update()) will use
+    // instead of a random pick. The match itself still only actually starts once
+    // enough real players are queued and the countdown reaches zero.
+    if (templateId)
     {
-        m_countdownActive = false;
-        m_countdownTimer  = 0;
+        bool valid = false;
+        for (BattleRoyaleTemplate* t : GetAllBRTemplates())
+        {
+            if (t->id == templateId)
+            {
+                valid = true;
+                break;
+            }
+        }
+        if (!valid)
+        {
+            SetBattleRoyaleStartError(outError, "指定模板不存在。");
+            return false;
+        }
     }
 
-    return started;
+    m_forcedTemplateId = templateId;
+    return true;
 }
 
 BattleRoyale* BattleRoyaleMgr::GetInstanceForPlayer(ObjectGuid guid)
@@ -729,7 +824,7 @@ bool BattleRoyaleMgr::CanEnqueue(Player* player, std::string& outError) const
     return true;
 }
 
-bool BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers, uint32 templateId, std::string* outError)
+bool BattleRoyaleMgr::TryCreateGame(uint32 templateId, std::string* outError, BattleRoyale** outInstance)
 {
     if (m_queue.empty())
     {
@@ -836,7 +931,7 @@ bool BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers, uint32 templateId, st
     m_queue = remaining;
 
     uint32 const brMinPlayers = sWorld.getConfig(CONFIG_UINT32_BATTLE_ROYALE_MIN_PLAYERS);
-    if (!ignoreMinPlayers && uint32(players.size()) < brMinPlayers)
+    if (uint32(players.size()) < brMinPlayers)
     {
         // Not enough online players - put them back in their original order and wait.
         std::deque<ObjectGuid> retryQueue;
@@ -867,6 +962,8 @@ bool BattleRoyaleMgr::TryCreateGame(bool ignoreMinPlayers, uint32 templateId, st
         return false;
     }
 
+    if (outInstance)
+        *outInstance = br;
     return true;
 }
 
@@ -954,38 +1051,25 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
     for (uint32 i = uint32(spawnIndexes.size()); i > 1; --i)
         std::swap(spawnIndexes[i - 1], spawnIndexes[urand(0, i - 1)]);
 
+    // Defer real players' actual join (AddPlayer + teleport) until the pre-match
+    // countdown reaches zero — see BattleRoyaleMgr::Update()'s lock mechanism and
+    // AdmitPendingRealPlayers(). Bots (requested below) get the time in between to
+    // log in and start circling (BattleRoyale::UpdateDeploying()'s holding-loop
+    // flight). Register real players in m_playerInstMap right away regardless, so
+    // IsPlayerInGame() correctly blocks them from re-queueing during the wait.
     uint32 const realCount = uint32(players.size());
+    std::vector<BRPendingRealPlayerJoin> pending;
+    pending.reserve(realCount);
     for (uint32 i = 0; i < realCount; ++i)
     {
         Player* player = players[i];
         uint32 spawnIndex = spawnIndexes[i % spawnIndexes.size()];
-        BRSpawnPoint const& sp = spawns[spawnIndex];
         uint32 deploymentPathId = ResolveBattleRoyaleDeploymentPath(tmpl.id, spawnIndex, deploymentPaths);
-
-        BRSpawnPoint const& start = tmpl.deploymentStart;
-
-        // Register player BEFORE TeleportTo so BattleGroundMap::CanEnter()
-        // finds the correct instanceId when the transfer is processed.
-        player->SetBattleGroundEntryPoint();
-        br->AddPlayer(player, sp, deploymentPathId);
+        pending.push_back({player->GetObjectGuid(), spawns[spawnIndex], deploymentPathId});
         m_playerInstMap[player->GetObjectGuid()] = instanceId;
-
-        // TELE_TO_FORCE_MAP_CHANGE forces the "far" teleport path even when the player
-        // is already on the target map (e.g. already on Kalimdor for the Hyjal
-        // OPEN_WORLD template). The same-map "near" teleport ceremony depends on a
-        // client round trip (MSG_MOVE_TELEPORT_ACK) that, even force-completed
-        // server-side (see UpdateDeploying's IsBeingTeleportedNear() check), still
-        // left the client showing the character taking off and slowly flying from
-        // wherever it actually was instead of an instant teleport. Far teleport
-        // (confirmed working for cross-map entries) sidesteps that ceremony entirely.
-        bool const teleported = player->TeleportTo(tmpl.mapId, start.x, start.y, start.z, start.o, TELE_TO_FORCE_MAP_CHANGE);
-        ApplyBattleRoyaleStagingMount(player, deploymentPathId);
-        if (!teleported)
-        {
-            if (player->IsMounted())
-                player->Unmount();
-        }
     }
+    m_pendingRealPlayerJoins[instanceId] = std::move(pending);
+    br->BeginAwaitingRealPlayers();
 
     // Fill remaining slots with bots
     uint32 const botCount = (tmpl.maxPlayers > realCount) ? (tmpl.maxPlayers - realCount) : 0;
@@ -1010,4 +1094,42 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
     }
 
     return br;
+}
+
+void BattleRoyaleMgr::AdmitPendingRealPlayers(uint32 instanceId, BattleRoyale* br)
+{
+    BattleRoyaleTemplate const* tmpl = br->GetTemplate();
+
+    auto it = m_pendingRealPlayerJoins.find(instanceId);
+    if (it != m_pendingRealPlayerJoins.end())
+    {
+        for (BRPendingRealPlayerJoin const& pending : it->second)
+        {
+            Player* player = sObjectMgr.GetPlayer(pending.guid);
+            if (!player)
+            {
+                // Logged out during the wait — undo the m_playerInstMap registration
+                // from CreateInstance() so they aren't stuck unable to re-queue.
+                RemovePlayerFromInstance(pending.guid);
+                continue;
+            }
+
+            player->SetBattleGroundEntryPoint();
+            br->AddPlayer(player, pending.landingPoint, pending.deploymentPathId);
+
+            if (tmpl)
+            {
+                BRSpawnPoint const& start = tmpl->deploymentStart;
+                bool const teleported = player->TeleportTo(tmpl->mapId, start.x, start.y, start.z, start.o, TELE_TO_FORCE_MAP_CHANGE);
+                ApplyBattleRoyaleStagingMount(player, pending.deploymentPathId);
+                if (!teleported && player->IsMounted())
+                    player->Unmount();
+            }
+        }
+        m_pendingRealPlayerJoins.erase(it);
+    }
+
+    Map* map = br->GetHost() ? br->GetHost()->GetHostMap() : nullptr;
+    br->ReleaseHoldingBots(map);
+    br->MarkRealPlayersAdmitted();
 }

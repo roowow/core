@@ -69,15 +69,12 @@ bool ChatHandler::HandleBRDisableCommand(char* /*args*/)
     return true;
 }
 
-// .br start [templateId|mapId|ab|av|ac] — force start immediately with queued players
+// .br start [templateId|mapId|ab|av|ac] — force the *next* match to use a specific
+// template instead of a random pick. Does not bypass the minimum-player/countdown
+// gate: the match still only actually starts once enough real players are queued
+// and the normal countdown (with its 60s-remaining bot-preload lock) reaches zero.
 bool ChatHandler::HandleBRStartCommand(char* args)
 {
-    if (sBattleRoyaleMgr.GetQueueSize() == 0)
-    {
-        SendSysMessage("[孤胆称雄] 候战席无人，猎场暂不能开启。");
-        return true;
-    }
-
     uint32 templateId = 0;
     BattleRoyaleTemplate const* requestedTemplate = nullptr;
     if (args)
@@ -100,15 +97,15 @@ bool ChatHandler::HandleBRStartCommand(char* args)
     std::string error;
     if (!sBattleRoyaleMgr.ForceStartNow(templateId, &error))
     {
-        PSendSysMessage("[孤胆称雄] 开局失败：%s", error.c_str());
+        PSendSysMessage("[孤胆称雄] 指定失败：%s", error.c_str());
         return true;
     }
 
     if (requestedTemplate)
-        PSendSysMessage("[孤胆称雄] 已强制敲响开局号角，指定模板 %u（map %u）。",
+        PSendSysMessage("[孤胆称雄] 已指定下一局使用模板 %u（map %u），候战人数满足后自动开局。",
                         requestedTemplate->id, requestedTemplate->mapId);
     else
-        SendSysMessage("[孤胆称雄] 已强制敲响开局号角。");
+        SendSysMessage("[孤胆称雄] 已取消模板指定，下一局恢复随机选图。");
     return true;
 }
 

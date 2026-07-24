@@ -2415,9 +2415,15 @@ Unit* BattleBotAI::SelectBattleRoyaleTarget(BattleRoyaleZone const& zone, Unit* 
             static_cast<Player const*>(pTarget->GetVictim())->IsBot() &&
             me->GetDistance(pTarget) < 55.0f;
 
-        // Ignore list is always respected unless actively attacking us OR assisting a nearby bot.
+        // At close range the terrain obstacle that caused the ignore is almost certainly gone.
+        // canReachBattleRoyaleTarget() will still gate the actual attack, so false-positives
+        // just fall back to the normal scan loop without any side effects.
+        bool const veryClose = (me->GetDistance(pTarget) < 15.0f);
+
+        // Ignore list is always respected unless actively attacking us, assisting a nearby bot,
+        // or target is right next to us (LoS already confirmed above).
         // When critically low on HP the bot flees regardless — survival over retaliation.
-        bool const bypassIgnore = (attackingMe && me->GetHealthPercent() >= 20.0f) || fightingNearbyBot;
+        bool const bypassIgnore = (attackingMe && me->GetHealthPercent() >= 20.0f) || fightingNearbyBot || veryClose;
         if (!bypassIgnore)
         {
             ObjectGuid const tg = pTarget->GetObjectGuid();
