@@ -4595,16 +4595,13 @@ void BattleBotAI::UpdateBattleRoyaleAI()
     if (!skipBattleRoyaleRecovery && DrinkAndEat())
         return;
 
-    // Rogues proactively enter stealth while roaming so they always approach from stealth.
-    // This fires before target selection so the rogue is already cloaked when a target appears.
-    if (me->GetClass() == CLASS_ROGUE &&
-        m_spells.rogue.pStealth &&
-        !me->HasAuraType(SPELL_AURA_MOD_STEALTH) &&
-        CanTryToCastSpell(me, m_spells.rogue.pStealth))
-    {
-        DoCastSpell(me, m_spells.rogue.pStealth);
+    // Apply class self-buffs (Battle Shout, Devotion Aura, Blessing, Ice Armor, Demon Armor,
+    // Lightning Shield, Stealth, etc.).  UpdateBattleGroundAI() always returns true for BR,
+    // which causes UpdateAI() to return early — so the normal OOC path never executes.
+    // We invoke it explicitly here so buffs are maintained between kills.
+    UpdateOutOfCombatAI();
+    if (m_isBuffing || me->IsNonMeleeSpellCasted() || me->IsInCombat())
         return;
-    }
 
     // Once recovered, visible enemies should interrupt travel setup immediately.
     if (Unit* pTarget = SelectBattleRoyaleTarget(zone))
@@ -6603,6 +6600,11 @@ void BattleBotAI::UpdateOutOfCombatAI_Warrior()
                 return;
         }
     }
+
+    // In BR, UpdateBattleRoyaleAI() owns target selection (SelectBattleRoyaleTarget handles
+    // the ignore list and faction logic); skip the generic Charge opener here.
+    if (m_isBattleRoyaleBot)
+        return;
 
     // me->GetVictim() is always null here because UpdateOutOfCombatAI runs before
     // AttackStart is called. Use SelectAttackTarget so Charge actually fires.
