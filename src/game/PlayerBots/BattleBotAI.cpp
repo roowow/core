@@ -5987,11 +5987,16 @@ void BattleBotAI::UpdateInCombatAI_Mage()
 
         if (m_spells.mage.pRemoveLesserCurse &&
            (me->GetAttackers().size() < 3) &&
+           // BR中敌方会立刻重新施放诅咒，限制每10秒最多驱散一次，避免GCD被反复浪费
+           (!m_isBattleRoyaleBot || sWorld.GetGameTime() >= m_brLastRemoveCurseTime + 10) &&
             CanTryToCastSpell(me, m_spells.mage.pRemoveLesserCurse) &&
             IsValidDispelTarget(me, m_spells.mage.pRemoveLesserCurse))
         {
             if (DoCastSpell(me, m_spells.mage.pRemoveLesserCurse) == SPELL_CAST_OK)
+            {
+                m_brLastRemoveCurseTime = sWorld.GetGameTime();
                 return;
+            }
         }
 
         if (Unit* pPolymorphTarget = SelectMagePolymorphTarget(this, pVictim))

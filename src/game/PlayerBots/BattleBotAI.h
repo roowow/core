@@ -139,6 +139,7 @@ public:
     uint8 m_brAirborneTicks = 0;
     uint8 m_brZoneEscapeFailTicks = 0;
     uint8 m_brSafeRecoveryFailTicks = 0;
+    time_t m_brLastRemoveCurseTime = 0;
     ShortTimeTracker m_updateTimer;
     uint8 m_race = 0;
     uint8 m_class = 0;
