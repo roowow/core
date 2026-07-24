@@ -265,15 +265,15 @@ inline BattleRoyaleTemplate& GetHyjalTemplate()
 // m_instances 按这个ID区分，不依赖mapId唯一性；GM岛本来就是玩家/生物到不了的隔离小岛，
 // 跟海加尔山那边的比赛不会有视觉/移动上的交集。
 //
-// enabled=false：centerX/Y（用户截图中心点）和硬边界（openWorldMinX/MaxX/MinY/MaxY，
-// 用户实地探路四个方向测出）已经是实测值，phases 的起始半径也已经按实测边界重新核算过。
+// enabled=false：centerX/Y（用户截图中心点）、硬边界（openWorldMinX/MaxX/MinY/MaxY，
+// 用户实地探路四个方向测出）、绕圈高度（deploymentStart.z=130.120071，用户实地飞行
+// 找的GPS高度）都已经是实测值，phases 的起始半径也已经按实测边界重新核算过。
 // 还剩下面几件事做完再改成true：
 //   1. 用 .br spawn add 站到各个预定出生点记录 spawnPoints（数据库表，这里留空）。
-//   2. 飞行验证一个合适的绕圈高度/半径，更新 deploymentStart 和下面 SQL 里
-//      909995 轨道路径的坐标（当前占位：半径60码、地图ground+150码高度，
-//      这两个数值还没实地验证过）。
-//   3. 出生点录完后，核对是否有出生点落在220码的缩圈起始半径之外，超出的话
+//   2. 出生点录完后，核对是否有出生点落在220码的缩圈起始半径之外，超出的话
 //      调大 phases 第一阶段的 startRadius（同步调整后续阶段维持相对节奏）。
+//   3.（可选）绕圈半径目前沿用默认60码没有特殊调整，如果实地看着不满意可以
+//      参照海加尔山放大到120码的做法调整，同步改下面 SQL 里909995轨道路径的半径。
 inline BattleRoyaleTemplate& GetGMIslandTemplate()
 {
     static BattleRoyaleTemplate tmpl = []() -> BattleRoyaleTemplate
@@ -288,10 +288,11 @@ inline BattleRoyaleTemplate& GetGMIslandTemplate()
         t.enabled     = false; // 出生点还没录、绕圈高度/半径还没实地验证，见上方注释的3步清单
         t.hostMode    = BRMapHostMode::OPEN_WORLD;
 
-        // 占位：地面高度实测12.702100（截图GPS），绕圈高度先按 地面+150 估一个，
-        // 半径沿用默认60码（未像海加尔山那样特殊放大，等实地看过风景再决定要不要调整）。
+        // 绕圈高度130.120071是用户实地飞行找的合适高度（GPS实测值，代替之前"地面+150"
+        // 的占位估计）。半径仍沿用默认60码（未像海加尔山那样特殊放大，如果之后觉得
+        // 60码看不清风景/太拥挤，可以参照海加尔山的做法单独放大）。
         // 轨道节点0 = 圆心正东60码。
-        t.deploymentStart = { 16343.500000f, 16297.299805f, 162.702100f, 0.0f };
+        t.deploymentStart = { 16343.500000f, 16297.299805f, 130.120071f, 0.0f };
 
         // 实测边界：用户实地探路四个方向站到岛边缘读的GPS坐标（北 16384.062500/16275.951172，
         // 南 16141.498047/16254.906250，东 16235.166992/16172.987305，西 16218.019531/16348.754883）。

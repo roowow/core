@@ -164,20 +164,53 @@ bool ChatHandler::HandleBRInfoCommand(char* /*args*/)
     return true;
 }
 
-// .br spawn add  — record GM's current position as a player spawn point
-bool ChatHandler::HandleBRSpawnAddCommand(char* /*args*/)
+// .br spawn add [templateId|mapId|ab/av/ac/...]  — record GM's current position as a
+// player spawn point. With no argument, auto-detects the template by picking whichever
+// template sharing the GM's current mapId has the closest centerX/Y to the GM's position
+// — NOT just "first template with a matching mapId" (that used to silently misfile 海加尔山
+// and GM岛 spawn points into each other, since both are mapId=1; see BattleRoyale.md「GM岛」).
+bool ChatHandler::HandleBRSpawnAddCommand(char* args)
 {
     Player* player = m_session->GetPlayer();
     uint32 const mapId = player->GetMapId();
 
-    // Find the template that matches the GM's current map
-    BattleRoyaleTemplate* tmpl = nullptr;
-    for (BattleRoyaleTemplate* t : GetAllBRTemplates())
+    while (args && *args == ' ')
+        ++args;
+
+    BattleRoyaleTemplate const* tmpl = nullptr;
+    if (args && *args)
     {
-        if (t->mapId == mapId)
+        tmpl = ResolveBattleRoyaleTemplateArg(args);
+        if (!tmpl)
         {
-            tmpl = t;
-            break;
+            SendSysMessage("[BR] 未识别的模板参数。");
+            return true;
+        }
+        if (tmpl->mapId != mapId)
+        {
+            PSendSysMessage("[BR] 模板 %u 对应地图 %u，跟你当前所在地图（%u）不一致，请确认。", tmpl->id, tmpl->mapId, mapId);
+            return true;
+        }
+    }
+    else
+    {
+        // Auto-detect: among templates sharing this mapId, pick the one whose
+        // center is closest to the GM's current position.
+        float const px = player->GetPositionX();
+        float const py = player->GetPositionY();
+        float bestDistSq = 0.0f;
+        for (BattleRoyaleTemplate* t : GetAllBRTemplates())
+        {
+            if (t->mapId != mapId)
+                continue;
+            float const dx = px - t->centerX;
+            float const dy = py - t->centerY;
+            float const distSq = dx * dx + dy * dy;
+            if (!tmpl || distSq < bestDistSq)
+            {
+                tmpl = t;
+                bestDistSq = distSq;
+            }
         }
     }
 
@@ -213,13 +246,24 @@ bool ChatHandler::HandleBRSpawnListCommand(char* /*args*/)
     Player* player = m_session->GetPlayer();
     uint32 const mapId = player->GetMapId();
 
+    // Auto-detect like .br spawn add: among templates sharing this mapId, pick the
+    // one whose center is closest to the GM's current position (not just "first
+    // match" — see HandleBRSpawnAddCommand's comment for why that was wrong).
+    float const px = player->GetPositionX();
+    float const py = player->GetPositionY();
     BattleRoyaleTemplate* tmpl = nullptr;
+    float bestDistSq = 0.0f;
     for (BattleRoyaleTemplate* t : GetAllBRTemplates())
     {
-        if (t->mapId == mapId)
+        if (t->mapId != mapId)
+            continue;
+        float const dx = px - t->centerX;
+        float const dy = py - t->centerY;
+        float const distSq = dx * dx + dy * dy;
+        if (!tmpl || distSq < bestDistSq)
         {
             tmpl = t;
-            break;
+            bestDistSq = distSq;
         }
     }
 
