@@ -429,12 +429,16 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             pUser->GetClosePoint(x, y, z, pUser->GetObjectBoundingRadius(), 2.0f, 0.0f);
             if (GameObject* well = pUser->SummonGameObject(900116, x, y, z, pUser->GetOrientation(), 0, 0, 0, 0, 600, false))
             {
+                // 纯装饰用的180514（Glyphed Crystal Prism），respawnTime跟井本体一样是600秒，
+                // 两者同时消失；直接用原始entry，不需要clone。
+                pUser->SummonGameObject(180514, x, y, z, pUser->GetOrientation(), 0, 0, 0, 0, 600, false);
+
                 pUser->DestroyItemCount(6265, 20, true);
 
                 if (cdMarker)
                     pUser->AddCooldown(cdMarker);
 
-                pUser->TextEmote("井水映月，灵魂低语，愿此地庇佑同伴。");
+                pUser->TextEmote("井水映月，灵魂低语，危难之际，一石可生。");
             }
             else
                 ChatHandler(pUser).PSendSysMessage("灵魂之井召唤失败，请稍后再试。");

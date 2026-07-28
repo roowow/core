@@ -157,6 +157,41 @@ struct go_br_refreshment : public GameObjectAI
 {
     go_br_refreshment(GameObject* go) : GameObjectAI(go) {}
 
+    uint32 m_ambientSoundTimer = 0;
+
+    // 灵魂之井(900116)：每隔10秒播放一次WispLoop环境音(3349)，营造"井水泛着幽光、灵魂
+    // 低语"的氛围（短促环境音，间隔短一点更像持续的低语声）。
+    // 面包(900109，即摆桌子时召唤的那份"桌子代表"实体)：每隔40秒播放一次Darkmoon Faire
+    // 民谣乐曲(8440)，营造"歇脚小酌、有人弹唱"的氛围（完整乐曲，间隔拉长避免中途被打断
+    // 重播显得突兀）。水(900111)不出声，避免两个音源同时播放互相打架。
+    // PlayDistanceSound自带sourceGuid，客户端按3D定位播放，离得越近听得越清楚，不用自己
+    // 算距离；SendObjectMessageToSet天然只发给"看得见这个对象"的附近玩家，不会传到全图。
+    void UpdateAI(uint32 const uiDiff) override
+    {
+        uint32 soundId = 0;
+        uint32 interval = 0;
+        if (me->GetEntry() == 900116)
+        {
+            soundId = 3349;  // WispLoop
+            interval = 10000;
+        }
+        else if (me->GetEntry() == 900109)
+        {
+            soundId = 8440;  // Darkmoon_Faire_Music
+            interval = 40000;
+        }
+        else
+            return;
+
+        if (m_ambientSoundTimer <= uiDiff)
+        {
+            me->PlayDistanceSound(soundId);
+            m_ambientSoundTimer = interval;
+        }
+        else
+            m_ambientSoundTimer -= uiDiff;
+    }
+
     bool OnUse(Unit* user) override
     {
         if (Player* player = user->ToPlayer())
