@@ -171,6 +171,7 @@ void instance_dire_maul::OnCreatureDeath(Creature* pCreature)
             break;
         case NPC_KING_GORDOK:
             GetMap()->SummonCreature(NPC_MIZZLE_THE_CRAFTY, 693.44f, 480.806f, 28.175f, 0.02757f, TEMPSUMMON_DEAD_DESPAWN, 3000000);
+            SetData(TYPE_GORDOK_TRIBUTE, DONE);
 
             if (Creature* pChorush = instance->GetCreature(m_uiChoRushTheObserverGUID))
             {
