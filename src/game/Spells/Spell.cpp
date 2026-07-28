@@ -3375,6 +3375,32 @@ SpellCastResult Spell::prepare(Aura* triggeredByAura, uint32 chance)
                     return result;
                 }
             }
+
+            // BR skill log for real (non-bot) player casts in Battle Royale
+            if (result == SPELL_CAST_OK && !IsAutoRepeat() && !m_IsTriggeredSpell)
+            {
+                if (Player* const brPlayer = m_caster->ToPlayer())
+                {
+                    if (!brPlayer->IsBot() && brPlayer->GetBattleGroundTypeId() == BATTLEGROUND_BR)
+                    {
+                        uint32 const tgtClass = (pTarget && pTarget->IsPlayer())
+                            ? static_cast<Player const*>(pTarget)->GetClass() : 0u;
+                        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                                 "[BRSkill] who=player name=%s class=%u instance=%u cast %s on %s(class %u)"
+                                 " hp=%.0f mp=%.0f cp=%u tgt_hp=%.0f n_att=%u dist=%.1f",
+                                 brPlayer->GetName(), (uint32)brPlayer->GetClass(),
+                                 brPlayer->GetBattleGroundId(),
+                                 m_spellInfo->SpellName[0].c_str(),
+                                 pTarget ? pTarget->GetName() : "none", tgtClass,
+                                 brPlayer->GetHealthPercent(),
+                                 brPlayer->GetPowerPercent(brPlayer->GetPowerType()),
+                                 (uint32)brPlayer->GetComboPoints(),
+                                 pTarget ? pTarget->GetHealthPercent() : 0.0f,
+                                 (uint32)brPlayer->GetAttackers().size(),
+                                 pTarget ? brPlayer->GetDistance(pTarget) : 0.0f);
+                    }
+                }
+            }
         }
 
         // Roll chance to cast from script (must be after cast checks, this is why its here)

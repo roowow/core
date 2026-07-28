@@ -405,6 +405,43 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
         cancelCast = true;
     }
 
+    // BR 积分商店 — 灵魂之井：花20个灵魂碎片(6265)召唤一个灵魂之井(GO 900116，克隆自164869
+    // Spectral Chalice的外观)，10分钟后消失，30分钟冷却；任何职业都能召唤，只要背包里有20个
+    // 灵魂碎片，不够则召唤失败（不消耗冷却）。其他玩家点击井可反复获得9421 Major Healthstone
+    // （go_br_refreshment这段AI接管，跟餐桌面包/水完全同一套机制，见BattleRoyaleNPC.cpp）。
+    // 冷却走61009这个纯标记法术手动查/写 Player::IsSpellReady/AddCooldown（因为壳子本身没冷却）。
+    if (pItem->GetEntry() == 900115)
+    {
+        SpellEntry const* cdMarker = sSpellMgr.GetSpellEntry(61009);
+        if (cdMarker && !pUser->IsSpellReady(cdMarker))
+        {
+            ChatHandler(pUser).PSendSysMessage("灵魂之井方才枯竭，尚需片刻方能再次汲取。");
+        }
+        else if (pUser->GetItemCount(6265, false) < 20)
+        {
+            ChatHandler(pUser).PSendSysMessage("灵魂碎片不足20个，无法汲取灵魂之力。");
+        }
+        else
+        {
+            // 先召唤、成功了再扣灵魂碎片+记冷却——SummonGameObject理论上可能因为地图/模板问题
+            // 返回nullptr（虽然实测极少见），顺序反过来会出现"扣了碎片却什么都没召唤出来"。
+            float x, y, z;
+            pUser->GetClosePoint(x, y, z, pUser->GetObjectBoundingRadius(), 2.0f, 0.0f);
+            if (GameObject* well = pUser->SummonGameObject(900116, x, y, z, pUser->GetOrientation(), 0, 0, 0, 0, 600, false))
+            {
+                pUser->DestroyItemCount(6265, 20, true);
+
+                if (cdMarker)
+                    pUser->AddCooldown(cdMarker);
+
+                pUser->TextEmote("井水映月，灵魂低语，愿此地庇佑同伴。");
+            }
+            else
+                ChatHandler(pUser).PSendSysMessage("灵魂之井召唤失败，请稍后再试。");
+        }
+        cancelCast = true;
+    }
+
     // BR 积分商店 — 欢乐制造器：召唤冬幕节"PX-238 Winter Wondervolt"整个布景（机关本体+陷阱+
     // 礼物/圣诞袜/圣诞树/告示牌/欢呼喇叭），10分钟后一起消失。直接复用真实entry，不需要clone/
     // 自定义AI——TRAP类型的自动触发靠引擎原生逻辑（GameObject.cpp:461起），走近的玩家会被180797
@@ -478,7 +515,7 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
         cancelCast = true;
     }
 
-    // BR 令牌/餐桌/欢乐制造器(900105/900109/900113)：排查记录——SendEquipError + Spell::SendCastResult(道具真实
+    // BR 令牌/餐桌/欢乐制造器/灵魂之井(900105/900109/900113/900115)：排查记录——SendEquipError + Spell::SendCastResult(道具真实
     // 法术ID) 这套比通用cancelCast hack更对症，但单独用仍然不够：实测发现"冷却拒绝"分支（只发
     // 聊天提示就直接走到这里）必卡，"召唤/报名成功"分支（走到这里之前额外真实完整施法过一次
     // 5001）反而不卡——说明真正解开客户端本地预判状态的，是"有没有一次真正完整走完的施法广播"，
@@ -491,7 +528,7 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
     // 但它的效果经代码验证是真正的空操作（SPELL_EFFECT_SUMMON, effectMiscValue1=0, EffectSummon
     // 里petEntry为0会直接return，不会召唤任何东西），只是会多播一次它自带的特效，两个分支都会
     // 出现——比"完全没有反馈"更能接受，也比"意外触发别的功能"安全得多。
-    if (cancelCast && (pItem->GetEntry() == 900105 || pItem->GetEntry() == 900109 || pItem->GetEntry() == 900113))
+    if (cancelCast && (pItem->GetEntry() == 900105 || pItem->GetEntry() == 900109 || pItem->GetEntry() == 900113 || pItem->GetEntry() == 900115))
     {
         pUser->CastSpell(pUser, 5001, true);
         pUser->SendEquipError(EQUIP_ERR_NONE, pItem, nullptr);

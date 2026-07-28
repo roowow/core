@@ -3185,18 +3185,22 @@ SpellCastResult CombatBotBaseAI::DoCastSpell(Unit* pTarget, SpellEntry const* pS
     me->SetTargetGuid(pTarget->GetObjectGuid());
     auto result = me->CastSpell(pTarget, pSpellEntry, false);
 
-    if (result == SPELL_CAST_OK &&
-        me->GetBattleGroundTypeId() == BATTLEGROUND_BR &&
-        sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
+    if (result == SPELL_CAST_OK && me->GetBattleGroundTypeId() == BATTLEGROUND_BR)
     {
+        uint32 const tgtClass = pTarget->IsPlayer()
+            ? static_cast<Player const*>(pTarget)->GetClass() : 0u;
         sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                 "[BRSkill] bot %s class %u guid %u instance %u cast %s on %s (bot hp=%.0f%% mana=%.0f%%, target hp=%.0f%%).",
-                 me->GetName(), (uint32)me->GetClass(), me->GetGUIDLow(), me->GetBattleGroundId(),
+                 "[BRSkill] who=bot name=%s class=%u instance=%u cast %s on %s(class %u)"
+                 " hp=%.0f mp=%.0f cp=%u tgt_hp=%.0f n_att=%u dist=%.1f",
+                 me->GetName(), (uint32)me->GetClass(), me->GetBattleGroundId(),
                  pSpellEntry->SpellName[0].c_str(),
-                 pTarget->GetName(),
+                 pTarget->GetName(), tgtClass,
                  me->GetHealthPercent(),
-                 me->GetPowerType() == POWER_MANA ? me->GetPowerPercent(POWER_MANA) : 0.0f,
-                 pTarget->GetHealthPercent());
+                 me->GetPowerPercent(me->GetPowerType()),
+                 (uint32)me->GetComboPoints(),
+                 pTarget->GetHealthPercent(),
+                 (uint32)me->GetAttackers().size(),
+                 me->GetDistance(pTarget));
     }
 
     //printf("cast %s result %u\n", pSpellEntry->SpellName[0].c_str(), result);
