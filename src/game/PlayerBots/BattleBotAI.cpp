@@ -825,6 +825,10 @@ static Unit* SelectWarlockCurseOfTonguesTarget(BattleBotAI const* pAI, Unit* cur
             !pAI->CanTryToCastSpell(target, pAI->m_spells.warlock.pCurseofTongues))
             return;
 
+        // Skip if debuff is already active on this target (avoid wasting GCD on a refresh)
+        if (target->HasAura(pAI->m_spells.warlock.pCurseofTongues->Id))
+            return;
+
         uint8 priority = 0;
         if (target->GetClass() == CLASS_MAGE)
             priority = 5;
@@ -4134,11 +4138,8 @@ void BattleBotAI::UpdateBattleRoyaleAI()
                              me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
                              groundZ, heightDiff, uint32(m_brAirborneTicks));
 
-                if (me->GetVictim())
-                {
-                    me->AttackStop();
-                    me->ClearTarget();
-                }
+                // Ground-correction is vertical only (same XY), so the combat
+                // target stays valid — no need to drop combat here.
                 me->StopMoving();
                 me->NearTeleportTo(me->GetPositionX(), me->GetPositionY(), groundZ + 0.25f, me->GetOrientation());
                 m_brAirborneTicks = 0;
@@ -5848,15 +5849,6 @@ void BattleBotAI::UpdateInCombatAI_Mage()
             }
         }
 
-        if (m_spells.mage.pManaShield &&
-            BattleBotMageHasPhysicalPressure(this, pVictim) &&
-           (me->GetPowerPercent(POWER_MANA) > 20.0f) &&
-            CanTryToCastSpell(me, m_spells.mage.pManaShield))
-        {
-            if (DoCastSpell(me, m_spells.mage.pManaShield) == SPELL_CAST_OK)
-                return;
-        }
-
         if (Unit* pCounterspellTarget = SelectMageCounterspellTarget(this, pVictim))
         {
             if (DoCastSpell(pCounterspellTarget, m_spells.mage.pCounterspell) == SPELL_CAST_OK)
@@ -5946,6 +5938,17 @@ void BattleBotAI::UpdateInCombatAI_Mage()
                 if (me->GetMotionMaster()->MoveDistance(pVictim, 29.0f))
                     return;
             }
+        }
+
+        // Mana Shield after escape attempts: FrostNova/Blink run first so escape
+        // is not delayed by a defensive GCD when the attacker is in melee range.
+        if (m_spells.mage.pManaShield &&
+            BattleBotMageHasPhysicalPressure(this, pVictim) &&
+           (me->GetPowerPercent(POWER_MANA) > 20.0f) &&
+            CanTryToCastSpell(me, m_spells.mage.pManaShield))
+        {
+            if (DoCastSpell(me, m_spells.mage.pManaShield) == SPELL_CAST_OK)
+                return;
         }
 
         if (GetAttackersInRangeCount(10.0f) > 1)
@@ -7054,6 +7057,8 @@ void BattleBotAI::UpdateInCombatAI_Rogue()
         {
             bool const hasSnd = m_spells.rogue.pSliceAndDice &&
                 me->HasAura(m_spells.rogue.pSliceAndDice->Id);
+            // At 5 combo points (max) always spend on a damage finisher, never waste on S&D
+            bool const forceFinisher = me->GetComboPoints() >= 5;
 
             if ((pVictim->IsCaster() || CombatBotBaseAI::IsHealerClass(pVictim->GetClass())) &&
                 m_spells.rogue.pKidneyShot &&
@@ -7063,11 +7068,12 @@ void BattleBotAI::UpdateInCombatAI_Rogue()
                     return;
             }
 
-            // Primary damage finisher when S&D is already running
-            if (hasSnd && TryRogueEviscerate(this, pVictim, false))
+            // Primary damage finisher: S&D already running, or combo points maxed out
+            if ((hasSnd || forceFinisher) && TryRogueEviscerate(this, pVictim, false))
                 return;
 
-            if (!hasSnd &&
+            // Build S&D only when it's not active and we're not at max combo points
+            if (!hasSnd && !forceFinisher &&
                 m_spells.rogue.pSliceAndDice &&
                 CanTryToCastSpell(pVictim, m_spells.rogue.pSliceAndDice))
             {
