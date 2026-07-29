@@ -51,7 +51,7 @@ port = 6379
 # ── 各 Realm 数据库配置 ─────────────────────────────────────────────────────────
 #
 # 每个 realm 独立配置，支持不同主机 / 账号 / 库名。
-# logs_db  ：用于读取小队/团队聊天历史 & 持久化玩家/公会记忆（jianjia_memory 表）
+# logs_db  ：用于读取小队/团队聊天历史 & 持久化玩家/公会记忆（jianjia_player_memory 表）
 # world_db ：用于查询物品/任务/NPC 信息（item_template / quest_template / creature_template）
 # 两者均为可选，不配置则对应功能禁用，不影响核心对话流程。
 

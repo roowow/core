@@ -127,3 +127,5 @@ uploadIP.sh
 src/game/OO/jianjia.toml
 src/game/OO/jianjia_debug_config.php
 src/game/OO/jianjia.pid
+__pycache__/
+*.pyc

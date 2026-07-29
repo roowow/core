@@ -808,10 +808,10 @@ uint32 Player::EnvironmentalDamage(EnvironmentalDamageType type, uint32 damage)
         }
 
         // 跨越深海
-        if (HasQuest(32003))
+        if (GetQuestStatus(32003) == QUEST_STATUS_INCOMPLETE)
             FailQuest(32003);
 
-        if (HasQuest(32005))
+        if (GetQuestStatus(32005) == QUEST_STATUS_INCOMPLETE)
             FailQuest(32005);
     }
 
