@@ -2265,6 +2265,18 @@ void Aura::HandleAuraWaterWalk(bool apply, bool Real)
     if (!Real)
         return;
 
+    // Block Water Walking while the player has the deep-sea swim quest active,
+    // regardless of whether they self-cast or a friend cast it on them.
+    if (apply)
+    {
+        if (Player const* pTarget = GetTarget()->ToPlayer())
+        {
+            if (pTarget->GetQuestStatus(32003) == QUEST_STATUS_INCOMPLETE ||
+                pTarget->GetQuestStatus(32005) == QUEST_STATUS_INCOMPLETE)
+                return;
+        }
+    }
+
     GetTarget()->SetWaterWalking(apply);
 }
 

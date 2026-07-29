@@ -7779,18 +7779,6 @@ bool Spell::CheckTarget(Unit* target, SpellEffectIndex eff)
         && m_spellInfo->EffectImplicitTargetA[eff] != TARGET_UNIT_SCRIPT_NEAR_CASTER && m_spellInfo->EffectImplicitTargetA[eff] != TARGET_UNIT_CASTER)
         return false;
 
-    // Water Walking (546) must not apply to players who are on the deep-sea swim quest.
-    // Prevents bypassing the quest requirement whether self-cast or cast by another player.
-    if (m_spellInfo->Id == 546)
-    {
-        if (Player const* pTarget = target->ToPlayer())
-        {
-            if (pTarget->GetQuestStatus(32003) == QUEST_STATUS_INCOMPLETE ||
-                pTarget->GetQuestStatus(32005) == QUEST_STATUS_INCOMPLETE)
-                return false;
-        }
-    }
-
     if (m_spellScript)
         return m_spellScript->OnCheckTarget(this, target, eff);
 
