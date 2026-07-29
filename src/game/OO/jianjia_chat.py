@@ -85,9 +85,18 @@ GROUP_HISTORY_LINES = 10
 HISTORY_TTL = 1800  # 30 minutes
 
 # ── Player memory (精华记忆) ────────────────────────────────────────────────────
-MEMORY_COMPRESS_EVERY = 20   # compress after this many turns of history accumulate
-MEMORY_KEEP_AFTER     = 10   # turns to keep in Redis after compression
+# 20 turns (40 messages) was too high a bar in practice — whisper conversations rarely ran
+# that long in one continuously-preserved key, so jianjia_player_memory never accumulated
+# any rows. Lowered to 10; the idle-eviction flush below (MEMORY_FLUSH_MIN) covers the rest.
+# KEEP_AFTER must stay well under COMPRESS_EVERY (kept at half, same ratio as before) — if
+# they're equal, the very next message after a compression immediately re-triggers another
+# one (history sits right back at the threshold), turning this into a compression on every
+# message instead of a periodic batch.
+MEMORY_COMPRESS_EVERY = 10   # compress after this many turns of history accumulate
+MEMORY_KEEP_AFTER     = 5    # turns to keep in Redis after compression
 MEMORY_REDIS_TTL      = 3600 # Redis cache TTL for memory reads (1 hour)
+MEMORY_FLUSH_MIN      = 6    # min messages to bother compressing on idle-eviction flush
+                             # (avoids spending an LLM call on every one-line drive-by)
 
 # ── per-realm DB connections ───────────────────────────────────────────────────
 
@@ -811,6 +820,37 @@ def _maybe_compress(conv: "_ConvState", realm_id: int) -> None:
         threading.Thread(target=_do_compress, daemon=True).start()
 
 
+def _flush_compress(conv: "_ConvState") -> None:
+    """Force a memory compression pass when a conversation is idle-evicted from memory
+    (see cleanup_loop), even if it never reached MEMORY_COMPRESS_EVERY. Without this,
+    any conversation that stays under the turn threshold — the common case, especially
+    for world-channel chatter that's now recorded message-by-message regardless of
+    whether the bot replied — would leave zero trace in jianjia_player_memory once
+    _conversations evicts it; next time this player shows up, _get_conv cold-starts
+    with nothing. Skips conversations too short to be worth an LLM call (MEMORY_FLUSH_MIN).
+    """
+    # conv has already been removed from _conversations by the caller, but a request
+    # thread that fetched it moments earlier could still be mutating conv.history right
+    # now (add() only mutates under _conv_lock) — take the same lock rather than reading
+    # it bare, even though the caller itself is already outside the lock here.
+    with _conv_lock:
+        if len(conv.history) < MEMORY_FLUSH_MIN:
+            return
+        history_snapshot = list(conv.history)
+    player, bot_name, scope, realm_id = conv.player, conv.bot_name, conv.scope, conv.realm_id
+
+    def _do_compress():
+        new_memory = _compress_history(player, bot_name, history_snapshot, conv.memory)
+        if new_memory:
+            _save_player_memory(player, bot_name, realm_id, scope, new_memory)
+            log.info("Memory flushed on idle eviction for %s (%d chars)", player, len(new_memory))
+
+    if _executor:
+        _executor.submit(_do_compress)
+    else:
+        threading.Thread(target=_do_compress, daemon=True).start()
+
+
 # ── per-player conversation state ─────────────────────────────────────────────
 
 class _ConvState:
@@ -818,6 +858,7 @@ class _ConvState:
         self.player = player
         self.bot_name = bot_name
         self.scope = scope          # "whisper" (private) or "public" (group/guild/world)
+        self.realm_id: int = 0      # set by _get_conv; needed by cleanup_loop's flush-on-evict
         self.player_info: str = ""
         self.identity_note: str = ""  # hardcore/tianxuan core-philosophy note, see _build_identity_note
         self.memory: str = ""       # compressed long-term memory (精华记忆)
@@ -866,7 +907,10 @@ def _get_conv(player: str, bot_name: str, realm_id: int = 0, scope: str = "whisp
             state = _ConvState(player, bot_name, scope)
             state.history = _restore_history(player, bot_name, scope, realm_id)
             state.memory  = _get_player_memory(player, bot_name, scope, realm_id)
+            state.realm_id = realm_id
             _conversations[key] = state
+        else:
+            _conversations[key].realm_id = realm_id
         return _conversations[key]
 
 
@@ -1114,6 +1158,21 @@ def _record_world_message(realm: int, sender: str, message: str) -> None:
     with _world_recent_lock:
         buf = _world_recent.setdefault(realm, deque(maxlen=WORLD_INJECT_LINES))
         buf.append((sender, message))
+
+
+def _record_player_world_chat(sender: str, bot_name: str, realm: int, message: str) -> None:
+    """Feed every world-channel message from a player into their long-term memory profile
+    (scope="world"), not just the rare ones the bot actually answers. Most world chat gets
+    [PASS]'d by the FAQ filter (see world_question.md) and would otherwise never touch
+    conv.history, leaving her with zero memory of what a given player is usually like in
+    world chat even after they've been talking there for weeks. Only records the "user"
+    side here — if this message does end up getting a reply, the caller appends the
+    "assistant" turn separately onto the same _ConvState afterwards.
+    """
+    conv = _get_conv(sender, bot_name, realm, scope="world")
+    with _conv_lock:
+        conv.add("user", message)
+    _maybe_compress(conv, realm)
 
 
 def _build_world_transcript(pairs: list) -> str:
@@ -1732,6 +1791,10 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
         # Record every world message (not just ones that get answered) so an explicit
         # summon has recent context to look back at ("上面 xxx 的问题").
         _record_world_message(realm, sender, message)
+        # Also feed it into the sender's own long-term memory profile — see
+        # _record_player_world_chat's docstring for why this can't just live in the
+        # "answered" tail below (most world messages never get that far).
+        _record_player_world_chat(sender, bot_name, realm, message)
 
         bot_mentioned = bot_name in message
         if bot_mentioned:
@@ -1818,8 +1881,8 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             _write_conv_log(realm, bot_name, "channel_chat", "answered", sender, player_info,
                             message, reply, context="world-summon", llm_calls=2,
                             latency_ms=total_latency_ms)
+            # "user" side was already recorded by _record_player_world_chat above.
             with _conv_lock:
-                conv.add("user", message)
                 conv.add("assistant", reply)
             _maybe_compress(conv, realm)
             return
@@ -1907,7 +1970,11 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
     # this is a per-guild profile, not a global per-player one across all guilds.
     conv = _get_conv(sender, bot_name, realm, scope=(f"guild:{context_id}" if chat_context == "guild" else "world"))
     with _conv_lock:
-        conv.add("user", message)
+        # World's "user" side was already recorded by _record_player_world_chat up top
+        # (covers every world message, not just answered ones); guild has no such
+        # pre-recording, so it still needs its "user" turn added here.
+        if chat_context == "guild":
+            conv.add("user", message)
         conv.add("assistant", reply)
     _maybe_compress(conv, realm)
     if chat_context == "guild":
@@ -2157,10 +2224,14 @@ def cleanup_loop() -> None:
         time.sleep(60)
         cutoff = time.time() - HISTORY_TTL
         with _conv_lock:
-            expired = [p for p, s in _conversations.items() if s.last_ts < cutoff]
-            for p in expired:
+            expired = [(p, s) for p, s in _conversations.items() if s.last_ts < cutoff]
+            for p, _ in expired:
                 del _conversations[p]
-                log.info("Cleared idle conversation context for %s", p)
+        # Flush outside the lock — _flush_compress only submits to the executor, but no
+        # sense holding _conv_lock (used by every in-flight chat request) while doing it.
+        for p, conv in expired:
+            log.info("Cleared idle conversation context for %s", p)
+            _flush_compress(conv)
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
