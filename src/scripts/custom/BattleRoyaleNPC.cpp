@@ -185,6 +185,10 @@ struct go_br_refreshment : public GameObjectAI
 
         if (m_ambientSoundTimer <= uiDiff)
         {
+            // 临时排查日志：确认餐桌(900109)分支UpdateAI是否真的被触发、PlayDistanceSound
+            // 是否真的发出去了——问题确认解决后删掉这行。
+            sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[go_br_refreshment] entry=%u playing sound %u at (%.1f,%.1f,%.1f)",
+                     me->GetEntry(), soundId, me->GetPositionX(), me->GetPositionY(), me->GetPositionZ());
             me->PlayDistanceSound(soundId);
             m_ambientSoundTimer = interval;
         }
