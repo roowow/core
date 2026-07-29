@@ -13598,6 +13598,10 @@ void Player::AddQuest(Quest const* pQuest, Object* questGiver)
                     CastSpell(this, itr->second->spellId, true);
     }
 
+    // 接取跨越深海游泳任务时，移除已有的水上行走 buff
+    if (questId == 32003 || questId == 32005)
+        RemoveAurasDueToSpell(546);
+
     UpdateForQuestWorldObjects();
 }
 
@@ -14488,6 +14492,7 @@ void Player::SetQuestStatus(uint32 questId, QuestStatus status)
 
         if (questId == 32003 || questId == 32005) // 跨越深海
         {
+            RemoveAurasDueToSpell(546);
             if (Group* group = sObjectMgr.GetGroupByMember(GetGUID()))
                 RemoveFromGroup(group, GetGUID());
         }
