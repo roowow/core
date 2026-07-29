@@ -162,11 +162,10 @@ struct go_br_refreshment : public GameObjectAI
     // 灵魂之井(900116)：每隔10秒播放一次MoonWellLightLoop环境音(8193)，营造"月井光辉、
     // 灵魂低语"的氛围（原来用WispLoop(3349)已验证能正常3D定位播放，8193同样是Loop结尾的
     // 环境音效资源，跟3349同一类，主题上更贴"井"而换过来）。
-    // 面包(900109，即摆桌子时召唤的那份"桌子代表"实体)：试用FluteRun(7734)，一段短笛声。
-    // 8440(Darkmoon Faire整曲配乐)已验证过在PlayDistanceSound这种3D定位播放方式下客户端
-    // 不出声——推测是"整曲配乐"类资源不支持定位播放，只有Loop结尾/短促的环境音效(SFX)类
-    // 资源才行，见BattleRoyale.md/TODO.md排查记录。7734没有Loop后缀，也有可能踩同一个坑，
-    // 先用临时日志确认播放是否触发，实测能不能听到还需要用户反馈。
+    // 面包(900109，即摆桌子时召唤的那份"桌子代表"实体)：每隔10秒播放一次FluteRun(7734)
+    // 短笛声，用户实测确认能正常听到。最初用的8440(Darkmoon Faire整曲配乐)在PlayDistanceSound
+    // 这种3D定位播放方式下客户端不出声——排查确认是"整曲配乐"类资源不支持定位播放，只有
+    // Loop结尾/短促的环境音效(SFX)类资源才行，见BattleRoyale.md/TODO.md排查记录。
     // 水(900111)不出声，避免两个音源同时播放互相打架。
     // PlayDistanceSound自带sourceGuid，客户端按3D定位播放，离得越近听得越清楚，不用自己
     // 算距离；SendObjectMessageToSet天然只发给"看得见这个对象"的附近玩家，不会传到全图。
@@ -189,10 +188,6 @@ struct go_br_refreshment : public GameObjectAI
 
         if (m_ambientSoundTimer <= uiDiff)
         {
-            // 临时排查日志：确认餐桌(900109)分支UpdateAI是否真的被触发、PlayDistanceSound
-            // 是否真的发出去了——问题确认解决后删掉这行。
-            sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[go_br_refreshment] entry=%u playing sound %u at (%.1f,%.1f,%.1f)",
-                     me->GetEntry(), soundId, me->GetPositionX(), me->GetPositionY(), me->GetPositionZ());
             me->PlayDistanceSound(soundId);
             m_ambientSoundTimer = interval;
         }
