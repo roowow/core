@@ -3452,6 +3452,20 @@ bool Unit::AddSpellAuraHolder(SpellAuraHolder* holder)
 {
     SpellEntry const* aurSpellInfo = holder->GetSpellProto();
 
+    // Block Water Walking (546) from being applied to players with the deep-sea swim quest active.
+    if (aurSpellInfo->Id == 546)
+    {
+        if (Player const* pTarget = ToPlayer())
+        {
+            if (pTarget->GetQuestStatus(32003) == QUEST_STATUS_INCOMPLETE ||
+                pTarget->GetQuestStatus(32005) == QUEST_STATUS_INCOMPLETE)
+            {
+                delete holder;
+                return false;
+            }
+        }
+    }
+
     // ghost spell check, allow apply any auras at player loading in ghost mode (will be cleanup after load)
     if (!IsAlive() && !aurSpellInfo->IsDeathPersistentSpell() && !aurSpellInfo->CanTargetDeadTarget() &&
             (!IsPlayer() || !((Player*)this)->GetSession()->PlayerLoading()))
