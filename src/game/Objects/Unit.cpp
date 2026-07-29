@@ -3453,17 +3453,16 @@ bool Unit::AddSpellAuraHolder(SpellAuraHolder* holder)
     SpellEntry const* aurSpellInfo = holder->GetSpellProto();
 
     // Block Water Walking (546) from being applied to players with the deep-sea swim quest active.
+    // Quest 32003/32005 enters QUEST_STATUS_COMPLETE immediately on accept (no incremental objectives),
+    // so we block on both INCOMPLETE and COMPLETE; FAILED means the attempt ended, allow it then.
     if (aurSpellInfo->Id == 546)
     {
-        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[WaterWalk] AddSpellAuraHolder spell=546 target=%s isPlayer=%u",
-            GetName(), IsPlayer() ? 1 : 0);
         if (Player const* pTarget = ToPlayer())
         {
-            QuestStatus qs = pTarget->GetQuestStatus(32003);
-            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[WaterWalk] quest32003=%u quest32005=%u INCOMPLETE=%u",
-                qs, pTarget->GetQuestStatus(32005), QUEST_STATUS_INCOMPLETE);
-            if (qs == QUEST_STATUS_INCOMPLETE ||
-                pTarget->GetQuestStatus(32005) == QUEST_STATUS_INCOMPLETE)
+            QuestStatus qs3 = pTarget->GetQuestStatus(32003);
+            QuestStatus qs5 = pTarget->GetQuestStatus(32005);
+            if (qs3 == QUEST_STATUS_INCOMPLETE || qs3 == QUEST_STATUS_COMPLETE ||
+                qs5 == QUEST_STATUS_INCOMPLETE || qs5 == QUEST_STATUS_COMPLETE)
             {
                 delete holder;
                 return false;

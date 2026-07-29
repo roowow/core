@@ -807,11 +807,11 @@ uint32 Player::EnvironmentalDamage(EnvironmentalDamageType type, uint32 damage)
             sWebChatMgr.NotifyWorldBroadcastToJianJia(message, GetName());
         }
 
-        // 跨越深海
-        if (GetQuestStatus(32003) == QUEST_STATUS_INCOMPLETE)
+        // 跨越深海 — quest enters COMPLETE immediately on accept, so check both states
+        if (GetQuestStatus(32003) == QUEST_STATUS_INCOMPLETE || GetQuestStatus(32003) == QUEST_STATUS_COMPLETE)
             FailQuest(32003);
 
-        if (GetQuestStatus(32005) == QUEST_STATUS_INCOMPLETE)
+        if (GetQuestStatus(32005) == QUEST_STATUS_INCOMPLETE || GetQuestStatus(32005) == QUEST_STATUS_COMPLETE)
             FailQuest(32005);
     }
 
