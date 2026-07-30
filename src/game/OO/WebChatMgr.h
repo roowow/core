@@ -37,15 +37,22 @@ public:
     // 蒹葭 AI companion
     bool        IsJianJiaName(std::string const& name) const;
     bool        IsJianJiaActive() const { return !m_jianJiaName.empty() && m_pubCtx != nullptr; }
+    // gender defaults to 2 (GENDER_NONE), not 0 — 0 is GENDER_MALE, a real value, so
+    // defaulting to it would make any caller that omits gender look confidently male
+    // instead of "no data" (see the internal ForwardChannelChatToJianJia call in
+    // WebChatMgr.cpp that only passes level/class/race and relies on these defaults).
     void        ForwardWhisperToJianJia(std::string const& senderName, std::string const& message,
                     uint8 level = 0, uint8 cls = 0, uint8 race = 0,
-                    std::string const& zone = "", bool hardcore = false, bool tianxuan = false);
+                    std::string const& zone = "", bool hardcore = false, bool tianxuan = false,
+                    uint32 createTime = 0, uint8 gender = 2, std::string const& guildName = "");
     void        ForwardGroupChatToJianJia(std::string const& senderName, std::string const& message,
                     char const* chatContext, uint32 groupId = 0,
                     bool hardcore = false, bool tianxuan = false);  // chatContext: "party"/"raid"/"bg"
     void        ForwardChannelChatToJianJia(std::string const& senderName, std::string const& message,
                     char const* chatContext, uint8 level = 0, uint8 cls = 0, uint8 race = 0,
-                    uint32 contextId = 0, bool hardcore = false, bool tianxuan = false);  // chatContext: "world"/"guild"; contextId: guild_id for guild
+                    uint32 contextId = 0, bool hardcore = false, bool tianxuan = false,
+                    uint32 createTime = 0, uint8 gender = 2,  // gender: see GENDER_NONE note above
+                    std::string const& guildName = "");  // chatContext: "world"/"guild"; contextId: guild_id for guild
     bool        NotifyBgAfkViaJianJia(Player* player, BattleGround* bg, uint8 stage, uint8 afkLevel,
                     char const* noticeType);   // returns false → caller should use fallback
     void        NotifyWorldBroadcastToJianJia(std::string const& broadcastMsg, std::string const& sender = "");

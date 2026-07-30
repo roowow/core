@@ -435,7 +435,8 @@ bool WebChatMgr::IsJianJiaName(std::string const& name) const
 }
 
 void WebChatMgr::ForwardWhisperToJianJia(std::string const& senderName, std::string const& message,
-    uint8 level, uint8 cls, uint8 race, std::string const& zone, bool hardcore, bool tianxuan)
+    uint8 level, uint8 cls, uint8 race, std::string const& zone, bool hardcore, bool tianxuan,
+    uint32 createTime, uint8 gender, std::string const& guildName)
 {
     if (!m_pubCtx || senderName.empty()) return;
     SigpipeGuard guard;
@@ -451,12 +452,18 @@ void WebChatMgr::ForwardWhisperToJianJia(std::string const& senderName, std::str
     j += std::to_string(cls);
     j += ",\"race\":";
     j += std::to_string(race);
+    j += ",\"gender\":";
+    j += std::to_string(gender);
     j += ",\"zone\":\"";
     j += EscapeJson(zone);
+    j += "\",\"guild\":\"";
+    j += EscapeJson(guildName);
     j += "\",\"hardcore\":";
     j += (hardcore ? "true" : "false");
     j += ",\"tianxuan\":";
     j += (tianxuan ? "true" : "false");
+    j += ",\"create_time\":";
+    j += std::to_string(createTime);
     j += ",\"message\":\"";
     j += EscapeJson(message);
     j += "\"}";
@@ -496,7 +503,7 @@ void WebChatMgr::ForwardGroupChatToJianJia(std::string const& senderName, std::s
 
 void WebChatMgr::ForwardChannelChatToJianJia(std::string const& senderName, std::string const& message,
     char const* chatContext, uint8 level, uint8 cls, uint8 race, uint32 contextId,
-    bool hardcore, bool tianxuan)
+    bool hardcore, bool tianxuan, uint32 createTime, uint8 gender, std::string const& guildName)
 {
     if (!m_pubCtx || senderName.empty() || !chatContext) return;
     if (IsJianJiaName(senderName)) return;
@@ -517,10 +524,16 @@ void WebChatMgr::ForwardChannelChatToJianJia(std::string const& senderName, std:
     j += std::to_string(cls);
     j += ",\"race\":";
     j += std::to_string(race);
-    j += ",\"hardcore\":";
+    j += ",\"gender\":";
+    j += std::to_string(gender);
+    j += ",\"guild\":\"";
+    j += EscapeJson(guildName);
+    j += "\",\"hardcore\":";
     j += (hardcore ? "true" : "false");
     j += ",\"tianxuan\":";
     j += (tianxuan ? "true" : "false");
+    j += ",\"create_time\":";
+    j += std::to_string(createTime);
     j += ",\"message\":\"";
     j += EscapeJson(message);
     j += "\"}";

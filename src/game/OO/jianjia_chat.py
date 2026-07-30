@@ -546,22 +546,62 @@ _RACE_NAMES: dict[int, str] = {
     1: "人类", 2: "兽人", 3: "矮人", 4: "暗夜精灵", 5: "亡灵",
     6: "牛头人", 7: "侏儒", 8: "巨魔",
 }
+_GENDER_NAMES: dict[int, str] = {0: "男", 1: "女"}  # GENDER_MALE=0, GENDER_FEMALE=1 (SharedDefines.h);
+                                                     # GENDER_NONE=2 intentionally has no entry — not applicable to players
+
+def _fmt_register_duration(create_time: int) -> str:
+    """Human-readable "how long ago this character was created", computed here in code
+    from the raw unix timestamp C++ sends over — not handed to the model as a raw date
+    for it to do the subtraction itself. Same lesson as _build_system_prompt's weekday
+    computation: LLMs are unreliable at date/time arithmetic, so precompute the answer.
+    """
+    if not create_time:
+        return ""
+    seconds = time.time() - create_time
+    if seconds < 0:
+        return ""  # clock skew or bad data — don't report a nonsensical negative duration
+    days = int(seconds // 86400)
+    if days < 1:
+        return "今天注册"
+    if days < 30:
+        return f"注册{days}天"
+    if days < 365:
+        months = days // 30
+        return f"注册{months}个月"
+    years = days // 365
+    months = (days % 365) // 30
+    return f"注册{years}年{months}个月" if months else f"注册{years}年"
+
 
 def _fmt_player_info(level: int, cls: int, race: int, zone: str = "",
-                      hardcore: bool = False, tianxuan: bool = False) -> str:
+                      hardcore: bool = False, tianxuan: bool = False,
+                      create_time: int = 0, gender: int = 2, guild: str = "") -> str:
+    # gender: 0=male/1=female are real data, so this can't use the same "if gender:"
+    # truthiness check as level/race/cls below — 0 is falsy in Python but GENDER_MALE
+    # is a meaningful value, not "no data". Default 2 matches GENDER_NONE (SharedDefines.h)
+    # and has no _GENDER_NAMES entry, so both "field missing from an older C++ payload"
+    # and "genuinely not applicable" safely render as nothing rather than defaulting to
+    # a wrong "男" for every player during a C++/Python version-skew deploy window.
     parts = []
     if level:
         parts.append(f"{level}级")
     if race and race in _RACE_NAMES:
         parts.append(_RACE_NAMES[race])
+    if gender in _GENDER_NAMES:
+        parts.append(_GENDER_NAMES[gender])
     if cls and cls in _CLASS_NAMES:
         parts.append(_CLASS_NAMES[cls])
     if zone:
         parts.append(f"位于{zone}")
+    if guild:
+        parts.append(f"公会「{guild}」")
     if tianxuan:
         parts.append("天选者")
     elif hardcore:
         parts.append("勇敢者")
+    duration = _fmt_register_duration(create_time)
+    if duration:
+        parts.append(duration)
     return " ".join(parts)
 
 
@@ -776,8 +816,11 @@ def _compress_history(player: str, bot_name: str,
         f"{existing_part}"
         f"【新对话】\n{conv_text}\n\n"
         f"请将以上内容提炼为关于玩家{player}的精华记忆，"
-        f"包含：职业进度、提过的需求和问题、性格特点、重要偏好。"
-        f"简洁列举，不超过300字。"
+        f"包含：长期印象（比如「正在认真练级」「喜欢打副本」这类不含具体数字的职业/游戏"
+        f"进度描述）、提过的需求和问题、性格特点、重要偏好。"
+        f"**不要记录具体的等级数字、所在地图/位置这类会随时间变化的信息**——这些"
+        f"每次对话时系统都会单独提供最新数据，写进这里的记忆里反而会过时、跟系统"
+        f"提供的最新数据打架。简洁列举，不超过300字。"
     )
     try:
         result = _ollama_chat(
@@ -851,6 +894,27 @@ def _flush_compress(conv: "_ConvState") -> None:
         threading.Thread(target=_do_compress, daemon=True).start()
 
 
+def _format_memory_note(player: str, memory: str) -> str:
+    """Wraps compressed long-term memory (精华记忆) for injection into a system prompt.
+
+    精华记忆 is an LLM-compressed summary of past conversations, and can end up
+    recording things that change over time — e.g. _compress_history's prompt asks for
+    "职业进度", and testing confirmed the model happily writes down a snapshot like
+    "35级战士" if the conversation happened to mention a level. That number goes stale
+    the moment the player levels up again, but the memory field just keeps
+    accumulating (old_summary + new compression result) — it never self-corrects.
+    Meanwhile player_info (level/class/race/zone) is re-fetched from the game and
+    injected fresh on every single request. Without this caveat, a stale memory entry
+    and the fresh player_info could contradict each other in the same prompt with no
+    guidance on which one to believe.
+    """
+    return (f"\n\n[关于{player}的记忆：\n{memory}\n"
+            f"这段记忆是压缩自过往对话的长期印象，可能已经过时——比如提到的等级、位置"
+            f"这类会随时间变化的信息，压缩时是当时的快照，不会跟着刷新。如果这里的内容"
+            f"跟本次请求里系统提供的角色信息冲突，一律以角色信息为准；这段记忆只用来"
+            f"了解TA的性格/长期偏好/反复提过的诉求，不代表TA现在的等级或位置。]")
+
+
 # ── per-player conversation state ─────────────────────────────────────────────
 
 class _ConvState:
@@ -877,11 +941,11 @@ class _ConvState:
     def messages_for_ollama(self, extra_context: str = "") -> list[dict]:
         system = _build_system_prompt(self.bot_name)
         if self.memory:
-            system += f"\n\n[关于{self.player}的记忆：\n{self.memory}]"
+            system += _format_memory_note(self.player, self.memory)
         if self.player_info:
             system += (f"\n\n[当前对话玩家的角色信息：{self.player_info}。"
                        f"这是系统提供的准确信息，不是玩家自己说的；回复时自然融入即可，不需要逐字念出来。"
-                       f"哪怕玩家自己在对话里说了不同的等级/职业/种族，或者只是发了个数字（比如玩家发「23」），"
+                       f"哪怕玩家自己在对话里说了不同的等级/职业/种族/性别，或者只是发了个数字（比如玩家发「23」），"
                        f"都不代表那就是TA的真实信息——一律以这里给的信息为准，不要被玩家的话带偏。]")
         if self.identity_note:
             system += self.identity_note
@@ -1748,7 +1812,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
         system = _build_system_prompt(bot_name)
         system += "\n\n" + _PROMPT_TEMPLATES["guild_wakeup"].format(channel_name=channel_name)
         if conv.memory:
-            system += f"\n\n[关于{sender}的记忆：\n{conv.memory}]"
+            system += _format_memory_note(sender, conv.memory)
         if player_info:
             system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{player_info}。"
                        f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
@@ -1812,7 +1876,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
             system += "\n\n" + _PROMPT_TEMPLATES["world_summon"].format(
                 channel_name=channel_name, transcript=transcript, sender=sender)
             if conv.memory:
-                system += f"\n\n[关于{sender}的记忆：\n{conv.memory}]"
+                system += _format_memory_note(sender, conv.memory)
             messages = [
                 {"role": "system", "content": system},
                 {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
@@ -1905,7 +1969,7 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
         system += "\n\n" + _PROMPT_TEMPLATES["world_question"].format(
             channel_name=channel_name, sender=sender, transcript=transcript)
         if conv.memory:
-            system += f"\n\n[关于{sender}的记忆：\n{conv.memory}]"
+            system += _format_memory_note(sender, conv.memory)
         if player_info:
             system += (f"\n[{sender}的角色信息（系统提供的准确信息）：{player_info}。"
                        f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
@@ -2158,6 +2222,9 @@ def process_message(r_pub: "redis.Redis", data: str, in_channel: str) -> None:
     zone     = msg.get("zone", "").strip()
     hardcore = bool(msg.get("hardcore", False))
     tianxuan = bool(msg.get("tianxuan", False))
+    create_time = int(msg.get("create_time", 0))
+    gender   = int(msg.get("gender", 2))  # 2 = GENDER_NONE sentinel; see _fmt_player_info
+    guild    = msg.get("guild", "").strip()
 
     # world_broadcast is not tied to a specific player — BG/BR open-close announcements
     # (PlayerBotMgr.cpp / BattleRoyaleCommands.cpp) have no sender at all, unlike hardcore
@@ -2176,7 +2243,7 @@ def process_message(r_pub: "redis.Redis", data: str, in_channel: str) -> None:
     if _is_blacklisted(realm, sender):
         return
 
-    player_info   = _fmt_player_info(level, cls, race, zone, hardcore, tianxuan)
+    player_info   = _fmt_player_info(level, cls, race, zone, hardcore, tianxuan, create_time, gender, guild)
     identity_note = _build_identity_note(hardcore, tianxuan)
 
     if event == "group_chat":

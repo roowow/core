@@ -883,6 +883,8 @@ class Player final: public Unit
         bool IsTurtle() const { return m_ExtraFlags & PLAYER_EXTRA_TURTLE_ON; }
         void SetTurtle(bool on);
 
+        time_t GetCreateTime() const { return m_createTime; }
+
 
         /*********************************************************/
         /***                    STORAGE SYSTEM                 ***/

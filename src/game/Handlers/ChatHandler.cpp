@@ -320,7 +320,8 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
                         sWebChatMgr.WriteWebChat("world", playerPointer->GetName(), uint32(playerPointer->GetTeam()), uint32(_player->GetClass()), "", packet.message, 0, _player->IsHardcore(), _player->IsTianxuan(), _player->IsTurtle());
                         sWebChatMgr.ForwardChannelChatToJianJia(playerPointer->GetName(), packet.message, "world",
                             playerPointer->GetLevel(), playerPointer->GetClass(), playerPointer->GetRace(), 0,
-                            _player->IsHardcore(), _player->IsTianxuan());
+                            _player->IsHardcore(), _player->IsTianxuan(), uint32(playerPointer->GetCreateTime()),
+                            playerPointer->GetGender(), sGuildMgr.GetGuildNameById(playerPointer->GetGuildId()));
                     }
 
                     if (packet.lang != LANG_ADDON && chn->HasFlag(Channel::ChannelFlags::CHANNEL_FLAG_GENERAL))
@@ -428,7 +429,8 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
                 }
                 sWebChatMgr.ForwardWhisperToJianJia(masterPlr->GetName(), packet.message,
                     masterPlr->GetLevel(), masterPlr->GetClass(), masterPlr->GetRace(), zoneName,
-                    _player->IsHardcore(), _player->IsTianxuan());
+                    _player->IsHardcore(), _player->IsTianxuan(), uint32(masterPlr->GetCreateTime()),
+                    masterPlr->GetGender(), sGuildMgr.GetGuildNameById(masterPlr->GetGuildId()));
                 WorldPacket informData;
                 PlayerCacheData const* botCache = sObjectMgr.GetPlayerDataByName(packet.whisperTargetOrChannel.c_str());
                 ObjectGuid botGuid = botCache ? ObjectGuid(HIGHGUID_PLAYER, botCache->uiGuid) : ObjectGuid();
@@ -545,7 +547,8 @@ void WorldSession::HandleChatMessageOpcode(WorldPackets::Chat::ChatMessage const
                 sWebChatMgr.WriteWebChat("guild", GetMasterPlayer()->GetName(), uint32(GetMasterPlayer()->GetTeam()), uint32(_player->GetClass()), "", packet.message, GetMasterPlayer()->GetGuildId(), _player->IsHardcore(), _player->IsTianxuan(), _player->IsTurtle());
                 sWebChatMgr.ForwardChannelChatToJianJia(GetMasterPlayer()->GetName(), packet.message, "guild",
                     _player->GetLevel(), _player->GetClass(), _player->GetRace(), GetMasterPlayer()->GetGuildId(),
-                    _player->IsHardcore(), _player->IsTianxuan());
+                    _player->IsHardcore(), _player->IsTianxuan(), uint32(_player->GetCreateTime()),
+                    _player->GetGender(), sGuildMgr.GetGuildNameById(GetMasterPlayer()->GetGuildId()));
             }
             break;
         }
