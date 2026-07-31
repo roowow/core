@@ -952,7 +952,10 @@ void WorldSession::HandleInspectOpcode(WorldPackets::Misc::Inspect const& packet
     if (_player->GetDistance3dToCenter(pTarget) > INSPECT_DISTANCE)
         return;
 
-    if (_player->IsValidAttackTarget(pTarget))
+    // GM身份绕过阵营敌对限制——原版规则是敌对目标一律拒绝检查（哪怕是GM），但GM经常需要
+    // 检查敌对阵营的机器人/玩家装备做排查，SEC_PLAYER以上（GetSecurity() > SEC_PLAYER）
+    // 是这个仓库里判断"是不是GM"的统一写法（跟BattleRoyalePlayer::isGM同一套判断）。
+    if (GetSecurity() <= SEC_PLAYER && _player->IsValidAttackTarget(pTarget))
         return;
 
     auto inspectPacket = std::make_unique<WorldPackets::Misc::InspectResponse>();
@@ -969,7 +972,8 @@ void WorldSession::HandleInspectHonorStatsOpcode(WorldPackets::Misc::InspectHono
     if (_player->GetDistance3dToCenter(pTarget) > INSPECT_DISTANCE)
         return;
 
-    if (_player->IsValidAttackTarget(pTarget))
+    // 跟HandleInspectOpcode同样的GM绕过阵营限制逻辑，见那边的注释。
+    if (GetSecurity() <= SEC_PLAYER && _player->IsValidAttackTarget(pTarget))
         return;
 
     auto honorStats = std::make_unique<WorldPackets::Misc::InspectHonorStatsResponse>();
