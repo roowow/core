@@ -178,6 +178,10 @@ public:
     float m_bgStuckLastX = 0.0f;
     float m_bgStuckLastY = 0.0f;
 
+    // WSG home guard: cooldown after dropping combat for out-of-range check,
+    // so the bot has time to run back without being interrupted every AI tick.
+    uint32 m_wsGuardReturnUntil = 0;
+
     // AV tower stuck detection: timeout + skip for non-key tower objectives
     uint32 m_avCurrentObjective = 0;
     time_t m_avObjectiveTime = 0;

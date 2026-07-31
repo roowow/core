@@ -3402,12 +3402,19 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
             if (inCombat)
             {
-                // Home guard bots must not stray >80 yards from own flag room
-                if (BattleBotIsWSGHomeGuardCandidate(this))
+                // Home guard bots must not stray >80 yards from own flag room.
+                // Cooldown: once dropped, don't re-drop for 10s so the bot can
+                // actually run back instead of being interrupted every AI tick.
+                if (BattleBotIsWSGHomeGuardCandidate(this) &&
+                    WorldTimer::getMSTime() >= m_wsGuardReturnUntil)
                 {
                     Position const& flagPos = (me->GetTeam() == ALLIANCE) ? WS_FLAG_POS_ALLIANCE : WS_FLAG_POS_HORDE;
                     if (me->GetDistance2d(flagPos.x, flagPos.y) > 80.0f)
-                    { dropCombat = true; dropCombatReason = "ws-guard-range"; }
+                    {
+                        m_wsGuardReturnUntil = WorldTimer::getMSTime() + 10000;
+                        dropCombat = true;
+                        dropCombatReason = "ws-guard-range";
+                    }
                 }
 
                 // Stuck while chasing: can't reach victim. Stationary 10s or oscillating 30s.
@@ -4131,7 +4138,7 @@ void BattleBotAI::UpdateBattleRoyaleAI()
             ++m_brAirborneTicks;
             if (heightDiff > BR_BOT_AIRBORNE_HARD_HEIGHT || m_brAirborneTicks >= BR_BOT_AIRBORNE_TELEPORT_TICKS)
             {
-                if (sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG))
+                if (sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG) && heightDiff > BR_BOT_AIRBORNE_HARD_HEIGHT)
                     sLog.Out(LOG_BG, LOG_LVL_BASIC,
                              "[BattleRoyaleMovement] snap bot %s guid %u instance %u pos %.2f %.2f %.2f ground %.2f diff %.2f ticks %u.",
                              me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(),
@@ -5456,13 +5463,6 @@ void BattleBotAI::UpdateInCombatAI_Shaman()
                     return;
             }
 
-            // ── DPS: purge ──────────────────────────────────────────────────
-            if (Unit* pPurgeTarget = SelectShamanPurgeTarget(this))
-            {
-                if (DoCastSpell(pPurgeTarget, m_spells.shaman.pPurge) == SPELL_CAST_OK)
-                    return;
-            }
-
             // ── DPS: melee rotation ─────────────────────────────────────────
             if (m_role == ROLE_MELEE_DPS || m_role == ROLE_TANK)
             {
@@ -5520,6 +5520,16 @@ void BattleBotAI::UpdateInCombatAI_Shaman()
                     CanTryToCastSpell(pVictim, m_spells.shaman.pLightningBolt))
                 {
                     if (DoCastSpell(pVictim, m_spells.shaman.pLightningBolt) == SPELL_CAST_OK)
+                        return;
+                }
+            }
+
+            // ── DPS: purge — low priority, only when mana is comfortable ────
+            if (me->GetPowerPercent(POWER_MANA) > 40.0f)
+            {
+                if (Unit* pPurgeTarget = SelectShamanPurgeTarget(this))
+                {
+                    if (DoCastSpell(pPurgeTarget, m_spells.shaman.pPurge) == SPELL_CAST_OK)
                         return;
                 }
             }
@@ -6483,18 +6493,7 @@ void BattleBotAI::UpdateInCombatAI_Warlock()
                 return;
         }
 
-        if (Unit* pTonguesTarget = SelectWarlockCurseOfTonguesTarget(this, pVictim))
-        {
-            if (DoCastSpell(pTonguesTarget, m_spells.warlock.pCurseofTongues) == SPELL_CAST_OK)
-                return;
-        }
-
-        if (Unit* pExhaustionTarget = SelectWarlockCurseOfExhaustionTarget(this, pVictim))
-        {
-            if (DoCastSpell(pExhaustionTarget, m_spells.warlock.pCurseofExhaustion) == SPELL_CAST_OK)
-                return;
-        }
-
+        // Instant DoTs first — front-load damage before any cast-time spells.
         if (m_spells.warlock.pCorruption &&
             !pVictim->HasAura(m_spells.warlock.pCorruption->Id) &&
             CanTryToCastSpell(pVictim, m_spells.warlock.pCorruption))
@@ -6516,6 +6515,19 @@ void BattleBotAI::UpdateInCombatAI_Warlock()
             CanTryToCastSpell(pVictim, m_spells.warlock.pSiphonLife))
         {
             if (DoCastSpell(pVictim, m_spells.warlock.pSiphonLife) == SPELL_CAST_OK)
+                return;
+        }
+
+        // Debuffs after DoTs: CoT slows enemy casts before we cast Shadow Bolt.
+        if (Unit* pTonguesTarget = SelectWarlockCurseOfTonguesTarget(this, pVictim))
+        {
+            if (DoCastSpell(pTonguesTarget, m_spells.warlock.pCurseofTongues) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (Unit* pExhaustionTarget = SelectWarlockCurseOfExhaustionTarget(this, pVictim))
+        {
+            if (DoCastSpell(pExhaustionTarget, m_spells.warlock.pCurseofExhaustion) == SPELL_CAST_OK)
                 return;
         }
 
@@ -7592,7 +7604,12 @@ void BattleBotAI::UpdateInCombatAI_Druid()
                 {
                     if (Unit* pFaerieTarget = SelectDruidFaerieFireTarget(this, m_spells.druid.pFaerieFireFeral))
                     {
-                        if (DoCastSpell(pFaerieTarget, m_spells.druid.pFaerieFireFeral) == SPELL_CAST_OK)
+                        // Cat form energy is scarce: only FF current victim or high-value targets
+                        // (flag carriers, rogues/druids to deny stealth). Skip random off-targets.
+                        bool const isHighValue = (pFaerieTarget == pVictim ||
+                            pFaerieTarget->HasAura(AURA_WARSONG_FLAG) || pFaerieTarget->HasAura(AURA_SILVERWING_FLAG) ||
+                            pFaerieTarget->GetClass() == CLASS_ROGUE || pFaerieTarget->GetClass() == CLASS_DRUID);
+                        if (isHighValue && DoCastSpell(pFaerieTarget, m_spells.druid.pFaerieFireFeral) == SPELL_CAST_OK)
                             return;
                     }
                 }
