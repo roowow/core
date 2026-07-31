@@ -2902,14 +2902,38 @@ inline uint32 GetPrimaryItemStatForClassAndRole(uint8 playerClass, uint8 role)
     }
     return ITEM_MOD_STAMINA;
 }
+
+// BR机器人荣誉装选武器时的种族专精偏好（playercreateinfo_spell核对过的真实种族武器天赋，
+// 不是职业天赋树里同名的"XX专精"talent）：人类剑/锤、兽人斧、矮人枪、巨魔弓/投掷；
+// 暗夜精灵/亡灵/牛头人/侏儒没有武器类种族专精，返回false走纯装等排序。
+inline bool IsPreferredWeaponSubclassForRace(uint8 race, uint32 subClass)
+{
+    switch (race)
+    {
+        case RACE_HUMAN:
+            return subClass == ITEM_SUBCLASS_WEAPON_SWORD || subClass == ITEM_SUBCLASS_WEAPON_SWORD2 ||
+                   subClass == ITEM_SUBCLASS_WEAPON_MACE  || subClass == ITEM_SUBCLASS_WEAPON_MACE2;
+        case RACE_ORC:
+            return subClass == ITEM_SUBCLASS_WEAPON_AXE || subClass == ITEM_SUBCLASS_WEAPON_AXE2;
+        case RACE_DWARF:
+            return subClass == ITEM_SUBCLASS_WEAPON_GUN;
+        case RACE_TROLL:
+            return subClass == ITEM_SUBCLASS_WEAPON_BOW || subClass == ITEM_SUBCLASS_WEAPON_THROWN;
+        default:
+            return false;
+    }
+}
 }
 
-void CombatBotBaseAI::EquipRandomGearInEmptySlots()
+void CombatBotBaseAI::EquipRandomGearInEmptySlots(bool forceMaxHonorGear)
 {
     LearnArmorProficiencies();
 
-    bool const onlyPvE = urand(0, 1) != 0;
-    uint8 const honorRank = onlyPvE ? 0 : urand(5, 18);
+    // forceMaxHonorGear（BR机器人用）：不再50%概率退回纯PvE池、不再随机roll军衔——固定走
+    // 满荣誉军衔18（当前item_template里RequiredHonorRank的实际最大值，见BattleRoyale.md
+    // 「BR机器人装备策略」）的荣誉装池，保证候选池覆盖全部荣誉装（含顶级）。
+    bool const onlyPvE = forceMaxHonorGear ? false : (urand(0, 1) != 0);
+    uint8 const honorRank = forceMaxHonorGear ? 18 : (onlyPvE ? 0 : urand(5, 18));
 
     std::map<uint32 /*slot*/, std::vector<ItemPrototype const*>> itemsPerSlot;
     for (auto const& itr : sObjectMgr.GetItemPrototypeMap())
@@ -3089,7 +3113,38 @@ void CombatBotBaseAI::EquipRandomGearInEmptySlots()
         if (itr.second.empty())
             continue;
 
-        ItemPrototype const* pProto = SelectRandomContainerElement(itr.second);
+        ItemPrototype const* pProto;
+        if (forceMaxHonorGear)
+        {
+            // 不再均匀随机选一件——先按ItemLevel取最高的那些（保证不比PvE前置装差，见
+            // BattleRoyale.md「BR机器人装备策略」的装等核对结论），武器槽再按种族专精
+            // 二次筛一遍（同装等时优先选种族专精对上的类型），最后在剩下的候选里随机
+            // 选一件，兼顾"下限有保证"和"不是每次都焊死同一件"。
+            uint32 maxItemLevel = 0;
+            for (ItemPrototype const* pItem : itr.second)
+                maxItemLevel = std::max(maxItemLevel, pItem->ItemLevel);
+
+            std::vector<ItemPrototype const*> topCandidates;
+            for (ItemPrototype const* pItem : itr.second)
+                if (pItem->ItemLevel == maxItemLevel)
+                    topCandidates.push_back(pItem);
+
+            if (itr.first == EQUIPMENT_SLOT_MAINHAND || itr.first == EQUIPMENT_SLOT_OFFHAND || itr.first == EQUIPMENT_SLOT_RANGED)
+            {
+                std::vector<ItemPrototype const*> racePreferred;
+                for (ItemPrototype const* pItem : topCandidates)
+                    if (pItem->Class == ITEM_CLASS_WEAPON && IsPreferredWeaponSubclassForRace(me->GetRace(), pItem->SubClass))
+                        racePreferred.push_back(pItem);
+
+                if (!racePreferred.empty())
+                    topCandidates = racePreferred;
+            }
+
+            pProto = SelectRandomContainerElement(topCandidates);
+        }
+        else
+            pProto = SelectRandomContainerElement(itr.second);
+
         if (!pProto)
             continue;
 

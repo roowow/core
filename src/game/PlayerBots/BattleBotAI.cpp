@@ -3095,7 +3095,17 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         if (m_role == ROLE_INVALID)
             AutoAssignRole();
 
-        AutoEquipGear(sWorld.getConfig(CONFIG_UINT32_BATTLE_BOT_AUTO_EQUIP));
+        // BR机器人不走全局BattleBot.AutoEquip配置（那个开关会连累普通战场/组队机器人）——
+        // 单独固定走满荣誉军衔的随机装备路线，保证不比现在的PvE前置装差，见BattleRoyale.md
+        // 「BR机器人装备策略」。UpdateVisualHonorRankBasedOnItems()是AutoEquipGear内部
+        // 自己也会调的收尾步骤，这里手动补上。
+        if (m_isBattleRoyaleBot)
+        {
+            EquipRandomGearInEmptySlots(true);
+            UpdateVisualHonorRankBasedOnItems();
+        }
+        else
+            AutoEquipGear(sWorld.getConfig(CONFIG_UINT32_BATTLE_BOT_AUTO_EQUIP));
 
         if (m_isBattleRoyaleBot && me->GetClass() == CLASS_ROGUE)
         {

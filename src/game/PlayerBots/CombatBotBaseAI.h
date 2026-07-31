@@ -99,7 +99,7 @@ public:
     void LearnArmorProficiencies();
     void LearnPremadeSpecForClass();
     void EquipPremadeGearTemplate();
-    void EquipRandomGearInEmptySlots();
+    void EquipRandomGearInEmptySlots(bool forceMaxHonorGear = false);
     void AutoEquipGear(uint32 option);
     void LearnRandomTalents();
     
