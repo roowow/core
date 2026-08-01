@@ -48,7 +48,7 @@ void WorldSession::HandleAuctionHelloOpcode(WorldPackets::AuctionHouse::AuctionH
     }
 
     // 天选者模式禁止使用拍卖行
-    if (GetPlayer()->IsTianxuan())
+    if (GetPlayer()->IsTianxuan() && !GetPlayer()->GetQuestRewardStatus(920501))
     {
         ChatHandler(GetPlayer()).PSendSysMessage("[天选者] 天选之路，不借外力。");
         return;

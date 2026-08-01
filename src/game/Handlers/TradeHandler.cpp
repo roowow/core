@@ -598,7 +598,7 @@ void WorldSession::HandleInitiateTradeOpcode(WorldPackets::Trade::InitiateTrade 
         return;
 
     // 天选者模式禁止交易
-    if (GetPlayer()->IsTianxuan())
+    if (GetPlayer()->IsTianxuan() && !GetPlayer()->GetQuestRewardStatus(920501))
     {
         ChatHandler(GetPlayer()).PSendSysMessage("[天选者] 天命独行，无可假手于人。");
         SendTradeStatus(TRADE_STATUS_TRADE_CANCELED);
@@ -674,7 +674,7 @@ void WorldSession::HandleInitiateTradeOpcode(WorldPackets::Trade::InitiateTrade 
     }
 
     // 天选者模式禁止与他人交易（双向）
-    if (pOther->IsTianxuan())
+    if (pOther->IsTianxuan() && !pOther->GetQuestRewardStatus(920501))
     {
         ChatHandler(GetPlayer()).PSendSysMessage("[天选者] %s 天命独行，不接受他人交易。", pOther->GetName());
         SendTradeStatus(TRADE_STATUS_TRADE_CANCELED);

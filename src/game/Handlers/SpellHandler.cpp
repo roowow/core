@@ -289,7 +289,7 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
     // Guild Bank
     if (pItem->GetEntry() == 918232)
     {
-        if (pUser->IsTianxuan())
+        if (pUser->IsTianxuan() && !pUser->GetQuestRewardStatus(920501))
         {
             ChatHandler(pUser).PSendSysMessage("[天选者] 所获皆凭己力，不受馈赠。");
             cancelCast = true;

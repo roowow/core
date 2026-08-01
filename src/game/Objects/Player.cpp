@@ -3663,6 +3663,7 @@ void Player::GiveLevel(uint32 level)
     {
         std::string message = std::string("勇敢者 |cFF") + sOOMgr.GetClassColor(GetClass()) + GetName() + std::string("|r，完成了重重考验，晋升到了60！");
         sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
+        sWorld.SendServerMessage(SERVER_MSG_CUSTOM, "袅袅钟声，越山渡海，艾泽拉斯沐浴在这份欢腾与感动之中。");
         sWebChatMgr.NotifyWorldBroadcastToJianJia(message, GetName());
         sOOMgr.AnnounceLevel60Fanfare();
     }
@@ -3672,6 +3673,17 @@ void Player::GiveLevel(uint32 level)
     {
         std::string message = std::string("天选者 |cFF") + sOOMgr.GetClassColor(GetClass()) + GetName() + std::string("|r，历尽天将降下的大任考验，终得大任功成，晋升到了60！");
         sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
+        sWorld.SendServerMessage(SERVER_MSG_CUSTOM, "袅袅钟声，越山渡海，艾泽拉斯沐浴在这份欢腾与感动之中。");
+        sWebChatMgr.NotifyWorldBroadcastToJianJia(message, GetName());
+        sOOMgr.AnnounceLevel60Fanfare();
+    }
+
+    // Turtle OnLevelChanged
+    if (IsTurtle() && level == 60)
+    {
+        std::string message = std::string("归真者 |cFF") + sOOMgr.GetClassColor(GetClass()) + GetName() + std::string("|r，以半速之志，步步为营，晋升到了60！");
+        sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
+        sWorld.SendServerMessage(SERVER_MSG_CUSTOM, "袅袅钟声，越山渡海，艾泽拉斯沐浴在这份欢腾与感动之中。");
         sWebChatMgr.NotifyWorldBroadcastToJianJia(message, GetName());
         sOOMgr.AnnounceLevel60Fanfare();
     }
@@ -13921,6 +13933,14 @@ void Player::RewardQuest(Quest const* pQuest, uint32 reward, WorldObject* questE
                 if (!HasAura(itr->second->spellId, EFFECT_INDEX_0))
                     CastSpell(this, itr->second->spellId, true);
     }
+
+    // 天选者满级奖励任务完成：发提示（限制已通过 GetQuestRewardStatus 判断自动解除）
+    if (questId == 920501 && IsTianxuan())
+        ChatHandler(GetSession()).PSendSysMessage("天选者 %s，历尽千磨，天命已证！天选者之路，功成于今。", GetName());
+
+    // 归真者满级奖励任务完成
+    if (questId == 920504 && IsTurtle())
+        ChatHandler(GetSession()).PSendSysMessage("归真者 %s，归朴守真，终抵本源。归真之路，功成于今。", GetName());
 
 }
 

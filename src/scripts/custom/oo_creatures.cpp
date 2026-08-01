@@ -199,7 +199,7 @@ void SendDefaultMenu_TianxuanNPC(Player* player, Creature* creature, uint32 acti
 
         case 10:
             // 乌龟模式描述页：npc_text 22043 存放乌龟模式规则介绍文案
-            player->ADD_GOSSIP_ITEM_EXTENDED(0, "踏上乌龟之路，输入：|cFF00FF00抱朴守拙|r。", 2, 13, "", true);
+            player->ADD_GOSSIP_ITEM_EXTENDED(0, "踏上归真之路，输入：|cFF00FF00抱朴守拙|r。", 2, 13, "", true);
             player->SEND_GOSSIP_MENU(22043, creature->GetGUID());
             break;
     }
@@ -243,7 +243,7 @@ void SendDefaultMenu_TianxuanNPC2(Player* player, Creature* creature, uint32 act
 
             player->SetTianxuan(true);
 
-            ChatHandler(player->GetSession()).PSendSysMessage("【天选】苦其心志，劳其筋骨。天选者之路，由此而始。");
+            ChatHandler(player->GetSession()).PSendSysMessage("天选者 %s，苦其心志，劳其筋骨。天选者之路，由此而始。", player->GetName());
 
             player->CLOSE_GOSSIP_MENU();
             break;
@@ -251,21 +251,21 @@ void SendDefaultMenu_TianxuanNPC2(Player* player, Creature* creature, uint32 act
         case 13:
             if (strcmp(code, "抱朴守拙") != 0)
             {
-                MonsterSayLocalized(creature, "守拙者，须明心中誓言。你的答案不对。");
+                MonsterSayLocalized(creature, "归真者，须明心中誓言。你的答案不对。");
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
 
             if ((player->IsHardcore() && !player->IsHardcoreRetired()) || player->IsTianxuan())
             {
-                MonsterSayLocalized(creature, "乌龟之路只属于纯粹的灵魂，你已踏上另一条路，无法兼行。");
+                MonsterSayLocalized(creature, "归真之路只属于纯粹的灵魂，你已踏上另一条路，无法兼行。");
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
 
             if (player->GetLevel() > 5)
             {
-                MonsterSayLocalized(creature, "乌龟之誓，须于踏出新手村之前立下，方得龟甲庇护。");
+                MonsterSayLocalized(creature, "归真之誓，须于踏出新手村之前立下，方得龟甲庇护。");
                 player->CLOSE_GOSSIP_MENU();
                 break;
             }
@@ -282,7 +282,7 @@ void SendDefaultMenu_TianxuanNPC2(Player* player, Creature* creature, uint32 act
 
             player->SetTurtle(true);
 
-            ChatHandler(player->GetSession()).PSendSysMessage("【乌龟】见素抱朴，少私寡欲。乌龟之路，由此而始。");
+            ChatHandler(player->GetSession()).PSendSysMessage("归真者 %s，见素抱朴，少私寡欲。归真之路，由此而始。", player->GetName());
 
             player->CLOSE_GOSSIP_MENU();
             break;
@@ -293,7 +293,7 @@ bool GossipHello_TianxuanNPC(Player* player, Creature* creature)
 {
     if (player->IsHardcore() && !player->IsHardcoreRetired())
     {
-        MonsterSayLocalized(creature, "勇敢者已立生死状，天选与乌龟之路皆不可兼行。");
+        MonsterSayLocalized(creature, "勇敢者已立生死状，天选与归真之路皆不可兼行。");
         player->PrepareQuestMenu(creature->GetGUID());
         player->SEND_GOSSIP_MENU(22040, creature->GetGUID());
         return true;
@@ -317,7 +317,7 @@ bool GossipHello_TianxuanNPC(Player* player, Creature* creature)
 
     if (player->GetLevel() > 5)
     {
-        MonsterSayLocalized(creature, "天选者与乌龟之誓，须于踏出新手村之前立下。");
+        MonsterSayLocalized(creature, "天选者与归真之誓，须于踏出新手村之前立下。");
         player->PrepareQuestMenu(creature->GetGUID());
         player->SEND_GOSSIP_MENU(22040, creature->GetGUID());
         return true;

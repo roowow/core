@@ -262,6 +262,8 @@ enum ConditionType
                                                             // Value1: area_id
     CONDITION_IS_TIANXUAN           = 60,                   // Checks if the player currently has Tianxuan (天选者/自强模式) status active.
                                                             // Requirement: Player Target
+    CONDITION_IS_TURTLE             = 61,                   // Checks if the player currently has Turtle (归真者/乌龟模式) status active.
+                                                            // Requirement: Player Target
 };
 
 enum ConditionFlags
