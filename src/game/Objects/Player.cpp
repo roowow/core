@@ -3681,7 +3681,7 @@ void Player::GiveLevel(uint32 level)
     // Turtle OnLevelChanged
     if (IsTurtle() && level == 60)
     {
-        std::string message = std::string("归真者 |cFF") + sOOMgr.GetClassColor(GetClass()) + GetName() + std::string("|r，以半速之志，步步为营，晋升到了60！");
+        std::string message = std::string("归真者 |cFF") + sOOMgr.GetClassColor(GetClass()) + GetName() + std::string("|r，见素抱朴，慢行致远，终得归真功成，晋升到了60！");
         sWorld.SendServerMessage(SERVER_MSG_CUSTOM, message.c_str());
         sWorld.SendServerMessage(SERVER_MSG_CUSTOM, "袅袅钟声，越山渡海，艾泽拉斯沐浴在这份欢腾与感动之中。");
         sWebChatMgr.NotifyWorldBroadcastToJianJia(message, GetName());
