@@ -604,10 +604,12 @@ SpellScript* GetScript_NefarianShadowFlamePassive(SpellEntry const*)
 // 23427 - Nefarian Class Call Warlock
 // Each Warlock will summon 2 hostile Corrupted Infernals.
 // They will stun and do damage to the Warlocks and anyone near them.
+// Note: we use SummonCreature directly instead of CastSpell(23426) because
+// SPELL_EFFECT_SUMMON_DEMON CheckCast calls UnsummonOldPetBeforeNewSummon, which
+// returns SPELL_FAILED_ALREADY_HAVE_SUMMON when the warlock has an active pet (Imp),
+// silently preventing the infernals from appearing.
 struct NefarianClassCallWarlockScript : SpellScript
 {
-    static constexpr uint32 SPELL_SUMMON_INFERNALS = 23426;
-
     bool OnEffectExecute(Spell* spell, SpellEffectIndex effIdx) const final
     {
         if (effIdx != EFFECT_INDEX_0)
@@ -617,9 +619,17 @@ struct NefarianClassCallWarlockScript : SpellScript
         if (!target)
             return true;
 
-        // Each Warlock summons 2 Corrupted Infernals
-        target->CastSpell(target, SPELL_SUMMON_INFERNALS, true);
-        target->CastSpell(target, SPELL_SUMMON_INFERNALS, true);
+        // Each Warlock summons 2 Corrupted Infernals at their position
+        for (int i = 0; i < 2; ++i)
+        {
+            if (Creature* infernal = target->SummonCreature(NPC_CORRUPTED_INFERNAL,
+                target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(),
+                target->GetOrientation(), TEMPSUMMON_TIMED_COMBAT_OR_DEAD_DESPAWN, 3600000))
+            {
+                infernal->SetLevel(target->GetLevel());
+                infernal->SetInCombatWithZone();
+            }
+        }
         return true;
     }
 };
