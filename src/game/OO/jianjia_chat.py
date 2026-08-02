@@ -643,7 +643,7 @@ _BLACKLIST_TTL = 7 * 24 * 3600  # 1 week; expiry is automatic (Redis TTL), no cl
 def _blacklist_player(realm: int, sender: str) -> None:
     if _r_history is None:
         return
-    _r_history.setex(f"jianjia:blacklist:{realm}:{sender}", _BLACKLIST_TTL, "1")
+    _r_history.set(f"jianjia:blacklist:{realm}:{sender}", "1", ex=_BLACKLIST_TTL)
     log.warning("Blacklisted %s (realm %d) for insulting the AI, expires in 7 days.", sender, realm)
 
 
@@ -773,7 +773,7 @@ def _get_player_memory(player: str, bot_name: str, scope: str, realm_id: int = 0
                 memory = row[0]
                 if _r_history:
                     try:
-                        _r_history.setex(_memory_redis_key(bot_name, scope, player), MEMORY_REDIS_TTL, memory)
+                        _r_history.set(_memory_redis_key(bot_name, scope, player), memory, ex=MEMORY_REDIS_TTL)
                     except Exception:
                         pass
                 return memory
@@ -799,7 +799,7 @@ def _save_player_memory(player: str, bot_name: str, realm_id: int, scope: str, m
 
     if _r_history:
         try:
-            _r_history.setex(_memory_redis_key(bot_name, scope, player), MEMORY_REDIS_TTL, memory)
+            _r_history.set(_memory_redis_key(bot_name, scope, player), memory, ex=MEMORY_REDIS_TTL)
         except Exception as e:
             log.debug("Memory Redis cache update failed for %s: %s", player, e)
 
@@ -1003,6 +1003,18 @@ class _OllamaBusy(RuntimeError):
     """
 
 
+# Seen once in production: a reply that should have said "官方" (officially) came out as
+# "#@#$%^" instead — a run of keyboard-row symbols dropped in place of ordinary Chinese
+# text, the classic "grawlix" censor-placeholder shape (like "@#$%!" standing in for a
+# swear word in a comic). Traced the whole Python->Redis->WebChatMgr.cpp->chat-packet path
+# byte-by-byte and found nothing that could produce this — every stage copies UTF-8 through
+# unchanged, and the WoW-side profanity/link filter doesn't even run on AI messages. Best
+# explanation left is a one-off Ollama decoding glitch, not a pipeline bug. Can't fix that
+# at the source, so guard against it here instead: catch the pattern before a reply goes
+# out and retry once.
+_GARBLED_RE = re.compile(r'[#@$%^&*]{3,}')
+
+
 def _ollama_chat(messages: list[dict], timeout: int = 30, temperature: float = 0.8,
                  think: bool = False, num_predict: int = 200,
                  queue_timeout: "int | None" = None) -> str:
@@ -1026,27 +1038,38 @@ def _ollama_chat(messages: list[dict], timeout: int = 30, temperature: float = 0
         raise TimeoutError(f"timed out after {wait}s waiting in the "
                            f"Ollama queue (server busy)")
     try:
-        resp = requests.post(
-            OLLAMA_URL,
-            json={
-                "model":    OLLAMA_MODEL,
-                "messages": messages,
-                "stream":   False,
-                "think":    think,
-                "options":  {"temperature": temperature, "num_predict": num_predict,
-                            "num_ctx": OLLAMA_CONTEXT_TOKENS},
-            },
-            timeout=timeout,
-        )
+        # Held across both attempts (not released/reacquired between them) — if a retry is
+        # needed it's rare, and releasing the slot here would let another thread jump the
+        # queue ahead of our retry, which fights the whole point of retrying quickly.
+        content = ""
+        for attempt in range(2):
+            resp = requests.post(
+                OLLAMA_URL,
+                json={
+                    "model":    OLLAMA_MODEL,
+                    "messages": messages,
+                    "stream":   False,
+                    "think":    think,
+                    "options":  {"temperature": temperature, "num_predict": num_predict,
+                                "num_ctx": OLLAMA_CONTEXT_TOKENS},
+                },
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            content = resp.json()["message"]["content"].strip()
+            # strip <think>...</think> blocks in case the model ignores the flag
+            content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+            # strip "角色名：" prefix the model sometimes adds
+            content = re.sub(r"^\S{1,8}[：:]\s*", "", content)
+            if not _GARBLED_RE.search(content):
+                return content
+            log.warning("Garbled Ollama output on attempt %d, retrying: %r", attempt + 1, content)
+        # Still garbled after a retry — raise so callers hit their existing exception
+        # handling (fallback reply for whisper, silent drop elsewhere) instead of a
+        # broken message reaching a player.
+        raise RuntimeError(f"Ollama output still garbled after retry: {content!r}")
     finally:
         _ollama_semaphore.release()
-    resp.raise_for_status()
-    content = resp.json()["message"]["content"].strip()
-    # strip <think>...</think> blocks in case the model ignores the flag
-    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
-    # strip "角色名：" prefix the model sometimes adds
-    content = re.sub(r"^\S{1,8}[：:]\s*", "", content)
-    return content
 
 
 _FALLBACK_REPLIES = [
@@ -1454,7 +1477,7 @@ def _get_party_summary(realm: int, group_id: int) -> str:
 def _save_party_summary(realm: int, group_id: int, summary: str) -> None:
     try:
         if _r_history:
-            _r_history.setex(f"jianjia:party_summary:{realm}:{group_id}", PARTY_SUMMARY_TTL, summary)
+            _r_history.set(f"jianjia:party_summary:{realm}:{group_id}", summary, ex=PARTY_SUMMARY_TTL)
     except Exception as e:
         log.warning("Failed to save party summary (group %d): %s", group_id, e)
 
