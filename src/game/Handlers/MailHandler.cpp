@@ -76,7 +76,7 @@ bool WorldSession::CheckMailBox(ObjectGuid guid)
 class WorldSession::AsyncMailSendRequest
 {
 public:
-    AsyncMailSendRequest(): accountId(0), money(0), COD(0), receiverPtr(nullptr), rcTeam(TEAM_NONE), mailsCount(0xFF) {}
+    AsyncMailSendRequest(): accountId(0), money(0), COD(0), receiverPtr(nullptr), rcTeam(TEAM_NONE), mailsCount(0xFF), receiverMailBlocked(false) {}
     uint32 accountId;
     ObjectGuid senderGuid;
     ObjectGuid receiver;
@@ -89,6 +89,7 @@ public:
     Player*     receiverPtr;
     Team        rcTeam;
     uint8       mailsCount;
+    bool        receiverMailBlocked;
 
     void Callback(std::unique_ptr<QueryResult> result)
     {
@@ -102,7 +103,8 @@ public:
         if (result)
         {
             Field* fields = result->Fetch();
-            mailsCount = fields[0].GetUInt32();
+            mailsCount = static_cast<uint8>(fields[0].GetUInt32());
+            receiverMailBlocked = fields[1].GetUInt32() != 0;
         }
         sess->HandleSendMailCallback(this);
         delete this;
@@ -227,6 +229,14 @@ void WorldSession::HandleSendMailRequest(AsyncMailSendRequest* req)
             return;
         }
 
+        if (req->receiverPtr->IsMailBlockedFromPlayers())
+        {
+            ChatHandler(GetPlayer()).PSendSysMessage("[邮件] 该玩家无法接收来自其他玩家的邮件。");
+            SendMailResult(0, MAIL_SEND, MAIL_ERR_INTERNAL_ERROR);
+            delete req;
+            return;
+        }
+
         MasterPlayer* receiverMasterPlayer = req->receiverPtr->GetSession()->GetMasterPlayer();
         ASSERT(receiverMasterPlayer);
         req->rcTeam = receiverMasterPlayer->GetTeam();
@@ -237,7 +247,16 @@ void WorldSession::HandleSendMailRequest(AsyncMailSendRequest* req)
     {
         req->rcTeam = sObjectMgr.GetPlayerTeamByGUID(req->receiver);
         // Unsafe query: can modify items, accesses online players ...
-        CharacterDatabase.AsyncPQueryUnsafe(req, &WorldSession::AsyncMailSendRequest::Callback, "SELECT COUNT(*) FROM `mail` WHERE `receiver_guid` = '%u'", req->receiver.GetCounter());
+        // fields[1]: 离线接收方是否拒绝接收玩家邮件（同步 Player::IsMailBlockedFromPlayers 逻辑）
+        CharacterDatabase.AsyncPQueryUnsafe(req, &WorldSession::AsyncMailSendRequest::Callback,
+            "SELECT "
+            "(SELECT COUNT(*) FROM `mail` WHERE `receiver_guid` = %u), "
+            "CASE WHEN "
+            "  (c.`extra_flags` & 65536) AND"
+            "  NOT EXISTS(SELECT 1 FROM `character_queststatus_rewarded` WHERE `guid` = %u AND `quest` = 920501)"
+            " THEN 1 ELSE 0 END "
+            "FROM `characters` c WHERE c.`guid` = %u",
+            req->receiver.GetCounter(), req->receiver.GetCounter(), req->receiver.GetCounter());
     }
 }
 
@@ -247,6 +266,13 @@ void WorldSession::HandleSendMailCallback(WorldSession::AsyncMailSendRequest* re
     MasterPlayer* pl = GetMasterPlayer();
     Player* loadedPlayer = GetPlayer();
     ASSERT(pl);
+
+    if (req->receiverMailBlocked)
+    {
+        ChatHandler(loadedPlayer).PSendSysMessage("[邮件] 该玩家无法接收来自其他玩家的邮件。");
+        SendMailResult(0, MAIL_SEND, MAIL_ERR_INTERNAL_ERROR);
+        return;
+    }
 
     uint32 reqmoney = req->money + 30;
 
@@ -563,14 +589,6 @@ void WorldSession::HandleMailTakeItem(WorldPackets::Mail::MailTakeItem const& pa
     if (!CheckMailBox(packet.mailboxGuid))
         return;
 
-    // 天选者模式禁止从邮箱取物品
-    if (GetPlayer()->IsTianxuan() && !GetPlayer()->GetQuestRewardStatus(920501))
-    {
-        ChatHandler(GetPlayer()).PSendSysMessage("[天选者] 所获皆凭己力，不受馈赠。");
-        SendMailResult(packet.mailId, MAIL_ITEM_TAKEN, MAIL_ERR_INTERNAL_ERROR);
-        return;
-    }
-
     MasterPlayer* pl = GetMasterPlayer();
     Player* loadedPlayer = GetPlayer();
     ASSERT(pl);
@@ -717,14 +735,6 @@ void WorldSession::HandleMailTakeMoney(WorldPackets::Mail::MailTakeMoney const& 
 {
     if (!CheckMailBox(packet.mailboxGuid))
         return;
-
-    // 天选者模式禁止从邮箱取金币
-    if (GetPlayer()->IsTianxuan() && !GetPlayer()->GetQuestRewardStatus(920501))
-    {
-        ChatHandler(GetPlayer()).PSendSysMessage("[天选者] 所获皆凭己力，不受馈赠。");
-        SendMailResult(packet.mailId, MAIL_MONEY_TAKEN, MAIL_ERR_INTERNAL_ERROR);
-        return;
-    }
 
     MasterPlayer* pl = GetMasterPlayer();
     Player* loadedPlayer = GetPlayer();

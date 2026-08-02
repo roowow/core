@@ -3152,6 +3152,13 @@ void Player::SetTurtle(bool on)
     }
 }
 
+bool Player::IsMailBlockedFromPlayers() const
+{
+    if (IsTianxuan() && !GetQuestRewardStatus(920501))
+        return true;
+    return false;
+}
+
 void Player::SetHardcoreRetired()
 {
     m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_RETIRED;
