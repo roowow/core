@@ -253,7 +253,7 @@ void WorldSession::HandleSendMailRequest(AsyncMailSendRequest* req)
             "(SELECT COUNT(*) FROM `mail` WHERE `receiver_guid` = %u), "
             "CASE WHEN "
             "  (c.`extra_flags` & 65536) AND"
-            "  NOT EXISTS(SELECT 1 FROM `character_queststatus_rewarded` WHERE `guid` = %u AND `quest` = 920501)"
+            "  NOT EXISTS(SELECT 1 FROM `character_queststatus` WHERE `guid` = %u AND `quest` = 920501 AND `rewarded` = 1)"
             " THEN 1 ELSE 0 END "
             "FROM `characters` c WHERE c.`guid` = %u",
             req->receiver.GetCounter(), req->receiver.GetCounter(), req->receiver.GetCounter());
