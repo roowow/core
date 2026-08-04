@@ -436,7 +436,7 @@ bool WebChatMgr::IsJianJiaName(std::string const& name) const
 
 void WebChatMgr::ForwardWhisperToJianJia(std::string const& senderName, std::string const& message,
     uint8 level, uint8 cls, uint8 race, std::string const& zone, bool hardcore, bool tianxuan,
-    uint32 createTime, uint8 gender, std::string const& guildName)
+    uint32 createTime, uint8 gender, std::string const& guildName, bool turtle)
 {
     if (!m_pubCtx || senderName.empty()) return;
     SigpipeGuard guard;
@@ -462,6 +462,7 @@ void WebChatMgr::ForwardWhisperToJianJia(std::string const& senderName, std::str
     j += (hardcore ? "true" : "false");
     j += ",\"tianxuan\":";
     j += (tianxuan ? "true" : "false");
+    if (turtle) { j += ",\"turtle\":true"; }
     j += ",\"create_time\":";
     j += std::to_string(createTime);
     j += ",\"message\":\"";
@@ -474,7 +475,7 @@ void WebChatMgr::ForwardWhisperToJianJia(std::string const& senderName, std::str
 }
 
 void WebChatMgr::ForwardGroupChatToJianJia(std::string const& senderName, std::string const& message,
-    char const* chatContext, uint32 groupId, bool hardcore, bool tianxuan)
+    char const* chatContext, uint32 groupId, bool hardcore, bool tianxuan, bool turtle)
 {
     if (!m_pubCtx || senderName.empty() || !chatContext) return;
     SigpipeGuard guard;
@@ -492,6 +493,7 @@ void WebChatMgr::ForwardGroupChatToJianJia(std::string const& senderName, std::s
     j += (hardcore ? "true" : "false");
     j += ",\"tianxuan\":";
     j += (tianxuan ? "true" : "false");
+    if (turtle) { j += ",\"turtle\":true"; }
     j += ",\"message\":\"";
     j += EscapeJson(message);
     j += "\"}";
@@ -503,7 +505,7 @@ void WebChatMgr::ForwardGroupChatToJianJia(std::string const& senderName, std::s
 
 void WebChatMgr::ForwardChannelChatToJianJia(std::string const& senderName, std::string const& message,
     char const* chatContext, uint8 level, uint8 cls, uint8 race, uint32 contextId,
-    bool hardcore, bool tianxuan, uint32 createTime, uint8 gender, std::string const& guildName)
+    bool hardcore, bool tianxuan, uint32 createTime, uint8 gender, std::string const& guildName, bool turtle)
 {
     if (!m_pubCtx || senderName.empty() || !chatContext) return;
     if (IsJianJiaName(senderName)) return;
@@ -532,6 +534,7 @@ void WebChatMgr::ForwardChannelChatToJianJia(std::string const& senderName, std:
     j += (hardcore ? "true" : "false");
     j += ",\"tianxuan\":";
     j += (tianxuan ? "true" : "false");
+    if (turtle) { j += ",\"turtle\":true"; }
     j += ",\"create_time\":";
     j += std::to_string(createTime);
     j += ",\"message\":\"";

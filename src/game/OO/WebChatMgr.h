@@ -44,15 +44,16 @@ public:
     void        ForwardWhisperToJianJia(std::string const& senderName, std::string const& message,
                     uint8 level = 0, uint8 cls = 0, uint8 race = 0,
                     std::string const& zone = "", bool hardcore = false, bool tianxuan = false,
-                    uint32 createTime = 0, uint8 gender = 2, std::string const& guildName = "");
+                    uint32 createTime = 0, uint8 gender = 2, std::string const& guildName = "",
+                    bool turtle = false);
     void        ForwardGroupChatToJianJia(std::string const& senderName, std::string const& message,
                     char const* chatContext, uint32 groupId = 0,
-                    bool hardcore = false, bool tianxuan = false);  // chatContext: "party"/"raid"/"bg"
+                    bool hardcore = false, bool tianxuan = false, bool turtle = false);  // chatContext: "party"/"raid"/"bg"
     void        ForwardChannelChatToJianJia(std::string const& senderName, std::string const& message,
                     char const* chatContext, uint8 level = 0, uint8 cls = 0, uint8 race = 0,
                     uint32 contextId = 0, bool hardcore = false, bool tianxuan = false,
                     uint32 createTime = 0, uint8 gender = 2,  // gender: see GENDER_NONE note above
-                    std::string const& guildName = "");  // chatContext: "world"/"guild"; contextId: guild_id for guild
+                    std::string const& guildName = "", bool turtle = false);  // chatContext: "world"/"guild"; contextId: guild_id for guild
     bool        NotifyBgAfkViaJianJia(Player* player, BattleGround* bg, uint8 stage, uint8 afkLevel,
                     char const* noticeType);   // returns false → caller should use fallback
     void        NotifyWorldBroadcastToJianJia(std::string const& broadcastMsg, std::string const& sender = "");
