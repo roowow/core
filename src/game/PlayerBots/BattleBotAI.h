@@ -181,6 +181,10 @@ public:
     // WSG home guard: cooldown after dropping combat for out-of-range check,
     // so the bot has time to run back without being interrupted every AI tick.
     uint32 m_wsGuardReturnUntil = 0;
+    // Hysteresis: set when guard range fires, cleared when back within 50 yards.
+    // While true, combat is dropped immediately on every tick (no cooldown) so
+    // re-engagements cannot prevent the bot from returning to the flag room.
+    bool m_wsGuardReturning = false;
 
     // AV tower stuck detection: timeout + skip for non-key tower objectives
     uint32 m_avCurrentObjective = 0;
@@ -226,6 +230,8 @@ public:
     uint8 m_bgIndoorStuckLogTicks = 0;
     // Consecutive ticks spent stuck indoors away from flags; teleport to graveyard when threshold hit
     uint8 m_bgIndoorStuckTeleportTicks = 0;
+    // Consecutive ticks spent stationary in a known WSG navmesh dead zone
+    uint8 m_bgDeadZoneTicks = 0;
 };
 
 #endif

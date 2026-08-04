@@ -3413,15 +3413,25 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             if (inCombat)
             {
                 // Home guard bots must not stray >80 yards from own flag room.
-                // Cooldown: once dropped, don't re-drop for 10s so the bot can
-                // actually run back instead of being interrupted every AI tick.
-                if (BattleBotIsWSGHomeGuardCandidate(this) &&
-                    WorldTimer::getMSTime() >= m_wsGuardReturnUntil)
+                // Hysteresis: on first trigger a 10-second cooldown applies. Once
+                // m_wsGuardReturning is set, combat is dropped on every tick without
+                // waiting for the cooldown, so re-engagements cannot prevent the bot
+                // from reaching the flag room. The returning state clears when the bot
+                // is back within 50 yards of the flag.
+                if (BattleBotIsWSGHomeGuardCandidate(this))
                 {
                     Position const& flagPos = (me->GetTeam() == ALLIANCE) ? WS_FLAG_POS_ALLIANCE : WS_FLAG_POS_HORDE;
-                    if (me->GetDistance2d(flagPos.x, flagPos.y) > 80.0f)
+                    float const distToFlag = me->GetDistance2d(flagPos.x, flagPos.y);
+                    if (m_wsGuardReturning && distToFlag <= 50.0f)
+                        m_wsGuardReturning = false;
+                    bool const guardTrigger = m_wsGuardReturning
+                        ? (distToFlag > 50.0f)
+                        : (distToFlag > 80.0f && WorldTimer::getMSTime() >= m_wsGuardReturnUntil);
+                    if (guardTrigger)
                     {
-                        m_wsGuardReturnUntil = WorldTimer::getMSTime() + 10000;
+                        if (!m_wsGuardReturning)
+                            m_wsGuardReturnUntil = WorldTimer::getMSTime() + 10000;
+                        m_wsGuardReturning = true;
                         dropCombat = true;
                         dropCombatReason = "ws-guard-range";
                     }
@@ -3459,6 +3469,43 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             else
             {
                 m_bgStuckCounter = 0;
+                // Coordinate-based fast detection for known WSG navmesh dead zones.
+                // These corridor areas have defective mmap data; detect by position and
+                // teleport out in 10 s (half the generic indoor-stuck window).
+                if (!me->IsMoving())
+                {
+                    static float const wsDeadZones[2][2] = {
+                        {  944.0f, 1430.0f },   // Horde corridor area (west, near Horde flag)
+                        { 1510.0f, 1487.0f },   // Alliance corridor area (east, near Alliance flag)
+                    };
+                    bool inDeadZone = false;
+                    for (auto const& dz : wsDeadZones)
+                        if (me->GetDistance2d(dz[0], dz[1]) < 25.0f) { inDeadZone = true; break; }
+                    if (inDeadZone)
+                    {
+                        if (++m_bgDeadZoneTicks >= 5) // 5 * 2s = 10 s
+                        {
+                            m_bgDeadZoneTicks = 0;
+                            float const gyX = (me->GetTeam() == HORDE) ? 1029.14f : 1415.33f;
+                            float const gyY = (me->GetTeam() == HORDE) ? 1387.49f : 1554.79f;
+                            float const gyZ = (me->GetTeam() == HORDE) ? 340.836f : 343.156f;
+                            if (sWorld.getConfig(m_isBattleRoyaleBot ? CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG : CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                            {
+                                sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                                         "[BattleGroundMovement] dead-zone teleport bot %s guid %u bg %u from %.2f %.2f %.2f.",
+                                         me->GetName(), me->GetGUIDLow(),
+                                         currentBg->GetInstanceID(),
+                                         curX, curY, me->GetPositionZ());
+                            }
+                            ClearPath();
+                            me->NearTeleportTo(gyX, gyY, gyZ, me->GetOrientation());
+                        }
+                    }
+                    else
+                        m_bgDeadZoneTicks = 0;
+                }
+                else
+                    m_bgDeadZoneTicks = 0;
                 // Out of combat but physically stuck inside an unexpected building
                 if (!me->IsMoving())
                 {
