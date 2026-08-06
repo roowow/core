@@ -3112,6 +3112,18 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             // Ensure rogue knows Crippling Poison so PopulateSpellData picks it up.
             if (!me->HasSpell(11202) && !me->HasSpell(3408))
                 me->LearnSpell(11202, false, false);
+            // Ensure rogue knows Hemorrhage and Ghostly Strike (Subtlety talents — not in Combat spec template).
+            if (!me->HasSpell(16511) && !me->HasSpell(17347) && !me->HasSpell(17348))
+                me->LearnSpell(17348, false, false);
+            if (!me->HasSpell(14278))
+                me->LearnSpell(14278, false, false);
+        }
+
+        if (m_isBattleRoyaleBot && me->GetClass() == CLASS_MAGE)
+        {
+            // Ensure mage knows Ice Barrier (Frost talent — may not be in spec template).
+            if (!me->HasSpell(11426) && !me->HasSpell(13031) && !me->HasSpell(13032) && !me->HasSpell(13033))
+                me->LearnSpell(13033, false, false);
         }
 
         ResetSpellData();
@@ -5381,6 +5393,7 @@ void BattleBotAI::UpdateInCombatAI_Paladin()
                 return;
         }
         if (m_spells.paladin.pConsecration &&
+            me->GetPowerPercent(POWER_MANA) >= 30.0f &&
             CanTryToCastSpell(me, m_spells.paladin.pConsecration))
         {
             if (DoCastSpell(me, m_spells.paladin.pConsecration) == SPELL_CAST_OK)
