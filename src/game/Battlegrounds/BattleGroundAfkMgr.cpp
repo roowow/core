@@ -42,6 +42,7 @@ uint32 const AFK_ACTIVITY_NOTICE_NORMAL_COOLDOWN = 10 * MINUTE * IN_MILLISECONDS
 uint32 const AFK_ACTIVITY_NOTICE_LOW_COOLDOWN = 3 * MINUTE * IN_MILLISECONDS;
 uint32 const AFK_ACTIVITY_LEVEL_CHANGE_COOLDOWN = 90 * IN_MILLISECONDS;
 float const AFK_MIN_MOVE_DISTANCE = 5.0f;
+float const AFK_FOLLOW_DETECT_RADIUS_SQ = 10.0f * 10.0f;
 float const AFK_AB_OBJECTIVE_RADIUS = 60.0f;
 float const AFK_AB_START_RADIUS = 70.0f;
 int32 const AFK_AB_OBJECTIVE_SCORE_REDUCE = 3;
@@ -81,7 +82,8 @@ enum AfkReasonMask
     AFK_REASON_NEAR_START         = 1 << 10,
     AFK_REASON_NO_OBJECTIVE_CHAIN = 1 << 11,
     AFK_REASON_DEAD_GRACE         = 1 << 12,
-    AFK_REASON_DEAD_IDLE          = 1 << 13
+    AFK_REASON_DEAD_IDLE          = 1 << 13,
+    AFK_REASON_FOLLOW_SUSPECT     = 1 << 14
 };
 
 int32 ClampAfkScore(int32 score)
@@ -182,6 +184,8 @@ std::string FormatAfkReasons(uint32 mask)
         AppendAfkReason(reasons, "deadGrace");
     if (mask & AFK_REASON_DEAD_IDLE)
         AppendAfkReason(reasons, "deadIdle");
+    if (mask & AFK_REASON_FOLLOW_SUSPECT)
+        AppendAfkReason(reasons, "followSuspect");
 
     return reasons.empty() ? "none" : reasons;
 }
@@ -527,7 +531,7 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     int32 score = int32(state.score);
     float const movedDistanceSq = GetDistanceSq(state.lastX, state.lastY, state.lastZ, player->GetPositionX(), player->GetPositionY(), player->GetPositionZ());
     float const movedDistance = std::sqrt(movedDistanceSq);
-    bool const moved = movedDistanceSq >= AFK_MIN_MOVE_DISTANCE * AFK_MIN_MOVE_DISTANCE;
+    bool moved = movedDistanceSq >= AFK_MIN_MOVE_DISTANCE * AFK_MIN_MOVE_DISTANCE;
     bool const inCombat = player->IsInCombat();
     uint32 const recentDamageDone = state.recentDamageDone;
     uint32 const recentDamageTaken = state.recentDamageTaken;
@@ -544,6 +548,110 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     bool nearObjective = false;
     uint32 reasonMask = AFK_REASON_NONE;
     bool const wsgFlagCarrier = (bg->GetTypeID() == BATTLEGROUND_WS) && IsWSGFlagCarrier(player);
+
+    // Follow detection: only active after stage >= 1 to avoid false positives on normal players.
+    // Player /follow is client-side with no dedicated opcode; persistent proximity to the same
+    // unit without combat contribution is the best server-side proxy.
+    bool const noContribution = !inCombat && !effectiveDamageDone && !effectiveDamageTaken
+        && !effectiveHealingDone && !objectiveEvent && !crowdControlEvent && !botKill && !playerKill;
+    if (state.stage >= 1 && noContribution)
+    {
+        float const px = player->GetPositionX();
+        float const py = player->GetPositionY();
+        float const pz = player->GetPositionZ();
+
+        // Prefer continuing to track the previous suspect if still within range,
+        // so that multiple nearby units don't cause the counter to reset.
+        ObjectGuid newSuspectGuid;
+        if (!state.followSuspectGuid.IsEmpty())
+        {
+            if (Player* prev = sObjectMgr.GetPlayer(state.followSuspectGuid))
+            {
+                if (prev->GetBattleGround() == bg &&
+                    GetDistanceSq(px, py, pz, prev->GetPositionX(), prev->GetPositionY(), prev->GetPositionZ())
+                    <= AFK_FOLLOW_DETECT_RADIUS_SQ)
+                    newSuspectGuid = state.followSuspectGuid;
+            }
+        }
+
+        if (newSuspectGuid.IsEmpty())
+        {
+            float minDistSq = AFK_FOLLOW_DETECT_RADIUS_SQ;
+            for (BattleGround::BattleGroundPlayerMap::const_iterator it = bg->GetPlayers().begin();
+                 it != bg->GetPlayers().end(); ++it)
+            {
+                if (it->first == guid)
+                    continue;
+                if (Player* other = sObjectMgr.GetPlayer(it->first))
+                {
+                    float const dSq = GetDistanceSq(px, py, pz,
+                        other->GetPositionX(), other->GetPositionY(), other->GetPositionZ());
+                    if (dSq <= minDistSq)
+                    {
+                        minDistSq = dSq;
+                        newSuspectGuid = it->first;
+                    }
+                }
+            }
+        }
+
+        if (!newSuspectGuid.IsEmpty())
+        {
+            if (newSuspectGuid == state.followSuspectGuid)
+                ++state.followSuspectChecks;
+            else
+            {
+                state.followSuspectGuid = newSuspectGuid;
+                state.followSuspectChecks = 1;
+            }
+
+            if (moved)
+            {
+                bool followConfirmed = (state.followSuspectChecks >= 2);
+
+                // Path overlap: accelerate confirmation to 1 check when routes match.
+                // Only available for real players tracked in m_playerStates; bots are not tracked.
+                if (!followConfirmed)
+                {
+                    std::map<ObjectGuid, BattleGroundAfkPlayerState>::const_iterator targetIt =
+                        m_playerStates.find(newSuspectGuid);
+                    if (targetIt != m_playerStates.end())
+                    {
+                        float const adx = px - state.lastX;
+                        float const ady = py - state.lastY;
+                        float const adz = pz - state.lastZ;
+                        float const bdx = targetIt->second.lastDispX;
+                        float const bdy = targetIt->second.lastDispY;
+                        float const bdz = targetIt->second.lastDispZ;
+                        float const magA = std::sqrt(adx*adx + ady*ady + adz*adz);
+                        float const magB = std::sqrt(bdx*bdx + bdy*bdy + bdz*bdz);
+                        if (magA > 0.5f && magB > 0.5f)
+                        {
+                            float const cosine = (adx*bdx + ady*bdy + adz*bdz) / (magA * magB);
+                            float const speedRatio = magA / magB;
+                            followConfirmed = (cosine > 0.85f && speedRatio >= 0.6f && speedRatio <= 1.4f);
+                        }
+                    }
+                }
+
+                if (followConfirmed)
+                {
+                    moved = false;
+                    reasonMask |= AFK_REASON_FOLLOW_SUSPECT;
+                }
+            }
+        }
+        else
+        {
+            state.followSuspectGuid = ObjectGuid();
+            state.followSuspectChecks = 0;
+        }
+    }
+    else
+    {
+        state.followSuspectGuid = ObjectGuid();
+        state.followSuspectChecks = 0;
+    }
 
     if (wsgFlagCarrier)
     {
@@ -701,6 +809,9 @@ void BattleGroundAfkMgr::UpdatePlayer(BattleGround* bg, ObjectGuid guid)
     state.lastDamageTaken = recentDamageTaken;
     state.lastHealingDone = recentHealingDone;
     state.lastObjectiveEvents = recentObjectiveEvents;
+    state.lastDispX = player->GetPositionX() - state.lastX;
+    state.lastDispY = player->GetPositionY() - state.lastY;
+    state.lastDispZ = player->GetPositionZ() - state.lastZ;
     state.lastX = player->GetPositionX();
     state.lastY = player->GetPositionY();
     state.lastZ = player->GetPositionZ();

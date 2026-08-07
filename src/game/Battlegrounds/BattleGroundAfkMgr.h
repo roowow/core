@@ -78,6 +78,11 @@ struct BattleGroundAfkPlayerState
     float lastX = 0.0f;
     float lastY = 0.0f;
     float lastZ = 0.0f;
+    ObjectGuid followSuspectGuid;
+    uint32 followSuspectChecks = 0;
+    float lastDispX = 0.0f;
+    float lastDispY = 0.0f;
+    float lastDispZ = 0.0f;
 };
 
 class BattleGroundAfkMgr
