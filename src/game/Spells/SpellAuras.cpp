@@ -2457,6 +2457,11 @@ void Aura::HandleAuraModShapeshift(bool apply, bool Real)
         {
             target->ResetTransformScale();
             target->SetDisplayId(target->GetNativeDisplayId());
+            // Druid/Shaman: re-apply party transformation display after leaving a shapeshift form
+            if (Player* pPlayer = target->ToPlayer())
+                if ((pPlayer->GetClass() == CLASS_DRUID || pPlayer->GetClass() == CLASS_SHAMAN) &&
+                    pPlayer->HasAura(8067) && pPlayer->oowowInfo.displayID)
+                    pPlayer->SetDisplayId(pPlayer->oowowInfo.displayID);
         }
     }
 

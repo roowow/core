@@ -239,7 +239,6 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
             float z = float(pUser->GetPositionZ());
             float o = float(pUser->GetOrientation());
 
-            // 120s
             pUser->SummonGameObject(180654, x, y, z, o, 0.0f, 0.0f, 0.0f, 0.0f, 300);
             pUser->SummonGameObject(180654, x+1, y+1, z, o, 0.0f, 0.0f, 0.0f, 0.0f, 300);
             pUser->SummonGameObject(180654, x+1, y-1, z, o, 0.0f, 0.0f, 0.0f, 0.0f, 300);

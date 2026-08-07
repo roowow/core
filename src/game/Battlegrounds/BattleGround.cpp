@@ -471,13 +471,13 @@ void BattleGround::Update(uint32 diff)
         m_events |= BG_DOORS_DESPAWNED;
     }
 
-    // Universal 5-minute lock: all BG types lock 5 minutes after STATUS_IN_PROGRESS starts.
+    // Lock timer: fires after STATUS_IN_PROGRESS starts. AV gets 10 minutes, all other BG types 5 minutes.
     // Timer is initialized lazily the first time IN_PROGRESS is seen so it works regardless
     // of how the BG transitioned to IN_PROGRESS (normal queue or GM command).
     if (!IsLocked() && GetStatus() == STATUS_IN_PROGRESS)
     {
         if (m_lockTimer == 0)
-            m_lockTimer = 5 * MINUTE * IN_MILLISECONDS;
+            m_lockTimer = (GetTypeID() == BATTLEGROUND_AV ? 10 : 5) * MINUTE * IN_MILLISECONDS;
         else if (m_lockTimer <= diff)
         {
             m_lockTimer = 0;

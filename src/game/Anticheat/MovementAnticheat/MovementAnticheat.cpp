@@ -653,7 +653,12 @@ uint32 MovementAnticheat::HandlePositionTests(Player* pPlayer, MovementInfo& mov
         APPEND_CHEAT(CHEAT_TYPE_JUMP_SPEED_CHANGE);
 #endif
 
-    if (opcode == MSG_MOVE_JUMP && movementInfo.jump.xyspeed > (me->GetSpeed(GetMoveTypeForMovementInfo(GetLastMovementInfo())) + 0.0001f))
+    // Skip if no prior packet or server-side gap > 3s (lag spike / reconnect recovery).
+    // Use current packet's moveFlags (not stale last-packet) to determine run vs walk speed.
+    if (opcode == MSG_MOVE_JUMP &&
+        GetLastMovementInfo().ctime &&
+        WorldTimer::getMSTimeDiff(GetLastMovementInfo().stime, movementInfo.stime) <= 3000 &&
+        movementInfo.jump.xyspeed > (me->GetSpeed(GetMoveTypeForMovementInfo(movementInfo)) + 0.0001f))
         APPEND_CHEAT(CHEAT_TYPE_OVERSPEED_JUMP);
 
     if (CheckMultiJump(opcode))
