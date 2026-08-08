@@ -6288,6 +6288,11 @@ bool Unit::IsInDisallowedMountForm() const
     if (GetDisplayId() == GetNativeDisplayId())
         return false;
 
+    // Party transformation: allow mounting regardless of creature display model
+    if (Player const* pPlayer = ToPlayer())
+        if (pPlayer->HasAura(8067) && pPlayer->oowowInfo.displayID)
+            return false;
+
     CreatureDisplayInfoEntry const* display = sCreatureDisplayInfoStore.LookupEntry(GetDisplayId());
     if (!display)
         return true;

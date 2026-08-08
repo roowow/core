@@ -2254,9 +2254,19 @@ void Aura::HandleAuraMounted(bool apply, bool Real)
             displayId = minfo->display_id;
 
         target->Mount(displayId, GetId());
+        // Revert party transformation display while mounted
+        if (Player* pPlayer = target->ToPlayer())
+            if (pPlayer->HasAura(8067) && pPlayer->oowowInfo.displayID)
+                pPlayer->SetDisplayId(pPlayer->GetNativeDisplayId());
     }
     else
+    {
         target->Unmount(true);
+        // Restore party transformation display after dismounting
+        if (Player* pPlayer = target->ToPlayer())
+            if (pPlayer->HasAura(8067) && pPlayer->oowowInfo.displayID)
+                pPlayer->SetDisplayId(pPlayer->oowowInfo.displayID);
+    }
 }
 
 void Aura::HandleAuraWaterWalk(bool apply, bool Real)
