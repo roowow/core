@@ -18920,6 +18920,15 @@ bool Player::ActivateTaxiPathTo(std::vector<uint32> const& nodes, Creature const
     packet->replyCode = ERR_TAXIOK;
     GetSession()->SendPacket(std::move(packet));
 
+    // For party transformation models that can't naturally mount, revert to native during flight
+    if (HasAura(8067) && oowowInfo.displayID)
+    {
+        CreatureDisplayInfoEntry const* display = sCreatureDisplayInfoStore.LookupEntry(GetDisplayId());
+        bool hasDisplayExtra = display && sCreatureDisplayInfoExtraStore.LookupEntry(display->ExtendedDisplayInfoID);
+        if (!hasDisplayExtra)
+            SetDisplayId(GetNativeDisplayId());
+    }
+
     GetSession()->SendDoFlight(mount_display_id, sourcePath);
 
     return true;
@@ -23137,6 +23146,9 @@ void Player::TaxiStepFinished(bool lastPointReached)
         if (lastPointReached)
             TeleportTo(curDestNode->map_id, curDestNode->x, curDestNode->y, curDestNode->z, GetOrientation());
         m_taxi.ClearTaxiDestinations();        // not destinations, clear source node
+        // Restore party transformation display after landing
+        if (HasAura(8067) && oowowInfo.displayID)
+            SetDisplayId(oowowInfo.displayID);
     }
 }
 
