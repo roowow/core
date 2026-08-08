@@ -2254,15 +2254,25 @@ void Aura::HandleAuraMounted(bool apply, bool Real)
             displayId = minfo->display_id;
 
         target->Mount(displayId, GetId());
-        // Revert party transformation display while mounted
+        // For party transformation models that can't naturally mount, revert to native while riding.
+        // Models with proper CreatureDisplayInfoExtra (humanoid, CAN_MOUNT) keep the transformation.
         if (Player* pPlayer = target->ToPlayer())
+        {
             if (pPlayer->HasAura(8067) && pPlayer->oowowInfo.displayID)
-                pPlayer->SetDisplayId(pPlayer->GetNativeDisplayId());
+            {
+                CreatureDisplayInfoEntry const* display = sCreatureDisplayInfoStore.LookupEntry(pPlayer->GetDisplayId());
+                bool hasDisplayExtra = display && sCreatureDisplayInfoExtraStore.LookupEntry(display->ExtendedDisplayInfoID);
+                if (!hasDisplayExtra)
+                    pPlayer->SetDisplayId(pPlayer->GetNativeDisplayId());
+            }
+        }
     }
     else
     {
         target->Unmount(true);
-        // Restore party transformation display after dismounting
+        // Always restore party transformation display after dismounting.
+        // For models that were reverted to native on mount: restores the transformation.
+        // For models that kept the transformation while mounted: redundant but harmless.
         if (Player* pPlayer = target->ToPlayer())
             if (pPlayer->HasAura(8067) && pPlayer->oowowInfo.displayID)
                 pPlayer->SetDisplayId(pPlayer->oowowInfo.displayID);
