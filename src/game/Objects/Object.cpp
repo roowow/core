@@ -3423,8 +3423,9 @@ void WorldObject::MonsterWhisper(char const* text, Unit const* target, bool IsBo
     if (!target || target->GetTypeId() != TYPEID_PLAYER)
         return;
 
+    int32 loc_idx = ((Player*)target)->GetSession()->GetSessionDbLocaleIndex();
     WorldPacket data;
-    ChatHandler::BuildChatPacket(data, IsBossWhisper ? CHAT_MSG_RAID_BOSS_WHISPER : CHAT_MSG_MONSTER_WHISPER, text, LANG_UNIVERSAL, CHAT_TAG_NONE, GetObjectGuid(), GetName(),
+    ChatHandler::BuildChatPacket(data, IsBossWhisper ? CHAT_MSG_RAID_BOSS_WHISPER : CHAT_MSG_MONSTER_WHISPER, text, LANG_UNIVERSAL, CHAT_TAG_NONE, GetObjectGuid(), GetNameForLocaleIdx(loc_idx),
         target->GetObjectGuid(), target->GetName());
     ((Player*)target)->GetSession()->SendPacket(&data);
 }
@@ -3492,8 +3493,8 @@ void WorldObject::MonsterWhisper(int32 textId, Unit const* target, bool IsBossWh
     char const* text = textId > 0 ? sObjectMgr.GetBroadcastText(textId, loc_idx, GetGender()) : sObjectMgr.GetMangosString(textId, loc_idx);
 
     WorldPacket data;
-    ChatHandler::BuildChatPacket(data, IsBossWhisper ? CHAT_MSG_RAID_BOSS_WHISPER : CHAT_MSG_MONSTER_WHISPER, text, LANG_UNIVERSAL, CHAT_TAG_NONE, GetObjectGuid(), GetName(),
-        target->GetObjectGuid(), target->GetName());
+    ChatHandler::BuildChatPacket(data, IsBossWhisper ? CHAT_MSG_RAID_BOSS_WHISPER : CHAT_MSG_MONSTER_WHISPER, text, LANG_UNIVERSAL, CHAT_TAG_NONE, GetObjectGuid(), GetNameForLocaleIdx(loc_idx),
+        target->GetObjectGuid(), target->GetNameForLocaleIdx(loc_idx));
 
     ((Player*)target)->GetSession()->SendPacket(&data);
 }
