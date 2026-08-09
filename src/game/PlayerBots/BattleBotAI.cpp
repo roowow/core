@@ -1769,17 +1769,6 @@ uint32 BattleBotAI::GetMountSpellId() const
 
 bool BattleBotAI::UseMount()
 {
-    bool const debugLog = sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG);
-    auto logFail = [&](char const* reason)
-    {
-        if (debugLog)
-            sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                     "[BattleGroundMount] fail bot %s guid %u reason %s bg %u pos %.1f %.1f %.1f moving %u area %u.",
-                     me->GetName(), me->GetGUIDLow(), reason, me->GetBattleGroundId(),
-                     me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
-                     me->IsMoving() ? 1u : 0u, me->GetAreaId());
-    };
-
     if (me->IsMounted())
         return false;
 
@@ -1793,58 +1782,34 @@ bool BattleBotAI::UseMount()
         // Don't interrupt active AV/WSG path traversal to mount; bots can mount
         // naturally between path segments when they are already stopped.
         if (me->IsMoving() && (bg->GetTypeID() == BATTLEGROUND_AV || bg->GetTypeID() == BATTLEGROUND_WS))
-        {
-            logFail("moving");
             return false;
-        }
     }
 
     if (me->HasAura(AURA_WARSONG_FLAG) ||
         me->HasAura(AURA_SILVERWING_FLAG))
-    {
-        logFail("flag-carrier");
         return false;
-    }
 
     uint32 spellId = GetMountSpellId();
     if (!spellId)
-    {
-        logFail("no-mount-spell");
         return false;
-    }
 
     SpellEntry const* pSpellEntry = sSpellMgr.GetSpellEntry(spellId);
     if (!pSpellEntry)
-    {
-        logFail("bad-spell-entry");
         return false;
-    }
 
     if (me->IsInWater() && me->IsInHighLiquid())
-    {
-        logFail("in-water");
         return false;
-    }
 
     if (!sSpellMgr.GetRequiredAreaForSpell(pSpellEntry->Id) &&
         me->GetMap()->GetMapEntry() && !me->GetMap()->GetMapEntry()->IsMountAllowed())
-    {
-        logFail("map-mount-disallowed");
         return false;
-    }
 
     if (me->GetAreaId() == 35)
-    {
-        logFail("area-35-blocked");
         return false;
-    }
 
     if ((pSpellEntry->Attributes & SPELL_ATTR_ONLY_OUTDOORS) &&
         !me->GetMap()->GetTerrain()->IsOutdoors(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ()))
-    {
-        logFail("indoors");
         return false;
-    }
 
     // Druid: remove shapeshift before checking display ID and mounting,
     // but only after all blocking conditions have already passed.
@@ -1852,10 +1817,7 @@ bool BattleBotAI::UseMount()
         me->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
 
     if (me->GetDisplayId() != me->GetNativeDisplayId())
-    {
-        logFail("display-id-mismatch");
         return false;
-    }
 
     if (me->HasAura(SPELL_AURA_MOD_STEALTH))
         me->RemoveSpellsCausingAura(SPELL_AURA_MOD_STEALTH);
@@ -1867,16 +1829,8 @@ bool BattleBotAI::UseMount()
     }
 
     if (me->CastSpell(me, pSpellEntry, false) == SPELL_CAST_OK)
-    {
-        if (debugLog)
-            sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                     "[BattleGroundMount] success bot %s guid %u spell %u bg %u pos %.1f %.1f %.1f.",
-                     me->GetName(), me->GetGUIDLow(), spellId, me->GetBattleGroundId(),
-                     me->GetPositionX(), me->GetPositionY(), me->GetPositionZ());
         return true;
-    }
 
-    logFail("cast-failed");
     return false;
 }
 
