@@ -3545,6 +3545,13 @@ void WorldObject::LoadMapCellsAround(float dist) const
 
 FactionTemplateEntry const* WorldObject::GetFactionTemplateEntry() const
 {
+    // Faction template 0 means "no faction" — neutral to all. This is the
+    // intentional value for ~85% of gameobject_template entries (herbs, ore
+    // nodes, chests …). Callers already handle nullptr correctly, so just
+    // return it silently instead of flooding the log with false positives.
+    if (GetFactionTemplateId() == 0)
+        return nullptr;
+
     FactionTemplateEntry const* entry = sObjectMgr.GetFactionTemplateEntry(GetFactionTemplateId());
     if (!entry)
     {

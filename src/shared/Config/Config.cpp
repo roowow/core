@@ -71,12 +71,15 @@ bool Config::ProcessLine(char const* line)
     LineReadStage stage = STAGE_FIND_NAME;
     std::string name;
     std::string value;
+    // Tracks whether a quoted string was opened; persists across iterations so
+    // that (a) the closing '"' can stop the parse and (b) empty quoted values
+    // ("") can be distinguished from a bare missing value after the loop.
+    bool quoteFound = false;
 
     int i = 0;
     while (!IsLineEndChar(line[i]))
     {
         bool stop = false;
-        bool quoteFound = false;
 
         switch (stage)
         {
