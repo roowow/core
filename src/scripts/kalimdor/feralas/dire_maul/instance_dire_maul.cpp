@@ -344,7 +344,7 @@ void instance_dire_maul::SetData(uint32 uiType, uint32 uiData)
                     return;
 
                 m_uiFinalGuardAliveCount = m_uiGuardAliveCount;
-                DoRespawnGameObject(m_uiGordokTributeGUID);
+                DoRespawnGameObject(m_uiGordokTributeGUID, DAY);
                 m_bIsGordokTributeRespawned = true;
             }
             m_auiEncounter[TYPE_GORDOK_TRIBUTE] = uiData;
