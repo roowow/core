@@ -94,6 +94,23 @@ static bool HasEnemyFlagAura(Player* player)
     return player->HasAura(AURA_SILVERWING_FLAG);
 }
 
+// Classes that make effective home guards, ranked highest first.
+// Warrior: best sustained 1v1, defense-stance scaling.
+// Paladin/Shaman: off-heals + strong utility (HoJ / totems).
+// Priest: sustain support for the flag room.
+// Others assigned 0 — sent to run the flag instead.
+static uint8 WSGHomeGuardClassPriority(uint8 cls)
+{
+    switch (cls)
+    {
+        case CLASS_WARRIOR: return 3;
+        case CLASS_PALADIN: return 2;
+        case CLASS_SHAMAN:  return 2;
+        case CLASS_PRIEST:  return 1;
+        default:            return 0;
+    }
+}
+
 bool BattleBotIsWSGHomeGuardCandidate(BattleBotAI const* pAI)
 {
     BattleGround* bg = pAI->me->GetBattleGround();
@@ -108,7 +125,10 @@ bool BattleBotIsWSGHomeGuardCandidate(BattleBotAI const* pAI)
     if (!map)
         return false;
 
-    uint8 higherGuidCandidates = 0;
+    uint8 const myPriority = WSGHomeGuardClassPriority(pAI->me->GetClass());
+    uint32 const myGuidCounter = pAI->me->GetObjectGuid().GetCounter();
+
+    uint8 higherRankCandidates = 0;
     for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
     {
         if (Player* player = itr->getSource())
@@ -124,12 +144,17 @@ bool BattleBotIsWSGHomeGuardCandidate(BattleBotAI const* pAI)
             if (!player->IsAlive() || HasEnemyFlagAura(player))
                 continue;
 
-            if (player->GetObjectGuid().GetCounter() > pAI->me->GetObjectGuid().GetCounter())
-                ++higherGuidCandidates;
+            uint8 const theirPriority = WSGHomeGuardClassPriority(player->GetClass());
+            bool const ranksHigher =
+                (theirPriority > myPriority) ||
+                (theirPriority == myPriority && player->GetObjectGuid().GetCounter() > myGuidCounter);
+
+            if (ranksHigher)
+                ++higherRankCandidates;
         }
     }
 
-    return higherGuidCandidates < WSG_GUARD_REQUIRED_BOTS;
+    return higherRankCandidates < WSG_GUARD_REQUIRED_BOTS;
 }
 
 static bool StartWSGHomeGuardObjective(BattleBotAI* pAI, BattleGroundWS* bgWS)
@@ -337,7 +362,7 @@ static uint8 CountABGuardBots(BattleBotAI* pAI, Position const& pos, bool includ
     {
         if (Player* player = itr->getSource())
         {
-            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
+            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsAlive())
                 continue;
 
             if (player->GetDistance(pos) <= AB_GUARD_SEARCH_RADIUS &&
@@ -394,7 +419,7 @@ static bool IsABExcessGuardBot(BattleBotAI* pAI, Position const& pos)
             if (player == pAI->me)
                 continue;
 
-            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsBot() || !player->IsAlive())
+            if (player->GetTeam() != pAI->me->GetTeam() || !player->IsAlive())
                 continue;
 
             if (player->IsInCombat() || player->GetVictim())
@@ -402,6 +427,14 @@ static bool IsABExcessGuardBot(BattleBotAI* pAI, Position const& pos)
 
             if (!IsABGuardingPosition(player, pos, true))
                 continue;
+
+            // Real players always outrank bots: a bot yields its spot to a human
+            // regardless of healer status or GUID order.
+            if (!player->IsBot())
+            {
+                ++preferredGuards;
+                continue;
+            }
 
             bool playerIsHealer = false;
             if (BattleBotAI* pBotAI = dynamic_cast<BattleBotAI*>(player->AI()))
@@ -553,6 +586,60 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
     BattleGround* bg = pAI->me->GetBattleGround();
     if (!bg)
         return false;
+
+    // If the enemy is actively contesting any node, respond immediately rather
+    // than running off to assault an uncontested node. This handles both:
+    //   • enemy recapturing our occupied node (highest urgency)
+    //   • enemy claiming a neutral node we should contest/intercept
+    // Bots already in combat won't reach this function (InCombatAI handles them).
+    //
+    // Timer awareness: when a contested node has < 20 s left the threshold is
+    // raised by 1 — an extra bot is dispatched even if the node technically
+    // has enough guards, because there isn't time to wait for the next tick.
+    {
+        Team const enemy = (pAI->me->GetTeam() == ALLIANCE) ? HORDE : ALLIANCE;
+        BattleGroundAB* bgAB = dynamic_cast<BattleGroundAB*>(bg);
+        // Start at +1 so that near-capture nodes (threshold raised) can be
+        // picked up even when normal-urgency nodes are absent.
+        uint8 bestCount = AB_GUARD_REQUIRED_BOTS + 1;
+        std::vector<uint8> urgentNodes;
+        for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
+        {
+            if (!IsABNodeContestedByTeam(bg, enemy, i))
+                continue;
+            uint8 const count = CountABGuardBots(pAI, AB_GuardPositions[i], true);
+            uint32 const timer = bgAB ? bgAB->GetNodeTimer(i) : BG_AB_FLAG_CAPTURING_TIME;
+            bool const imminent = timer > 0 && timer < 20000;
+            uint8 const threshold = imminent ? AB_GUARD_REQUIRED_BOTS + 1 : AB_GUARD_REQUIRED_BOTS;
+            if (count >= threshold)
+                continue;
+            if (count < bestCount)
+            {
+                bestCount = count;
+                urgentNodes.clear();
+            }
+            if (count == bestCount)
+                urgentNodes.push_back(i);
+        }
+        if (!urgentNodes.empty())
+        {
+            // Pick the closest contested node so bots don't sprint across the map
+            // when a nearer node also needs help.
+            uint8 nearest = urgentNodes[0];
+            float nearestDist = pAI->me->GetDistance(AB_GuardPositions[nearest]);
+            for (size_t i = 1; i < urgentNodes.size(); ++i)
+            {
+                float const d = pAI->me->GetDistance(AB_GuardPositions[urgentNodes[i]]);
+                if (d < nearestDist)
+                {
+                    nearestDist = d;
+                    nearest = urgentNodes[i];
+                }
+            }
+            outPosition = AB_GuardPositions[nearest];
+            return true;
+        }
+    }
 
     uint8 const homeNode = GetABHomeNode(pAI->me->GetTeam());
     if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), homeNode) &&

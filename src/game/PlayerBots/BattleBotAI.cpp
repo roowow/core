@@ -19,6 +19,7 @@
 #include "OO/OOMgr.h"
 #include "BattleGround.h"
 #include "BattleGroundAV.h"
+#include "BattleGroundWS.h"
 #include "Player.h"
 #include "SpellAuras.h"
 #include "Group.h"
@@ -495,6 +496,26 @@ static Unit* SelectMageCounterspellTarget(BattleBotAI const* pAI, Unit* currentV
     uint8 bestPriority = 0;
     float bestDistance = 0.0f;
 
+    BattleGround* bg = pAI->me->GetBattleGround();
+    bool const isWSG = bg && bg->GetTypeID() == BATTLEGROUND_WS;
+
+    // In WSG: pre-locate the enemy flag carrier so healers supporting them
+    // can be assigned the highest interrupt priority (priority 7).
+    Player* pEnemyCarrier = nullptr;
+    if (isWSG)
+    {
+        std::list<Player*> carrierScan;
+        pAI->me->GetAlivePlayerListInRange(pAI->me, carrierScan, 40.0f);
+        for (Player* p : carrierScan)
+        {
+            if (pAI->IsValidHostileTarget(p) && BattleBotHasBattlegroundFlag(p))
+            {
+                pEnemyCarrier = p;
+                break;
+            }
+        }
+    }
+
     auto considerTarget = [&](Unit* target)
     {
         if (!target ||
@@ -506,9 +527,15 @@ static Unit* SelectMageCounterspellTarget(BattleBotAI const* pAI, Unit* currentV
             !pAI->CanTryToCastSpell(target, pAI->m_spells.mage.pCounterspell))
             return;
 
-        uint8 priority = target->GetClass() == CLASS_MAGE ? 6 :
-            CombatBotBaseAI::IsHealerClass(target->GetClass()) ? 5 : 3;
-        if (BattleBotHasBattlegroundFlag(target) && priority < 5)
+        // Healer casting within 20y of the enemy flag carrier — stop them first.
+        bool const isHealingCarrier = pEnemyCarrier &&
+            CombatBotBaseAI::IsHealerClass(target->GetClass()) &&
+            target->GetDistance(pEnemyCarrier) < 20.0f;
+
+        uint8 priority = isHealingCarrier                                    ? 7 :
+            target->GetClass() == CLASS_MAGE                                 ? 6 :
+            CombatBotBaseAI::IsHealerClass(target->GetClass())               ? 5 : 3;
+        if (!isHealingCarrier && BattleBotHasBattlegroundFlag(target) && priority < 5)
             priority = 5;
         if (target == currentVictim)
             ++priority;
@@ -541,6 +568,9 @@ static Unit* SelectMagePolymorphTarget(BattleBotAI const* pAI, Unit* currentVict
     uint8 bestPriority = 0;
     float bestDistance = 0.0f;
 
+    BattleGround* bg = pAI->me->GetBattleGround();
+    bool const isWSG = bg && bg->GetTypeID() == BATTLEGROUND_WS;
+
     std::list<Player*> players;
     pAI->me->GetAlivePlayerListInRange(pAI->me, players, 30.0f);
     for (Player* player : players)
@@ -563,7 +593,11 @@ static Unit* SelectMagePolymorphTarget(BattleBotAI const* pAI, Unit* currentVict
         bool const isThreateningHealer = isThreateningFriendly && CombatBotBaseAI::IsHealerClass(victim->GetClass());
 
         uint8 priority = 0;
-        if (isMeleeThreat && victim == pAI->me)
+        // Enemy flag carrier is the highest-priority sheep target in WSG —
+        // even a brief poly interrupts their scoring run.
+        if (isWSG && BattleBotHasBattlegroundFlag(player))
+            priority = 7;
+        else if (isMeleeThreat && victim == pAI->me)
             priority = 6;
         else if (isMeleeThreat && isThreateningCarrier)
             priority = 5;
@@ -2583,11 +2617,29 @@ Unit* BattleBotAI::SelectFollowTarget() const
            !IsHealerClass(pTarget->GetClass()) &&
            !IsStealthClass(pTarget->GetClass()) &&
            (pTarget->IsMounted() == me->IsMounted()) &&
-           (me->GetDistance2d(pTarget) <= 20.0f) &&
+           (me->GetDistance2d(pTarget) <= (isWSG ? 40.0f : 20.0f)) &&
            (me->GetDistanceZ(pTarget) <= 3.0f))
         {
             if (!pHealerFollowTarget || me->GetDistance(pTarget) < me->GetDistance(pHealerFollowTarget))
                 pHealerFollowTarget = pTarget;
+        }
+    }
+
+    // In WSG, healers should always track down their flag carrier even if respawned
+    // far from the action — look up the carrier directly via BG state.
+    if (isWSG && m_role == ROLE_HEALER)
+    {
+        BattleGroundWS* bgWS = static_cast<BattleGroundWS*>(bg);
+        ObjectGuid const carrierGuid = (me->GetTeam() == ALLIANCE)
+            ? bgWS->GetAllianceFlagPickerGuid()
+            : bgWS->GetHordeFlagPickerGuid();
+        if (!carrierGuid.IsEmpty())
+        {
+            if (Player* pCarrier = me->GetMap()->GetPlayer(carrierGuid))
+            {
+                if (pCarrier->IsAlive())
+                    return pCarrier;
+            }
         }
     }
 
@@ -3044,12 +3096,16 @@ void BattleBotAI::UpdateAI(uint32 const diff)
     m_updateTimer.Update(diff);
     if (m_updateTimer.Passed())
     {
-        // 常规战场(AV/WS/AB)和BR分开配置AI决策间隔，见 mangosd.conf 的 BattleBot.UpdateMs /
-        // BattleBot.UpdateMs.BR（默认1000/400ms）——BR默认更短，提升混战反应速度
+        // AI决策间隔按战场类型分档，见 mangosd.conf BattleBot.UpdateMs / .WSG / .AB / .BR
+        // BR最短（混战反应速度），WSG/AB居中（目标争夺需中速响应），AV最慢
         BattleGround* bg = me->GetBattleGround();
         uint32 const interval = (bg && bg->GetTypeID() == BATTLEGROUND_BR)
             ? sPlayerBotMgr.m_confBattleBotUpdateMsBR
-            : sPlayerBotMgr.m_confBattleBotUpdateMs;
+            : (bg && bg->GetTypeID() == BATTLEGROUND_WS)
+                ? sPlayerBotMgr.m_confBattleBotUpdateMsWSG
+                : (bg && bg->GetTypeID() == BATTLEGROUND_AB)
+                    ? sPlayerBotMgr.m_confBattleBotUpdateMsAB
+                    : sPlayerBotMgr.m_confBattleBotUpdateMs;
         m_updateTimer.Reset(interval);
     }
     else
@@ -3065,6 +3121,25 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             me->GiveLevel(m_level);
             me->InitTalentForLevel();
             me->SetUInt32Value(PLAYER_XP, 0);
+        }
+
+        // WSG/AB bots must not roll tank specs — tanks contribute little to flag/node fighting.
+        // Only Warrior and Paladin can produce a tank spec; all other classes are unaffected.
+        if (!m_isBattleRoyaleBot &&
+            (m_battlegroundId == BATTLEGROUND_QUEUE_WS || m_battlegroundId == BATTLEGROUND_QUEUE_AB) &&
+            m_role == ROLE_INVALID)
+        {
+            switch (me->GetClass())
+            {
+                case CLASS_WARRIOR:
+                    m_role = ROLE_MELEE_DPS;
+                    break;
+                case CLASS_PALADIN:
+                    m_role = urand(0, 1) ? ROLE_MELEE_DPS : ROLE_HEALER;
+                    break;
+                default:
+                    break;
+            }
         }
 
         // BR bots must not roll healer specs — pre-set DPS role so
@@ -3107,12 +3182,17 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         else
             AutoEquipGear(sWorld.getConfig(CONFIG_UINT32_BATTLE_BOT_AUTO_EQUIP));
 
-        if (m_isBattleRoyaleBot && me->GetClass() == CLASS_ROGUE)
+        if (me->GetClass() == CLASS_ROGUE &&
+            (m_isBattleRoyaleBot || m_battlegroundId == BATTLEGROUND_QUEUE_WS ||
+             m_battlegroundId == BATTLEGROUND_QUEUE_AB))
         {
             // Ensure rogue knows Crippling Poison so PopulateSpellData picks it up.
             if (!me->HasSpell(11202) && !me->HasSpell(3408))
                 me->LearnSpell(11202, false, false);
-            // Ensure rogue knows Hemorrhage and Ghostly Strike (Subtlety talents — not in Combat spec template).
+        }
+        if (m_isBattleRoyaleBot && me->GetClass() == CLASS_ROGUE)
+        {
+            // BR-only Subtlety talents: Hemorrhage and Ghostly Strike.
             if (!me->HasSpell(16511) && !me->HasSpell(17347) && !me->HasSpell(17348))
                 me->LearnSpell(17348, false, false);
             if (!me->HasSpell(14278))
@@ -3129,11 +3209,13 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         ResetSpellData();
         PopulateSpellData();
 
-        if (m_isBattleRoyaleBot && me->GetClass() == CLASS_ROGUE)
+        if (me->GetClass() == CLASS_ROGUE &&
+            (m_isBattleRoyaleBot || m_battlegroundId == BATTLEGROUND_QUEUE_WS ||
+             m_battlegroundId == BATTLEGROUND_QUEUE_AB))
         {
-            // Pin BOTH hands to Crippling Poison for reliable slowing in PvP (BR request:
-            // 双手都同时用致残毒药 — every successful hit from either weapon has a chance to
-            // slow the target, not just one of the two).
+            // Pin BOTH hands to Crippling Poison — every auto from either weapon has a
+            // chance to slow the target. Useful in WSG for sticking to flag carriers and
+            // in AB for slowing enemies approaching or retreating from nodes.
             SpellEntry const* pBestCrippling = nullptr;
             for (uint32 i = 0; i < sSpellMgr.GetMaxSpellId(); ++i)
             {
@@ -3162,7 +3244,9 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         // 不到一次真正 me->IsInCombat()==false 的窗口，导致武器从头到尾都没上过毒。这里保证在真正
         // 开打之前（此时必然不在战斗状态）先上一次，UpdateOutOfCombatAI_Rogue() 后续仍会在有机会时
         // 补充/重新上毒，两者不冲突。
-        if (m_isBattleRoyaleBot && me->GetClass() == CLASS_ROGUE)
+        if (me->GetClass() == CLASS_ROGUE &&
+            (m_isBattleRoyaleBot || m_battlegroundId == BATTLEGROUND_QUEUE_WS ||
+             m_battlegroundId == BATTLEGROUND_QUEUE_AB))
         {
             if (m_spells.rogue.pMainHandPoison)
                 CastWeaponBuff(m_spells.rogue.pMainHandPoison, EQUIPMENT_SLOT_MAINHAND);
@@ -3868,20 +3952,38 @@ bool BattleBotAI::UpdateBattleGroundAI()
             break;
         case BATTLEGROUND_WS:
         {
-            // Pick up dropped flags.
+            // Pick up dropped flags within interaction range (highest priority).
             if (TryUseBattleGroundFlag(GO_WSG_DROPPED_SILVERWING_FLAG) ||
                 TryUseBattleGroundFlag(GO_WSG_DROPPED_WARSONG_FLAG))
                 return true;
 
-            // Pick up stationary flags from bases.
+            // If a dropped flag is anywhere on the map: out-of-combat, non-flag-carrying,
+            // non-home-guard bots immediately navigate toward it rather than continuing
+            // their base-flag run. Home guards handle recovery within their own patrol
+            // radius via the waypoint system.
+            if (!BattleBotHasBattlegroundFlag(me) &&
+                !me->IsInCombat() &&
+                !BattleBotIsWSGHomeGuardCandidate(this))
+            {
+                GameObject* pDropped = me->FindNearestGameObject(GO_WSG_DROPPED_SILVERWING_FLAG, 500.0f);
+                if (!pDropped)
+                    pDropped = me->FindNearestGameObject(GO_WSG_DROPPED_WARSONG_FLAG, 500.0f);
+                if (pDropped)
+                {
+                    me->GetMotionMaster()->MovePoint(0,
+                        pDropped->GetPositionX(),
+                        pDropped->GetPositionY(),
+                        pDropped->GetPositionZ(),
+                        MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+                    return true;
+                }
+            }
+
+            // Navigate to enemy base flag.
             if (me->GetTeam() == HORDE)
-            {
                 return TryUseBattleGroundFlag(GO_WSG_SILVERWING_FLAG);
-            }
             else
-            {
                 return TryUseBattleGroundFlag(GO_WSG_WARSONG_FLAG);
-            }
         }
         case BATTLEGROUND_BR:
             UpdateBattleRoyaleAI();
@@ -5259,6 +5361,21 @@ void BattleBotAI::UpdateInCombatAI()
 
 void BattleBotAI::UpdateOutOfCombatAI_Paladin()
 {
+    // WSG: reactively cast BoF on a slowed flag carrier even when not in combat.
+    // In combat this is handled by UpdateInCombatAI_Paladin; we mirror it here
+    // so an escorting paladin that hasn't been pulled into combat yet still reacts.
+    {
+        BattleGround* bg = me->GetBattleGround();
+        if (bg && bg->GetTypeID() == BATTLEGROUND_WS)
+        {
+            if (Unit* pFreedomTarget = SelectPaladinFreedomTarget(this))
+            {
+                if (DoCastSpell(pFreedomTarget, m_spells.paladin.pBlessingOfFreedom) == SPELL_CAST_OK)
+                    return;
+            }
+        }
+    }
+
     if (m_spells.paladin.pAura &&
         CanTryToCastSpell(me, m_spells.paladin.pAura))
     {
@@ -6885,6 +7002,25 @@ void BattleBotAI::UpdateInCombatAI_Warrior()
                 WarriorCast(this, me, m_spells.warrior.pRetaliation))
                 return;
 
+            // WSG: Hamstring flag carrier before the damage rotation — slowing
+            // them trumps dealing damage when they are running a flag to base.
+            if (BattleBotHasBattlegroundFlag(pVictim) &&
+                pVictim->IsMoving() &&
+                !pVictim->HasUnitState(UNIT_STATE_ROOT) &&
+                !pVictim->HasAuraType(SPELL_AURA_MOD_DECREASE_SPEED))
+            {
+                BattleGround* bg = me->GetBattleGround();
+                if (bg && bg->GetTypeID() == BATTLEGROUND_WS)
+                {
+                    if (WarriorCast(this, pVictim, m_spells.warrior.pHamstring))
+                        return;
+                    if (m_spells.warrior.pPiercingHowl &&
+                        me->GetCombatDistance(pVictim) <= 10.0f &&
+                        WarriorCast(this, pVictim, m_spells.warrior.pPiercingHowl))
+                        return;
+                }
+            }
+
             // ── DPS: primary damage rotation ────────────────────────────────
             if (WarriorCast(this, pVictim, m_spells.warrior.pMortalStrike))
                 return;
@@ -7071,6 +7207,16 @@ void BattleBotAI::UpdateInCombatAI_Rogue()
         }
         else
         {
+            // WSG: Sprint to close on the enemy flag carrier — slowing them via Crippling
+            // Poison autoattacks is more valuable than any other combat action.
+            if (BattleBotHasBattlegroundFlag(pVictim) &&
+                pVictim->GetCombatDistance(me) > 5.0f &&
+                m_spells.rogue.pSprint &&
+                CanTryToCastSpell(me, m_spells.rogue.pSprint))
+            {
+                DoCastSpell(me, m_spells.rogue.pSprint);
+            }
+
             // BR专属："打得过就打，打不过就跑"——己方掉血比例明显落后于对方(差值超过
             // BR_ROGUE_FLEE_HP_MARGIN)时主动脱离，不硬拼到底。有冲刺(Sprint)就先加速，
             // 没有就直接跑。这跟下面"HP<10%用Vanish紧急遁走"是两道不同阶段的保命机制——

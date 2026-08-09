@@ -122,9 +122,11 @@ class PlayerBotMgr
         bool m_confBattleBotAutoJoin_2;
         bool m_confBattleBotAutoJoin_3;
 
-        // 战场机器人AI决策间隔（BattleBotAI::UpdateAI 内部计时器用），常规战场(AV/WS/AB)和BR分开配置，
-        // BR默认更短以提升反应速度，见 BattleBotAI.cpp::UpdateAI() 里的判断逻辑
+        // 战场机器人AI决策间隔（BattleBotAI::UpdateAI 内部计时器用）
+        // BR最短（混战反应速度），WSG/AB居中（目标争夺需中速响应），AV最慢
         uint32 m_confBattleBotUpdateMs;
+        uint32 m_confBattleBotUpdateMsWSG;
+        uint32 m_confBattleBotUpdateMsAB;
         uint32 m_confBattleBotUpdateMsBR;
     protected:
         // How long since last update?

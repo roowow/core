@@ -219,6 +219,10 @@ class BattleGroundAB : public BattleGround
         /* Nodes occupying */
         virtual void EventPlayerClickedOnFlag(Player* source, GameObject* targetGo);
 
+        // Returns remaining contested-capture time for the given node (ms).
+        // Returns 0 if the node is not contested or already occupied.
+        uint32 GetNodeTimer(uint8 node) const { return node < BG_AB_NODES_MAX ? m_nodeTimers[node] : 0; }
+
     private:
         /* Gameobject spawning/despawning */
         void _CreateBanner(uint8 node, uint8 type, uint8 teamIndex);

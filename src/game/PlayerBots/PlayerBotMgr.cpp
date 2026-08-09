@@ -41,6 +41,8 @@ PlayerBotMgr::PlayerBotMgr()
     m_confBattleBotAutoJoin_2   = false;
     m_confBattleBotAutoJoin_3   = false;
     m_confBattleBotUpdateMs     = 1000;
+    m_confBattleBotUpdateMsWSG  = 700;
+    m_confBattleBotUpdateMsAB   = 700;
     m_confBattleBotUpdateMsBR   = 400;
 
     // Time
@@ -67,8 +69,10 @@ void PlayerBotMgr::LoadConfig()
     m_confBattleBotAutoJoin_1 = sConfig.GetBoolDefault("BattleBot.AutoJoin.AV", false);
     m_confBattleBotAutoJoin_2 = sConfig.GetBoolDefault("BattleBot.AutoJoin.WSG", false);
     m_confBattleBotAutoJoin_3 = sConfig.GetBoolDefault("BattleBot.AutoJoin.AB", false);
-    m_confBattleBotUpdateMs   = sConfig.GetIntDefault("BattleBot.UpdateMs", 1000);
-    m_confBattleBotUpdateMsBR = sConfig.GetIntDefault("BattleBot.UpdateMs.BR", 400);
+    m_confBattleBotUpdateMs    = sConfig.GetIntDefault("BattleBot.UpdateMs",     1000);
+    m_confBattleBotUpdateMsWSG = sConfig.GetIntDefault("BattleBot.UpdateMs.WSG",  700);
+    m_confBattleBotUpdateMsAB  = sConfig.GetIntDefault("BattleBot.UpdateMs.AB",   700);
+    m_confBattleBotUpdateMsBR  = sConfig.GetIntDefault("BattleBot.UpdateMs.BR",   400);
 
     if (!sWorld.getConfig(CONFIG_BOOL_FORCE_LOGOUT_DELAY))
         m_tempBots.clear();
@@ -1021,31 +1025,93 @@ uint8 SelectRandomRaceForClass(uint8 playerClass, Team playerTeam)
 
 void PlayerBotMgr::AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam, uint32 botLevel, bool temporary)
 {
-    // Tier 1 (6x): Warrior, Mage, Hunter
-    // Tier 2 (4x): Priest, Rogue, Paladin/Shaman
-    // Tier 3 (3x): Druid, Warlock
-    std::vector<uint32> availableClasses = {
-        CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR,
-        CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,
-        CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,
-        CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,
-        CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
-        CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,
-        CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK,
-    };
-    if (botTeam == HORDE)
+    std::vector<uint32> availableClasses;
+
+    if (queueType == BATTLEGROUND_QUEUE_WS)
     {
-        availableClasses.push_back(CLASS_SHAMAN);
-        availableClasses.push_back(CLASS_SHAMAN);
-        availableClasses.push_back(CLASS_SHAMAN);
-        availableClasses.push_back(CLASS_SHAMAN);
+        // WSG class distribution. Hunter excluded (poor in indoor corridors). No tank specs.
+        // Tier 1 (6x): Warrior, Mage
+        // Tier 2 (4x): Rogue, Priest, Druid, Warlock, Paladin/Shaman
+        availableClasses = {
+            CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR,
+            CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,
+            CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
+            CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,
+            CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,
+            CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK,
+        };
+        if (botTeam == HORDE)
+        {
+            availableClasses.push_back(CLASS_SHAMAN);
+            availableClasses.push_back(CLASS_SHAMAN);
+            availableClasses.push_back(CLASS_SHAMAN);
+            availableClasses.push_back(CLASS_SHAMAN);
+        }
+        else
+        {
+            availableClasses.push_back(CLASS_PALADIN);
+            availableClasses.push_back(CLASS_PALADIN);
+            availableClasses.push_back(CLASS_PALADIN);
+            availableClasses.push_back(CLASS_PALADIN);
+        }
+    }
+    else if (queueType == BATTLEGROUND_QUEUE_AB)
+    {
+        // AB class distribution. Hunter excluded (poor in node melee). No tank specs.
+        // Tier 1 (6x): Warrior, Mage
+        // Tier 2 (4x): Rogue, Priest, Druid, Warlock, Paladin/Shaman
+        availableClasses = {
+            CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR,
+            CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,
+            CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
+            CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,
+            CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,
+            CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK,
+        };
+        if (botTeam == HORDE)
+        {
+            availableClasses.push_back(CLASS_SHAMAN);
+            availableClasses.push_back(CLASS_SHAMAN);
+            availableClasses.push_back(CLASS_SHAMAN);
+            availableClasses.push_back(CLASS_SHAMAN);
+        }
+        else
+        {
+            availableClasses.push_back(CLASS_PALADIN);
+            availableClasses.push_back(CLASS_PALADIN);
+            availableClasses.push_back(CLASS_PALADIN);
+            availableClasses.push_back(CLASS_PALADIN);
+        }
     }
     else
     {
-        availableClasses.push_back(CLASS_PALADIN);
-        availableClasses.push_back(CLASS_PALADIN);
-        availableClasses.push_back(CLASS_PALADIN);
-        availableClasses.push_back(CLASS_PALADIN);
+        // AV and other BGs: general-purpose distribution with Hunter.
+        // Tier 1 (6x): Warrior, Mage, Hunter
+        // Tier 2 (4x): Priest, Rogue, Paladin/Shaman
+        // Tier 3 (3x): Druid, Warlock
+        availableClasses = {
+            CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR,
+            CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,
+            CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,  CLASS_HUNTER,
+            CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,
+            CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
+            CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,
+            CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK,
+        };
+        if (botTeam == HORDE)
+        {
+            availableClasses.push_back(CLASS_SHAMAN);
+            availableClasses.push_back(CLASS_SHAMAN);
+            availableClasses.push_back(CLASS_SHAMAN);
+            availableClasses.push_back(CLASS_SHAMAN);
+        }
+        else
+        {
+            availableClasses.push_back(CLASS_PALADIN);
+            availableClasses.push_back(CLASS_PALADIN);
+            availableClasses.push_back(CLASS_PALADIN);
+            availableClasses.push_back(CLASS_PALADIN);
+        }
     }
 
     uint8 botClass = SelectRandomContainerElement(availableClasses);
