@@ -2753,6 +2753,15 @@ void BattleBotAI::UpdateWaypointMovement()
         if (bg->GetStatus() == STATUS_WAIT_JOIN)
             return;
 
+    // Between path segments the bot is genuinely stationary — the one chance to
+    // remount if combat (or anything else) knocked it off its mount mid-route.
+    // UseMount() refuses to interrupt AV/WSG bots while actually moving, and the
+    // one-shot mount trigger on tunnel-exit waypoints only fires once per path,
+    // so a bot dismounted later on the same route would otherwise stay on foot
+    // for the rest of it.
+    if (UseMount())
+        return;
+
     if (StartNewPathToObjective())
         return;
 
