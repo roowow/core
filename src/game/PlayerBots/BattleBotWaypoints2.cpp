@@ -30,6 +30,8 @@
 #include "DBCStores.h"
 #include "Geometry.h"
 #include "Utilities/Random.h"
+#include "Log.h"
+#include "World.h"
 #include <cstddef>
 
 using namespace Geometry;
@@ -295,6 +297,14 @@ void WSG_AtHordeGraveyard(BattleBotAI* pAI)
 // If already mounted or mounting fails, just move to the next point.
 void WSG_ExitTunnel(BattleBotAI* pAI)
 {
+    if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+    {
+        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                 "[BattleGroundMount] tunnel-exit-reached bot %s guid %u bg %u mounted %u pos %.1f %.1f %.1f.",
+                 pAI->me->GetName(), pAI->me->GetGUIDLow(), pAI->me->GetBattleGroundId(),
+                 pAI->me->IsMounted() ? 1u : 0u,
+                 pAI->me->GetPositionX(), pAI->me->GetPositionY(), pAI->me->GetPositionZ());
+    }
     pAI->me->StopMoving();
     if (pAI->UseMount())
     {
