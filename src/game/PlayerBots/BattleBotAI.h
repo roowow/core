@@ -190,6 +190,11 @@ public:
     // on the bot's next tick — so OnJustDied() reads this cached value instead of the
     // live aura, which would already be gone by then.
     bool m_wsWasFlagCarrier = false;
+    // A bot continuously following an ally (escort/guard-return) is essentially
+    // always IsMoving()==true, so UseMount()'s AV/WSG "don't interrupt movement"
+    // guard means it would never get a chance to mount. Throttles how often we
+    // briefly stop mid-follow to give it one, so it doesn't stutter every tick.
+    uint32 m_nextFollowMountCheck = 0;
 
     // AV tower stuck detection: timeout + skip for non-key tower objectives
     uint32 m_avCurrentObjective = 0;

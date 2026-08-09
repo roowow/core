@@ -3910,6 +3910,24 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                     return;
                 }
 
+                // A bot continuously following an ally is essentially always IsMoving()==true,
+                // so UseMount() never gets a legitimate "not moving" tick to succeed on for
+                // AV/WSG. Briefly pause to give it one, throttled so escorts don't stutter.
+                if (!me->IsMounted() && WorldTimer::getMSTime() >= m_nextFollowMountCheck)
+                {
+                    if (BattleGround* bgForMount = me->GetBattleGround())
+                    {
+                        if (bgForMount->GetTypeID() == BATTLEGROUND_AV || bgForMount->GetTypeID() == BATTLEGROUND_WS)
+                        {
+                            StopMoving();
+                            UseMount();
+                            m_nextFollowMountCheck = WorldTimer::getMSTime() + 5000;
+                            me->GetMotionMaster()->MoveFollow(pTarget, frand(3.0f, 5.0f), frand(0.0f, 3.0f));
+                            return;
+                        }
+                    }
+                }
+
                 if (BattleGround* bg = me->GetBattleGround())
                 {
                     if (bg->GetTypeID() == BATTLEGROUND_WS &&
