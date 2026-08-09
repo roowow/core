@@ -374,7 +374,10 @@ struct boss_mandokirAI : public ScriptedAI
             return;
 
         if (pSummoned->GetEntry() == NPC_OHGAN)
+        {
+            pSummoned->AddThreatsOf(m_creature);
             pSummoned->AI()->AttackStart(m_creature->GetVictim());
+        }
     }
 
     void MoveInLineOfSight(Unit *pWho) override
