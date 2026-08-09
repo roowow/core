@@ -1656,11 +1656,20 @@ void BattleBotAI::MoveToNextPoint()
     // Try to mount at every waypoint, not just ones explicitly tagged with a mount
     // callback (WSG_ExitTunnel/AtCaveExit). Some recorded paths run 30+ waypoints
     // between named-array boundaries with no tagged stop in between, so a bot that
-    // lost its mount mid-route would otherwise stay on foot for that whole leg. Safe
-    // to call unconditionally here: we've just arrived (not moving yet this tick), so
-    // UseMount() won't hit its AV/WSG "don't interrupt movement" guard, and it already
-    // no-ops for anyone already mounted, flag carriers, indoors, etc.
-    UseMount();
+    // lost its mount mid-route would otherwise stay on foot for that whole leg.
+    //
+    // On success, stop here instead of falling through to MovePoint() below: issuing
+    // a new movement command in the same call as CastSpell() cancels the still-resolving
+    // mount cast before its aura actually applies, so the bot ends up moving unmounted
+    // anyway and has to retry at the next waypoint — logs showed exactly this, a mount
+    // "succeeding" every single hop yet never sticking. Mirrors WSG_ExitTunnel/AtCaveExit:
+    // ClearPath() and let the next tick's UpdateWaypointMovement() re-path once actually
+    // mounted, instead of chaining straight into the next leg unmounted.
+    if (UseMount())
+    {
+        ClearPath();
+        return;
+    }
 
     BattleBotWaypoint& nextPoint = (*m_currentPath)[m_currentPoint];
 

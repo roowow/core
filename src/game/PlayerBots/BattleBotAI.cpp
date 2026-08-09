@@ -3920,8 +3920,16 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                         if (bgForMount->GetTypeID() == BATTLEGROUND_AV || bgForMount->GetTypeID() == BATTLEGROUND_WS)
                         {
                             StopMoving();
-                            UseMount();
                             m_nextFollowMountCheck = WorldTimer::getMSTime() + 5000;
+                            if (UseMount())
+                            {
+                                // Don't immediately restart following: issuing a new movement
+                                // command in the same tick as CastSpell() cancels the
+                                // still-resolving mount cast before its aura applies. Next
+                                // tick's motion-generator check (now IDLE) picks a fresh
+                                // follow target on its own, by which point the mount has stuck.
+                                return;
+                            }
                             me->GetMotionMaster()->MoveFollow(pTarget, frand(3.0f, 5.0f), frand(0.0f, 3.0f));
                             return;
                         }
