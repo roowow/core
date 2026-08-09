@@ -142,7 +142,10 @@ bool Config::ProcessLine(char const* line)
         ++i;
     }
 
-    if (name.empty() || value.empty())
+    // Allow quoted empty string ("") as an explicit empty value so that
+    // config lines like  LogFile.Chat = ""  correctly disable that feature.
+    // An unquoted missing value (e.g. "Key =") is still treated as invalid.
+    if (name.empty() || (value.empty() && !quoteFound))
         return false;
 
     if (!m_configMap.insert({ name, value }).second)
