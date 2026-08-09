@@ -1579,6 +1579,9 @@ void BattleBotAI::MovementInform(uint32 movementType, uint32 data)
 {
     if (movementType == POINT_MOTION_TYPE)
     {
+        bool const debugLog = sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG) &&
+            me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS;
+
         // Guard against stale callbacks: a queued PointMovementGenerator can fire its
         // Finalize() after the path has been swapped (e.g. MotionMaster::Clear() from
         // class AI). The `data` index refers to the *previous* path, so it may be out
@@ -1586,6 +1589,16 @@ void BattleBotAI::MovementInform(uint32 movementType, uint32 data)
         // aborts the world thread.
         if (m_currentPath && data < m_currentPath->size())
         {
+            if (debugLog)
+            {
+                sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                         "[BattleGroundMount] arrived bot %s guid %u bg %u point %u/%u hasFunc %u mounted %u pos %.1f %.1f %.1f.",
+                         me->GetName(), me->GetGUIDLow(), me->GetBattleGroundId(),
+                         data, uint32(m_currentPath->size() - 1),
+                         (*m_currentPath)[data].pFunc ? 1u : 0u, me->IsMounted() ? 1u : 0u,
+                         me->GetPositionX(), me->GetPositionY(), me->GetPositionZ());
+            }
+
             if ((*m_currentPath)[data].pFunc)
                 (*(*m_currentPath)[data].pFunc)(this);
             else
@@ -1593,6 +1606,14 @@ void BattleBotAI::MovementInform(uint32 movementType, uint32 data)
         }
         else
         {
+            if (debugLog)
+            {
+                sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                         "[BattleGroundMount] arrived-stale bot %s guid %u bg %u point %u hasPath %u pos %.1f %.1f %.1f.",
+                         me->GetName(), me->GetGUIDLow(), me->GetBattleGroundId(), data,
+                         m_currentPath ? 1u : 0u,
+                         me->GetPositionX(), me->GetPositionY(), me->GetPositionZ());
+            }
             MoveToNextPoint();
         }
 
@@ -1633,6 +1654,19 @@ void BattleBotAI::MoveToNextPoint()
     }
 
     BattleBotWaypoint& nextPoint = (*m_currentPath)[m_currentPoint];
+
+    // Trail of every leg a bot travels while unmounted, to tell "never got a chance
+    // to mount on this whole trip" apart from "briefly unmounted near a dead zone".
+    if (!me->IsMounted() && me->GetBattleGround() && me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS &&
+        sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+    {
+        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                 "[BattleGroundMount] hop-unmounted bot %s guid %u bg %u point %u/%u from %.1f %.1f %.1f to %.1f %.1f %.1f.",
+                 me->GetName(), me->GetGUIDLow(), me->GetBattleGroundId(),
+                 m_currentPoint, uint32(m_currentPath->size() - 1),
+                 me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
+                 nextPoint.x, nextPoint.y, nextPoint.z);
+    }
 
     me->GetMotionMaster()->MovePoint(m_currentPoint, nextPoint.x + frand(-1, 1), nextPoint.y + frand(-1, 1), nextPoint.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
 }
