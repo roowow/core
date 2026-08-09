@@ -185,6 +185,11 @@ public:
     // While true, combat is dropped immediately on every tick (no cooldown) so
     // re-engagements cannot prevent the bot from returning to the flag room.
     bool m_wsGuardReturning = false;
+    // Refreshed every live tick from the flag aura. BattleGroundWS drops the flag
+    // (and the aura) synchronously inside HandleKillPlayer, before OnJustDied() runs
+    // on the bot's next tick — so OnJustDied() reads this cached value instead of the
+    // live aura, which would already be gone by then.
+    bool m_wsWasFlagCarrier = false;
 
     // AV tower stuck detection: timeout + skip for non-key tower objectives
     uint32 m_avCurrentObjective = 0;

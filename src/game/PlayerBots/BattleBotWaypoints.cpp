@@ -30,6 +30,8 @@
 #include "Geometry.h"
 #include <cstddef>
 #include "Utilities/Random.h"
+#include "Log.h"
+#include "World.h"
 
 using namespace Geometry;
 
@@ -182,6 +184,15 @@ bool AtFlag(BattleBotAI* pAI, std::vector<uint32> const& vFlagIds)
                     pAI->me->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
 
                 pAI->ClearPath();
+                if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                {
+                    BattleGround* dbgBg = pAI->me->GetBattleGround();
+                    sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                             "[BattleGroundObjective] node-capture-attempt bot %s guid %u bg %u entry %u pos %.1f %.1f %.1f.",
+                             pAI->me->GetName(), pAI->me->GetGUIDLow(),
+                             dbgBg ? dbgBg->GetInstanceID() : 0u, bannerId,
+                             pAI->me->GetPositionX(), pAI->me->GetPositionY(), pAI->me->GetPositionZ());
+                }
                 pAI->me->CastSpell(pGo, SPELL_CAPTURE_BANNER, false);
                 return true;
             }

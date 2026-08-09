@@ -2782,6 +2782,16 @@ void BattleBotAI::OnJustDied()
                  me->GetPositionX(), me->GetPositionY());
     }
 
+    if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG) && m_wsWasFlagCarrier)
+    {
+        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                 "[BattleGroundCombat] flag-carrier-death bot %s class %u instance %u pos %.1f %.1f %.1f.",
+                 me->GetName(), (uint32)me->GetClass(),
+                 me->GetBattleGroundId(),
+                 me->GetPositionX(), me->GetPositionY(), me->GetPositionZ());
+    }
+    m_wsWasFlagCarrier = false;
+
     ClearPath();
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
         StopMoving();
@@ -3415,6 +3425,11 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         }
     }
 
+    // Refreshed on every live tick, before any early-return branch below (CC, casting,
+    // etc.) can skip it — see m_wsWasFlagCarrier's declaration for why OnJustDied() needs
+    // this cached value instead of re-checking the aura directly.
+    m_wsWasFlagCarrier = me->HasAura(AURA_WARSONG_FLAG) || me->HasAura(AURA_SILVERWING_FLAG);
+
     if (me->HasUnitState(UNIT_STATE_CAN_NOT_REACT_OR_LOST_CONTROL))
     {
         BreakCrowdControlEffects();
@@ -3498,7 +3513,8 @@ void BattleBotAI::UpdateAI(uint32 const diff)
     // WSG exploit prevention
     {
         BattleGround* currentBg = me->GetBattleGround();
-        if (currentBg && currentBg->GetTypeID() == BATTLEGROUND_WS)
+        if (currentBg && currentBg->GetTypeID() == BATTLEGROUND_WS &&
+            currentBg->GetStatus() != STATUS_WAIT_JOIN)
         {
             float const curX = me->GetPositionX();
             float const curY = me->GetPositionY();
@@ -5011,12 +5027,45 @@ bool BattleBotAI::TryUseBattleGroundFlag(uint32 entry)
         return true;
     }
 
+    if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+    {
+        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                 "[BattleGroundObjective] flag-interact bot %s guid %u entry %u instance %u pos %.1f %.1f %.1f.",
+                 me->GetName(), me->GetGUIDLow(), entry, me->GetBattleGroundId(),
+                 me->GetPositionX(), me->GetPositionY(), me->GetPositionZ());
+    }
+
     pGo->Use(me);
     return true;
 }
 
 void BattleBotAI::UpdateFlagCarrierAI()
 {
+    // Generic instant self-heal HoT (Rejuvenation for druids, Renew for priests, etc.).
+    // Anything sitting in m_spellListPeriodicHeal with zero cast time is safe to use
+    // without stopping — unlike direct heals, which would interrupt the run. Classes
+    // with no instant periodic self-heal (warrior/rogue/hunter/mage/warlock/shaman)
+    // fall through to their defensive cooldowns below instead.
+    if (me->GetHealthPercent() < 70.0f)
+    {
+        for (SpellEntry const* pHealSpell : m_spellListPeriodicHeal)
+        {
+            if (pHealSpell->GetCastTime(me) == 0 &&
+                !me->HasAura(pHealSpell->Id) &&
+                CanTryToCastSpell(me, pHealSpell))
+            {
+                if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                {
+                    sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                             "[BattleGroundCombat] flag-carrier-selfheal bot %s guid %u spell %u hp=%.0f%%.",
+                             me->GetName(), me->GetGUIDLow(), pHealSpell->Id, me->GetHealthPercent());
+                }
+                me->CastSpell(me, pHealSpell, false);
+                return;
+            }
+        }
+    }
+
     // First those that can be cast both in and out of combat.
     switch (me->GetClass())
     {
@@ -7124,11 +7173,8 @@ void BattleBotAI::UpdateInCombatAI_Warrior()
 
 void BattleBotAI::UpdateOutOfCombatAI_Rogue()
 {
-    // --- 在这里插入拦截逻辑 ---
-    // 只有在【没有目标】且【骑马】时才拦截，防止骑马时尝试潜行导致下马
     if (me->IsMounted() && !me->GetVictim())
         return;
-    // -----------------------
 
     if (m_spells.rogue.pMainHandPoison &&
         CanTryToCastSpell(me, m_spells.rogue.pMainHandPoison))
@@ -7145,12 +7191,17 @@ void BattleBotAI::UpdateOutOfCombatAI_Rogue()
     }
 
     if (m_spells.rogue.pStealth &&
-        !me->IsMounted() &&               // <--- 新增：如果已经骑在马上，绝对不要再尝试潜行
+        !me->IsMounted() &&
         CanTryToCastSpell(me, m_spells.rogue.pStealth) &&
        !me->HasAura(AURA_WARSONG_FLAG) &&
        !me->HasAura(AURA_SILVERWING_FLAG))
     {
-        if (DoCastSpell(me, m_spells.rogue.pStealth) == SPELL_CAST_OK)
+        // In WSG, only stealth when an enemy is nearby — running stealthed is
+        // too slow and blocks mounting for the cross-map sprint.
+        bool const inWSG = me->GetBattleGround() &&
+                           me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS;
+        bool const enemyNearby = !inWSG || me->SelectRandomUnfriendlyTarget(nullptr, 40.0f);
+        if (enemyNearby && DoCastSpell(me, m_spells.rogue.pStealth) == SPELL_CAST_OK)
             return;
     }
 

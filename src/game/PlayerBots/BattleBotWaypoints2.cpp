@@ -290,6 +290,20 @@ void WSG_AtHordeGraveyard(BattleBotAI* pAI)
         pAI->MoveToNextPoint();
 }
 
+// Called at each team's tunnel exit (the first outdoor waypoint).
+// Mirrors AV's AtCaveExit: stop, mount up, then continue the path.
+// If already mounted or mounting fails, just move to the next point.
+void WSG_ExitTunnel(BattleBotAI* pAI)
+{
+    pAI->me->StopMoving();
+    if (pAI->UseMount())
+    {
+        pAI->ClearPath();
+        return;
+    }
+    pAI->MoveToNextPoint();
+}
+
 #define SPELL_CAPTURE_BANNER 21651
 #define BB_SPELL_FOOD 1131
 #define BB_SPELL_DRINK 1137
@@ -578,7 +592,20 @@ static uint8 GetABHomeNode(Team team)
 
 static Position const& SelectABPositionForBot(BattleBotAI* pAI, std::vector<uint8> const& nodes)
 {
-    return AB_GuardPositions[nodes[pAI->me->GetObjectGuid().GetCounter() % nodes.size()]];
+    // Among nodes tied on guard need, send the bot to the nearest one instead of a
+    // GUID hash, so bots don't criss-cross the map to reach an equally-needy node.
+    uint8 nearest = nodes[0];
+    float nearestDist = pAI->me->GetDistance(AB_GuardPositions[nearest]);
+    for (size_t i = 1; i < nodes.size(); ++i)
+    {
+        float const d = pAI->me->GetDistance(AB_GuardPositions[nodes[i]]);
+        if (d < nearestDist)
+        {
+            nearestDist = d;
+            nearest = nodes[i];
+        }
+    }
+    return AB_GuardPositions[nearest];
 }
 
 static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
@@ -917,12 +944,12 @@ BattleBotPath vPath_WSG_HordeGraveyard_to_HordeTunnel =
     { 1101.26f, 1522.79f, 314.918f, nullptr },
     { 1114.67f, 1503.18f, 312.947f, nullptr },
     { 1126.45f, 1487.4f, 314.136f, nullptr },
-    { 1124.37f, 1462.28f, 315.853f, nullptr },
+    { 1124.37f, 1462.28f, 315.853f, &WSG_ExitTunnel },
 };
 // Horde Tunnel to Horde Flag Room
 BattleBotPath vPath_WSG_HordeTunnel_to_HordeFlagRoom =
 {
-    { 1124.37f, 1462.28f, 315.853f, nullptr },
+    { 1124.37f, 1462.28f, 315.853f, &WSG_ExitTunnel },
     { 1106.87f, 1462.13f, 316.558f, nullptr },
     { 1089.44f, 1461.04f, 316.332f, nullptr },
     { 1072.07f, 1459.46f, 317.449f, nullptr },
@@ -940,7 +967,7 @@ BattleBotPath vPath_WSG_HordeTunnel_to_HordeFlagRoom =
 // Horde Tunnel to Alliance Tunnel 1
 BattleBotPath vPath_WSG_HordeTunnel_to_AllianceTunnel_1 =
 {
-    { 1124.37f, 1462.28f, 315.853f, nullptr },
+    { 1124.37f, 1462.28f, 315.853f, &WSG_ExitTunnel },
     { 1135.07f, 1462.43f, 315.569f, nullptr },
     { 1152.2f, 1465.51f, 311.056f, nullptr },
     { 1172.62f, 1470.34f, 306.812f, nullptr },
@@ -953,12 +980,12 @@ BattleBotPath vPath_WSG_HordeTunnel_to_AllianceTunnel_1 =
     { 1297.11f, 1461.2f, 315.485f, nullptr },
     { 1314.31f, 1460.76f, 317.926f, nullptr },
     { 1329.8f, 1461.24f, 320.267f, nullptr },
-    { 1348.02f, 1461.06f, 323.167f, nullptr },
+    { 1348.02f, 1461.06f, 323.167f, &WSG_ExitTunnel },
 };
 // Horde Tunnel to Alliance Tunnel 2
 BattleBotPath vPath_WSG_HordeTunnel_to_AllianceTunnel_2 =
 {
-    { 1124.37f, 1462.28f, 315.853f, nullptr },
+    { 1124.37f, 1462.28f, 315.853f, &WSG_ExitTunnel },
     { 1138.61f, 1452.12f, 312.988f, nullptr },
     { 1154.35f, 1442.42f, 310.728f, nullptr },
     { 1171.29f, 1438.04f, 307.462f, nullptr },
@@ -972,7 +999,7 @@ BattleBotPath vPath_WSG_HordeTunnel_to_AllianceTunnel_2 =
     { 1300.06f, 1447.16f, 316.737f, nullptr },
     { 1313.79f, 1449.86f, 317.651f, nullptr },
     { 1329.76f, 1457.36f, 320.37f, nullptr },
-    { 1348.02f, 1461.06f, 323.167f, nullptr },
+    { 1348.02f, 1461.06f, 323.167f, &WSG_ExitTunnel },
 };
 // Horde GY Jump to Horde Tunnel
 BattleBotPath vPath_WSG_HordeGYJump_to_HordeTunnel =
@@ -983,7 +1010,7 @@ BattleBotPath vPath_WSG_HordeGYJump_to_HordeTunnel =
     { 1115.4f, 1418.91f, 313.772f, nullptr },
     { 1122.83f, 1430.74f, 312.765f, nullptr },
     { 1125.26f, 1442.56f, 313.996f, nullptr },
-    { 1124.37f, 1462.28f, 315.853f, nullptr },
+    { 1124.37f, 1462.28f, 315.853f, &WSG_ExitTunnel },
 };
 // Horde GY Jump to Alliance Tunnel
 BattleBotPath vPath_WSG_HordeGYJump_to_AllianceTunnel =
@@ -1003,7 +1030,7 @@ BattleBotPath vPath_WSG_HordeGYJump_to_AllianceTunnel =
     { 1299.13f, 1450.26f, 317.148f, nullptr },
     { 1315.54f, 1456.24f, 318.449f, nullptr },
     { 1330.63f, 1460.27f, 320.435f, nullptr },
-    { 1348.02f, 1461.06f, 323.167f, nullptr },
+    { 1348.02f, 1461.06f, 323.167f, &WSG_ExitTunnel },
 };
 // Alliance Flag Room to Alliance Graveyard
 BattleBotPath vPath_WSG_AllianceFlagRoom_to_AllianceGraveyard =
@@ -1043,12 +1070,12 @@ BattleBotPath vPath_WSG_AllianceGraveyard_to_AllianceTunnel =
     { 1354.17f, 1411.56f, 324.327f, nullptr },
     { 1351.44f, 1430.38f, 323.506f, nullptr },
     { 1350.36f, 1444.43f, 323.388f, nullptr },
-    { 1348.02f, 1461.06f, 323.167f, nullptr },
+    { 1348.02f, 1461.06f, 323.167f, &WSG_ExitTunnel },
 };
 // Alliance Tunnel to Alliance Flag Room
 BattleBotPath vPath_WSG_AllianceTunnel_to_AllianceFlagRoom =
 {
-    { 1348.02f, 1461.06f, 323.167f, nullptr },
+    { 1348.02f, 1461.06f, 323.167f, &WSG_ExitTunnel },
     { 1359.8f, 1461.49f, 324.527f, nullptr },
     { 1372.47f, 1461.61f, 324.354f, nullptr },
     { 1389.08f, 1461.12f, 325.913f, nullptr },
@@ -1073,7 +1100,7 @@ BattleBotPath vPath_WSG_AllianceGYJump_to_AllianceTunnel =
     { 1360.97f, 1508.68f, 320.007f, nullptr },
     { 1355.78f, 1495.7f, 323.959f, nullptr },
     { 1351.58f, 1482.36f, 324.189f, nullptr },
-    { 1348.02f, 1461.06f, 323.167f, nullptr },
+    { 1348.02f, 1461.06f, 323.167f, &WSG_ExitTunnel },
 };
 // Alliance GY Jump to Horde Tunnel
 BattleBotPath vPath_WSG_AllianceGYJump_to_HordeTunnel =
@@ -1101,7 +1128,7 @@ BattleBotPath vPath_WSG_AllianceGYJump_to_HordeTunnel =
     { 1156.05f, 1471.33f, 310.002f, nullptr },
     { 1142.54f, 1467.68f, 311.727f, nullptr },
     { 1135.4f, 1465.54f, 315.622f, nullptr },
-    { 1124.37f, 1462.28f, 315.853f, nullptr },
+    { 1124.37f, 1462.28f, 315.853f, &WSG_ExitTunnel },
 };
 // Horde GY Jump to Alliance Flag Room through Side Entrance
 BattleBotPath vPath_WSG_HordeGYJump_to_AllianceFlagRoom =
@@ -1179,7 +1206,7 @@ BattleBotPath vPath_WSG_AllianceGYJump_to_HordeFlagRoom =
 // Horde Tunnel to Horde Base Roof
 BattleBotPath vPath_WSG_HordeTunnel_to_HordeBaseRoof =
 {
-    { 1124.37f, 1462.28f, 315.853f, nullptr },
+    { 1124.37f, 1462.28f, 315.853f, &WSG_ExitTunnel },
     { 1106.87f, 1462.13f, 316.558f, nullptr },
     { 1089.44f, 1461.04f, 316.332f, nullptr },
     { 1072.07f, 1459.46f, 317.449f, nullptr },
@@ -1209,7 +1236,7 @@ BattleBotPath vPath_WSG_HordeTunnel_to_HordeBaseRoof =
 // Alliance Tunnel to Alliance Base Roof
 BattleBotPath vPath_WSG_AllianceTunnel_to_AllianceBaseRoof =
 {
-    { 1348.02f, 1461.06f, 323.167f, nullptr },
+    { 1348.02f, 1461.06f, 323.167f, &WSG_ExitTunnel },
     { 1359.8f, 1461.49f, 324.527f, nullptr },
     { 1372.47f, 1461.61f, 324.354f, nullptr },
     { 1389.08f, 1461.12f, 325.913f, nullptr },
