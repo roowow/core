@@ -3452,18 +3452,25 @@ bool Unit::AddSpellAuraHolder(SpellAuraHolder* holder)
 {
     SpellEntry const* aurSpellInfo = holder->GetSpellProto();
 
-    // Block Water Walking (546) from being applied to players with the deep-sea swim quest active.
+    // Block Water Walking (546) from being applied to players actively attempting the deep-sea swim quest.
     // Quest 32003/32005 enters QUEST_STATUS_COMPLETE immediately on accept (no incremental objectives),
     // so we block on both INCOMPLETE and COMPLETE; FAILED means the attempt ended, allow it then.
+    // Quest 32003 is non-repeatable, so once turned in its status stays QUEST_STATUS_COMPLETE forever
+    // (persisted in character_queststatus and reloaded as-is on every login) - GetQuestRewardStatus()
+    // must be checked too, otherwise players who ever finished 32003 would be permanently blocked.
     if (aurSpellInfo->Id == 546)
     {
         if (Player const* pTarget = ToPlayer())
         {
             QuestStatus qs3 = pTarget->GetQuestStatus(32003);
             QuestStatus qs5 = pTarget->GetQuestStatus(32005);
-            if (qs3 == QUEST_STATUS_INCOMPLETE || qs3 == QUEST_STATUS_COMPLETE ||
-                qs5 == QUEST_STATUS_INCOMPLETE || qs5 == QUEST_STATUS_COMPLETE)
+            bool block3 = qs3 == QUEST_STATUS_INCOMPLETE ||
+                          (qs3 == QUEST_STATUS_COMPLETE && !pTarget->GetQuestRewardStatus(32003));
+            bool block5 = qs5 == QUEST_STATUS_INCOMPLETE ||
+                          (qs5 == QUEST_STATUS_COMPLETE && !pTarget->GetQuestRewardStatus(32005));
+            if (block3 || block5)
             {
+                pTarget->SendSysMessage("真的猛士需要亲身游过深邃的大海。");
                 delete holder;
                 return false;
             }
