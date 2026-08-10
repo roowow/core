@@ -1215,6 +1215,10 @@ class Player final: public Unit
         }
 
         bool IsAtGroupRewardDistance(WorldObject const* pRewardSource) const;
+        // 0 = not eligible; 1 = alive in instance; 2 = dead, ghost still in instance;
+        // 3 = dead, ghost left, corpse still in instance. Used to rank raid reputation
+        // eligibility when the raid group exceeds the instance's player cap.
+        uint8 GetGroupRewardTier(WorldObject const* pRewardSource) const;
         void RewardSinglePlayerAtKill(Unit const* pVictim);
         void RewardPlayerAndGroupAtEvent(uint32 creatureId, WorldObject const* pRewardSource);
         void RewardPlayerAndGroupAtCast(WorldObject const* pRewardSource, uint32 spellid = 0);

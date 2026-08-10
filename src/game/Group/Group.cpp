@@ -24,6 +24,7 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "Player.h"
+#include "Corpse.h"
 #include "World.h"
 #include "ObjectMgr.h"
 #include "ObjectGuid.h"
@@ -38,6 +39,7 @@
 #include "LFGQueue.h"
 #include "UpdateMask.h"
 #include "Utilities/Random.h"
+#include <algorithm>
 
 #include <array>
 
@@ -2318,7 +2320,7 @@ void Group::_homebindIfInstance(Player* player)
     }
 }
 
-static void RewardGroupAtKill_helper(Player* pGroupGuy, Unit* pVictim, uint32 count, bool PvP, float group_rate, uint32 sum_level, bool is_dungeon, Unit* not_gray_member_with_max_level, Player* member_with_max_level, uint32 xp)
+static void RewardGroupAtKill_helper(Player* pGroupGuy, Unit* pVictim, uint32 count, bool PvP, float group_rate, uint32 sum_level, bool is_dungeon, Unit* not_gray_member_with_max_level, Player* member_with_max_level, uint32 xp, bool grantReputation = true)
 {
     // honor can be in PvP and !PvP (racial leader) cases (for alive)
     if (pGroupGuy->IsAlive())
@@ -2355,7 +2357,10 @@ static void RewardGroupAtKill_helper(Player* pGroupGuy, Unit* pVictim, uint32 co
 
         // if is in dungeon then all receive full reputation at kill
         // rewarded any alive/dead/near_corpse group member
-        pGroupGuy->RewardReputation(pVictim, 1.0f);
+        // (grantReputation is false when the raid exceeds the instance's player cap
+        // and this member lost out on the capped reputation slots - see RewardGroupAtKill)
+        if (grantReputation)
+            pGroupGuy->RewardReputation(pVictim, 1.0f);
 
         // XP updated only for alive group member
         if (pGroupGuy->IsAlive() && not_gray_member_with_max_level)
@@ -2376,6 +2381,75 @@ static void RewardGroupAtKill_helper(Player* pGroupGuy, Unit* pVictim, uint32 co
                 pGroupGuy->KilledMonster(((Creature*)pVictim)->GetCreatureInfo(), pVictim->GetObjectGuid());
         }
     }
+}
+
+/**
+ * Ranks raid members eligible for reputation credit (see Player::GetGroupRewardTier)
+ * and caps the result at the instance's player limit (maxPlayers).
+ *
+ * This exists because reputation, unlike XP or quest kill credit, is granted to dead
+ * members purely based on where their corpse is, with no check on whether they still
+ * hold a slot in the instance. A raid that invites more than the instance's player
+ * cap can rotate members through it (die -> release spirit, which leaves the instance
+ * and frees the population slot -> a waiting extra member zones in) and have more
+ * distinct characters earn reputation from a single kill than the instance was ever
+ * meant to hold.
+ *
+ * Tier 1 (alive, in instance) and tier 2 (dead, ghost still in instance) can never
+ * together exceed maxPlayers, since both occupy a slot in the map's live player
+ * count - exactly what Map::CanEnter caps entry against. Only tier 3 (ghost left,
+ * corpse still in instance) represents members who no longer hold an instance slot
+ * but still qualify via their corpse, so it's the only tier that can push the
+ * candidate count past the cap, and the only one that ever needs trimming. Ties
+ * within tier 3 favor whoever died most recently (Corpse::GetGhostTime()): a corpse
+ * that has been sitting in the instance the longest has already had the most chances
+ * to earn "free" reputation from kills that happened after its owner left.
+ */
+static void GetRaidReputationEligibility(Group* group, Unit* pVictim, Player* pPlayerTap, uint32 maxPlayers, std::vector<Player*>& eligible)
+{
+    eligible.clear();
+    std::vector<std::pair<Player*, time_t>> tier3;
+
+    auto classify = [&](Player* pGroupGuy)
+    {
+        if (!pGroupGuy || !pGroupGuy->IsInWorld())
+            return;
+
+        switch (pGroupGuy->GetGroupRewardTier(pVictim))
+        {
+            case 1:
+            case 2:
+                eligible.push_back(pGroupGuy);
+                break;
+            case 3:
+                if (Corpse* pCorpse = pGroupGuy->GetCorpse())
+                    tier3.emplace_back(pGroupGuy, pCorpse->GetGhostTime());
+                break;
+            default:
+                break;
+        }
+    };
+
+    for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+    {
+        Player* pGroupGuy = itr->getSource();
+        if (pGroupGuy != pPlayerTap)
+            classify(pGroupGuy);
+    }
+    classify(pPlayerTap);
+
+    if (uint32(eligible.size()) >= maxPlayers || tier3.empty())
+        return;
+
+    // Later death time (more recently deceased) first.
+    std::sort(tier3.begin(), tier3.end(), [](std::pair<Player*, time_t> const& a, std::pair<Player*, time_t> const& b)
+    {
+        return a.second > b.second;
+    });
+
+    uint32 remaining = maxPlayers - uint32(eligible.size());
+    for (uint32 i = 0; i < remaining && i < tier3.size(); ++i)
+        eligible.push_back(tier3[i].first);
 }
 
 /** Provide rewards to group members at unit kill
@@ -2409,6 +2483,24 @@ void Group::RewardGroupAtKill(Unit* pVictim, Player* pPlayerTap)
         bool is_dungeon = PvP ? false : sMapStorage.LookupEntry<MapEntry>(pVictim->GetMapId())->IsDungeon();
         float group_rate = MaNGOS::XP::xp_in_group_rate(count, is_raid);
 
+        // Raid reputation slot cap: only relevant for !PvP raid kills, and only once
+        // the raid actually exceeds the instance's player cap (see GetRaidReputationEligibility).
+        bool capReputation = false;
+        std::vector<Player*> reputationEligible;
+        if (!PvP && is_raid)
+        {
+            if (uint32 maxPlayers = ((DungeonMap*)pVictim->GetMap())->GetMaxPlayers())
+            {
+                capReputation = true;
+                GetRaidReputationEligibility(this, pVictim, pPlayerTap, maxPlayers, reputationEligible);
+            }
+        }
+
+        auto grantsReputation = [&](Player* pGroupGuy)
+        {
+            return !capReputation || std::find(reputationEligible.begin(), reputationEligible.end(), pGroupGuy) != reputationEligible.end();
+        };
+
         for (GroupReference* itr = GetFirstMember(); itr != nullptr; itr = itr->next())
         {
             Player* pGroupGuy = itr->getSource();
@@ -2422,14 +2514,14 @@ void Group::RewardGroupAtKill(Unit* pVictim, Player* pPlayerTap)
             if (!pGroupGuy->IsAtGroupRewardDistance(pVictim))
                 continue;                               // member (alive or dead) or his corpse at req. distance
 
-            RewardGroupAtKill_helper(pGroupGuy, pVictim, count, PvP, group_rate, sum_level, is_dungeon, not_gray_member_with_max_level, member_with_max_level, xp);
+            RewardGroupAtKill_helper(pGroupGuy, pVictim, count, PvP, group_rate, sum_level, is_dungeon, not_gray_member_with_max_level, member_with_max_level, xp, grantsReputation(pGroupGuy));
         }
 
         if (pPlayerTap)
         {
             // member (alive or dead) or his corpse at req. distance
             if (pPlayerTap->IsAtGroupRewardDistance(pVictim))
-                RewardGroupAtKill_helper(pPlayerTap, pVictim, count, PvP, group_rate, sum_level, is_dungeon, not_gray_member_with_max_level, member_with_max_level, xp);
+                RewardGroupAtKill_helper(pPlayerTap, pVictim, count, PvP, group_rate, sum_level, is_dungeon, not_gray_member_with_max_level, member_with_max_level, xp, grantsReputation(pPlayerTap));
         }
     }
 }

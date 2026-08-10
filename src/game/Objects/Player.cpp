@@ -21178,22 +21178,37 @@ void Player::RewardPlayerAndGroupAtCast(WorldObject const* pRewardSource, uint32
         CastedCreatureOrGO(pRewardSource->GetEntry(), pRewardSource->GetObjectGuid(), spellid);
 }
 
+// Kept as a plain wrapper around GetGroupRewardTier() so every existing caller
+// (loot eligibility, XP, quest kill credit, honor...) keeps its original
+// "eligible or not" behavior unchanged. Only Group::RewardGroupAtKill uses the
+// tier value itself, to rank reputation eligibility when a raid group exceeds
+// the instance's player cap - see GetRaidReputationEligibility() in Group.cpp.
 bool Player::IsAtGroupRewardDistance(WorldObject const* pRewardSource) const
 {
+    return GetGroupRewardTier(pRewardSource) != 0;
+}
+
+// 0 = not eligible; 1 = alive, in instance; 2 = dead, ghost still in instance;
+// 3 = dead, ghost left the instance, but the corpse is still inside it.
+// Tiers 1-3 all count as "eligible" for IsAtGroupRewardDistance() above - the
+// distinction only matters to the raid reputation cap in Group.cpp, which is
+// the sole consumer of the tier number itself.
+uint8 Player::GetGroupRewardTier(WorldObject const* pRewardSource) const
+{
     if (!pRewardSource)
-        return false;
+        return 0;
 
     if (IsWithinLootXPDist(pRewardSource))
-        return true;
+        return IsAlive() ? 1 : 2;
 
     if (IsAlive())
-        return false;
+        return 0;
 
     Corpse* pCorpse = GetCorpse();
-    if (!pCorpse)
-        return false;
+    if (!pCorpse || !pCorpse->IsWithinLootXPDist(pRewardSource))
+        return 0;
 
-    return pCorpse->IsWithinLootXPDist(pRewardSource);
+    return 3;
 }
 
 uint32 Player::GetBaseWeaponSkillValue(WeaponAttackType attType) const
