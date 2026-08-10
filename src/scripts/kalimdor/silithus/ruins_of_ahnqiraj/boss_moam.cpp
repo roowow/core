@@ -70,8 +70,20 @@ struct boss_moamAI : public ScriptedAI
 
         m_OGvictim.Clear();
 
+        // NO_AUTOMATIC_REGEN is set to prevent mana from refilling out of combat.
+        // Reset mana here so it's always 0 at the start of a new encounter.
+        m_creature->SetPower(POWER_MANA, 0);
+
         if (m_pInstance)
             m_pInstance->SetData(TYPE_MOAM, NOT_STARTED);
+    }
+
+    void JustReachedHome() override
+    {
+        // NO_AUTOMATIC_REGEN disables health regen, so EnterEvadeMode() never
+        // restores HP. Restore it explicitly when the boss returns home.
+        m_creature->SetHealth(m_creature->GetMaxHealth());
+        m_creature->SetArmor(m_uiArmorValue);
     }
 
     void Aggro(Unit* pWho) override
