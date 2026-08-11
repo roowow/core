@@ -217,6 +217,7 @@ set (SCRIPTS_SRCS
     kalimdor/silithus/temple_of_ahnqiraj/boss_viscidus.cpp
     kalimdor/silithus/temple_of_ahnqiraj/instance_temple_of_ahnqiraj.cpp
     kalimdor/silithus/temple_of_ahnqiraj/mob_anubisath_sentinel.cpp
+    kalimdor/silithus/temple_of_ahnqiraj/mob_aq40_corridor_guard.cpp
     kalimdor/stonetalon_mountains/stonetalon_mountains.cpp
     kalimdor/tanaris/tanaris.cpp
     kalimdor/tanaris/zulfarrak/instance_zulfarrak.cpp
