@@ -1642,7 +1642,10 @@ void BattleBotAI::MoveToNextPoint()
     // mount cast before its aura actually applies. Mirrors WSG_ExitTunnel/AtCaveExit:
     // ClearPath() and let the next tick's UpdateWaypointMovement() re-path once actually
     // mounted, instead of chaining straight into the next leg unmounted.
-    if (UseMount())
+    // UseMount() clears the path as a side effect whenever it interrupts movement to
+    // cast the mount spell (me->IsMoving() branch), even if that cast then fails and it
+    // returns false — so m_currentPath can be null here regardless of the return value.
+    if (UseMount() || !m_currentPath)
     {
         ClearPath();
         return;
