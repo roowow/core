@@ -694,9 +694,14 @@ void WorldSession::HandleMailTakeItem(WorldPackets::Mail::MailTakeItem const& pa
         pl->RemoveMItem(it->GetGUIDLow());
 
         uint32 count = it->GetCount();                      // save counts before store and possible merge with deleting
-        sLog.Player(this, LOG_LOOTS, LOG_LVL_BASIC,
-            "%s takes mail item %ux%u (item guid %u) from mail %u senderType %u sender %u",
-            loadedPlayer->GetShortDescription().c_str(), count, itemId, itemGuid, packet.mailId, uint32(m->messageType), m->sender);
+
+        ItemPrototype const* itemProto = it->GetProto();
+        if (itemProto->Quality > 2)
+        {
+            sLog.Player(this, LOG_LOOTS, LOG_LVL_BASIC,
+                "%s takes mail item %ux%u (item guid %u) from mail %u senderType %u sender %u",
+                loadedPlayer->GetShortDescription().c_str(), count, itemId, itemGuid, packet.mailId, uint32(m->messageType), m->sender);
+        }
 
         PlayerTransactionData data;
         data.type = "MailTakeItem";
@@ -707,7 +712,6 @@ void WorldSession::HandleMailTakeItem(WorldPackets::Mail::MailTakeItem const& pa
         data.parts[1].lowGuid = loadedPlayer->GetGUIDLow();
         sWorld.LogTransaction(data);
 
-        ItemPrototype const* itemProto = it->GetProto();
         if (itemProto->Quality > 2)
         {
             CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `lootguid`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Mail', '%u', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",

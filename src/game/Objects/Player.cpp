@@ -22964,8 +22964,11 @@ void Player::LootMoney(int32 money, Loot* loot)
         return;
 
     WorldObject const* target = loot->GetLootTarget();
-    sLog.Player(GetSession(), LOG_LOOTS, LOG_LVL_BASIC, "%s gets %ug%us%uc [loot from %s]",
-             GetShortDescription().c_str(), money / GOLD, (money % GOLD) / SILVER, (money % GOLD) % SILVER, target ? target->GetGuidStr().c_str() : "NULL");
+    if (uint32(abs(money)) >= sWorld.getConfig(CONFIG_UINT32_LOG_MONEY_TRADES_TRESHOLD))
+    {
+        sLog.Player(GetSession(), LOG_LOOTS, LOG_LVL_BASIC, "%s gets %ug%us%uc [loot from %s]",
+                 GetShortDescription().c_str(), money / GOLD, (money % GOLD) / SILVER, (money % GOLD) % SILVER, target ? target->GetGuidStr().c_str() : "NULL");
+    }
     LogModifyMoney(money, "Loot", target ? target->GetObjectGuid() : ObjectGuid());
 }
 

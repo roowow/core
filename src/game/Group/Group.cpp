@@ -1121,15 +1121,24 @@ void Group::CountSingleLooterRoll(Roll* roll)
             item->is_looted = true;
             roll->getLoot()->NotifyItemRemoved(roll->itemSlot);
             --roll->getLoot()->unlootedCount;
-            sLog.Player(player->GetSession(), LOG_LOOTS, LOG_LVL_MINIMAL, "%s wins need roll for %ux%u [loot from %s]",
-                player->GetShortDescription().c_str(), item->count, item->itemid, roll->lootedTargetGUID.GetString().c_str());
+
+            // logs_player: only items worth tracking (Green+)
+            ItemPrototype const* rollItemProto = sObjectMgr.GetItemPrototype(item->itemid);
+            if (rollItemProto && rollItemProto->Quality >= 2)
+            {
+                sLog.Player(player->GetSession(), LOG_LOOTS, LOG_LVL_MINIMAL, "%s wins need roll for %ux%u [loot from %s]",
+                    player->GetShortDescription().c_str(), item->count, item->itemid, roll->lootedTargetGUID.GetString().c_str());
+            }
 
             if (Item* newItem = player->StoreNewItem(dest, roll->itemid, true, item->randomPropertyId))
             {
                 player->OnReceivedItem(newItem);
-                /// BigData - character_log_item
-                CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `lootguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Roll', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
-                    player->GetGUIDLow(), player->GetName(), item->itemid, newItem->GetGUIDLow(), item->count, roll->lootedTargetGUID.GetCounter(), player->GetZoneId(), player->GetMapId(), player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), player->GetSession()->GetRemoteAddress().c_str());
+                /// BigData - character_log_item Rare+
+                if (rollItemProto && rollItemProto->Quality > 2)
+                {
+                    CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `lootguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Roll', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                        player->GetGUIDLow(), player->GetName(), item->itemid, newItem->GetGUIDLow(), item->count, roll->lootedTargetGUID.GetCounter(), player->GetZoneId(), player->GetMapId(), player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), player->GetSession()->GetRemoteAddress().c_str());
+                }
             }
         }
         else
@@ -1188,15 +1197,24 @@ void Group::CountTheRoll(Rolls::iterator& rollI)
                     item->is_looted = true;
                     roll->getLoot()->NotifyItemRemoved(roll->itemSlot);
                     --roll->getLoot()->unlootedCount;
-                    sLog.Player(player->GetSession(), LOG_LOOTS, LOG_LVL_MINIMAL, "%s wins need roll for %ux%u [loot from %s]",
-                             player->GetShortDescription().c_str(), item->count, item->itemid, roll->lootedTargetGUID.GetString().c_str());
+
+                    // logs_player: only items worth tracking (Green+)
+                    ItemPrototype const* rollItemProto = sObjectMgr.GetItemPrototype(item->itemid);
+                    if (rollItemProto && rollItemProto->Quality >= 2)
+                    {
+                        sLog.Player(player->GetSession(), LOG_LOOTS, LOG_LVL_MINIMAL, "%s wins need roll for %ux%u [loot from %s]",
+                                 player->GetShortDescription().c_str(), item->count, item->itemid, roll->lootedTargetGUID.GetString().c_str());
+                    }
 
                     if (Item* newItem = player->StoreNewItem(dest, roll->itemid, true, item->randomPropertyId))
                     {
                         player->OnReceivedItem(newItem);
-                        /// BigData - character_log_item
-                        CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `lootguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Roll', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
-                            player->GetGUIDLow(), player->GetName(), item->itemid, newItem->GetGUIDLow(), item->count, roll->lootedTargetGUID.GetCounter(), player->GetZoneId(), player->GetMapId(), player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), player->GetSession()->GetRemoteAddress().c_str());
+                        /// BigData - character_log_item Rare+
+                        if (rollItemProto && rollItemProto->Quality > 2)
+                        {
+                            CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `lootguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Roll', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                                player->GetGUIDLow(), player->GetName(), item->itemid, newItem->GetGUIDLow(), item->count, roll->lootedTargetGUID.GetCounter(), player->GetZoneId(), player->GetMapId(), player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), player->GetSession()->GetRemoteAddress().c_str());
+                        }
                     }
                 }
                 else
@@ -1245,8 +1263,14 @@ void Group::CountTheRoll(Rolls::iterator& rollI)
                     item->is_looted = true;
                     roll->getLoot()->NotifyItemRemoved(roll->itemSlot);
                     --roll->getLoot()->unlootedCount;
-                    sLog.Player(player->GetSession(), LOG_LOOTS, LOG_LVL_MINIMAL, "%s wins greed roll for %ux%u [loot from %s]",
-                             player->GetShortDescription().c_str(), item->count, item->itemid, roll->lootedTargetGUID.GetString().c_str());
+
+                    // logs_player: only items worth tracking (Green+)
+                    ItemPrototype const* rollItemProto = sObjectMgr.GetItemPrototype(item->itemid);
+                    if (rollItemProto && rollItemProto->Quality >= 2)
+                    {
+                        sLog.Player(player->GetSession(), LOG_LOOTS, LOG_LVL_MINIMAL, "%s wins greed roll for %ux%u [loot from %s]",
+                                 player->GetShortDescription().c_str(), item->count, item->itemid, roll->lootedTargetGUID.GetString().c_str());
+                    }
                     if (Item* newItem = player->StoreNewItem(dest, roll->itemid, true, item->randomPropertyId))
                         player->OnReceivedItem(newItem);
                 }
