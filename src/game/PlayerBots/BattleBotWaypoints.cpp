@@ -2759,9 +2759,24 @@ bool BattleBotAI::StartNewPathToObjective()
                 GameObject* pHordeFallback = nullptr;
                 for (const auto& objective : AV_HordeAttackObjectives)
                 {
-                    if (bg->IsActiveEvent(objective.first, ALLIANCE_ASSAULTED) || bg->IsActiveEvent(objective.first, ALLIANCE_CONTROLLED) || bg->IsActiveEvent(objective.first, NEUTRAL_CONTROLLED))
+                    // Same bug class as the Snowfall fix above: the node can be in any of
+                    // three states while "active", but the GO instance guid differs per
+                    // state. Querying with a hardcoded objective.second (always
+                    // ALLIANCE_CONTROLLED) returns nullptr whenever the node is actually
+                    // ALLIANCE_ASSAULTED or NEUTRAL_CONTROLLED, silently skipping a node
+                    // that IsActiveEvent just confirmed is relevant. Resolve the state that
+                    // actually matched before looking up the GO.
+                    uint8 matchedState = 0xFF;
+                    if (bg->IsActiveEvent(objective.first, ALLIANCE_ASSAULTED))
+                        matchedState = ALLIANCE_ASSAULTED;
+                    else if (bg->IsActiveEvent(objective.first, ALLIANCE_CONTROLLED))
+                        matchedState = ALLIANCE_CONTROLLED;
+                    else if (bg->IsActiveEvent(objective.first, NEUTRAL_CONTROLLED))
+                        matchedState = NEUTRAL_CONTROLLED;
+
+                    if (matchedState != 0xFF)
                     {
-                        if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
+                        if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, matchedState)))
                         {
                             if (skipFirst)
                             {
@@ -2840,9 +2855,21 @@ bool BattleBotAI::StartNewPathToObjective()
 
                 for (const auto& objective : AV_AllianceAttackObjectives)
                 {
-                    if (bg->IsActiveEvent(objective.first, HORDE_ASSAULTED) || bg->IsActiveEvent(objective.first, HORDE_CONTROLLED) || bg->IsActiveEvent(objective.first, NEUTRAL_CONTROLLED))
+                    // Same fix as the Horde loop above: resolve which of the three states
+                    // actually matched instead of always querying with a hardcoded
+                    // HORDE_CONTROLLED, which returns nullptr while the node is still
+                    // HORDE_ASSAULTED or NEUTRAL_CONTROLLED.
+                    uint8 matchedState = 0xFF;
+                    if (bg->IsActiveEvent(objective.first, HORDE_ASSAULTED))
+                        matchedState = HORDE_ASSAULTED;
+                    else if (bg->IsActiveEvent(objective.first, HORDE_CONTROLLED))
+                        matchedState = HORDE_CONTROLLED;
+                    else if (bg->IsActiveEvent(objective.first, NEUTRAL_CONTROLLED))
+                        matchedState = NEUTRAL_CONTROLLED;
+
+                    if (matchedState != 0xFF)
                     {
-                        if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, objective.second)))
+                        if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, matchedState)))
                         {
                             float const distance = me->GetDistance(pGO);
                             if (attackObjectiveDistance > distance)

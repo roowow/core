@@ -672,7 +672,15 @@ def _persist_history(player: str, bot_name: str, scope: str, history: list[dict]
         pipe.delete(key)
         for entry in history:
             pipe.rpush(key, json.dumps(entry, ensure_ascii=False))
-        pipe.execute()  # no EXPIRE — whisper history is kept permanently
+        if scope != "whisper":
+            # Public-channel history (world/guild) is meant to be short-lived context —
+            # unlike whisper, which is kept permanently — so cap it at the same idle
+            # window used to evict the in-memory _ConvState (HISTORY_TTL). Without this,
+            # a player returning after a long absence would have hours/days-old exchanges
+            # restored from Redis and surfaced as "recent" background (see
+            # _recent_qa_note, which summarizes this history into the system prompt).
+            pipe.expire(key, HISTORY_TTL)
+        pipe.execute()  # no EXPIRE for whisper — kept permanently
     except Exception as e:
         log.debug("History persist failed for %s: %s", player, e)
 
@@ -1059,6 +1067,14 @@ def _ollama_chat(messages: list[dict], timeout: int = 30, temperature: float = 0
             content = resp.json()["message"]["content"].strip()
             # strip <think>...</think> blocks in case the model ignores the flag
             content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+            # Belt-and-suspenders: seen in production more than once — the model's opening
+            # <think> tag itself gets mangled/omitted, so the paired regex above never
+            # matches, and stray reasoning text plus a bare </think> leaks straight into
+            # the reply (e.g. "ĸ\n\n</think>\n\n子矜：泰兰德不会掉落香蕉..."). Thinking
+            # always comes first, so if a lone closing tag is still present, keep only
+            # what comes after the LAST one — discards any leaked reasoning before it.
+            if "</think>" in content:
+                content = content.rsplit("</think>", 1)[-1].strip()
             # strip "角色名：" prefix the model sometimes adds
             content = re.sub(r"^\S{1,8}[：:]\s*", "", content)
             if not _GARBLED_RE.search(content):
@@ -1154,6 +1170,20 @@ _CHANNEL_NAMES = {"party": "小队", "raid": "团队", "bg": "战场", "world": 
 #   - added 是什么: "什么是" (what-is-X) was covered but not the equally common reverse word
 #     order "X是什么" (X-is-what) — "天选者是什么模式" was silently dropped before this was added.
 _QUESTION_RE = re.compile(r'[？?]|吗\b|怎么|咋|哪里|哪儿|如何|能否|有没有|在哪|什么时候|为什么|是否|可以吗|怎样|几级|多少|什么是|是什么|哪个|会不会|没有.{0,10}(说明|介绍|攻略|教程|规则)|是不是|能不能|对不对|好不好|行不行|介绍(一下)?|说说|讲讲|讲一下|说一下')
+
+# WoW item/quest link markup embedded in chat text — e.g.
+# "|cffffffff|Hitem:18207:0:0:0|h[兽人的牙齿]|h|r" (item) or
+# "|cff7f7f7f|Hquest:1173:45|h[挑战莫格穆洛克]|h|r" (quest). ~30 real log entries showed the
+# model badly mishandled messages containing this raw markup — instead of recognizing "someone
+# is asking/talking about an item/quest" (ordinary in-game-content territory it should PASS
+# on), it got confused by the color-code/H-type noise and fabricated unrelated content. Strip
+# the markup down to just the bracketed display name before the message ever reaches the model.
+_ITEM_LINK_RE = re.compile(r'\|c[0-9a-fA-F]{8}\|H[^|]*\|h\[([^\]]*)\]\|h\|r')
+
+
+def _strip_wow_links(text: str) -> str:
+    return _ITEM_LINK_RE.sub(r'[\1]', text)
+
 
 # Cheap keyword pre-filter for "possibly insulting the AI" — NOT the final judgment (that's
 # left entirely to the model via the [BLACKLIST] sentinel below), just a gate to let messages
@@ -1278,6 +1308,45 @@ def _build_world_transcript(pairs: list) -> str:
         label = "/".join(senders[:3])
         lines.append(f"{label}（×{count}）：{msg}" if count > 1 else f"{label}：{msg}")
     return "\n".join(lines)
+
+
+def _recent_qa_note(sender: str, history: list[dict], max_pairs: int = 2) -> str:
+    """Build a short declarative summary of the player's most recent genuinely-answered
+    exchanges in world/guild chat, for injection into the system prompt as background —
+    deliberately NOT as literal (user, assistant) turns appended to the `messages` array.
+
+    Tried literal turns first (mirroring how whisper's _ConvState.messages_for_ollama()
+    replays real history). That introduced a reproducible new failure mode: when the
+    injected prior turn and the current question are both "is X open" judgments, the
+    model anchors on the previous answer and flips/hedges the current one just to make it
+    look different — confirmed 0/6 correct (two different unrelated dungeon pairings) vs
+    6/6 correct with no history at all. Framing the same information as a declarative note
+    instead of a conversational turn to continue/react against avoided the anchoring
+    (4/5 correct in the same test) while still solving the actual problem: without this,
+    she has no idea what she just told this player, so a fragment follow-up like
+    "那XX呢" lands as a non-sequitur — see conversation history for the original report.
+
+    For world scope specifically, most entries in `history` are NOT answered —
+    _record_player_world_chat logs every world message a player sends (not just the ones
+    the bot replies to, see its docstring), so the vast majority of "user" turns have no
+    "assistant" turn after them and must be filtered out here; only adjacent
+    (user, assistant) pairs represent a real exchange. Guild scope has no such
+    pre-recording (its "user" turn is only added once a reply is actually decided, see the
+    shared tail of handle_channel_chat), so every pair found here is already a genuine
+    exchange — the same filtering logic is just a no-op for it, not a correctness issue.
+    """
+    pairs = [
+        (history[i]["content"], history[i + 1]["content"])
+        for i in range(len(history) - 1)
+        if history[i]["role"] == "user" and history[i + 1]["role"] == "assistant"
+    ]
+    pairs = pairs[-max_pairs:]
+    if not pairs:
+        return ""
+    exchanges = "；".join(f"TA问过「{q}」，你回答的是「{a}」" for q, a in pairs)
+    return (f"\n\n[你和{sender}最近的对话：{exchanges}。这段背景只是帮你理解TA这次问题里的"
+            f"指代/上下文，不代表这次的结论要跟上次相同或相反——每次判断具体内容是否开放/"
+            f"是否属实，都要独立重新核对知识库，不要被上一个问题的结论带偏。]")
 
 
 def _get_world_recent_transcript(realm: int) -> str:
@@ -1841,6 +1910,10 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                        f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
         if identity_note:
             system += identity_note
+        # Unlike world, guild's "user" turn for this message isn't recorded into
+        # conv.history until the shared tail below (after a reply is decided) — so
+        # conv.history here is already just the prior turns, no need to slice it.
+        system += _recent_qa_note(sender, conv.history)
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
@@ -1900,6 +1973,9 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                 channel_name=channel_name, transcript=transcript, sender=sender)
             if conv.memory:
                 system += _format_memory_note(sender, conv.memory)
+            # conv.history[-1] is the current message itself (just recorded by
+            # _record_player_world_chat above) — exclude it from the "recent exchange" note.
+            system += _recent_qa_note(sender, conv.history[:-1])
             messages = [
                 {"role": "system", "content": system},
                 {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
@@ -1998,6 +2074,9 @@ def handle_channel_chat(r_pub: "redis.Redis", sender: str, message: str, chat_co
                        f"哪怕{sender}自己说了不同的信息、或者只是发了个数字，都不代表那是真实数据——一律以这里为准。]")
         if identity_note:
             system += identity_note
+        # conv.history[-1] is the current message itself (just recorded by
+        # _record_player_world_chat above) — exclude it from the "recent exchange" note.
+        system += _recent_qa_note(sender, conv.history[:-1])
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": f"{sender}（{channel_name}）：{message}"},
@@ -2270,14 +2349,14 @@ def process_message(r_pub: "redis.Redis", data: str, in_channel: str) -> None:
     identity_note = _build_identity_note(hardcore, tianxuan)
 
     if event == "group_chat":
-        message  = msg.get("message", "").strip()
+        message  = _strip_wow_links(msg.get("message", "").strip())
         ctx      = msg.get("context", "party")
         group_id = int(msg.get("group_id", 0))
         if message:
             handle_group_chat(r_pub, sender, message, ctx, bot_name, out_key, realm, group_id,
                               player_info, identity_note)
     elif event == "channel_chat":
-        message    = msg.get("message", "").strip()
+        message    = _strip_wow_links(msg.get("message", "").strip())
         ctx        = msg.get("context", "world")
         ctx_id     = int(msg.get("context_id", 0))
         if message:
@@ -2300,7 +2379,7 @@ def process_message(r_pub: "redis.Redis", data: str, in_channel: str) -> None:
             with _awake_lock:
                 _awake_contexts.discard(("raid", group_id))
     else:
-        message = msg.get("message", "").strip()
+        message = _strip_wow_links(msg.get("message", "").strip())
         if not message:
             log.debug("Empty message, ignoring.")
             return
