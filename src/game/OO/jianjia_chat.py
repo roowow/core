@@ -1022,6 +1022,19 @@ class _OllamaBusy(RuntimeError):
 # out and retry once.
 _GARBLED_RE = re.compile(r'[#@$%^&*]{3,}')
 
+# Seen in production: given a message containing a quest-link display name (e.g.
+# "[救命如救火] 这任务是杀蝎子吗"), the model degenerated into echoing the whole input
+# back three times verbatim instead of answering — a repetition-loop failure distinct
+# from the keyboard-symbol-soup case above. Matches any run of 4+ characters that repeats
+# 3+ times, tolerating a short separator (whitespace/、，,。！) between repeats since that's
+# how the real example came out ("A B A B A", not "ABABA") — a plain `(X)\1{2,}` backreference
+# requires each repeat to be byte-identical including any trailing separator, which fails
+# to match when the final repeat lacks the separator the earlier ones had (confirmed missing
+# this exact real case in testing before the separator tolerance was added). The 4-char
+# floor deliberately excludes legitimate short reduplication ("耶耶耶", "对对对", "气气")
+# that jianjia_soul.md explicitly asks for as a speech quirk.
+_REPEAT_RE = re.compile(r'(.{4,}?)(?:[\s，,。！]{0,3}\1){2,}')
+
 
 def _ollama_chat(messages: list[dict], timeout: int = 30, temperature: float = 0.8,
                  think: bool = False, num_predict: int = 200,
@@ -1086,7 +1099,7 @@ def _ollama_chat(messages: list[dict], timeout: int = 30, temperature: float = 0
             # the model produced (paragraph breaks, "分点说" bullet-style answers) into
             # spaces instead of sending literal line breaks into the channel.
             content = re.sub(r"\s*\n+\s*", " ", content).strip()
-            if not _GARBLED_RE.search(content):
+            if not _GARBLED_RE.search(content) and not _REPEAT_RE.search(content):
                 return content
             log.warning("Garbled Ollama output on attempt %d, retrying: %r", attempt + 1, content)
         # Still garbled after a retry — raise so callers hit their existing exception
