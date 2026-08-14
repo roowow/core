@@ -16,6 +16,7 @@
 
 #include "scriptPCH.h"
 #include "blackwing_lair.h"
+#include "CreatureEventAI.h"
 
 // Razorgore Phase 2 Script
 enum Razorgore : uint32
@@ -669,6 +670,57 @@ CreatureAI* GetAI_trigger_orb_of_command(Creature* pCreature)
     return new trigger_orb_of_commandAI(pCreature);
 }
 
+// Anti-kite for Razorgore's wave adds (Blackwing Legionnaire/Mage, Death Talon
+// Dragonspawn, Blackwing Guardsman). These are EventAI-driven trash with
+// leash_range=0 and a "despawn on reach home" event, so a target they structurally
+// can't reach (e.g. a player standing on an unreachable platform) leaves them stuck
+// for ~24s and then they vanish for free, wasting a slot against PopAdd()'s
+// population cap. Mirrors the existing Alterac Valley exploit fix (Creature.cpp,
+// modifyThreatPercent(GetVictim(), -101) once a target is unreachable too long)
+// rather than Razorgore's own SPELL_SUMMON_PLAYER pull - yanking a player across
+// the room is fine for a boss ability, not for regular trash.
+struct razorgore_add_antikiteAI : public CreatureEventAI
+{
+    razorgore_add_antikiteAI(Creature* c) : CreatureEventAI(c) {}
+
+    uint32 m_uiUnreachableTimer = 0;
+    bool m_bPurging = false;
+
+    void UpdateAI(uint32 const diff) override
+    {
+        CreatureEventAI::UpdateAI(diff);   // keep the existing spell rotation intact
+
+        if (m_creature->CantPathToVictim())
+        {
+            m_uiUnreachableTimer += diff;
+            // First strike waits 1s (same threshold as the AV fix) so a brief,
+            // normal pathing hiccup doesn't strip real threat. Once confirmed
+            // stuck, keep purging every tick without re-arming the wait, so a
+            // whole platform's worth of decoys gets cycled through in a handful
+            // of ticks instead of one victim per second - SelectHostileTarget()
+            // re-picks and re-chases the new top-threat target every tick on its
+            // own, so this only ever needs to look at the single current victim.
+            if (m_uiUnreachableTimer > (m_bPurging ? 0u : 1000u))
+            {
+                if (Unit* pVictim = m_creature->GetVictim())
+                    m_creature->GetThreatManager().modifyThreatPercent(pVictim, -101);
+                m_bPurging = true;
+                m_uiUnreachableTimer = 0;
+            }
+        }
+        else
+        {
+            m_uiUnreachableTimer = 0;
+            m_bPurging = false;
+        }
+    }
+};
+
+CreatureAI* GetAI_razorgore_add_antikite(Creature* pCreature)
+{
+    return new razorgore_add_antikiteAI(pCreature);
+}
+
 void AddSC_boss_razorgore()
 {
     Script* pNewScript;
@@ -681,5 +733,10 @@ void AddSC_boss_razorgore()
     pNewScript = new Script;
     pNewScript->Name = "trigger_orb_of_command";
     pNewScript->GetAI = &GetAI_trigger_orb_of_command;
+    pNewScript->RegisterSelf();
+
+    pNewScript = new Script;
+    pNewScript->Name = "mob_razorgore_add_antikite";
+    pNewScript->GetAI = &GetAI_razorgore_add_antikite;
     pNewScript->RegisterSelf();
 }
