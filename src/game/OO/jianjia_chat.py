@@ -1075,8 +1075,17 @@ def _ollama_chat(messages: list[dict], timeout: int = 30, temperature: float = 0
             # what comes after the LAST one — discards any leaked reasoning before it.
             if "</think>" in content:
                 content = content.rsplit("</think>", 1)[-1].strip()
+            # Same leak, but without even a stray </think> left behind — just a single
+            # mangled character followed by a blank line, then the real reply (e.g.
+            # "뵀\n\n暗夜丨惊鸿，你这是在问..."). A real reply is never a 1-3 char
+            # fragment followed by a blank line, so this is safe to strip unconditionally.
+            content = re.sub(r"^\S{1,3}\n\n+", "", content)
             # strip "角色名：" prefix the model sometimes adds
             content = re.sub(r"^\S{1,8}[：:]\s*", "", content)
+            # WoW chat has no concept of a multi-line message — collapse any newlines
+            # the model produced (paragraph breaks, "分点说" bullet-style answers) into
+            # spaces instead of sending literal line breaks into the channel.
+            content = re.sub(r"\s*\n+\s*", " ", content).strip()
             if not _GARBLED_RE.search(content):
                 return content
             log.warning("Garbled Ollama output on attempt %d, retrying: %r", attempt + 1, content)

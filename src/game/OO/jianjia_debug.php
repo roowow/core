@@ -168,8 +168,19 @@ function jj_clean_reply(string $content): string
 {
     // 保险：即使 think=false，某些模型仍可能把思维链塞进正文
     $content = preg_replace('/<think>.*?<\/think>/su', '', $content) ?? $content;
+    $content = trim($content);
+    // 开头 <think> 标签本身被模型吞掉/损坏时，配对正则不会匹配，只留下一个孤立的
+    // </think> —— 只保留最后一个 </think> 之后的内容（与 jianjia_chat.py 保持一致）
+    if (strpos($content, '</think>') !== false) {
+        $parts = explode('</think>', $content);
+        $content = trim(end($parts));
+    }
+    // 同一种泄露但连孤立的 </think> 都没留下——只有一个乱码字符+空行，然后是正文
+    $content = preg_replace('/^\S{1,3}\n\n+/u', '', $content) ?? $content;
     // 去掉模型偶尔加的 "角色名：" 前缀
     $content = preg_replace('/^\S{1,8}[：:]\s*/u', '', trim($content)) ?? $content;
+    // 游戏内聊天不支持多行消息，把换行统一收敛成空格
+    $content = preg_replace('/\s*\n+\s*/u', ' ', $content) ?? $content;
     return trim($content);
 }
 
