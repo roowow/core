@@ -17,6 +17,7 @@
 #include "scriptPCH.h"
 #include "blackwing_lair.h"
 #include "CreatureEventAI.h"
+#include <unordered_map>
 
 // Razorgore Phase 2 Script
 enum Razorgore : uint32
@@ -686,9 +687,53 @@ struct razorgore_add_antikiteAI : public CreatureEventAI
     uint32 m_uiUnreachableTimer = 0;
     bool m_bPurging = false;
 
+    // Guid -> ms remaining before this player can be picked as a target again.
+    // A pure "remove from threat table" purge is not enough on its own: a healer
+    // who keeps casting can regenerate threat on this add (healing threat is
+    // shared across a healed target's attackers) faster than a single purge cycle
+    // clears them, causing an endless "purge -> healed back to top -> purge" loop
+    // that never actually settles on a reachable target. The cooldown keeps a
+    // just-purged player ineligible for a while regardless of how fast their
+    // threat climbs back, giving Razorgore (or anyone else) room to stick.
+    std::unordered_map<ObjectGuid, uint32> m_blacklist;
+
     void UpdateAI(uint32 const diff) override
     {
+        // Neutralize the engine's own "stuck too long" watchdog (Creature.cpp): once
+        // m_targetNotReachableTimer exceeds 3s, Creature::Update() stops calling
+        // UpdateAI() entirely (see IsEvadeBecauseTargetNotReachable()), which silently
+        // freezes the purge logic below before it can finish cycling through an
+        // unreachable target - the timer tracks "is the CURRENT victim unreachable",
+        // not "which victim", so it keeps accumulating across our own retargets and
+        // can still hit the 3s freeze / 24s forced evade even while we're actively
+        // switching targets. Reset it every tick this UpdateAI actually runs, so the
+        // purge logic below always gets to keep running instead of losing the race.
+        m_creature->m_targetNotReachableTimer = 0;
+
+        for (auto it = m_blacklist.begin(); it != m_blacklist.end(); )
+        {
+            if (diff >= it->second)
+                it = m_blacklist.erase(it);
+            else
+            {
+                it->second -= diff;
+                ++it;
+            }
+        }
+
         CreatureEventAI::UpdateAI(diff);   // keep the existing spell rotation intact
+
+        // Still-blacklisted player wormed back onto the threat table via fresh
+        // threat (e.g. rapid healing) before their cooldown expired - kick them
+        // again immediately, no need to re-confirm CantPathToVictim() first.
+        if (Unit* pVictim = m_creature->GetVictim())
+        {
+            if (m_blacklist.count(pVictim->GetObjectGuid()))
+            {
+                m_creature->GetThreatManager().modifyThreatPercent(pVictim, -101);
+                return;
+            }
+        }
 
         if (m_creature->CantPathToVictim())
         {
@@ -703,7 +748,10 @@ struct razorgore_add_antikiteAI : public CreatureEventAI
             if (m_uiUnreachableTimer > (m_bPurging ? 0u : 1000u))
             {
                 if (Unit* pVictim = m_creature->GetVictim())
+                {
                     m_creature->GetThreatManager().modifyThreatPercent(pVictim, -101);
+                    m_blacklist[pVictim->GetObjectGuid()] = 8000;   // tunable
+                }
                 m_bPurging = true;
                 m_uiUnreachableTimer = 0;
             }
