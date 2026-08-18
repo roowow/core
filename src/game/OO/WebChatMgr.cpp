@@ -19,6 +19,7 @@
 #include <ctime>
 #include <pthread.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 
 // Blocks SIGPIPE on the calling thread for the duration of its lifetime.
 // Needed because hiredis 0.14 uses write() without MSG_NOSIGNAL, and threads
@@ -58,13 +59,26 @@ struct SigpipeGuard
     }
 };
 
+// Redis now lives on a separate machine (was a local Unix socket, near-instant
+// connect/fail). A plain redisConnect() over the network can hang for the OS's
+// default TCP connect timeout (tens of seconds) if the host is unreachable,
+// which would stall mangosd startup (Initialize() runs on the main thread) or
+// the reconnect loops. Bound every connect attempt instead.
+static timeval RedisConnectTimeout()
+{
+    timeval tv;
+    tv.tv_sec = 2;
+    tv.tv_usec = 0;
+    return tv;
+}
+
 WebChatMgr& WebChatMgr::instance()
 {
     static WebChatMgr s;
     return s;
 }
 
-void WebChatMgr::Initialize(char const* socketPath, uint32 realmId)
+void WebChatMgr::Initialize(std::string const& host, int port, uint32 realmId)
 {
     // hiredis 0.14 uses write() without MSG_NOSIGNAL; a broken socket would normally
     // send SIGPIPE.  We want two layers of protection:
@@ -81,7 +95,8 @@ void WebChatMgr::Initialize(char const* socketPath, uint32 realmId)
         pthread_sigmask(SIG_BLOCK, &set, nullptr);
     }
 
-    m_socketPath = socketPath;
+    m_redisHost = host;
+    m_redisPort = port;
     m_keyLive    = "web_chat:live:"    + std::to_string(realmId);
     m_keyHistory = "web_chat:history:" + std::to_string(realmId);
     m_keyJianJiaIn  = "web_chat:jianjia_in:"  + std::to_string(realmId);
@@ -89,11 +104,11 @@ void WebChatMgr::Initialize(char const* socketPath, uint32 realmId)
     m_realmId       = realmId;
     m_jianJiaName   = ""; // set by World.cpp after Initialize() via SetJianJiaName()
 
-    m_pubCtx = redisConnectUnix(socketPath);
+    m_pubCtx = redisConnectWithTimeout(host.c_str(), port, RedisConnectTimeout());
     if (!m_pubCtx || m_pubCtx->err)
     {
         // Redis not available — WebChat disabled, no error
-        sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "WebChatMgr: Redis not available at %s, WebChat disabled.", socketPath);
+        sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "WebChatMgr: Redis not available at %s:%d, WebChat disabled.", host.c_str(), port);
         if (m_pubCtx) { redisFree(m_pubCtx); m_pubCtx = nullptr; }
         return;
     }
@@ -214,7 +229,7 @@ void WebChatMgr::Publish(std::string const& json)
 void WebChatMgr::ReconnectPub()
 {
     if (m_pubCtx) { redisFree(m_pubCtx); m_pubCtx = nullptr; }
-    m_pubCtx = redisConnectUnix(m_socketPath.c_str());
+    m_pubCtx = redisConnectWithTimeout(m_redisHost.c_str(), m_redisPort, RedisConnectTimeout());
     if (m_pubCtx && m_pubCtx->err) { redisFree(m_pubCtx); m_pubCtx = nullptr; }
     if (m_pubCtx)
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "WebChatMgr: publisher reconnected to Redis.");
@@ -229,7 +244,7 @@ void WebChatMgr::SubscribeThread()
     bool wasDisconnected = false;
     while (!m_stop.load(std::memory_order_relaxed))
     {
-        redisContext* ctx = redisConnectUnix(m_socketPath.c_str());
+        redisContext* ctx = redisConnectWithTimeout(m_redisHost.c_str(), m_redisPort, RedisConnectTimeout());
         if (!ctx || ctx->err)
         {
             if (ctx) { redisFree(ctx); }

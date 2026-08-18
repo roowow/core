@@ -1916,7 +1916,8 @@ void World::SetInitialWorldSettings()
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
 
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Initializing WebChatMgr...");
-    sWebChatMgr.Initialize("/run/redis/redis.sock", realmID);
+    sWebChatMgr.Initialize(sConfig.GetStringDefault("WebChat.Redis.Host", "127.0.0.1"),
+                            sConfig.GetIntDefault("WebChat.Redis.Port", 6379), realmID);
 
     // Register AI companion bot after WebChatMgr::Initialize() so SetJianJiaName is not overwritten
     if (uint32 jjGuid = sConfig.GetIntDefault("JianJia.CharGuid", 0))

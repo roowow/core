@@ -15,7 +15,7 @@ class WebChatMgr
 public:
     static WebChatMgr& instance();
 
-    void Initialize(char const* socketPath, uint32 realmId);
+    void Initialize(std::string const& host, int port, uint32 realmId);
     void Shutdown();
     void Update(); // drain pending web→game messages; call from World::Update()
 
@@ -87,7 +87,8 @@ private:
     static std::string JsonGetStr(std::string const& json, char const* key);
     static uint32      JsonGetU32(std::string const& json, char const* key);
 
-    std::string   m_socketPath;
+    std::string   m_redisHost;
+    int           m_redisPort = 6379;
     std::string   m_keyLive;        // web_chat:live:<realmId>
     std::string   m_keyHistory;     // web_chat:history:<realmId>
     std::string   m_keyJianJiaIn;   // web_chat:jianjia_in:<realmId>   (C++ → Python)

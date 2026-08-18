@@ -3016,9 +3016,17 @@ void CombatBotBaseAI::EquipRandomGearInEmptySlots(bool forceMaxHonorGear)
                 // Offhand checks
                 if (slot == EQUIPMENT_SLOT_OFFHAND)
                 {
-                    // Only allow shield in offhand for tanks
-                    if (pProto->InventoryType != INVTYPE_SHIELD &&
-                        m_role == ROLE_TANK && IsShieldClass(me->GetClass()))
+                    bool const isShield = (pProto->InventoryType == INVTYPE_SHIELD);
+                    bool const isShieldCapable = IsShieldClass(me->GetClass());
+
+                    // Shields are for tanks only — this used to only push non-tanks away
+                    // from shields never got filtered out, so DPS warriors/paladins/shamans
+                    // could randomly end up with a shield in the offhand slot.
+                    if (isShield && (m_role != ROLE_TANK || !isShieldCapable))
+                        continue;
+
+                    // Tanks that can wear a shield shouldn't settle for a weapon offhand.
+                    if (!isShield && m_role == ROLE_TANK && isShieldCapable)
                         continue;
 
                     // Only equip holdables on mana users
