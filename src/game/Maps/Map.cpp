@@ -27,6 +27,7 @@
 #include "GridStates.h"
 #include "CellImpl.h"
 #include "InstanceData.h"
+#include "OO/InstanceDataCache.h"
 #include "GridNotifiersImpl.h"
 #include "Transport.h"
 #include "ObjectAccessor.h"
@@ -2009,6 +2010,26 @@ void Map::CreateInstanceData(bool load)
 
     if (load)
     {
+        std::string const cacheKey = MakeInstanceCacheKey(Instanceable(), Instanceable() ? m_instanceId : GetId());
+        std::string cachedData;
+
+        // Local Redis read-through cache (InstanceDataCache) in front of this query - a hit
+        // here costs a local Unix-socket round trip instead of one to CharacterDatabase,
+        // which may be a different datacenter away. A miss (cache disabled/unavailable/cold)
+        // falls straight through to the exact same synchronous query this always ran, so
+        // this can never behave worse than before, only better.
+        if (sInstanceDataCache.Get(cacheKey, cachedData))
+        {
+            if (!cachedData.empty())
+            {
+                sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Loading instance data for `%s` (Map: %u Instance: %u) [cache]", sScriptMgr.GetScriptName(m_scriptId), GetId(), m_instanceId);
+                m_data->Load(cachedData.c_str());
+            }
+            else
+                m_data->Create();
+            return;
+        }
+
         // TODO: make a global storage for this
         std::unique_ptr<QueryResult> result;
 
@@ -2025,9 +2046,13 @@ void Map::CreateInstanceData(bool load)
             {
                 sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Loading instance data for `%s` (Map: %u Instance: %u)", sScriptMgr.GetScriptName(m_scriptId), GetId(), m_instanceId);
                 m_data->Load(data);
+                sInstanceDataCache.Set(cacheKey, data);
             }
             else
+            {
                 m_data->Create();
+                sInstanceDataCache.Set(cacheKey, "");
+            }
         }
         else
         {
@@ -2035,6 +2060,7 @@ void Map::CreateInstanceData(bool load)
             if (!Instanceable())
                 CharacterDatabase.PExecute("INSERT INTO world VALUES ('%u', '')", GetId());
             m_data->Create();
+            sInstanceDataCache.Set(cacheKey, "");
         }
     }
     else

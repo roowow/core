@@ -4,6 +4,7 @@
 #include "Common.h"
 #include <vector>
 #include <array>
+#include <map>
 
 struct BRSpawnPoint
 {
@@ -67,6 +68,11 @@ struct BattleRoyaleTemplate
 
     std::vector<BRSpawnPoint> spawnPoints;
     std::vector<BRZonePhase>  phases;
+
+    // spawn_index -> custom_taxi_path_id, loaded once by BattleRoyaleMgr::LoadDeploymentPaths()
+    // instead of being queried from `battle_royale_deployment_path` on every match start /
+    // every bot join (this table is static reference data, doesn't change at runtime).
+    std::map<uint32, uint32> deploymentPaths;
 };
 
 // Arathi Basin MVP template – spawn coordinates must be verified in-game by a GM.

@@ -43,7 +43,6 @@
 #include "PlayerBroadcaster.h"
 #include "PlayerBotMgr.h"
 #include "MapManager.h"
-#include "BattleRoyaleMgr.h"
 #include "AccountMgr.h"
 
 class LoginQueryHolder : public SqlQueryHolder
@@ -109,6 +108,7 @@ bool LoginQueryHolder::Initialize()
     res &= SetPQuery(PLAYER_LOGIN_QUERY_BROADCAST,           "SELECT text from world_broadcast WHERE active = 1");
     res &= SetPQuery(PLAYER_LOGIN_QUERY_PARTY,               "SELECT `Guid`, `DisplayID` FROM `character_displayid` WHERE `Guid` = %u", m_guid.GetCounter());
     res &= SetPQuery(PLAYER_LOGIN_QUERY_WAREFFORT,           "SELECT `Count`,`Used` FROM `character_wareffort` WHERE `Guid` = %u", m_guid.GetCounter());
+    res &= SetPQuery(PLAYER_LOGIN_QUERY_BR_SEASON_POINTS,    "SELECT `season_points`, `total_wins` FROM `battle_royale_season_score` WHERE `guid` = %u", m_guid.GetCounter());
 
     return res;
 }
@@ -532,13 +532,6 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)
         m_playerLoading = false;
         return;
     }
-
-    // Recover players left in a BR instance after a server crash or clean restart.
-    // Only runs for fresh logins (!alreadyOnline); disconnect-reconnect while the
-    // old session is still active is not covered here — RestorePendingPlayer also
-    // guards against IsInWorld() to prevent double-restore.
-    if (!alreadyOnline)
-        sBattleRoyaleMgr.RestorePendingPlayer(pCurrChar);
 
     ASSERT(pCurrChar->GetSession() == this);
     SetPlayer(pCurrChar);

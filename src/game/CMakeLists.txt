@@ -28,6 +28,8 @@ set (game_SRCS
     OO/OOMgr.cpp
     OO/WebChatMgr.cpp
     OO/WebChatMgr.h
+    OO/InstanceDataCache.cpp
+    OO/InstanceDataCache.h
     OO/JianJiaAI.cpp
     OO/JianJiaAI.h
     Camera.cpp

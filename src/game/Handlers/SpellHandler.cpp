@@ -559,6 +559,47 @@ void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packe
     pUser->CastItemUseSpell(pItem, const_cast<SpellCastTargets&>(packet.targets));
 }
 
+// Async callback for the wrapped-item branch of HandleOpenItemOpcode() below. Runs later,
+// off a DB worker thread's result queue - the session/player/item may no longer exist by
+// then (player logged out, item moved/destroyed), so everything is re-resolved from stable
+// IDs here rather than capturing raw pointers across the async boundary.
+static void HandleUnwrapItemCallback(std::unique_ptr<QueryResult> result, uint32 accountId, uint32 itemGuidLow)
+{
+    WorldSession* session = sWorld.FindSession(accountId);
+    if (!session)
+        return;
+
+    Player* pUser = session->GetPlayer();
+    if (!pUser)
+        return;
+
+    Item* pItem = pUser->GetItemByGuid(ObjectGuid(HIGHGUID_ITEM, itemGuidLow));
+    if (!pItem || !pItem->HasFlag(ITEM_FIELD_FLAGS, ITEM_DYNFLAG_WRAPPED))
+        return;
+
+    if (result)
+    {
+        Field* fields = result->Fetch();
+        uint32 entry = fields[0].GetUInt32();
+        uint32 flags = fields[1].GetUInt32();
+
+        pItem->SetGuidValue(ITEM_FIELD_GIFTCREATOR, ObjectGuid());
+        pItem->SetEntry(entry);
+        pItem->SetUInt32Value(ITEM_FIELD_FLAGS, flags);
+        pItem->SetState(ITEM_CHANGED, pUser);
+    }
+    else
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Wrapped item %u don't have record in character_gifts table and will deleted", itemGuidLow);
+        pUser->DestroyItem(pItem->GetBagSlot(), pItem->GetSlot(), true);
+        return;
+    }
+
+    static SqlStatementID delGifts;
+    SqlStatement stmt = CharacterDatabase.CreateStatement(delGifts, "DELETE FROM `character_gifts` WHERE `item_guid` = ?");
+    stmt.PExecute(itemGuidLow);
+}
+
 void WorldSession::HandleOpenItemOpcode(WorldPackets::Spell::OpenItem const& packet)
 {
     Player* pUser = _player;
@@ -619,6 +660,11 @@ void WorldSession::HandleOpenItemOpcode(WorldPackets::Spell::OpenItem const& pac
 
     if (pItem->HasFlag(ITEM_FIELD_FLAGS, ITEM_DYNFLAG_WRAPPED))// wrapped?
     {
+        // Async: this used to be a synchronous PQuery blocking the whole world tick on
+        // every gift unwrap. See HandleUnwrapItemCallback() above for the completion logic.
+        // Original synchronous implementation, kept for reference/rollback - logic is
+        // otherwise identical, just inlined here instead of in the async callback:
+        /*
         std::unique_ptr<QueryResult> result = CharacterDatabase.PQuery("SELECT `item_id`, `flags` FROM `character_gifts` WHERE `item_guid` = '%u'", pItem->GetGUIDLow());
         if (result)
         {
@@ -642,6 +688,9 @@ void WorldSession::HandleOpenItemOpcode(WorldPackets::Spell::OpenItem const& pac
 
         SqlStatement stmt = CharacterDatabase.CreateStatement(delGifts, "DELETE FROM `character_gifts` WHERE `item_guid` = ?");
         stmt.PExecute(pItem->GetGUIDLow());
+        */
+        CharacterDatabase.AsyncPQuery(&HandleUnwrapItemCallback, GetAccountId(), pItem->GetGUIDLow(),
+            "SELECT `item_id`, `flags` FROM `character_gifts` WHERE `item_guid` = '%u'", pItem->GetGUIDLow());
     }
     else
         pUser->SendLoot(pItem->GetObjectGuid(), LOOT_CORPSE);

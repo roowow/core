@@ -221,6 +221,13 @@ struct OOWOWInfo
 
     uint32 wareffort_count = 0;
     uint32 wareffort_used = 0;
+
+    // Cached copies of battle_royale_season_score columns, loaded async at login and kept in
+    // sync locally on spend/earn, so BuyItemFromVendor()/the BR queue NPC's gossip menu don't
+    // need a synchronous DB read on every purchase / every gossip open (see BuyItemFromVendor,
+    // BattleRoyaleNPC.cpp's BRPlayerHasWon, and BattleRoyale.cpp's match-reward code).
+    uint32 brSeasonPoints = 0;
+    bool brHasWon = false;
 };
 
 struct PlayerInfo
@@ -656,6 +663,7 @@ enum PlayerLoginQueryIndex
     PLAYER_LOGIN_QUERY_BROADCAST, /// Broadcast
     PLAYER_LOGIN_QUERY_PARTY, /// Party
     PLAYER_LOGIN_QUERY_WAREFFORT, /// Wareffort
+    PLAYER_LOGIN_QUERY_BR_SEASON_POINTS, /// Battle Royale season points (cached to avoid a sync query on every points-shop purchase)
 
     MAX_PLAYER_LOGIN_QUERY
 };

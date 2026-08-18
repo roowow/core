@@ -95,6 +95,43 @@ void SendDefaultMenu_HardcoreNPC(Player *player, Creature *_Creature, uint32 act
     }
 }
 
+// Async callback for the "舍生取义" hardcore signup confirmation below. Runs later, off a
+// DB worker thread's result queue, so re-resolve player/creature from stable ids (account id,
+// creature guid) instead of capturing the raw pointers passed into SendDefaultMenu_HardcoreNPC2
+// across the async boundary — either could be gone (logout, creature despawn) by the time this
+// fires. Re-checks the eligibility conditions too, since player state can change during the
+// ~1 DB round-trip window between the confirmation click and this callback.
+static void HandleHardcoreSignupCallback(std::unique_ptr<QueryResult> result, uint32 accountId, ObjectGuid creatureGuid)
+{
+    WorldSession* session = sWorld.FindSession(accountId);
+    if (!session)
+        return;
+
+    Player* player = session->GetPlayer();
+    if (!player || !player->IsInWorld() || player->IsHardcore() ||
+        player->IsTianxuan() || player->IsTurtle() || player->GetLevel() > 5)
+        return;
+
+    Creature* creature = player->GetMap() ? player->GetMap()->GetCreature(creatureGuid) : nullptr;
+
+    if (!result)
+    {
+        if (creature)
+            MonsterSayLocalized(creature, "勇敢者之路，非轻率之举。先将一位英雄带至巅峰，方可踏上这条不归路。");
+        player->CLOSE_GOSSIP_MENU();
+        return;
+    }
+
+    if (creature)
+    {
+        creature->CastSpell(player, 15851, true);
+        MonsterSayLocalized(creature, "勇敢者，是人类的明灯，是行走的火炬，带来希望与光明。希望你恪守勇敢者准则，不要辱没了这三个字。");
+    }
+
+    player->SetHardcore(true);
+    player->CLOSE_GOSSIP_MENU();
+}
+
 void SendDefaultMenu_HardcoreNPC2(Player *player, Creature *_Creature, uint32 action, char const* code)
 {
     switch (action)
@@ -121,27 +158,13 @@ void SendDefaultMenu_HardcoreNPC2(Player *player, Creature *_Creature, uint32 ac
                 break;
             }
 
-            // Require at least one level-60 character on the same account.
-            {
-                auto levelCheck = CharacterDatabase.PQuery(
-                    "SELECT 1 FROM `characters` WHERE `account` = %u AND `level` = 60 LIMIT 1",
-                    player->GetSession()->GetAccountId());
-                bool hasMaxLevelChar = (levelCheck != nullptr);
-
-                if (!hasMaxLevelChar)
-                {
-                    MonsterSayLocalized(_Creature, "勇敢者之路，非轻率之举。先将一位英雄带至巅峰，方可踏上这条不归路。");
-                    player->CLOSE_GOSSIP_MENU();
-                    break;
-                }
-            }
-
-            _Creature->CastSpell(player, 15851, true);
-            MonsterSayLocalized(_Creature, "勇敢者，是人类的明灯，是行走的火炬，带来希望与光明。希望你恪守勇敢者准则，不要辱没了这三个字。");
-
-            player->SetHardcore(true);
-
-            player->CLOSE_GOSSIP_MENU();
+            // Async: require at least one level-60 character on the same account. This used to
+            // be a synchronous PQuery blocking the whole world tick on every hardcore signup
+            // attempt. See HandleHardcoreSignupCallback() above for the completion logic.
+            CharacterDatabase.AsyncPQuery(&HandleHardcoreSignupCallback,
+                player->GetSession()->GetAccountId(), _Creature->GetObjectGuid(),
+                "SELECT 1 FROM `characters` WHERE `account` = %u AND `level` = 60 LIMIT 1",
+                player->GetSession()->GetAccountId());
             break;
         case 3: 
             if (strcmp(code, "确认") != 0)

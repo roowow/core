@@ -5,12 +5,11 @@
 #include "ObjectAccessor.h"
 #include "Opcodes.h"
 
+// Cached on Player (loaded at login, kept in sync on match win) instead of a synchronous
+// PQuery here - this used to run on every single gossip-menu open with this NPC.
 static bool BRPlayerHasWon(Player* player)
 {
-    auto res = CharacterDatabase.PQuery(
-        "SELECT `total_wins` FROM `battle_royale_season_score` WHERE `guid` = %u",
-        player->GetGUIDLow());
-    return res && res->Fetch()[0].GetUInt32() >= 1;
+    return player->oowowInfo.brHasWon;
 }
 
 // NPC entries — 900100 = Alliance (Ironforge, displayId 15728), 900102 = Horde (Orgrimmar, displayId 15731)

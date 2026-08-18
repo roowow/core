@@ -25,6 +25,7 @@
 
 #include "World.h"
 #include "OO/WebChatMgr.h"
+#include "OO/InstanceDataCache.h"
 #include "OO/JianJiaAI.h"
 #include "Database/DatabaseEnv.h"
 #include "Config/Config.h"
@@ -205,6 +206,7 @@ World::~World()
 void World::Shutdown()
 {
     sWebChatMgr.Shutdown();
+    sInstanceDataCache.Shutdown();
     sPlayerBotMgr.DeleteAll();
     KickAll();                                     // save and kick all players
     UpdateSessions(1);                             // real players unload required UpdateSessions call
@@ -1922,6 +1924,14 @@ void World::SetInitialWorldSettings()
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Initializing WebChatMgr...");
     sWebChatMgr.Initialize(sConfig.GetStringDefault("WebChat.Redis.Host", "127.0.0.1"),
                             sConfig.GetIntDefault("WebChat.Redis.Port", 6379), realmID);
+
+    // Separate from WebChatMgr's Redis (which may legitimately be remote, see WebChat.md) -
+    // this one only ever talks to a local redis-server over a Unix socket, or is disabled
+    // entirely if unconfigured. Named generically (not "InstanceDataCache.*") because this
+    // local Redis is meant to grow into the shared connection behind the whole DB-decoupling
+    // effort (see HPHA.md "彻底解耦：数据库 Redis 化") - InstanceDataCache is only the first
+    // consumer of it, not the only one long-term.
+    sInstanceDataCache.Initialize(sConfig.GetStringDefault("LocalRedis.Socket", ""));
 
     // Register AI companion bot after WebChatMgr::Initialize() so SetJianJiaName is not overwritten
     if (uint32 jjGuid = sConfig.GetIntDefault("JianJia.CharGuid", 0))

@@ -232,9 +232,6 @@ void BattleRoyale::AddPlayer(Player* player, BRSpawnPoint const& landingPoint, u
                                               player->GetOrientation());
     brPlayer.savedFFAPvP = player->IsFFAPvP();
 
-    if (!isBot)
-        sBattleRoyaleMgr.SavePendingRestore(player, m_host ? m_host->GetInstanceID() : 0);
-
     m_players[guid] = brPlayer;
     ++m_totalCount;
     ++m_aliveCount;
@@ -348,11 +345,8 @@ void BattleRoyale::Update(uint32 diff)
             {
                 for (auto it = m_players.begin(); it != m_players.end(); ++it)
                 {
-                    Player* player = map->GetPlayer(it->first);
-                    if (player)
+                    if (Player* player = map->GetPlayer(it->first))
                         ReturnPlayer(player, it->second);
-                    else if (!it->second.bot)
-                        sBattleRoyaleMgr.ClearPendingRestore(it->first);
                 }
             }
             m_status = BattleRoyaleStatus::CANCELLED;
@@ -385,6 +379,24 @@ void BattleRoyale::OnPlayerLeftMap(ObjectGuid guid)
 
     if (it->second.alive)
         Eliminate(guid, false);
+
+    // Unlike Eliminate()'s normal-death path — which must defer the return teleport to
+    // the next Update() tick because it can run inside Unit::Kill()'s call stack (see the
+    // comment on pendingReturn in Eliminate()) — this is a disconnect/logout, so it's safe
+    // to return the player to their saved position right now instead of waiting a tick.
+    // WorldSession::LogoutPlayer() force-completes any pending far teleport synchronously
+    // right after LeaveBattleground() returns (its post-BG-leave while(IsBeingTeleportedFar())
+    // loop), so doing it here lands the player at the correct position in memory before
+    // SaveToDB() runs later in that same logout call — no DB round trip needed either way.
+    if (it->second.pendingReturn)
+    {
+        Map* map = m_host ? m_host->GetHostMap() : nullptr;
+        if (Player* player = map ? map->GetPlayer(guid) : nullptr)
+        {
+            it->second.pendingReturn = false;
+            ReturnPlayer(player, it->second);
+        }
+    }
 }
 
 uint32 BattleRoyale::GetAliveCount() const
@@ -1125,14 +1137,11 @@ void BattleRoyale::Cancel()
     Map* map = m_host ? m_host->GetHostMap() : nullptr;
     for (auto it = m_players.begin(); it != m_players.end(); ++it)
     {
-        Player* player = map ? map->GetPlayer(it->first) : nullptr;
-        if (player)
+        if (Player* player = map ? map->GetPlayer(it->first) : nullptr)
         {
             player->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER | UNIT_FLAG_IMMUNE_TO_NPC);
             ReturnPlayer(player, it->second);
         }
-        else if (!it->second.bot)
-            sBattleRoyaleMgr.ClearPendingRestore(it->first);
     }
 }
 
@@ -1191,10 +1200,10 @@ void BattleRoyale::ReturnPlayer(Player* player, BattleRoyalePlayer const& brPlay
     }
 
     WorldLocation const& pos = brPlayer.savedPosition;
-    if (player->TeleportTo(pos.mapId, pos.x, pos.y, pos.z, pos.o))
-        sBattleRoyaleMgr.ClearPendingRestore(player->GetObjectGuid());
-    // If TeleportTo fails the pending restore record is kept so the player can
-    // be recovered on next login.
+    if (!player->TeleportTo(pos.mapId, pos.x, pos.y, pos.z, pos.o))
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                 "[BattleRoyale] Failed to return player %s (%u) to saved position map %u %.2f %.2f %.2f.",
+                 player->GetName(), player->GetGUIDLow(), pos.mapId, pos.x, pos.y, pos.z);
 }
 
 void BattleRoyale::BroadcastPhaseChange(uint32 phase)
@@ -1257,6 +1266,16 @@ void BattleRoyale::CleanupBRItems(Player* player)
         "  `total_kills`          = `total_kills`          + %u",
         guid, totalPts, totalPts, isWin, killCount,
         totalPts, totalPts, isWin, killCount);
+
+    // Keep the in-memory cache (BuyItemFromVendor's points-shop pre-check, BRPlayerHasWon's
+    // gossip check) in sync if this player is still online - the DB write above is the
+    // source of truth regardless, this just avoids the cache going stale until their next login.
+    if (Player* pOnline = sObjectMgr.GetPlayer(playerGuid))
+    {
+        pOnline->oowowInfo.brSeasonPoints += totalPts;
+        if (isWin)
+            pOnline->oowowInfo.brHasWon = true;
+    }
 
     // Append per-match log entry (mirrors character_log_pvpkill layout)
     CharacterDatabase.PExecute(

@@ -3239,6 +3239,31 @@ bool Player::IsAllowSwitchTalent()
     return true;
 }
 
+// Async callback for SwitchTalent() below. Runs later, off a DB worker thread's result
+// queue - the session/player may be gone by then (logged out mid-switch), so re-resolve
+// from the stable account id rather than capturing the Player pointer across the async
+// boundary (same pattern as CharacterHandler.cpp's chrHandler/HandleCharEnumCallback).
+static void HandleSwitchTalentCallback(std::unique_ptr<QueryResult> result, uint32 accountId, uint32 /*talent*/)
+{
+    WorldSession* session = sWorld.FindSession(accountId);
+    if (!session)
+        return;
+
+    Player* player = session->GetPlayer();
+    if (!player)
+        return;
+
+    if (!result)
+        return;
+
+    do
+    {
+        Field* fields = result->Fetch();
+        player->LearnTalent(fields[0].GetUInt32(), fields[1].GetUInt32());
+    }
+    while (result->NextRow());
+}
+
 void Player::SwitchTalent(uint32 talent)
 {
     if (! IsAllowSwitchTalent())
@@ -3246,22 +3271,22 @@ void Player::SwitchTalent(uint32 talent)
 
     ResetTalents(true);
 
-    std::unique_ptr<QueryResult> tresult = CharacterDatabase.PQuery("SELECT talentid, rank from character_spell_extra WHERE flag = %u and guid = %u order by id", talent, GetGUIDLow());
-    if (tresult)
-    {
-        do
-        {
-            Field* fields = tresult->Fetch();
-            LearnTalent(fields[0].GetUInt32(), fields[1].GetUInt32());
-        }
-        while (tresult->NextRow());
-    }
-
     SetActiveTalent(talent);
 
     AddAura(6537, 0, this); // 森林的召唤
+    // Set before the async query below (not after it resolves) so a second SwitchTalent
+    // call during the DB round-trip is already blocked by IsAllowSwitchTalent()'s cooldown
+    // check above, instead of racing with the still-pending relearn.
     oowowInfo.DualTalent_SwitchTalent_Delay = time(nullptr) + 10;
     oowowInfo.DualTalent_CoolDown = time(nullptr) + 5*60;
+
+    // Async: this used to be a synchronous PQuery blocking the whole world tick on every
+    // talent switch - a Perf.log trace pinned this down as the direct cause of a full
+    // server-wide freeze (map=Zul'Gurub, CMSG_GOSSIP_SELECT_OPTION stalled >1000ms).
+    // See HandleSwitchTalentCallback() above for the completion logic.
+    CharacterDatabase.AsyncPQuery(&HandleSwitchTalentCallback, GetSession()->GetAccountId(), talent,
+        "SELECT talentid, rank from character_spell_extra WHERE flag = %u and guid = %u order by id",
+        talent, GetGUIDLow());
 }
 
 void Player::SwitchTalentDelay()
@@ -15473,6 +15498,15 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
         oowowInfo.wareffort_used  = fields[1].GetUInt32();
     }
 
+    /// Battle Royale season points / win flag (row may not exist yet for a player who never played BR)
+    std::unique_ptr<QueryResult> brResult = holder->TakeResult(PLAYER_LOGIN_QUERY_BR_SEASON_POINTS);
+    if (brResult)
+    {
+        Field* fields = brResult->Fetch();
+        oowowInfo.brSeasonPoints = fields[0].GetUInt32();
+        oowowInfo.brHasWon       = fields[1].GetUInt32() >= 1;
+    }
+
     if (m_characterFlags & CHARACTER_FLAG_RESTING)
         SetFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING);
     if (m_characterFlags & CHARACTER_FLAG_BEASTMASTER)
@@ -19281,13 +19315,12 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
     if (!isBrPointsVendor)
         price = uint32(price * GetReputationPriceDiscount(pCreature) + 0.5f);
 
-    uint32 brSeasonPoints = 0;
+    // Cached at login / kept in sync locally on spend (below) and on match-end reward
+    // (BattleRoyale.cpp) instead of querying synchronously here - this used to be a sync
+    // PQuery on every single purchase, blocking the whole world tick for one DB round-trip.
+    uint32 const brSeasonPoints = oowowInfo.brSeasonPoints;
     if (isBrPointsVendor)
     {
-        if (std::unique_ptr<QueryResult> result = CharacterDatabase.PQuery(
-                "SELECT `season_points` FROM `battle_royale_season_score` WHERE `guid` = %u", GetGUIDLow()))
-            brSeasonPoints = result->Fetch()[0].GetUInt32();
-
         if (brSeasonPoints < price)
         {
             ChatHandler(this).PSendSysMessage("[孤胆称雄] 当前积分：%u，需要：%u。", brSeasonPoints, price);
@@ -19314,9 +19347,16 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
         }
 
         if (isBrPointsVendor)
+        {
+            // Authoritative check/spend is this guarded UPDATE (only succeeds if the DB's
+            // current balance still covers price), so a stale cached brSeasonPoints above
+            // can never cause an overspend - worst case is a wrong pre-check/confirmation
+            // message. Keep the cache in sync locally so the next purchase's pre-check is accurate.
             CharacterDatabase.PExecute(
                 "UPDATE `battle_royale_season_score` SET `season_points` = `season_points` - %u WHERE `guid` = %u AND `season_points` >= %u",
                 price, GetGUIDLow(), price);
+            oowowInfo.brSeasonPoints -= price;
+        }
         else
             LogModifyMoney(-int32(price), "BuyItem", vendorGuid, item);
 
@@ -19339,9 +19379,16 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
         }
 
         if (isBrPointsVendor)
+        {
+            // Authoritative check/spend is this guarded UPDATE (only succeeds if the DB's
+            // current balance still covers price), so a stale cached brSeasonPoints above
+            // can never cause an overspend - worst case is a wrong pre-check/confirmation
+            // message. Keep the cache in sync locally so the next purchase's pre-check is accurate.
             CharacterDatabase.PExecute(
                 "UPDATE `battle_royale_season_score` SET `season_points` = `season_points` - %u WHERE `guid` = %u AND `season_points` >= %u",
                 price, GetGUIDLow(), price);
+            oowowInfo.brSeasonPoints -= price;
+        }
         else
             LogModifyMoney(-int32(price), "BuyItem", vendorGuid, item);
 
@@ -19384,7 +19431,7 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
         CharacterDatabase.PExecute(
             "INSERT INTO `character_log_battle_royale_shop` (`guid`, `item_entry`, `cost`, `purchase_time`) VALUES (%u, %u, %u, NOW())",
             GetGUIDLow(), item, price);
-        ChatHandler(this).PSendSysMessage("[孤胆称雄] 花费 %u 积分，剩余 %u 积分。", price, brSeasonPoints - price);
+        ChatHandler(this).PSendSysMessage("[孤胆称雄] 花费 %u 积分，剩余 %u 积分。", price, oowowInfo.brSeasonPoints);
     }
 
     return crItem->maxcount != 0;

@@ -58,12 +58,6 @@ public:
     // match — callers should fall back to the real name.
     bool TryGetAnonName(ObjectGuid guid, std::string& outName);
 
-    // Real players are restored to their pre-BR position on normal exit, relog,
-    // or after a server restart. Bots are not persisted.
-    void SavePendingRestore(Player const* player, uint32 instanceId) const;
-    void ClearPendingRestore(ObjectGuid guid) const;
-    bool RestorePendingPlayer(Player* player) const;
-
     // Called by BattleRoyale when a player is returned to the world (eliminated or game over).
     // Removes the player from m_playerInstMap so they can re-queue immediately.
     void RemovePlayerFromInstance(ObjectGuid guid);
@@ -77,6 +71,10 @@ public:
     // Load (or reload) player spawn points from battle_royale_spawn_point table into the template.
     // Safe to call at runtime (e.g., after .br spawn add).
     void LoadSpawnPoints();
+
+    // Load (or reload) spawn_index -> custom_taxi_path_id mappings from
+    // battle_royale_deployment_path into the template. Safe to call at runtime.
+    void LoadDeploymentPaths();
 
     // Delete a player's corpse (with BR loot on it) after delayMs — gives other
     // participants a window to loot it first. Tracked here (not on the per-match

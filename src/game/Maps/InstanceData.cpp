@@ -22,6 +22,7 @@
 #include "InstanceData.h"
 #include "Database/DatabaseEnv.h"
 #include "Map.h"
+#include "OO/InstanceDataCache.h"
 
 void InstanceData::SaveToDB()
 {
@@ -33,6 +34,13 @@ void InstanceData::SaveToDB()
         return;
 
     std::string data = Save();
+
+    // Write-through: keep the local Redis cache in sync so the next Map::CreateInstanceData
+    // for this instance/world row reads the fresh value instead of a stale one. Must happen
+    // with the raw value, before CharacterDatabase.escape_string() below mangles it for SQL.
+    sInstanceDataCache.Set(MakeInstanceCacheKey(instance->Instanceable(),
+        instance->Instanceable() ? instance->GetInstanceId() : instance->GetId()), data);
+
     CharacterDatabase.escape_string(data);
 
     if (instance->Instanceable())

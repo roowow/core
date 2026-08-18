@@ -161,6 +161,7 @@ BattleRoyaleMgr::BattleRoyaleMgr()
         m_enabled = val != 0;
 
     LoadSpawnPoints();
+    LoadDeploymentPaths();
 }
 
 void BattleRoyaleMgr::LoadSpawnPoints()
@@ -197,6 +198,32 @@ void BattleRoyaleMgr::LoadSpawnPoints()
         sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
                  "[BattleRoyaleMgr] Loaded %u spawn points for template %u.",
                  uint32(tmpl->spawnPoints.size()), tmpl->id);
+    }
+}
+
+void BattleRoyaleMgr::LoadDeploymentPaths()
+{
+    for (BattleRoyaleTemplate* tmpl : GetAllBRTemplates())
+    {
+        tmpl->deploymentPaths.clear();
+
+        std::unique_ptr<QueryResult> result(WorldDatabase.PQuery(
+            "SELECT `spawn_index`, `custom_taxi_path_id` FROM `battle_royale_deployment_path` "
+            "WHERE `template_id` = %u", tmpl->id));
+
+        if (!result)
+            continue;
+
+        do
+        {
+            Field* fields = result->Fetch();
+            tmpl->deploymentPaths[fields[0].GetUInt32()] = fields[1].GetUInt32();
+        }
+        while (result->NextRow());
+
+        sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
+                 "[BattleRoyaleMgr] Loaded %u deployment paths for template %u.",
+                 uint32(tmpl->deploymentPaths.size()), tmpl->id);
     }
 }
 
@@ -587,122 +614,6 @@ bool BattleRoyaleMgr::TryGetAnonName(ObjectGuid guid, std::string& outName)
     return true;
 }
 
-void BattleRoyaleMgr::SavePendingRestore(Player const* player, uint32 instanceId) const
-{
-    if (!player || player->IsSavingDisabled())
-        return;
-
-    CharacterDatabase.PExecute(
-        "REPLACE INTO `battle_royale_pending_restore` "
-        "  (`guid`, `instance_id`, `map`, `position_x`, `position_y`, `position_z`, `orientation`, `ffa_pvp`) "
-        "VALUES (%u, %u, %u, %f, %f, %f, %f, %u)",
-        player->GetGUIDLow(), instanceId, player->GetMapId(),
-        player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), player->GetOrientation(),
-        player->IsFFAPvP() ? 1u : 0u);
-}
-
-void BattleRoyaleMgr::ClearPendingRestore(ObjectGuid guid) const
-{
-    if (!guid.IsPlayer())
-        return;
-
-    CharacterDatabase.PExecute("DELETE FROM `battle_royale_pending_restore` WHERE `guid` = %u",
-                               guid.GetCounter());
-}
-
-bool BattleRoyaleMgr::RestorePendingPlayer(Player* player) const
-{
-    if (!player || player->IsInWorld())
-        return false;
-
-    uint32 const guid = player->GetGUIDLow();
-    std::unique_ptr<QueryResult> result(CharacterDatabase.PQuery(
-        "SELECT `instance_id`, `map`, `position_x`, `position_y`, `position_z`, `orientation`, `ffa_pvp` "
-        "FROM `battle_royale_pending_restore` WHERE `guid` = %u", guid));
-    if (!result)
-        return false;
-
-    Field* fields = result->Fetch();
-    uint32 const instanceId = fields[0].GetUInt32();
-    uint32 const mapId      = fields[1].GetUInt32();
-    float const x           = fields[2].GetFloat();
-    float const y           = fields[3].GetFloat();
-    float const z           = fields[4].GetFloat();
-    float const o           = fields[5].GetFloat();
-    bool const savedFfa     = fields[6].GetBool();
-
-    if (!MapManager::IsValidMapCoord(mapId, x, y, z, o))
-    {
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-                 "[BattleRoyaleMgr] Invalid pending restore for player %u from instance %u: map %u %.2f %.2f %.2f %.2f.",
-                 guid, instanceId, mapId, x, y, z, o);
-        ClearPendingRestore(player->GetObjectGuid());
-        return false;
-    }
-
-    // Saved map must be a continent (map 0 or 1). If it is an instance or
-    // battleground map (e.g. player was in a BG when BR launched), CreateMap
-    // would call CreateInstance which ASSERTs on a zero BattleGroundId and
-    // crashes. Discard the stale record and let normal login flow handle it.
-    {
-        MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(mapId);
-        if (!mapEntry || mapEntry->Instanceable())
-        {
-            sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-                     "[BattleRoyaleMgr] Pending restore for player %u has non-continent map %u — discarding.",
-                     guid, mapId);
-            ClearPendingRestore(player->GetObjectGuid());
-            return false;
-        }
-    }
-
-    if (player->IsTaxiFlying())
-    {
-        player->GetMotionMaster()->MovementExpired();
-        player->GetTaxi().ClearTaxiDestinations();
-    }
-
-    if (player->IsHovering())
-    {
-        player->SetHover(false);
-        player->SetHoverReal(false);
-    }
-
-    player->SendMirrorTimerStop(MirrorTimer::FATIGUE);
-    player->SetFallInformation(0);
-    BattleRoyale::CleanupBRItems(player);
-    player->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
-    player->SetFFAPvP(savedFfa);
-    player->SetBGTeam(TEAM_NONE);
-    player->SetBattleGroundId(0, BATTLEGROUND_TYPE_NONE);
-    player->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER | UNIT_FLAG_IMMUNE_TO_NPC);
-    // Clear stale BG entry so login flow doesn't try to send the player back to
-    // the now-gone BR instance. _SaveBGData() is private; replicate its DELETE.
-    CharacterDatabase.PExecute("DELETE FROM `character_battleground_data` WHERE `guid` = %u",
-                               player->GetGUIDLow());
-
-    player->SetLocationMapId(mapId);
-    player->Relocate(x, y, z, o);
-    if (mapId <= MAX_CONTINENT_ID)
-        player->SetLocationInstanceId(sMapMgr.GetContinentInstanceId(mapId, x, y));
-    else
-        player->SetLocationInstanceId(0);
-    player->SetMap(sMapMgr.CreateMap(mapId, player));
-
-    CharacterDatabase.PExecute(
-        "UPDATE `characters` SET `map` = %u, `instance` = 0, "
-        "`position_x` = %f, `position_y` = %f, `position_z` = %f, `orientation` = %f, "
-        "`transport_guid` = 0, `transport_x` = 0, `transport_y` = 0, `transport_z` = 0, `transport_o` = 0, "
-        "`current_taxi_path` = '' WHERE `guid` = %u",
-        mapId, x, y, z, o, guid);
-    ClearPendingRestore(player->GetObjectGuid());
-
-    sLog.Out(LOG_BASIC, LOG_LVL_BASIC,
-             "[BattleRoyaleMgr] Restored player %s (%u) from pending BR instance %u to map %u %.2f %.2f %.2f.",
-             player->GetName(), guid, instanceId, mapId, x, y, z);
-    return true;
-}
-
 void BattleRoyaleMgr::RemovePlayerFromInstance(ObjectGuid guid)
 {
     m_playerInstMap.erase(guid);
@@ -762,16 +673,9 @@ void BattleRoyaleMgr::OnBotReady(Player* bot, uint32 instanceId)
 
     BRSpawnPoint const& sp = tmpl.spawnPoints[spawnIndex % tmpl.spawnPoints.size()];
 
-    std::map<uint32, uint32> deploymentPaths;
-    std::unique_ptr<QueryResult> pathResult = WorldDatabase.PQuery(
-        "SELECT `spawn_index`, `custom_taxi_path_id` FROM `battle_royale_deployment_path` "
-        "WHERE `template_id` = %u AND `spawn_index` = %u", tmpl.id, spawnIndex);
-    if (pathResult)
-    {
-        Field* fields = pathResult->Fetch();
-        deploymentPaths[fields[0].GetUInt32()] = fields[1].GetUInt32();
-    }
-    uint32 deploymentPathId = ResolveBattleRoyaleDeploymentPath(tmpl.id, spawnIndex, deploymentPaths);
+    // Static reference data, loaded once at startup (BattleRoyaleMgr::LoadDeploymentPaths())
+    // instead of queried per bot join - this table doesn't change at runtime.
+    uint32 deploymentPathId = ResolveBattleRoyaleDeploymentPath(tmpl.id, spawnIndex, tmpl.deploymentPaths);
 
     BRSpawnPoint const& start = tmpl.deploymentStart;
     bot->SetBattleGroundEntryPoint();
@@ -1030,19 +934,9 @@ BattleRoyale* BattleRoyaleMgr::CreateInstance(std::vector<Player*> const& player
     m_instances[instanceId] = br;
 
     std::vector<BRSpawnPoint> const& spawns = tmpl.spawnPoints;
-    std::map<uint32, uint32> deploymentPaths;
-    std::unique_ptr<QueryResult> pathResult = WorldDatabase.PQuery(
-        "SELECT `spawn_index`, `custom_taxi_path_id` FROM `battle_royale_deployment_path` "
-        "WHERE `template_id` = %u", tmpl.id);
-    if (pathResult)
-    {
-        do
-        {
-            Field* fields = pathResult->Fetch();
-            deploymentPaths[fields[0].GetUInt32()] = fields[1].GetUInt32();
-        }
-        while (pathResult->NextRow());
-    }
+    // Static reference data, loaded once at startup (BattleRoyaleMgr::LoadDeploymentPaths())
+    // instead of queried per match start - this table doesn't change at runtime.
+    std::map<uint32, uint32> const& deploymentPaths = tmpl.deploymentPaths;
 
     std::vector<uint32> spawnIndexes;
     spawnIndexes.reserve(spawns.size());

@@ -28,6 +28,7 @@
 #include "CellImpl.h"
 #include "MapManager.h"
 #include "Timer.h"
+#include "OO/InstanceDataCache.h"
 #include "GridNotifiersImpl.h"
 #include "ObjectMgr.h"
 #include "GameEventMgr.h"
@@ -256,12 +257,18 @@ void DungeonPersistentState::SaveToDB()
     {
         InstanceData *iData = map->GetInstanceData();
         if (iData && iData->Save())
-        {
             data = iData->Save();
-            CharacterDatabase.escape_string(data);
-        }
+        // Original: escape_string() was called here, still inside this if-block:
+        //     data = iData->Save();
+        //     CharacterDatabase.escape_string(data);
+        // Moved out below so the raw (unescaped) value can be written to the cache
+        // first - escape_string() mangles it for SQL, which the cache doesn't want.
     }
 
+    // Write-through, raw value, before escaping mangles it for SQL below.
+    sInstanceDataCache.Set(MakeInstanceCacheKey(true, GetInstanceId()), data);
+
+    CharacterDatabase.escape_string(data);
     CharacterDatabase.PExecute("INSERT INTO `instance` (`id`, `map`, `reset_time`, `data`) VALUES ('%u', '%u', '" UI64FMTD "', '%s')", GetInstanceId(), GetMapId(), (uint64)GetResetTimeForDB(), data.c_str());
 }
 
@@ -272,6 +279,8 @@ void DungeonPersistentState::DeleteRespawnTimesAndData()
     CharacterDatabase.PExecute("DELETE FROM `gameobject_respawn` WHERE `instance` = '%u'", GetInstanceId());
     CharacterDatabase.PExecute("UPDATE `instance` SET `data` = '' WHERE `id` = '%u'", GetInstanceId());
     CharacterDatabase.CommitTransaction();
+
+    sInstanceDataCache.Set(MakeInstanceCacheKey(true, GetInstanceId()), "");
 
     ClearRespawnTimes();                                    // state can be deleted at call if only respawn data prevent unload
 }
@@ -569,7 +578,11 @@ void DungeonResetScheduler::Update()
 
                 time_t next_reset = DungeonResetScheduler::CalculateNextResetTime(instanceTemplate, resetTime);
 
-                CharacterDatabase.DirectPExecute("UPDATE `instance_reset` SET `reset_time` = '" UI64FMTD "' WHERE `map` = '%u'", uint64(next_reset), uint32(event.mapId));
+                // Nothing below depends on this write completing first (SetResetTimeFor uses the
+                // already-computed in-memory next_reset), so the async-queued PExecute is safe here
+                // and avoids blocking the whole world tick on every dungeon/raid reset rollover.
+                // Original (always-synchronous): CharacterDatabase.DirectPExecute("UPDATE `instance_reset` SET `reset_time` = '" UI64FMTD "' WHERE `map` = '%u'", uint64(next_reset), uint32(event.mapId));
+                CharacterDatabase.PExecute("UPDATE `instance_reset` SET `reset_time` = '" UI64FMTD "' WHERE `map` = '%u'", uint64(next_reset), uint32(event.mapId));
 
                 SetResetTimeFor(event.mapId, next_reset);
 
@@ -711,6 +724,12 @@ void MapPersistentStateManager::DeleteInstanceFromDB(uint32 mapId, uint32 instan
         CharacterDatabase.PExecute("DELETE FROM `creature_respawn` WHERE `instance` = '%u'", instanceId);
         CharacterDatabase.PExecute("DELETE FROM `gameobject_respawn` WHERE `instance` = '%u'", instanceId);
         CharacterDatabase.CommitTransaction();
+
+        // Instance ids are never reused within a server's lifetime (MapManager::GenerateInstanceId()
+        // only ever increments) EXCEPT across a restart, where the counter reloads from MAX(id) in
+        // `instance` - a deleted row lowers that max, so a future id could collide with this one.
+        // Drop the cache entry now so that never serves this now-gone instance's stale data.
+        sInstanceDataCache.Del(MakeInstanceCacheKey(true, instanceId));
     }
 }
 
