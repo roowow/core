@@ -225,6 +225,13 @@ class BattleGroundMgr
         BattleGroundSet::iterator GetBattleGroundsBegin(BattleGroundTypeId bgTypeId) { return m_battleGrounds[bgTypeId].begin(); };
         BattleGroundSet::iterator GetBattleGroundsEnd(BattleGroundTypeId bgTypeId)   { return m_battleGrounds[bgTypeId].end(); };
 
+        // Counts currently-active (non-template, WAIT_JOIN..IN_PROGRESS) instances of a type.
+        uint32 CountActiveBattleGrounds(BattleGroundTypeId bgTypeId) const;
+        // True if another active instance of self's type was created before self
+        // (lower client instance id). Used to designate a single "primary" instance
+        // among several concurrent ones of the same type.
+        bool HasOlderActiveBattleGround(BattleGround const* self) const;
+
         BattleGround* GetBattleGroundThroughClientInstance(uint32 instanceId, BattleGroundTypeId bgTypeId);
         BattleGround* GetBattleGround(uint32 instanceId, BattleGroundTypeId bgTypeId); // there must be uint32 because MAX_BATTLEGROUND_TYPE_ID means unknown
 

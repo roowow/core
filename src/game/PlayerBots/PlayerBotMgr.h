@@ -99,6 +99,7 @@ class PlayerBotMgr
         // a locked BG by spawning battlebots straight into the running instance.
         void RequestFillLockedBattleGround(BattleGround* bg);
         void RequestReplaceWithBot(BattleGround* bg, Team team);
+        void BalanceOverflowAVInstances();
 
         void DeleteAll();
         void AddAllBots();

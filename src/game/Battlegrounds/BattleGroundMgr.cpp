@@ -737,6 +737,39 @@ void BattleGroundQueue::CheckFreeSlots(BattleGroundTypeId bgTypeId, BattleGround
     }
 }
 
+uint32 BattleGroundMgr::CountActiveBattleGrounds(BattleGroundTypeId bgTypeId) const
+{
+    uint32 count = 0;
+    for (auto itr = m_battleGrounds[bgTypeId].begin(); itr != m_battleGrounds[bgTypeId].end(); ++itr)
+    {
+        BattleGround* bg = itr->second;
+        if (!bg || bg->GetClientInstanceID() == 0)
+            continue;
+        if (bg->GetStatus() <= STATUS_WAIT_QUEUE || bg->GetStatus() >= STATUS_WAIT_LEAVE)
+            continue;
+        ++count;
+    }
+    return count;
+}
+
+bool BattleGroundMgr::HasOlderActiveBattleGround(BattleGround const* self) const
+{
+    if (!self)
+        return false;
+
+    for (auto itr = m_battleGrounds[self->GetTypeID()].begin(); itr != m_battleGrounds[self->GetTypeID()].end(); ++itr)
+    {
+        BattleGround* other = itr->second;
+        if (!other || other == self || other->GetClientInstanceID() == 0)
+            continue;
+        if (other->GetStatus() <= STATUS_WAIT_QUEUE || other->GetStatus() >= STATUS_WAIT_LEAVE)
+            continue;
+        if (other->GetClientInstanceID() < self->GetClientInstanceID())
+            return true;
+    }
+    return false;
+}
+
 bool BattleGroundQueue::CheckCreateNewBg(BattleGroundTypeId bgTypeId, BattleGroundBracketId bracketId)
 {
     bool createdPremadeBg = false;
@@ -747,6 +780,19 @@ bool BattleGroundQueue::CheckCreateNewBg(BattleGroundTypeId bgTypeId, BattleGrou
     {
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[BattleGroundQueue::CheckCreateNewBg] template not found for %u", bgTypeId);
         return false;
+    }
+
+    // AV-only concurrency cap: once at the configured limit, stop popping new AV
+    // instances — CheckFreeSlots() (called right before this) already prefers seating
+    // waiting players into existing under-full instances, so this just stops a fresh
+    // instance from being spun up on top of that. See Alterac.MaxConcurrentInstances.
+    if (bgTypeId == BATTLEGROUND_AV)
+    {
+        if (uint32 const cap = sWorld.getConfig(CONFIG_UINT32_AV_MAX_CONCURRENT_INSTANCES))
+        {
+            if (sBattleGroundMgr.CountActiveBattleGrounds(BATTLEGROUND_AV) >= cap)
+                return false;
+        }
     }
 
     // Get the min/max players per team

@@ -800,6 +800,8 @@ void PlayerBotMgr::Update(uint32 diff)
                 }
             }
         }
+
+        BalanceOverflowAVInstances();
     }
 
     if (m_confEnableRandomBots)
@@ -1252,6 +1254,59 @@ void PlayerBotMgr::RequestReplaceWithBot(BattleGround* bg, Team team)
     AddBattleBot(queueType, team, PickLockFillBotLevel(bg), true);
     bg->AddToBGFreeSlotQueue();
     sBattleGroundMgr.ScheduleQueueUpdate(queueType, bgTypeId, bg->GetBracketId());
+}
+
+// AV overflow instance (Alterac.MaxConcurrentInstances): an AV instance left unlocked
+// because an older one was still running (see BattleGround::Update()'s lock-timer block)
+// stays open on both sides for real players. But if one side fills up on its own — all
+// real players, or just population drift — the match stays lopsided forever with no
+// mechanism to ever complete it. Once a side is genuinely full and the other still has
+// room, top the short side up to match so the match finishes like a normal one instead
+// of running half-empty indefinitely.
+void PlayerBotMgr::BalanceOverflowAVInstances()
+{
+    if (!sWorld.getConfig(CONFIG_UINT32_AV_MAX_CONCURRENT_INSTANCES))
+        return;
+
+    for (auto itr = sBattleGroundMgr.GetBattleGroundsBegin(BATTLEGROUND_AV); itr != sBattleGroundMgr.GetBattleGroundsEnd(BATTLEGROUND_AV); ++itr)
+    {
+        BattleGround* bg = itr->second;
+        if (!bg || bg->GetClientInstanceID() == 0)
+            continue;
+
+        if (bg->GetStatus() != STATUS_IN_PROGRESS || bg->IsLocked())
+            continue;
+
+        uint32 const allianceFree = bg->GetFreeSlotsForTeam(ALLIANCE);
+        uint32 const hordeFree = bg->GetFreeSlotsForTeam(HORDE);
+
+        Team teamToFill = TEAM_NONE;
+        uint32 slotsToFill = 0;
+        if (allianceFree == 0 && hordeFree > 0)
+        {
+            teamToFill = HORDE;
+            slotsToFill = hordeFree;
+        }
+        else if (hordeFree == 0 && allianceFree > 0)
+        {
+            teamToFill = ALLIANCE;
+            slotsToFill = allianceFree;
+        }
+
+        if (teamToFill == TEAM_NONE)
+            continue;
+
+        BattleGroundQueueTypeId const queueType = BattleGroundMgr::BgQueueTypeId(bg->GetTypeID());
+        for (uint32 i = 0; i < slotsToFill; ++i)
+            AddBattleBot(queueType, teamToFill, PickLockFillBotLevel(bg), true);
+
+        bg->AddToBGFreeSlotQueue();
+        sBattleGroundMgr.ScheduleQueueUpdate(queueType, BATTLEGROUND_AV, bg->GetBracketId());
+
+        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+            "[PlayerBotMgr] AV overflow instance %u: %s side full, topping up %s with %u bots to complete the match.",
+            bg->GetInstanceID(), teamToFill == HORDE ? "alliance" : "horde", teamToFill == HORDE ? "horde" : "alliance", slotsToFill);
+    }
 }
 
 void PlayerBotMgr::SwitchAutoJoinBattleBots(bool payload, uint32 bgTypeId)

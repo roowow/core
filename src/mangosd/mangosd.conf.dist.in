@@ -2705,6 +2705,12 @@ PvP.PoolSizePerFaction = 0
 #       To be efficient, you should have 'InitMaxPlayers * 2 > MinPlayersInQueue'
 #       Default: 0 - use database value
 #
+#    Alterac.MaxConcurrentInstances
+#       Caps how many AV instances may run at once. Once at the cap, the newest
+#       instance is kept unlocked (not bot-filled to max) so incoming real players
+#       land in its open slots instead of spinning up yet another instance.
+#       Default: 0 - unlimited
+#
 ###################################################################################################################
 
 Battleground.CastDeserter = 1
@@ -2720,6 +2726,7 @@ BattleGround.RandomizeQueues = 0
 BattleGround.GroupQueueLimit = 40
 Alterac.MinPlayersInQueue = 0
 Alterac.InitMaxPlayers = 0
+Alterac.MaxConcurrentInstances = 0
 
 #    BattleRoyale.MinPlayers
 #        Real players needed in queue before a Battle Royale match can start.

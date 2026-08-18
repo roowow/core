@@ -481,7 +481,20 @@ void BattleGround::Update(uint32 diff)
         else if (m_lockTimer <= diff)
         {
             m_lockTimer = 0;
-            LockForNewPlayers();
+
+            // AV overflow instance (Alterac.MaxConcurrentInstances): if an older AV is
+            // still running, this one stays unlocked instead of bot-filling to max, so
+            // real players keep landing in it instead of spinning up a new instance.
+            // Leaving m_lockTimer at 0 re-arms the timer so this re-checks periodically
+            // (e.g. once the older instance finishes, this one can take over as primary).
+            // PlayerBotMgr::BalanceOverflowAVInstances() tops up the short side if one
+            // team fills up on its own in the meantime. Gated on the config so this is a
+            // no-op (always locks normally) unless the feature is actually turned on.
+            if (GetTypeID() == BATTLEGROUND_AV && sWorld.getConfig(CONFIG_UINT32_AV_MAX_CONCURRENT_INSTANCES) &&
+                sBattleGroundMgr.HasOlderActiveBattleGround(this))
+                sLog.Out(LOG_BG, LOG_LVL_BASIC, "[BG overflow] AV instance %u staying unlocked, older AV instance still running.", GetInstanceID());
+            else
+                LockForNewPlayers();
         }
         else
             m_lockTimer -= diff;

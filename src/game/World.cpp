@@ -786,6 +786,10 @@ void World::LoadConfigSettings(bool reload)
 
     setConfig(CONFIG_UINT32_AV_MIN_PLAYERS_IN_QUEUE, "Alterac.MinPlayersInQueue", 0);
     setConfig(CONFIG_UINT32_AV_INITIAL_MAX_PLAYERS,  "Alterac.InitMaxPlayers", 0);
+    // Caps how many AV instances may run concurrently (0 = unlimited, unchanged behavior).
+    // Once at the cap, the newest instance is kept unlocked instead of bot-filled to max —
+    // see BattleGround::Update()'s lock-timer block and PlayerBotMgr::BalanceOverflowAVInstances().
+    setConfig(CONFIG_UINT32_AV_MAX_CONCURRENT_INSTANCES, "Alterac.MaxConcurrentInstances", 0);
     setConfig(CONFIG_UINT32_BATTLE_ROYALE_MIN_PLAYERS,    "BattleRoyale.MinPlayers",    3);
     setConfig(CONFIG_UINT32_BATTLE_ROYALE_COUNTDOWN_SEC,  "BattleRoyale.CountdownSec",  300);
     setConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG,   "BattleRoyale.MovementDebug",   false);
