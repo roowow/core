@@ -695,7 +695,13 @@ void WorldSession::HandleOpenItemOpcode(WorldPackets::Spell::OpenItem const& pac
         SqlStatement stmt = CharacterDatabase.CreateStatement(delGifts, "DELETE FROM `character_gifts` WHERE `item_guid` = ?");
         stmt.PExecute(pItem->GetGUIDLow());
         */
-        CharacterDatabase.AsyncPQuery(&HandleUnwrapItemCallback, GetAccountId(), pItem->GetGUIDLow(),
+        // *Unsafe*: the callback mutates a live Item/Player, so it must run on the main thread
+        // (Database::ProcessResultQueue()'s _threadUnsafeWaitingQueries path, driven once per
+        // tick from World::Update()), not on SqlResultQueue's worker thread pool - plain
+        // AsyncPQuery() defaults threadSafe=true, which would hand this callback to that pool
+        // and run it concurrently with the main thread's own live game-object access. See
+        // HPHA.md "会不会造成崩溃" for the full trace of why this distinction matters.
+        CharacterDatabase.AsyncPQueryUnsafe(&HandleUnwrapItemCallback, GetAccountId(), pItem->GetGUIDLow(),
             "SELECT `item_id`, `flags` FROM `character_gifts` WHERE `item_guid` = '%u'", pItem->GetGUIDLow());
     }
     else

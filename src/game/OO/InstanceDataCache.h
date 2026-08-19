@@ -28,13 +28,19 @@ struct redisContext;
 // Map::CreateInstanceData()/InstanceData::SaveToDB() for different maps can call
 // into this singleton concurrently from different threads. All access to m_ctx and
 // the reconnect-cooldown state is serialized through m_mutex accordingly.
+//
+// Multi-realm note: if more than one mangosd process shares the same LocalRedis.Socket
+// (e.g. several realms on one box), every key is prefixed with this realm's ID
+// (Initialize()'s realmId param) - without that, two realms' instance/world data would
+// collide on the exact same instance/map IDs (each realm numbers its own independently)
+// and silently serve one realm's cached data to another. See HPHA.md.
 class InstanceDataCache
 {
 public:
     static InstanceDataCache& instance();
 
     // socketPath empty => cache disabled, Get always misses, Set/Del are no-ops.
-    void Initialize(std::string const& socketPath);
+    void Initialize(std::string const& socketPath, uint32 realmId);
     void Shutdown();
 
     // Returns true and fills outData on a cache hit (outData may legitimately be
@@ -57,6 +63,7 @@ private:
 
     std::mutex    m_mutex;      // guards everything below, see thread-safety note above
     std::string   m_socketPath;
+    std::string   m_keyPrefix;  // "realm:<realmId>:", prepended to every key - see multi-realm note above
     bool          m_enabled = false;
     redisContext* m_ctx = nullptr;
     time_t        m_lastFailTime = 0;

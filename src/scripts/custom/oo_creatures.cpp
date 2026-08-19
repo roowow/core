@@ -170,7 +170,14 @@ void SendDefaultMenu_HardcoreNPC2(Player *player, Creature *_Creature, uint32 ac
             // Async: require at least one level-60 character on the same account. This used to
             // be a synchronous PQuery blocking the whole world tick on every hardcore signup
             // attempt. See HandleHardcoreSignupCallback() above for the completion logic.
-            CharacterDatabase.AsyncPQuery(&HandleHardcoreSignupCallback,
+            // *Unsafe*: the callback calls CastSpell()/SetHardcore()/CLOSE_GOSSIP_MENU() on live
+            // Creature/Player objects, so it must run on the main thread (Database::
+            // ProcessResultQueue()'s _threadUnsafeWaitingQueries path, once per tick from
+            // World::Update()) rather than SqlResultQueue's worker thread pool, which is where
+            // plain AsyncPQuery() (threadSafe defaults true) would hand it off to run
+            // concurrently with the main thread's own live game-object access. See HPHA.md
+            // "会不会造成崩溃".
+            CharacterDatabase.AsyncPQueryUnsafe(&HandleHardcoreSignupCallback,
                 player->GetSession()->GetAccountId(), _Creature->GetObjectGuid(),
                 "SELECT 1 FROM `characters` WHERE `account` = %u AND `level` = 60 LIMIT 1",
                 player->GetSession()->GetAccountId());

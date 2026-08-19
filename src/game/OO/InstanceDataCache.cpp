@@ -15,11 +15,12 @@ InstanceDataCache& InstanceDataCache::instance()
     return s;
 }
 
-void InstanceDataCache::Initialize(std::string const& socketPath)
+void InstanceDataCache::Initialize(std::string const& socketPath, uint32 realmId)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
 
     m_socketPath   = socketPath;
+    m_keyPrefix    = "realm:" + std::to_string(realmId) + ":";
     m_enabled      = !socketPath.empty();
     m_lastFailTime = 0;
 
@@ -98,7 +99,7 @@ bool InstanceDataCache::Get(std::string const& key, std::string& outData)
     if (!EnsureConnected())
         return false;
 
-    redisReply* reply = (redisReply*)redisCommand(m_ctx, "GET %s", key.c_str());
+    redisReply* reply = (redisReply*)redisCommand(m_ctx, "GET %s%s", m_keyPrefix.c_str(), key.c_str());
     if (!reply)
     {
         // Command failed on a connection that looked fine (e.g. socket died mid-session).
@@ -123,8 +124,8 @@ void InstanceDataCache::Set(std::string const& key, std::string const& data)
     if (!EnsureConnected())
         return;
 
-    redisReply* reply = (redisReply*)redisCommand(m_ctx, "SET %s %b EX %d",
-        key.c_str(), data.data(), data.size(), INSTANCE_CACHE_TTL_SEC);
+    redisReply* reply = (redisReply*)redisCommand(m_ctx, "SET %s%s %b EX %d",
+        m_keyPrefix.c_str(), key.c_str(), data.data(), data.size(), INSTANCE_CACHE_TTL_SEC);
     if (!reply)
     {
         Disconnect();
@@ -141,7 +142,7 @@ void InstanceDataCache::Del(std::string const& key)
     if (!EnsureConnected())
         return;
 
-    redisReply* reply = (redisReply*)redisCommand(m_ctx, "DEL %s", key.c_str());
+    redisReply* reply = (redisReply*)redisCommand(m_ctx, "DEL %s%s", m_keyPrefix.c_str(), key.c_str());
     if (!reply)
     {
         Disconnect();

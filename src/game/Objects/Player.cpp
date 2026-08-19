@@ -3284,7 +3284,12 @@ void Player::SwitchTalent(uint32 talent)
     // talent switch - a Perf.log trace pinned this down as the direct cause of a full
     // server-wide freeze (map=Zul'Gurub, CMSG_GOSSIP_SELECT_OPTION stalled >1000ms).
     // See HandleSwitchTalentCallback() above for the completion logic.
-    CharacterDatabase.AsyncPQuery(&HandleSwitchTalentCallback, GetSession()->GetAccountId(), talent,
+    // *Unsafe*: the callback calls LearnTalent() on a live Player, so it must run on the main
+    // thread (Database::ProcessResultQueue()'s _threadUnsafeWaitingQueries path, once per tick
+    // from World::Update()) rather than SqlResultQueue's worker thread pool, which is where
+    // plain AsyncPQuery() (threadSafe defaults true) would hand it off to run concurrently with
+    // the main thread's own live game-object access. See HPHA.md "会不会造成崩溃".
+    CharacterDatabase.AsyncPQueryUnsafe(&HandleSwitchTalentCallback, GetSession()->GetAccountId(), talent,
         "SELECT talentid, rank from character_spell_extra WHERE flag = %u and guid = %u order by id",
         talent, GetGUIDLow());
 }

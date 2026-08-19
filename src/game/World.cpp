@@ -1931,7 +1931,10 @@ void World::SetInitialWorldSettings()
     // local Redis is meant to grow into the shared connection behind the whole DB-decoupling
     // effort (see HPHA.md "彻底解耦：数据库 Redis 化") - InstanceDataCache is only the first
     // consumer of it, not the only one long-term.
-    sInstanceDataCache.Initialize(sConfig.GetStringDefault("LocalRedis.Socket", ""));
+    // realmID: without this, two mangosd processes on the same box sharing LocalRedis.Socket
+    // (e.g. multiple realms) would collide on identical instance/map IDs each realm numbers
+    // independently, silently serving one realm's cached data to another.
+    sInstanceDataCache.Initialize(sConfig.GetStringDefault("LocalRedis.Socket", ""), realmID);
 
     // Register AI companion bot after WebChatMgr::Initialize() so SetJianJiaName is not overwritten
     if (uint32 jjGuid = sConfig.GetIntDefault("JianJia.CharGuid", 0))
