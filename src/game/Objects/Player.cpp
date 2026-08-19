@@ -16781,9 +16781,19 @@ InstancePlayerBind* Player::BindToInstance(DungeonPersistentState* state, bool p
         }
         else
         {
+            // ON DUPLICATE KEY UPDATE: `bind.state` being unset here only reflects this Player
+            // object's in-memory m_boundInstances, not necessarily the DB - a prior bind that
+            // hasn't been reloaded into m_boundInstances yet (relog racing an async PExecute
+            // still queued from the old session, etc.) can leave a real row for this
+            // guid+instance already in the table, which turned a plain INSERT into a duplicate-
+            // key error (`DBErrors_*.log`: "Duplicate entry 'guid-instance' for key 'PRIMARY'").
+            // Falling back to an update keeps the row in sync with what we're trying to write
+            // either way, instead of just failing.
             if (!load)
-                CharacterDatabase.PExecute("INSERT INTO `character_instance` (`guid`, `instance`, `permanent`) VALUES ('%u', '%u', '%u')",
-                                           GetGUIDLow(), state->GetInstanceId(), permanent);
+                CharacterDatabase.PExecute(
+                    "INSERT INTO `character_instance` (`guid`, `instance`, `permanent`) VALUES ('%u', '%u', '%u') "
+                    "ON DUPLICATE KEY UPDATE `permanent` = VALUES(`permanent`)",
+                    GetGUIDLow(), state->GetInstanceId(), permanent);
         }
 
         if (bind.state != state)

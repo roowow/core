@@ -79,7 +79,14 @@ bool PlayerSocial::AddToSocialList(ObjectGuid friend_guid, bool ignore)
     }
     else
     {
-        CharacterDatabase.PExecute("INSERT INTO character_social (guid, friend, flags) VALUES ('%u', '%u', '%u')", m_playerLowGuid, friend_guid.GetCounter(), flag);
+        // ON DUPLICATE KEY UPDATE: same class of issue as Player::BindToInstance/Group::BindToInstance
+        // (see HPHA.md "DBErrors_*.log 巡查") - m_playerSocialMap missing this friend_guid only
+        // reflects this in-memory map, not necessarily character_social's actual contents. `flags`
+        // is part of the composite primary key here, so a collision can only happen against a row
+        // that already has this exact flag value - re-OR'ing the same bit onto itself is a no-op,
+        // safe either way.
+        CharacterDatabase.PExecute("INSERT INTO character_social (guid, friend, flags) VALUES ('%u', '%u', '%u') "
+            "ON DUPLICATE KEY UPDATE `flags` = `flags` | %u", m_playerLowGuid, friend_guid.GetCounter(), flag, flag);
         FriendInfo fi;
         fi.Flags |= flag;
         m_playerSocialMap[friend_guid.GetCounter()] = fi;

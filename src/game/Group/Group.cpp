@@ -2294,8 +2294,16 @@ InstanceGroupBind* Group::BindToInstance(DungeonPersistentState* state, bool per
                                                state->GetInstanceId(), permanent, GetLeaderGuid().GetCounter(), bind.state->GetInstanceId());
         }
         else if (!load)
-            CharacterDatabase.PExecute("INSERT INTO `group_instance` (`leader_guid`, `instance`, `permanent`) VALUES ('%u', '%u', '%u')",
-                                       GetLeaderGuid().GetCounter(), state->GetInstanceId(), permanent);
+            // ON DUPLICATE KEY UPDATE: same class of issue as Player::BindToInstance (see
+            // HPHA.md "DBErrors_*.log 巡查") - bind.state being unset here only reflects this
+            // Group object's in-memory m_boundInstances, not necessarily group_instance's
+            // actual contents (leader change timing, a prior bind not yet reflected here,
+            // etc.), so a plain INSERT can hit a real existing row and fail with a duplicate-
+            // key error instead of just correcting it.
+            CharacterDatabase.PExecute(
+                "INSERT INTO `group_instance` (`leader_guid`, `instance`, `permanent`) VALUES ('%u', '%u', '%u') "
+                "ON DUPLICATE KEY UPDATE `permanent` = VALUES(`permanent`)",
+                GetLeaderGuid().GetCounter(), state->GetInstanceId(), permanent);
 
         if (bind.state != state)
         {
