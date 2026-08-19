@@ -72,6 +72,24 @@ static timeval RedisConnectTimeout()
     return tv;
 }
 
+// Bounds redisGetReply() on the *established* publisher connection (m_pubCtx). Without this,
+// RedisConnectTimeout() above only protects the initial TCP handshake - once connected, a
+// socket that goes quiet (packet loss, half-open connection, no clean RST) has no application-
+// level timeout at all, and WriteWebChat()/Publish() run synchronously on the main game thread
+// (called directly from ChatHandler.cpp's chat opcode handlers). That combination would hang
+// the whole server for every player on a degraded-but-not-fully-down link, the same class of
+// bug P0 eliminated for the DB, just moved to WebChat's remote Redis. WebChat messages are not
+// worth protecting for reliability (losing one is fine), so this is deliberately short - it
+// only needs to bound the stall, Publish()'s existing reconnect-and-retry-once already covers
+// the "just missed one message" case.
+static timeval RedisRuntimeTimeout()
+{
+    timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 300000; // 300ms
+    return tv;
+}
+
 WebChatMgr& WebChatMgr::instance()
 {
     static WebChatMgr s;
@@ -112,6 +130,7 @@ void WebChatMgr::Initialize(std::string const& host, int port, uint32 realmId)
         if (m_pubCtx) { redisFree(m_pubCtx); m_pubCtx = nullptr; }
         return;
     }
+    redisSetTimeout(m_pubCtx, RedisRuntimeTimeout());
     m_stop = false;
     m_subThread = std::thread(&WebChatMgr::SubscribeThread, this);
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "WebChatMgr: connected to Redis (realm %u), WebChat enabled.", realmId);
@@ -232,7 +251,10 @@ void WebChatMgr::ReconnectPub()
     m_pubCtx = redisConnectWithTimeout(m_redisHost.c_str(), m_redisPort, RedisConnectTimeout());
     if (m_pubCtx && m_pubCtx->err) { redisFree(m_pubCtx); m_pubCtx = nullptr; }
     if (m_pubCtx)
+    {
+        redisSetTimeout(m_pubCtx, RedisRuntimeTimeout());
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "WebChatMgr: publisher reconnected to Redis.");
+    }
     else
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "WebChatMgr: publisher failed to reconnect to Redis.");
 }
