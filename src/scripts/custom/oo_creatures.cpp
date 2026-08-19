@@ -18,6 +18,15 @@
 #include "custom.h"
 #include "ScriptedAI.h"
 #include "Chat/Chat.h"
+// AsyncPQuery is a template member function - scriptPCH.h only brings in Database.h's
+// declaration, not this header's actual body, so without it the compiler can only emit an
+// external reference for HandleHardcoreSignupCallback's AsyncPQuery<uint32, ObjectGuid> call
+// below, and nothing else in the build happens to instantiate that exact parameter-type
+// combination elsewhere for the linker to resolve it against (unlike SwitchTalent/
+// HandleUnwrapItemCallback's AsyncPQuery<uint32, uint32>, which Player.cpp already instantiates
+// via its own DatabaseImpl.h include, so other TUs calling the identical instantiation link fine
+// without needing the include themselves - this one's parameter types are unique to this file).
+#include "Database/DatabaseImpl.h"
 #include <ctime>
 
 // 说话人名字改用本地化的简体中文名字（DB_LOCALE_zhCN，对应locales_creature.name_loc4），

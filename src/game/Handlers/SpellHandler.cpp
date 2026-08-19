@@ -23,6 +23,12 @@
 #include "DBCStores.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
+// AsyncPQuery is a template - HandleUnwrapItemCallback's AsyncPQuery<uint32, uint32> call below
+// currently only links because Player.cpp happens to instantiate that exact same parameter-type
+// combination elsewhere (it includes this). Including it explicitly here too so this file isn't
+// silently relying on that - see oo_creatures.cpp's AsyncPQuery<uint32, ObjectGuid> for what
+// happens when nothing else in the build instantiates the specific combination needed.
+#include "Database/DatabaseImpl.h"
 #include "SpellMgr.h"
 #include "Log.h"
 #include "Opcodes.h"
