@@ -22,6 +22,7 @@
 #include "GameEventMgr.h"
 #include "World.h"
 #include "ObjectMgr.h"
+#include "OO/DbWriteOutbox.h"
 #include "ObjectGuid.h"
 #include "Creature.h"
 #include "Object.h"
@@ -129,7 +130,16 @@ void GameEventMgr::EnableEvent(uint16 event_id, bool enable)
 
     // change state
     mGameEvent[event_id].disabled = disabled;
-    WorldDatabase.PExecute("UPDATE `game_event` SET `disabled` = '%u' WHERE `entry` = '%u'", disabled, event_id);
+    // Phase2 of the DB-decoupling effort (see HPHA.md) - routed through sWorldOutbox. Already a
+    // single independent absolute UPDATE (no DELETE+INSERT/transaction to unwind, unlike
+    // _SaveVariable() above), so the SQL itself is unchanged - just queued instead of written
+    // directly. mGameEvent[] above is the runtime-authoritative state (IsActiveEvent() and
+    // friends read it, never this table), so the async delay doesn't affect any read path.
+    // Original synchronous write, kept for easy rollback:
+    // WorldDatabase.PExecute("UPDATE `game_event` SET `disabled` = '%u' WHERE `entry` = '%u'", disabled, event_id);
+    char sql[128];
+    snprintf(sql, sizeof(sql), "UPDATE `game_event` SET `disabled` = '%u' WHERE `entry` = '%u'", disabled, event_id);
+    sWorldOutbox.Enqueue(sql);
 
     // we take no action if event needs to be started: GameEvent system will start it for us on its next iteration
     if (!IsActiveEvent(event_id))

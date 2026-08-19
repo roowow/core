@@ -6,6 +6,7 @@
 #include <chrono>
 
 DbWriteOutbox sLogsOutbox;
+DbWriteOutbox sWorldOutbox;
 
 DbWriteOutbox::DbWriteOutbox() = default;
 

@@ -22,6 +22,7 @@
 #include "ObjectMgr.h"
 #include "Database/DatabaseEnv.h"
 #include "Database/DatabaseImpl.h"
+#include "OO/DbWriteOutbox.h"
 #include "Database/SQLStorageImpl.h"
 #include "Policies/SingletonImp.h"
 #include "SQLStorages.h"
@@ -571,12 +572,29 @@ SavedVariable& ObjectMgr::_InsertVariable(uint32 index, uint32 value, bool saved
 
 void ObjectMgr::_SaveVariable(SavedVariable const& toSave)
 {
-    // Must do this in a transaction, else if worker threads > 1 we could do one before the other
-    // when order is important...
-    WorldDatabase.BeginTransaction();
-    WorldDatabase.PExecute("DELETE FROM `variables` WHERE `index` = %u", toSave.uiIndex);
-    WorldDatabase.PExecute("INSERT INTO `variables` (`index`, `value`) VALUES (%u, %u)", toSave.uiIndex, toSave.uiValue);
-    WorldDatabase.CommitTransaction();
+    // Phase2 of the DB-decoupling effort (see HPHA.md "彻底解耦：数据库 Redis 化") - routed
+    // through sWorldOutbox instead of a direct WorldDatabase write, so a multi-hour MariaDB
+    // outage doesn't silently lose world-event state. Rewritten from the old DELETE+INSERT+
+    // transaction (which existed only to keep the two statements atomic - "worker threads > 1
+    // could do one before the other") into a single upsert: DbWriteOutbox's Flusher runs on its
+    // own independent connection and can't safely share Database::BeginTransaction()'s single
+    // (non-thread-local) m_currentTransaction with the rest of the game, so every entry must be
+    // a single, independent statement - same reasoning as Phase1's instance_* tables. Confirmed
+    // via `SHOW CREATE TABLE variables` that `index` is the PRIMARY KEY, so ON DUPLICATE KEY
+    // UPDATE targets the same row the old DELETE+INSERT pair did.
+    // m_SavedVariables (updated by the caller before this runs) is the runtime-authoritative
+    // copy - this DB write is pure persistence for surviving a restart, so the async delay
+    // introduced by the Outbox doesn't affect any read path (nothing re-reads this table live).
+    // Original synchronous write, kept for easy rollback:
+    // WorldDatabase.BeginTransaction();
+    // WorldDatabase.PExecute("DELETE FROM `variables` WHERE `index` = %u", toSave.uiIndex);
+    // WorldDatabase.PExecute("INSERT INTO `variables` (`index`, `value`) VALUES (%u, %u)", toSave.uiIndex, toSave.uiValue);
+    // WorldDatabase.CommitTransaction();
+    char sql[128];
+    snprintf(sql, sizeof(sql),
+        "INSERT INTO `variables` (`index`, `value`) VALUES (%u, %u) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)",
+        toSave.uiIndex, toSave.uiValue);
+    sWorldOutbox.Enqueue(sql);
 }
 
 void ObjectMgr::InitSavedVariable(uint32 index, uint32 value)
@@ -10987,7 +11005,29 @@ void ObjectMgr::AddVendorItem(uint32 entry, uint32 item, uint32 maxcount, uint32
     VendorItemData& vList = m_CacheVendorItemMap[entry];
     vList.AddItem(item, maxcount, incrtime, itemflags, 0);
 
-    WorldDatabase.PExecuteLog("INSERT INTO `npc_vendor` (`entry`, `item`, `maxcount`, `incrtime`, `itemflags`) VALUES('%u','%u','%u','%u','%u')", entry, item, maxcount, incrtime, itemflags);
+    // Phase2 (see HPHA.md) - routed through sWorldOutbox, same reasoning as _SaveVariable()
+    // above. Callers include both GM commands (.npc vendoradditem) and the guild-bank-vendor
+    // hot path (ItemHandler.cpp's deposit flow) - both benefit, no need to special-case either.
+    // Added ON DUPLICATE KEY UPDATE (wasn't there before, plain INSERT): confirmed via
+    // `SHOW CREATE TABLE npc_vendor` that the primary key is (entry, item), and a plain INSERT
+    // would fail outright on retry/replay of the same (entry, item) pair - which the old
+    // synchronous-only path never had to worry about since it either fully succeeded or the
+    // caller saw the failure immediately, but an Outbox entry has no caller left to see it.
+    // Trade-off: this drops PExecuteLog's optional LogSQL audit-file entry for this one write
+    // (Enqueue() has no equivalent) - LogSQL defaults off and this was never the row's primary
+    // audit trail (character_log_guildbank already logs the deposit itself), so not replicating
+    // it here is a deliberate simplification, not an oversight.
+    // 320 bytes: 5 uint32 placeholders at worst case (10 digits each) still leaves margin over
+    // the ~235-byte template - snprintf truncates safely rather than overflowing, but a
+    // truncated INSERT would just fail as invalid SQL, so size for the real worst case anyway.
+    // Original synchronous write, kept for easy rollback:
+    // WorldDatabase.PExecuteLog("INSERT INTO `npc_vendor` (`entry`, `item`, `maxcount`, `incrtime`, `itemflags`) VALUES('%u','%u','%u','%u','%u')", entry, item, maxcount, incrtime, itemflags);
+    char sql[320];
+    snprintf(sql, sizeof(sql),
+        "INSERT INTO `npc_vendor` (`entry`, `item`, `maxcount`, `incrtime`, `itemflags`) VALUES('%u','%u','%u','%u','%u') "
+        "ON DUPLICATE KEY UPDATE `maxcount` = VALUES(`maxcount`), `incrtime` = VALUES(`incrtime`), `itemflags` = VALUES(`itemflags`)",
+        entry, item, maxcount, incrtime, itemflags);
+    sWorldOutbox.Enqueue(sql);
 }
 
 bool ObjectMgr::RemoveVendorItem(uint32 entry, uint32 item)

@@ -148,8 +148,12 @@ private:
     static uint32 const RECONNECT_COOLDOWN_SEC = 30;
 };
 
-// Phase1 (see HPHA.md): the only current instance, fronting LogsDatabase for
-// InstanceStatistics.cpp. Phase2 will add a separate instance (its own streamKey) in front of
-// CharacterDatabase - DbWriteOutbox itself stays a plain reusable class, not a singleton,
-// since more than one target Database will eventually need one.
+// Phase1 (see HPHA.md): fronts LogsDatabase for InstanceStatistics.cpp.
 extern DbWriteOutbox sLogsOutbox;
+
+// Phase2 (see HPHA.md): fronts WorldDatabase for the handful of runtime (not GM-command-only)
+// writes identified there - ObjectMgr::_SaveVariable() (`variables`), GameEventMgr::EnableEvent()
+// (`game_event`), the guild-bank-vendor `npc_vendor` writes in Player.cpp/ItemHandler.cpp.
+// DbWriteOutbox itself stays a plain reusable class, not a singleton - Phase3 (characters) will
+// add a third instance the same way.
+extern DbWriteOutbox sWorldOutbox;

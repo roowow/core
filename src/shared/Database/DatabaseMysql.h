@@ -93,6 +93,19 @@ class MySQLConnection : public SqlConnection
         bool CommitTransaction() override;
         bool RollbackTransaction() override;
 
+        // Actively verifies the connection is genuinely usable (a real round trip via
+        // mysql_ping(), not just "is the handle non-null") - deliberately NOT the same as
+        // checking whether HandleMySQLError() happened to close mMysql, because that only
+        // covers the 3 specific CR_SERVER_* codes it special-cases; any other connection-
+        // related error it doesn't recognize falls into its `default:` branch and leaves
+        // mMysql set without the connection actually working, which a "is the handle still
+        // non-null" check would silently misreport as fine (see HPHA.md's "会不会误判" entry).
+        // Used by DbWriteOutbox's Flusher to tell "MariaDB unreachable, keep retrying forever"
+        // apart from "this specific statement is permanently invalid, retrying it forever would
+        // just stall the whole queue" without needing to plumb the raw MySQL errno out through
+        // Execute()'s bool.
+        bool Ping() { return mMysql && mysql_ping(mMysql) == 0; }
+
     protected:
         SqlPreparedStatement* CreateStatement(std::string const& fmt) override;
 

@@ -81,6 +81,7 @@
 #include "PlayerBroadcaster.h"
 #include "CharacterDatabaseCache.h"
 #include "OO/WebChatMgr.h"
+#include "OO/DbWriteOutbox.h"
 #include "GameEventMgr.h"
 #include "world/scourge_invasion.h"
 #include "world/world_event_wareffort.h"
@@ -19720,7 +19721,16 @@ bool Player::BuyItemFromGuildVendor(ObjectGuid vendorGuid, uint32 item, uint8 co
         CharacterDatabase.PExecute("INSERT INTO `character_log_guildbank` (`guid`, `name`, `vendor`, `item`, `count`, `type`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Withdraw', '%u', '%u', '%f', '%f', '%f', '%s')",
             GetGUIDLow(), GetName(), pCreature->GetEntry(), item, totalCount, GetZoneId(), GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetSession()->GetRemoteAddress().c_str());
 
-        WorldDatabase.PExecute("UPDATE `npc_vendor` SET `maxcount` = '%u' WHERE `npc_vendor`.`entry` = %u AND `npc_vendor`.`item` = %u;", latestCount, pCreature->GetEntry(), item);
+        // Phase2 of the DB-decoupling effort (see HPHA.md) - routed through sWorldOutbox.
+        // Already a single independent absolute UPDATE, SQL unchanged, just queued instead of
+        // written directly. sOOMgr.OOGuildBankVendorItems (updated above) and crItem->maxcount
+        // are the runtime-authoritative state for this feature - this write is pure persistence,
+        // so the async delay doesn't affect what any player sees.
+        // Original synchronous write, kept for easy rollback:
+        // WorldDatabase.PExecute("UPDATE `npc_vendor` SET `maxcount` = '%u' WHERE `npc_vendor`.`entry` = %u AND `npc_vendor`.`item` = %u;", latestCount, pCreature->GetEntry(), item);
+        char sql[160];
+        snprintf(sql, sizeof(sql), "UPDATE `npc_vendor` SET `maxcount` = '%u' WHERE `npc_vendor`.`entry` = %u AND `npc_vendor`.`item` = %u;", latestCount, pCreature->GetEntry(), item);
+        sWorldOutbox.Enqueue(sql);
     }
 
     return crItem->maxcount != 0;

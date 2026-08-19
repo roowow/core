@@ -319,40 +319,45 @@ bool ChatHandler::HandleServerInfoCommand(char* /*args*/)
 }
 
 // Status of the DbWriteOutbox durable write queue(s) - see HPHA.md "彻底解耦：数据库 Redis 化".
-// Currently just sLogsOutbox (Phase1, fronting LogsDatabase); Phase2 will add more instances,
-// at which point this should loop over all of them instead of hardcoding just this one.
-bool ChatHandler::HandleServerDbOutboxCommand(char* /*args*/)
+static void PrintDbOutboxStatus(ChatHandler* handler, char const* label, DbWriteOutbox& outbox)
 {
-    DbWriteOutbox::Status s = sLogsOutbox.GetStatus();
+    DbWriteOutbox::Status s = outbox.GetStatus();
 
-    PSendSysMessage("[DbWriteOutbox: logs]");
+    handler->PSendSysMessage("[DbWriteOutbox: %s]", label);
     if (!s.enabled)
     {
-        SendSysMessage("状态：未启用（LocalRedis.Socket 未配置），写入直接走数据库，跟没有这套机制之前完全一样。");
-        return true;
+        handler->SendSysMessage("状态：未启用（LocalRedis.Socket 未配置），写入直接走数据库，跟没有这套机制之前完全一样。");
+        return;
     }
 
-    PSendSysMessage("Redis 连接 - 写入端: %s，Flusher: %s",
+    handler->PSendSysMessage("Redis 连接 - 写入端: %s，Flusher: %s",
                      s.enqueueRedisConnected ? "已连接" : "未连接",
                      s.flusherRedisConnected ? "已连接" : "未连接");
-    PSendSysMessage("MariaDB 连接 - Flusher: %s", s.flusherMysqlConnected ? "已连接" : "未连接");
+    handler->PSendSysMessage("MariaDB 连接 - Flusher: %s", s.flusherMysqlConnected ? "已连接" : "未连接");
 
     if (s.streamLength >= 0)
-        PSendSysMessage("Stream 总长度: " SI64FMTD " 条", s.streamLength);
+        handler->PSendSysMessage("Stream 总长度: " SI64FMTD " 条", s.streamLength);
     else
-        PSendSysMessage("Stream 总长度: 查询失败（Redis 连不上）");
+        handler->PSendSysMessage("Stream 总长度: 查询失败（Redis 连不上）");
 
     if (s.pendingCount >= 0)
-        PSendSysMessage("待处理(pending): " SI64FMTD " 条", s.pendingCount);
+        handler->PSendSysMessage("待处理(pending): " SI64FMTD " 条", s.pendingCount);
     else
-        PSendSysMessage("待处理(pending): 查询失败（Redis 连不上，或 consumer group 还没建立）");
+        handler->PSendSysMessage("待处理(pending): 查询失败（Redis 连不上，或 consumer group 还没建立）");
 
-    PSendSysMessage("累计(自服务器启动) - 入队: " UI64FMTD "，降级直写: " UI64FMTD "，成功落库: " UI64FMTD "，永久丢弃: " UI64FMTD,
+    handler->PSendSysMessage("累计(自服务器启动) - 入队: " UI64FMTD "，降级直写: " UI64FMTD "，成功落库: " UI64FMTD "，永久丢弃: " UI64FMTD,
                      s.totalEnqueued, s.totalFallbackDirect, s.totalApplied, s.totalDropped);
 
     if (s.totalDropped > 0)
-        PSendSysMessage("|cFFFF0000有条目被永久丢弃过，去 DbOutbox.log 看详情。|r");
+        handler->PSendSysMessage("|cFFFF0000有条目被永久丢弃过，去 DbOutbox.log 看详情。|r");
+}
 
+bool ChatHandler::HandleServerDbOutboxCommand(char* /*args*/)
+{
+    // Phase2 added sWorldOutbox alongside Phase1's sLogsOutbox; Phase3 (characters) will add a
+    // third the same way - just extend this list, PrintDbOutboxStatus() already loops per-call.
+    PrintDbOutboxStatus(this, "logs", sLogsOutbox);
+    PrintDbOutboxStatus(this, "world", sWorldOutbox);
     return true;
 }
 
