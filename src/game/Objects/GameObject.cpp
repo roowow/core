@@ -163,7 +163,21 @@ void GameObject::RemoveFromWorld()
         // Remove GO from owner
         if (ObjectGuid owner_guid = GetOwnerGuid())
         {
-            if (Unit* owner = ObjectAccessor::GetUnit(*this, owner_guid))
+            Unit* owner = ObjectAccessor::GetUnit(*this, owner_guid);
+            // ObjectAccessor::GetUnit() -> FindPlayer() requires the owner to still be
+            // IsInWorld(). A player mid-logout (already pulled off the map, but the Player
+            // object itself not yet destroyed) fails that check - even though m_spellGameObjects
+            // is still a perfectly valid, live list that the rest of the logout sequence (or any
+            // other code touching this player) will walk again later. Skipping the unlink below
+            // in that case leaves a dangling GameObject* in that list - a real use-after-free the
+            // next time anything iterates m_spellGameObjects (Unit::Update(),
+            // RemoveAllGameObjects(), the ~Unit() empty-list assert). FindPlayerNotInWorld()
+            // doesn't have that gate - it just looks the Player object up by guid regardless of
+            // map placement, which is all RemoveGameObject() below actually needs.
+            if (!owner && owner_guid.IsPlayer())
+                owner = ObjectAccessor::FindPlayerNotInWorld(owner_guid);
+
+            if (owner)
                 owner->RemoveGameObject(this, false);
             else
             {

@@ -4638,7 +4638,11 @@ struct MineNPC_AI : public ScriptedAI
     }
     void Aggro(Unit* pWho) override
     {
-        m_creature->SetInCombatWithZone();
+        // SetInCombatWithZone() is a no-op outside dungeons (Creature::SetInCombatWithZone()
+        // bails on !pMap->IsDungeon()) - this NPC only ever spawns in Alterac Valley (a
+        // battleground, not an instance), so this call has never actually done anything here,
+        // it only spammed "...for map (id: 30) that isn't an instance." to Server.log on every
+        // mine trigger. Removed rather than kept as dead code.
     }
     void UpdateAI(uint32 const uiDiff) override
     {
