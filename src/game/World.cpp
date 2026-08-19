@@ -26,6 +26,7 @@
 #include "World.h"
 #include "OO/WebChatMgr.h"
 #include "OO/InstanceDataCache.h"
+#include "OO/DbWriteOutbox.h"
 #include "OO/JianJiaAI.h"
 #include "Database/DatabaseEnv.h"
 #include "Config/Config.h"
@@ -207,6 +208,7 @@ void World::Shutdown()
 {
     sWebChatMgr.Shutdown();
     sInstanceDataCache.Shutdown();
+    sLogsOutbox.Shutdown();
     sPlayerBotMgr.DeleteAll();
     KickAll();                                     // save and kick all players
     UpdateSessions(1);                             // real players unload required UpdateSessions call
@@ -1935,6 +1937,17 @@ void World::SetInitialWorldSettings()
     // (e.g. multiple realms) would collide on identical instance/map IDs each realm numbers
     // independently, silently serving one realm's cached data to another.
     sInstanceDataCache.Initialize(sConfig.GetStringDefault("LocalRedis.Socket", ""), realmID);
+
+    // Phase1 of the DB-decoupling effort (see HPHA.md) - durable write queue in front of
+    // LogsDatabase, currently used by InstanceStatistics.cpp. Same LocalRedis.Socket as
+    // InstanceDataCache above (one local Redis, several consumers). dbConnectionInfo is read
+    // again here (Master.cpp's StartDB() already read it once to initialize LogsDatabase
+    // itself) because the Flusher needs its own independent MySQL connection, not
+    // LogsDatabase's shared one - see DbWriteOutbox.h for why. The stream key is namespaced
+    // with realmID so two mangosd processes sharing LocalRedis.Socket never mix their queues
+    // (each realm normally points at its own Logs database, e.g. logsdev vs logs2).
+    sLogsOutbox.Initialize(sConfig.GetStringDefault("LocalRedis.Socket", ""), "outbox:logs:" + std::to_string(realmID),
+                           LogsDatabase, sConfig.GetStringDefault("LogsDatabase.Info", ""));
 
     // Register AI companion bot after WebChatMgr::Initialize() so SetJianJiaName is not overwritten
     if (uint32 jjGuid = sConfig.GetIntDefault("JianJia.CharGuid", 0))

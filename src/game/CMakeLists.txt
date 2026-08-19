@@ -30,6 +30,8 @@ set (game_SRCS
     OO/WebChatMgr.h
     OO/InstanceDataCache.cpp
     OO/InstanceDataCache.h
+    OO/DbWriteOutbox.cpp
+    OO/DbWriteOutbox.h
     OO/JianJiaAI.cpp
     OO/JianJiaAI.h
     Camera.cpp

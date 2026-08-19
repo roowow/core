@@ -24,6 +24,7 @@
 #include "Creature.h"
 #include "SpellEntry.h"
 #include "ProgressBar.h"
+#include "OO/DbWriteOutbox.h"
 
 INSTANTIATE_SINGLETON_1(InstanceStatisticsMgr);
 
@@ -220,27 +221,41 @@ void InstanceStatisticsMgr::IncrementCustomCounter(eInstanceCustomCounter index,
 
     if (save)
     {
-        LogsDatabase.BeginTransaction();
-        LogsDatabase.PExecute("DELETE FROM `instance_custom_counters` WHERE `index` = %u", index);
-        LogsDatabase.PExecute("INSERT INTO `instance_custom_counters` (`index`, `count`) VALUES (%u, %u)", index, count);
-        LogsDatabase.CommitTransaction();
+        // Phase1 of the DB-decoupling effort (see HPHA.md "彻底解耦：数据库 Redis 化") - routed
+        // through sLogsOutbox instead of a direct LogsDatabase write, so this survives a
+        // MariaDB outage of hours instead of silently vanishing. Rewritten from the old
+        // DELETE+INSERT+transaction into one upsert: DbWriteOutbox's Flusher runs on its own
+        // independent connection and can't safely share Database::BeginTransaction()'s single
+        // (non-thread-local) m_currentTransaction with the rest of the game, so every entry
+        // must be a single, independent statement. instance_custom_counters is MyISAM anyway
+        // (no real transaction support), so the old BeginTransaction/CommitTransaction wrapper
+        // was never actually atomic here in the first place.
+        char sql[320];
+        snprintf(sql, sizeof(sql),
+            "INSERT INTO `instance_custom_counters` (`index`, `count`) VALUES (%u, %u) "
+            "ON DUPLICATE KEY UPDATE `count` = VALUES(`count`)", index, count);
+        sLogsOutbox.Enqueue(sql);
     }
 }
 
 void InstanceStatisticsMgr::Save(uint32 mapId, uint32 creatureEntry, uint32 spellId, uint32 count)
 {
-    LogsDatabase.BeginTransaction();
-    LogsDatabase.PExecute("DELETE FROM `instance_creature_kills` WHERE `mapId` = %u and `creatureEntry` = %u and `spellEntry` = %u",
-        mapId, creatureEntry, spellId);
-    LogsDatabase.PExecute("INSERT INTO `instance_creature_kills` (`mapId`, `creatureEntry`, `spellEntry`, `count`) VALUES (%u, %u, %u, %u)",
-        mapId, creatureEntry, spellId, count);
-    LogsDatabase.CommitTransaction();
+    // See IncrementCustomCounter() above for why this is a single upsert through sLogsOutbox
+    // instead of DELETE+INSERT+transaction.
+    char sql[320];
+    snprintf(sql, sizeof(sql),
+        "INSERT INTO `instance_creature_kills` (`mapId`, `creatureEntry`, `spellEntry`, `count`) VALUES (%u, %u, %u, %u) "
+        "ON DUPLICATE KEY UPDATE `count` = VALUES(`count`)", mapId, creatureEntry, spellId, count);
+    sLogsOutbox.Enqueue(sql);
 }
 
 void InstanceStatisticsMgr::Save(uint32 mapId, uint32 creatureEntry, uint32 count)
 {
-    LogsDatabase.BeginTransaction();
-    LogsDatabase.PExecute("DELETE FROM `instance_wipes` WHERE `mapId` = %u and `creatureEntry` = %u",  mapId, creatureEntry);
-    LogsDatabase.PExecute("INSERT INTO `instance_wipes` (`mapId`, `creatureEntry`, `count`) VALUES (%u, %u, %u)", mapId, creatureEntry, count);
-    LogsDatabase.CommitTransaction();
+    // See IncrementCustomCounter() above for why this is a single upsert through sLogsOutbox
+    // instead of DELETE+INSERT+transaction.
+    char sql[320];
+    snprintf(sql, sizeof(sql),
+        "INSERT INTO `instance_wipes` (`mapId`, `creatureEntry`, `count`) VALUES (%u, %u, %u) "
+        "ON DUPLICATE KEY UPDATE `count` = VALUES(`count`)", mapId, creatureEntry, count);
+    sLogsOutbox.Enqueue(sql);
 }

@@ -25,6 +25,7 @@
 #include "AccountMgr.h"
 #include "ObjectMgr.h"
 #include "OO/OOMgr.h"
+#include "OO/DbWriteOutbox.h"
 #include "ScriptMgr.h"
 #include "GuildMgr.h"
 #include "SystemConfig.h"
@@ -313,6 +314,44 @@ bool ChatHandler::HandleServerInfoCommand(char* /*args*/)
     SendSysMessage("版本：OOWOW v60.1.0 / 2025-09-01");
     PSendSysMessage("系统：Solaris 10 / SPARC T4-2 / 8 x 2.85 GHz / 512 GB");
     PSendSysMessage(LANG_UPTIME, str.c_str());
+
+    return true;
+}
+
+// Status of the DbWriteOutbox durable write queue(s) - see HPHA.md "彻底解耦：数据库 Redis 化".
+// Currently just sLogsOutbox (Phase1, fronting LogsDatabase); Phase2 will add more instances,
+// at which point this should loop over all of them instead of hardcoding just this one.
+bool ChatHandler::HandleServerDbOutboxCommand(char* /*args*/)
+{
+    DbWriteOutbox::Status s = sLogsOutbox.GetStatus();
+
+    PSendSysMessage("[DbWriteOutbox: logs]");
+    if (!s.enabled)
+    {
+        SendSysMessage("状态：未启用（LocalRedis.Socket 未配置），写入直接走数据库，跟没有这套机制之前完全一样。");
+        return true;
+    }
+
+    PSendSysMessage("Redis 连接 - 写入端: %s，Flusher: %s",
+                     s.enqueueRedisConnected ? "已连接" : "未连接",
+                     s.flusherRedisConnected ? "已连接" : "未连接");
+    PSendSysMessage("MariaDB 连接 - Flusher: %s", s.flusherMysqlConnected ? "已连接" : "未连接");
+
+    if (s.streamLength >= 0)
+        PSendSysMessage("Stream 总长度: " SI64FMTD " 条", s.streamLength);
+    else
+        PSendSysMessage("Stream 总长度: 查询失败（Redis 连不上）");
+
+    if (s.pendingCount >= 0)
+        PSendSysMessage("待处理(pending): " SI64FMTD " 条", s.pendingCount);
+    else
+        PSendSysMessage("待处理(pending): 查询失败（Redis 连不上，或 consumer group 还没建立）");
+
+    PSendSysMessage("累计(自服务器启动) - 入队: " UI64FMTD "，降级直写: " UI64FMTD "，成功落库: " UI64FMTD "，永久丢弃: " UI64FMTD,
+                     s.totalEnqueued, s.totalFallbackDirect, s.totalApplied, s.totalDropped);
+
+    if (s.totalDropped > 0)
+        PSendSysMessage("|cFFFF0000有条目被永久丢弃过，去 DbOutbox.log 看详情。|r");
 
     return true;
 }

@@ -1021,6 +1021,7 @@ ChatCommand * ChatHandler::getCommandTable()
     static ChatCommand serverCommandTable[] =
     {
         { "corpses",        SEC_ADMINISTRATOR,  true,  &ChatHandler::HandleServerCorpsesCommand,       "", nullptr },
+        { "dboutbox",       SEC_ADMINISTRATOR,  true,  &ChatHandler::HandleServerDbOutboxCommand,      "", nullptr },
         { "exit",           SEC_CONSOLE,        true,  &ChatHandler::HandleServerExitCommand,          "", nullptr },
         { "idlerestart",    SEC_ADMINISTRATOR,  true, nullptr,                                         "", serverIdleRestartCommandTable },
         { "idleshutdown",   SEC_ADMINISTRATOR,  true, nullptr,                                         "", serverIdleShutdownCommandTable },
