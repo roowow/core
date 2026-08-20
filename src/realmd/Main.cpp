@@ -33,6 +33,7 @@
 #include "Errors.h"
 #include "AuthSocket.h"
 #include "LoginThrottle.h"
+#include "DbHealthMonitor.h"
 #include "SystemConfig.h"
 #include "revision.h"
 #include "Util.h"
@@ -176,6 +177,11 @@ extern int main(int argc, char** argv)
         Log::WaitBeforeContinueIfNeed();
         return 1;
     }
+
+    // See HPHA.md "熔断 + 错误区分设计" - independent background probe of LoginDatabase, used
+    // by AuthSocket.cpp to fail new login attempts fast (instead of each one blocking realmd's
+    // single IO thread on a MySQL reconnect attempt) when the database is genuinely down.
+    StartDbHealthMonitor(sConfig.GetStringDefault("LoginDatabaseInfo", ""));
 
     // Ensure the table used for geolocking has some data in it, if enabled
     if (sConfig.GetBoolDefault("GeoLocking", false))
@@ -370,6 +376,8 @@ extern int main(int argc, char** argv)
 
     // Wait for the delay thread to exit
     LoginDatabase.HaltDelayThread();
+
+    StopDbHealthMonitor();
 
     // Remove signal handling before leaving
     UnhookSignals();

@@ -298,6 +298,16 @@ bool MySQLConnection::Execute(std::string const& sql)
 
 bool MySQLConnection::_TransactionCmd(std::string const& sql)
 {
+    // Unlike Execute() (which already has this check), _TransactionCmd() used to call
+    // mysql_query() unconditionally - if a prior query on this connection died with
+    // CR_SERVER_GONE_ERROR/CR_SERVER_LOST and the follow-up Reconnect() also failed (MariaDB
+    // still down), mMysql is left null and this would pass a null MYSQL* straight into
+    // mysql_query(), segfaulting inside libmysqlclient. Hit in practice: a queued SqlTransaction
+    // (BeginTransaction/.../CommitTransaction) picked up by SqlDelayThread after the connection
+    // had already gone null crashed the whole process on BeginTransaction().
+    if (!mMysql)
+        return false;
+
     if (mysql_query(mMysql, sql.c_str()))
     {
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "SQL: %s", sql.c_str());

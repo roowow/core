@@ -34,6 +34,7 @@
 #include "AuthSocket.h"
 #include "AuthCodes.h"
 #include "LoginThrottle.h"
+#include "DbHealthMonitor.h"
 #include "Util.h"
 #include "ClientPatchCache.h"
 #include "Memory/NoDeleter.h"
@@ -334,6 +335,25 @@ void AuthSocket::_HandleLogonChallenge()
         *pkt << (uint8) 0x00;
 
         std::string clientIpAddress = self->GetRemoteIpString();
+
+        // See HPHA.md "熔断 + 错误区分设计" - fail fast instead of touching a database that's
+        // known to be down (avoids a blocking reconnect attempt on this IO thread for every
+        // login attempt during an outage, and avoids misreporting the outage as "unknown
+        // account" the way a failed PQuery below would).
+        if (!IsLoginDatabaseHealthy())
+        {
+            *pkt << uint8(WOW_FAIL_DB_BUSY);
+            sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[AuthChallenge] LoginDatabase unhealthy, rejecting login attempt for '%s'", self->m_login.c_str());
+
+            self->m_socket.Write(std::move(pkt), [self](IO::NetworkError const& error)
+            {
+                if (error)
+                    sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "_HandleLogonChallenge self->Write() Error: %s", error.ToString().c_str());
+                else
+                    self->DoRecvIncomingData();
+            });
+            return;
+        }
 
         // Check if the IP is banned
         std::string safeIp = clientIpAddress;
@@ -742,6 +762,26 @@ void AuthSocket::_HandleLogonProof__PostRecv(std::shared_ptr<sAuthLogonProof_C c
     // Check if SRP6 results match (password is correct), else send an error
     if (!srp.Proof(lp->M1, 20) && pinResult)
     {
+        // See HPHA.md "熔断 + 错误区分设计" - the sessionkey UPDATE just below is intentionally
+        // synchronous (DbExecMode::MustBeSync, see its own comment) and would otherwise be the
+        // one spot in this whole handshake that still blocks this IO thread on a doomed MySQL
+        // reconnect attempt if the database just went down between the Challenge and this Proof
+        // step. Checking here doesn't change that write's sync/async nature - it just skips
+        // attempting it (and its blocking cost) when we already know it would fail.
+        if (!IsLoginDatabaseHealthy())
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[AuthChallenge] LoginDatabase unhealthy, rejecting login proof for '%s'", m_login.c_str());
+
+            std::shared_ptr<ByteBuffer> pkt(new ByteBuffer());
+            *pkt << (uint8) CMD_AUTH_LOGON_PROOF;
+            *pkt << (uint8) WOW_FAIL_DB_BUSY;
+            m_socket.Write(std::move(pkt), [self = shared_from_this()](IO::NetworkError const& error)
+            {
+                self->DoRecvIncomingData();
+            });
+            return;
+        }
+
         if (!VerifyVersion(lp->A, sizeof(lp->A), lp->crc_hash, false))
         {
             sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[AuthChallenge] Account %s tried to login with modified client!", m_login.c_str());
@@ -878,6 +918,25 @@ void AuthSocket::_HandleReconnectChallenge()
 
     ReadChallengeRequest("ReconnectChallenge", [self = shared_from_this()](std::shared_ptr<sAuthLogonChallengeBody> const& body) -> void
     {
+        // See HPHA.md "熔断 + 错误区分设计" - fail fast with an explicit error instead of
+        // letting a doomed PQuery below block this IO thread on a reconnect attempt, then
+        // silently closing the socket (the existing "account not found" branch here has no
+        // error packet at all - WOW_FAIL_DB_BUSY is strictly more informative for the client).
+        if (!IsLoginDatabaseHealthy())
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[ReconnectChallenge] LoginDatabase unhealthy, rejecting reconnect attempt for '%s'", self->m_login.c_str());
+
+            std::shared_ptr<ByteBuffer> pkt = std::make_shared<ByteBuffer>();
+            *pkt << (uint8)CMD_AUTH_RECONNECT_CHALLENGE;
+            *pkt << (uint8)WOW_FAIL_DB_BUSY;
+            self->m_socket.Write(std::move(pkt), [self](IO::NetworkError const& error)
+            {
+                if (error)
+                    sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "_HandleReconnectChallenge self->Write() Error: %s", error.ToString().c_str());
+            });
+            return;
+        }
+
         std::unique_ptr<QueryResult> queryResult = LoginDatabase.PQuery("SELECT `sessionkey`, `id` FROM `account` WHERE `username` = '%s'", self->m_safelogin.c_str());
 
         // Stop if the account is not found

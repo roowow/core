@@ -22,6 +22,8 @@ set(EXECUTABLE_SRCS
   AuthSocket.h
   LoginThrottle.h
   LoginThrottle.cpp
+  DbHealthMonitor.h
+  DbHealthMonitor.cpp
   RealmList.h
   AuthSocket.cpp
   RealmList.cpp

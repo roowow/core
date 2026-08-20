@@ -207,3 +207,20 @@ MaxSessionDuration = 300
 
 WrongPass.MaxAttempts = 10
 WrongPass.ThrottleWindowDurationSec = 60
+
+###################################################################################################################
+#    DB HEALTH MONITOR SETTINGS
+#
+#    Independent background probe of LoginDatabase (its own connection, separate from the
+#    connection used to serve real logon queries) - lets realmd fail new login/reconnect
+#    attempts fast with an honest "try again later" once the database is confirmed down,
+#    instead of every attempt blocking realmd's IO thread on its own doomed reconnect attempt.
+#    See HPHA.md "熔断 + 错误区分设计" in the game core repo for the full design rationale.
+#
+#    DbHealthMonitor.ProbeIntervalSec
+#        How often (in seconds) to ping LoginDatabase in the background.
+#        Default: 3
+#
+###################################################################################################################
+
+DbHealthMonitor.ProbeIntervalSec = 3

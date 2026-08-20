@@ -31,6 +31,7 @@
 #include "Errors.h"
 #include "Policies/SingletonImp.h"
 #include "Database/DatabaseEnv.h"
+#include "DbHealthMonitor.h"
 #include "IO/Networking/DNS.h"
 #include "IO/Networking/Utils.h"
 
@@ -152,6 +153,16 @@ void RealmList::UpdateIfNeed()
 {
     // maybe disabled or updated recently
     if(!m_UpdateInterval || m_NextUpdateTime > time(nullptr))
+        return;
+
+    // See HPHA.md "熔断 + 错误区分设计" - skip the refresh entirely while the database is known
+    // to be down, rather than clearing m_realms below and leaving it empty until the next
+    // successful refresh - every client currently viewing the realm selection screen would
+    // otherwise see an empty server list, not just the ones trying to log in during the outage.
+    // Checked before m_NextUpdateTime is advanced below, so once the database recovers the very
+    // next request retries immediately instead of waiting out whatever's left of an interval
+    // that a skipped attempt would otherwise have consumed.
+    if (!IsLoginDatabaseHealthy())
         return;
 
     m_NextUpdateTime = time(nullptr) + m_UpdateInterval;
