@@ -20,6 +20,7 @@
 #include "LootMgr.h"
 #include "ObjectAccessor.h"
 #include "Database/DatabaseEnv.h"
+#include "OO/DbWriteOutbox.h"
 
 #include "Utilities/Random.h"
 #include <algorithm>
@@ -1278,7 +1279,14 @@ void BattleRoyale::CleanupBRItems(Player* player)
     }
 
     // Append per-match log entry (mirrors character_log_pvpkill layout)
-    CharacterDatabase.PExecute(
+    // Phase3 of the DB-decoupling effort (see HPHA.md) - routed through sCharactersOutbox.
+    // Append-only log INSERT, safe to replay. Deliberately NOT touching the
+    // battle_royale_season_score write above this one - that's a relative-delta upsert
+    // (`season_points = season_points + %u`), unsafe to replay under Outbox's at-least-once
+    // delivery without a dedup/idempotency-key design first, so it stays on the direct
+    // CharacterDatabase.PExecute() path for now (see HPHA.md / DbWriteOutbox.h Phase3 note).
+    char sql[512];
+    snprintf(sql, sizeof(sql),
         "INSERT INTO `character_log_battle_royale` "
         "  (`guid`, `name`, `placement`, `total_players`, `kill_count`, "
         "   `survival_sec`, `score_earned`, `zone`, `map`, `ip`) "
@@ -1286,6 +1294,7 @@ void BattleRoyale::CleanupBRItems(Player* player)
         guid, safeName.c_str(),
         placementRank, totalPlayers, killCount, survivalSec, totalPts,
         zone, mapId, safeIp.c_str());
+    sCharactersOutbox.Enqueue(sql);
 }
 
 void BattleRoyale::SendBattleReport(ObjectGuid playerGuid, BattleRoyalePlayer const& brPlayer, uint32 survivalSec) const

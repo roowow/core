@@ -19718,8 +19718,12 @@ bool Player::BuyItemFromGuildVendor(ObjectGuid vendorGuid, uint32 item, uint8 co
 
         sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] = time(nullptr); // vendor lock
         sOOMgr.OOPlayerGuildBankWithdrawItem[GetGUIDLow()][item] = 1; // item deposit lock
-        CharacterDatabase.PExecute("INSERT INTO `character_log_guildbank` (`guid`, `name`, `vendor`, `item`, `count`, `type`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Withdraw', '%u', '%u', '%f', '%f', '%f', '%s')",
+        // Phase3 of the DB-decoupling effort (see HPHA.md) - routed through sCharactersOutbox.
+        // Append-only log INSERT, safe to replay.
+        char logSql[512];
+        snprintf(logSql, sizeof(logSql), "INSERT INTO `character_log_guildbank` (`guid`, `name`, `vendor`, `item`, `count`, `type`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Withdraw', '%u', '%u', '%f', '%f', '%f', '%s')",
             GetGUIDLow(), GetName(), pCreature->GetEntry(), item, totalCount, GetZoneId(), GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetSession()->GetRemoteAddress().c_str());
+        sCharactersOutbox.Enqueue(logSql);
 
         // Phase2 of the DB-decoupling effort (see HPHA.md) - routed through sWorldOutbox.
         // Already a single independent absolute UPDATE, SQL unchanged, just queued instead of

@@ -28,6 +28,7 @@
 #include "World.h"
 #include "ObjectMgr.h"
 #include "ObjectGuid.h"
+#include "OO/DbWriteOutbox.h"
 #include "Group.h"
 #include "Formulas.h"
 #include "ObjectAccessor.h"
@@ -1136,8 +1137,12 @@ void Group::CountSingleLooterRoll(Roll* roll)
                 /// BigData - character_log_item Rare+
                 if (rollItemProto && rollItemProto->Quality > 2)
                 {
-                    CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `lootguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Roll', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                    // Phase3 of the DB-decoupling effort (see HPHA.md) - routed through
+                    // sCharactersOutbox. Append-only log INSERT, safe to replay.
+                    char sql[512];
+                    snprintf(sql, sizeof(sql), "INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `lootguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Roll', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
                         player->GetGUIDLow(), player->GetName(), item->itemid, newItem->GetGUIDLow(), item->count, roll->lootedTargetGUID.GetCounter(), player->GetZoneId(), player->GetMapId(), player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), player->GetSession()->GetRemoteAddress().c_str());
+                    sCharactersOutbox.Enqueue(sql);
                 }
             }
         }
@@ -1212,8 +1217,12 @@ void Group::CountTheRoll(Rolls::iterator& rollI)
                         /// BigData - character_log_item Rare+
                         if (rollItemProto && rollItemProto->Quality > 2)
                         {
-                            CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `lootguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Roll', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                            // Phase3 (see HPHA.md) - routed through sCharactersOutbox, same
+                            // reasoning as the other Roll-type INSERT in this file.
+                            char sql[512];
+                            snprintf(sql, sizeof(sql), "INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `lootguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Roll', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
                                 player->GetGUIDLow(), player->GetName(), item->itemid, newItem->GetGUIDLow(), item->count, roll->lootedTargetGUID.GetCounter(), player->GetZoneId(), player->GetMapId(), player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), player->GetSession()->GetRemoteAddress().c_str());
+                            sCharactersOutbox.Enqueue(sql);
                         }
                     }
                 }

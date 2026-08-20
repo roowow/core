@@ -81,6 +81,11 @@ public:
 
 private:
     void FlusherThreadMain();
+    // Periodically (see HEARTBEAT_LOG_INTERVAL_SEC) writes a one-line status summary to
+    // DbOutbox.log even when nothing is going wrong, so "is persistence sync actually healthy"
+    // can be answered by tailing a log instead of only via the pull-based `.server dboutbox` GM
+    // command. Flusher-thread-only, called from FlusherThreadMain() once connected.
+    void LogHeartbeatIfDue();
 
     // Redis connection used by Enqueue() (XADD only) - separate from the Flusher's own
     // connection so a slow/blocked Flusher read can never stall a hot-path Enqueue() call.
@@ -133,6 +138,7 @@ private:
     bool                             m_needReplayPending = true;
     std::unique_ptr<MySQLConnection> m_flusherMysqlConn;          // Flusher's own independent connection
     time_t                           m_flusherMysqlLastFailTime = 0;
+    time_t                           m_lastHeartbeatLogTime = 0; // see LogHeartbeatIfDue()
 
     // Set only by the Flusher thread, read only by GetStatus() (possibly from another thread,
     // e.g. a GM command) - atomic instead of piggybacking on a mutex specifically so GetStatus()
@@ -146,6 +152,7 @@ private:
     std::atomic<uint64_t> m_totalDropped{0};
 
     static uint32 const RECONNECT_COOLDOWN_SEC = 30;
+    static uint32 const HEARTBEAT_LOG_INTERVAL_SEC = 300; // 5 minutes
 };
 
 // Phase1 (see HPHA.md): fronts LogsDatabase for InstanceStatistics.cpp.
@@ -154,6 +161,14 @@ extern DbWriteOutbox sLogsOutbox;
 // Phase2 (see HPHA.md): fronts WorldDatabase for the handful of runtime (not GM-command-only)
 // writes identified there - ObjectMgr::_SaveVariable() (`variables`), GameEventMgr::EnableEvent()
 // (`game_event`), the guild-bank-vendor `npc_vendor` writes in Player.cpp/ItemHandler.cpp.
-// DbWriteOutbox itself stays a plain reusable class, not a singleton - Phase3 (characters) will
-// add a third instance the same way.
+// DbWriteOutbox itself stays a plain reusable class, not a singleton.
 extern DbWriteOutbox sWorldOutbox;
+
+// Phase3 (see HPHA.md): fronts CharacterDatabase, first batch only - the append-only
+// character_log_* tables, character_displayid, character_social. Explicitly NOT
+// Player::SaveToDB() (one giant periodic/logout bulk-save transaction spanning ~11 tables,
+// structurally like the old `variables` DELETE+INSERT pattern but far bigger - a project of its
+// own, not a Phase3-v1 target) and NOT battle_royale_season_score (relative-delta `points =
+// points + N` writes - unsafe to replay under Outbox's at-least-once delivery without a
+// dedup/idempotency-key design first).
+extern DbWriteOutbox sCharactersOutbox;

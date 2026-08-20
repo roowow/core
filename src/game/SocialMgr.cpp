@@ -22,6 +22,7 @@
 #include "SocialMgr.h"
 #include "Policies/SingletonImp.h"
 #include "Database/DatabaseEnv.h"
+#include "OO/DbWriteOutbox.h"
 #include "Opcodes.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
@@ -74,7 +75,12 @@ bool PlayerSocial::AddToSocialList(ObjectGuid friend_guid, bool ignore)
     PlayerSocialMap::const_iterator itr = m_playerSocialMap.find(friend_guid.GetCounter());
     if (itr != m_playerSocialMap.end())
     {
-        CharacterDatabase.PExecute("UPDATE character_social SET flags = (flags | %u) WHERE guid = '%u' AND friend = '%u'", flag, m_playerLowGuid, friend_guid.GetCounter());
+        // Phase3 of the DB-decoupling effort (see HPHA.md) - routed through sCharactersOutbox.
+        // Bitwise OR against a fixed flag is idempotent - safe to replay under Outbox's
+        // at-least-once delivery, unlike a relative-count delta would be.
+        char sql[160];
+        snprintf(sql, sizeof(sql), "UPDATE character_social SET flags = (flags | %u) WHERE guid = '%u' AND friend = '%u'", flag, m_playerLowGuid, friend_guid.GetCounter());
+        sCharactersOutbox.Enqueue(sql);
         m_playerSocialMap[friend_guid.GetCounter()].Flags |= flag;
     }
     else
@@ -85,8 +91,10 @@ bool PlayerSocial::AddToSocialList(ObjectGuid friend_guid, bool ignore)
         // is part of the composite primary key here, so a collision can only happen against a row
         // that already has this exact flag value - re-OR'ing the same bit onto itself is a no-op,
         // safe either way.
-        CharacterDatabase.PExecute("INSERT INTO character_social (guid, friend, flags) VALUES ('%u', '%u', '%u') "
+        char sql[192];
+        snprintf(sql, sizeof(sql), "INSERT INTO character_social (guid, friend, flags) VALUES ('%u', '%u', '%u') "
             "ON DUPLICATE KEY UPDATE `flags` = `flags` | %u", m_playerLowGuid, friend_guid.GetCounter(), flag, flag);
+        sCharactersOutbox.Enqueue(sql);
         FriendInfo fi;
         fi.Flags |= flag;
         m_playerSocialMap[friend_guid.GetCounter()] = fi;
@@ -107,11 +115,20 @@ void PlayerSocial::RemoveFromSocialList(ObjectGuid friend_guid, bool ignore)
     itr->second.Flags &= ~flag;
     if (itr->second.Flags == 0)
     {
-        CharacterDatabase.PExecute("DELETE FROM character_social WHERE guid = '%u' AND friend = '%u'", m_playerLowGuid, friend_guid.GetCounter());
+        // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by primary key is
+        // trivially idempotent (a second delivery just finds nothing to delete).
+        char sql[160];
+        snprintf(sql, sizeof(sql), "DELETE FROM character_social WHERE guid = '%u' AND friend = '%u'", m_playerLowGuid, friend_guid.GetCounter());
+        sCharactersOutbox.Enqueue(sql);
         m_playerSocialMap.erase(itr);
     }
     else
-        CharacterDatabase.PExecute("UPDATE character_social SET flags = (flags & ~%u) WHERE guid = '%u' AND friend = '%u'", flag, m_playerLowGuid, friend_guid.GetCounter());
+    {
+        // Bitwise AND-NOT against a fixed flag is idempotent, same reasoning as AddToSocialList().
+        char sql[160];
+        snprintf(sql, sizeof(sql), "UPDATE character_social SET flags = (flags & ~%u) WHERE guid = '%u' AND friend = '%u'", flag, m_playerLowGuid, friend_guid.GetCounter());
+        sCharactersOutbox.Enqueue(sql);
+    }
 }
 
 void PlayerSocial::SendFriendList()

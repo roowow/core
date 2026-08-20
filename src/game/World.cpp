@@ -210,6 +210,7 @@ void World::Shutdown()
     sInstanceDataCache.Shutdown();
     sLogsOutbox.Shutdown();
     sWorldOutbox.Shutdown();
+    sCharactersOutbox.Shutdown();
     sPlayerBotMgr.DeleteAll();
     KickAll();                                     // save and kick all players
     UpdateSessions(1);                             // real players unload required UpdateSessions call
@@ -1955,6 +1956,12 @@ void World::SetInitialWorldSettings()
     // WorldDatabase writes: `variables`, `game_event`, guild-bank-vendor `npc_vendor` rows.
     sWorldOutbox.Initialize(sConfig.GetStringDefault("LocalRedis.Socket", ""), "outbox:world:" + std::to_string(realmID),
                             WorldDatabase, sConfig.GetStringDefault("WorldDatabase.Info", ""));
+
+    // Phase3 of the DB-decoupling effort (see HPHA.md) - same class again, fronting
+    // CharacterDatabase this time, first batch only: character_log_* (item/pvpkill/battle_royale/
+    // guildbank), character_displayid, character_social. NOT Player::SaveToDB() - see DbWriteOutbox.h.
+    sCharactersOutbox.Initialize(sConfig.GetStringDefault("LocalRedis.Socket", ""), "outbox:characters:" + std::to_string(realmID),
+                                 CharacterDatabase, sConfig.GetStringDefault("CharacterDatabase.Info", ""));
 
     // Register AI companion bot after WebChatMgr::Initialize() so SetJianJiaName is not overwritten
     if (uint32 jjGuid = sConfig.GetIntDefault("JianJia.CharGuid", 0))

@@ -28,6 +28,7 @@
 #include "Mail.h"
 #include "Language.h"
 #include "Log.h"
+#include "OO/DbWriteOutbox.h"
 #include "ObjectGuid.h"
 #include "ObjectMgr.h"
 #include "Item.h"
@@ -714,9 +715,13 @@ void WorldSession::HandleMailTakeItem(WorldPackets::Mail::MailTakeItem const& pa
 
         if (itemProto->Quality > 2)
         {
-            CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `lootguid`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Mail', '%u', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+            // Phase3 of the DB-decoupling effort (see HPHA.md) - routed through
+            // sCharactersOutbox. Append-only log INSERT, safe to replay.
+            char sql[512];
+            snprintf(sql, sizeof(sql), "INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `lootguid`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Mail', '%u', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
                 loadedPlayer->GetGUIDLow(), loadedPlayer->GetName(), itemId, itemGuid, count, packet.mailId, m->sender,
                 loadedPlayer->GetZoneId(), loadedPlayer->GetMapId(), loadedPlayer->GetPositionX(), loadedPlayer->GetPositionY(), loadedPlayer->GetPositionZ(), loadedPlayer->GetSession()->GetRemoteAddress().c_str());
+            sCharactersOutbox.Enqueue(sql);
         }
 
         it->SetState(ITEM_UNCHANGED);                       // need to set this state, otherwise item cannot be removed later, if necessary

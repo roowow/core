@@ -29,6 +29,7 @@
 #include "WorldSession.h"
 #include "World.h"
 #include "ObjectMgr.h"
+#include "OO/DbWriteOutbox.h"
 #include "ObjectGuid.h"
 #include "SpellMgr.h"
 #include "Spell.h"
@@ -1137,10 +1138,14 @@ void Unit::Kill(Unit* pVictim, SpellEntry const* spellProto, bool durabilityLoss
                     afkBg->RecordAfkKill(pPlayerTap->GetObjectGuid(), !pPlayerVictim->IsBot());
 
             // character_log_pvpkill
+            // Phase3 of the DB-decoupling effort (see HPHA.md) - routed through
+            // sCharactersOutbox. Append-only log INSERT, safe to replay.
             if (!pPlayerTap->IsBot() && !pPlayerVictim->IsBot())
             {
-                CharacterDatabase.PExecute("INSERT INTO `character_log_pvpkill` (`killer`, `killerlevel`, `name`, `victim`, `victimlevel`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%u', '%s', '%u', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                char sql[512];
+                snprintf(sql, sizeof(sql), "INSERT INTO `character_log_pvpkill` (`killer`, `killerlevel`, `name`, `victim`, `victimlevel`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%u', '%s', '%u', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
                     pPlayerTap->GetGUIDLow(), pPlayerTap->GetLevel(), pPlayerVictim->GetName(), pPlayerVictim->GetGUIDLow(), pPlayerVictim->GetLevel(), pPlayerVictim->GetZoneId(), pPlayerVictim->GetMapId(), pPlayerVictim->GetPositionX(), pPlayerVictim->GetPositionY(), pPlayerVictim->GetPositionZ(), pPlayerVictim->GetSession()->GetRemoteAddress().c_str());
+                sCharactersOutbox.Enqueue(sql);
             }
         }
     }

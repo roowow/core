@@ -25,6 +25,7 @@
 #include "Opcodes.h"
 #include "Log.h"
 #include "ObjectMgr.h"
+#include "OO/DbWriteOutbox.h"
 #include "Player.h"
 #include "Item.h"
 #include "Bag.h"
@@ -721,8 +722,12 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem const& pack
         msg += "，已收到您的货物，正在存入...";
         pCreature->MonsterSay(msg.c_str(), 0, 0);
 
-        CharacterDatabase.PExecute("INSERT INTO `character_log_guildbank` (`guid`, `name`, `vendor`, `item`, `count`, `type`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Deposit', '%u', '%u', '%f', '%f', '%f', '%s')",
+        // Phase3 of the DB-decoupling effort (see HPHA.md) - routed through sCharactersOutbox.
+        // Append-only log INSERT, safe to replay.
+        char logSql[512];
+        snprintf(logSql, sizeof(logSql), "INSERT INTO `character_log_guildbank` (`guid`, `name`, `vendor`, `item`, `count`, `type`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Deposit', '%u', '%u', '%f', '%f', '%f', '%s')",
             _player->GetGUIDLow(), _player->GetName(), oobank.vendor_id, itemEntry, actualCount, _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
+        sCharactersOutbox.Enqueue(logSql);
 
         sOOMgr.OOGuildBankVendorLocks[pCreature->GetEntry()] = time(nullptr); // vendor lock
         sOOMgr.OOPlayerGuildBankDepositItem[_player->GetGUIDLow()][itemEntry] = 1; // item withdraw lock

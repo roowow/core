@@ -23,6 +23,7 @@
 #include "Anticheat/Anticheat.h"
 #include "Language.h"
 #include "Database/DatabaseEnv.h"
+#include "OO/DbWriteOutbox.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "Opcodes.h"
@@ -466,7 +467,12 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::Npc::GossipSelec
                         std::string msg = std::string("阿尼马格斯变形！(") + std::to_string(minfo->display_id) + std::string("）");
                         _player->TextEmote(msg.c_str());
                         _player->oowowInfo.displayID = minfo->display_id;
-                        CharacterDatabase.PExecute("REPLACE INTO `character_displayid` (`Guid`, `DisplayID`) VALUES ('%u', '%u')", _player->GetGUIDLow(), minfo->display_id);
+                        // Phase3 of the DB-decoupling effort (see HPHA.md) - routed through
+                        // sCharactersOutbox. REPLACE INTO is an absolute overwrite, idempotent
+                        // under Outbox's at-least-once delivery.
+                        char sql[128];
+                        snprintf(sql, sizeof(sql), "REPLACE INTO `character_displayid` (`Guid`, `DisplayID`) VALUES ('%u', '%u')", _player->GetGUIDLow(), minfo->display_id);
+                        sCharactersOutbox.Enqueue(sql);
 
                         pMenu->CloseGossip();
                         break;

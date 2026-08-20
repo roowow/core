@@ -23,6 +23,7 @@
 #include "Opcodes.h"
 #include "WorldPacket.h"
 #include "Log.h"
+#include "OO/DbWriteOutbox.h"
 #include "Corpse.h"
 #include "GameObject.h"
 #include "GameObjectAI.h"
@@ -247,8 +248,13 @@ void WorldSession::HandleAutostoreLootItemOpcode(WorldPackets::Loot::AutoStoreLo
         // }
 
         if (itemWorthLogging) {
-            CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `lootguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Auto', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+            // Phase3 of the DB-decoupling effort (see HPHA.md) - routed through
+            // sCharactersOutbox. Append-only INSERT into a log table, same shape as Phase1's
+            // logs-database tables - trivially safe to replay.
+            char sql[512];
+            snprintf(sql, sizeof(sql), "INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `lootguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Auto', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
                 _player->GetGUIDLow(), _player->GetName(), item->itemid, newitem->GetGUIDLow(), item->count, lguid.GetCounter(), _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
+            sCharactersOutbox.Enqueue(sql);
         }
     
         player->SendNewItem(newitem, uint32(item->count), false, false, true);
@@ -773,8 +779,12 @@ void WorldSession::HandleLootMasterGiveOpcode(WorldPackets::Loot::LootMasterGive
         /// BigData - character_log_item Rare+
         if (itemProto && itemProto->Quality > 2)
         {
-            CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `count`, `type`, `lootguid`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', 'Master', '%u', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+            // Phase3 (see HPHA.md) - routed through sCharactersOutbox, same reasoning as the
+            // Auto-loot INSERT above.
+            char sql[512];
+            snprintf(sql, sizeof(sql), "INSERT INTO `character_log_item` (`guid`, `name`, `item`, `count`, `type`, `lootguid`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', 'Master', '%u', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
                 target->GetGUIDLow(), target->GetName(), item.itemid, item.count, packet.lootGuid.GetCounter(), _player->GetGUIDLow(), target->GetZoneId(), target->GetMapId(), target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(), target->GetSession()->GetRemoteAddress().c_str());
+            sCharactersOutbox.Enqueue(sql);
         }
     }
 

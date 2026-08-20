@@ -354,10 +354,9 @@ static void PrintDbOutboxStatus(ChatHandler* handler, char const* label, DbWrite
 
 bool ChatHandler::HandleServerDbOutboxCommand(char* /*args*/)
 {
-    // Phase2 added sWorldOutbox alongside Phase1's sLogsOutbox; Phase3 (characters) will add a
-    // third the same way - just extend this list, PrintDbOutboxStatus() already loops per-call.
     PrintDbOutboxStatus(this, "logs", sLogsOutbox);
     PrintDbOutboxStatus(this, "world", sWorldOutbox);
+    PrintDbOutboxStatus(this, "characters", sCharactersOutbox);
     return true;
 }
 

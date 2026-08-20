@@ -24,6 +24,7 @@
 #include "WorldSession.h"
 #include "Opcodes.h"
 #include "Log.h"
+#include "OO/DbWriteOutbox.h"
 #include "World.h"
 #include "ObjectMgr.h"
 #include "OO/OOMgr.h"
@@ -1640,7 +1641,12 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
                                         std::string msg = std::string("派对时间！(") + std::to_string(minfo->display_id) + std::string("）");
                                         pPlayer->TextEmote(msg.c_str());
                                         pPlayer->oowowInfo.displayID = minfo->display_id;
-                                        CharacterDatabase.PExecute("REPLACE INTO `character_displayid` (`Guid`, `DisplayID`) VALUES ('%u', '%u')", pPlayer->GetGUIDLow(), minfo->display_id);
+                                        // Phase3 of the DB-decoupling effort (see HPHA.md) - routed
+                                        // through sCharactersOutbox. REPLACE INTO is an absolute
+                                        // overwrite, idempotent under Outbox's at-least-once delivery.
+                                        char sql[128];
+                                        snprintf(sql, sizeof(sql), "REPLACE INTO `character_displayid` (`Guid`, `DisplayID`) VALUES ('%u', '%u')", pPlayer->GetGUIDLow(), minfo->display_id);
+                                        sCharactersOutbox.Enqueue(sql);
 
                                         break;
                                     }

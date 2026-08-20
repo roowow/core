@@ -7,6 +7,7 @@
 
 DbWriteOutbox sLogsOutbox;
 DbWriteOutbox sWorldOutbox;
+DbWriteOutbox sCharactersOutbox;
 
 DbWriteOutbox::DbWriteOutbox() = default;
 
@@ -441,6 +442,45 @@ bool DbWriteOutbox::ReplayPending()
     }
 }
 
+// Logs a one-line summary (connection state on both sides + lifetime counters + current stream
+// backlog) roughly every HEARTBEAT_LOG_INTERVAL_SEC, whether or not anything is wrong. Point is
+// to make "is this instance actually syncing" answerable by tailing DbOutbox.log - previously
+// this class only ever logged on state transitions (connect/disconnect/error), so a perfectly
+// healthy instance produced nothing after its startup line, indistinguishable at a glance from
+// one that's been silently wedged for hours. A growing streamLen or a nonzero/climbing
+// totalDropped across consecutive heartbeats is the signal to go look at `.server dboutbox` or
+// DBErrors.log for detail; this line alone won't explain *why*, just *that* something's off.
+void DbWriteOutbox::LogHeartbeatIfDue()
+{
+    time_t const now = time(nullptr);
+    if (now - m_lastHeartbeatLogTime < time_t(HEARTBEAT_LOG_INTERVAL_SEC))
+        return;
+    m_lastHeartbeatLogTime = now;
+
+    // Reuses the Flusher's own already-open connection (we're only ever called right after
+    // EnsureFlusherRedisConnected() succeeded) rather than borrowing the Enqueue-side one under
+    // m_redisMutex like GetStatus() does - no cross-thread contention, and this runs far too
+    // infrequently for the extra round trip to matter.
+    int64_t streamLen = -1;
+    redisReply* reply = (redisReply*)redisCommand(m_flusherRedisCtx, "XLEN %s", m_streamKey.c_str());
+    if (reply && reply->type == REDIS_REPLY_INTEGER)
+        streamLen = reply->integer;
+    if (reply)
+        freeReplyObject(reply);
+
+    sLog.Out(LOG_DB_OUTBOX, LOG_LVL_MINIMAL,
+             "DbWriteOutbox[%s]: heartbeat - flusherRedis=%s flusherMysql=%s streamLen=%lld "
+             "enqueued=%llu fallbackDirect=%llu applied=%llu dropped=%llu",
+             m_streamKey.c_str(),
+             m_flusherRedisConnectedFlag.load(std::memory_order_relaxed) ? "up" : "down",
+             m_flusherMysqlConnectedFlag.load(std::memory_order_relaxed) ? "up" : "down",
+             (long long)streamLen,
+             (unsigned long long)m_totalEnqueued.load(std::memory_order_relaxed),
+             (unsigned long long)m_totalFallbackDirect.load(std::memory_order_relaxed),
+             (unsigned long long)m_totalApplied.load(std::memory_order_relaxed),
+             (unsigned long long)m_totalDropped.load(std::memory_order_relaxed));
+}
+
 void DbWriteOutbox::FlusherThreadMain()
 {
     while (!m_stop)
@@ -461,6 +501,8 @@ void DbWriteOutbox::FlusherThreadMain()
                 continue; // bailed early (shutdown or dropped connection) - retry from the top
             m_needReplayPending = false;
         }
+
+        LogHeartbeatIfDue();
 
         redisReply* reply = (redisReply*)redisCommand(m_flusherRedisCtx, "XREADGROUP GROUP %s %s COUNT 1 BLOCK 2000 STREAMS %s >",
             m_groupName.c_str(), m_consumerName.c_str(), m_streamKey.c_str());

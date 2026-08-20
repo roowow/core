@@ -25,6 +25,7 @@
 #include "World.h"
 #include "Log.h"
 #include "Opcodes.h"
+#include "OO/DbWriteOutbox.h"
 #include "Player.h"
 #include "Item.h"
 #include "Spell.h"
@@ -344,8 +345,12 @@ void WorldSession::HandleAcceptTradeOpcode(WorldPackets::Trade::AcceptTrade cons
                 {
                     ItemPrototype const* itemProto = sObjectMgr.GetItemPrototype(item->GetEntry());
                     if (itemProto && itemProto->Quality > 2) {
-                        CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Trade', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                        // Phase3 of the DB-decoupling effort (see HPHA.md) - routed through
+                        // sCharactersOutbox. Append-only log INSERT, safe to replay.
+                        char sql[512];
+                        snprintf(sql, sizeof(sql), "INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Trade', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
                             trader->GetGUIDLow(), trader->GetName(), item->GetEntry(), item->GetGUIDLow(), item->GetCount(), _player->GetGUIDLow(), trader->GetZoneId(), trader->GetMapId(), trader->GetPositionX(), trader->GetPositionY(), trader->GetPositionZ(), trader->GetSession()->GetRemoteAddress().c_str());
+                        sCharactersOutbox.Enqueue(sql);
                     }
                 }
             }
@@ -356,8 +361,12 @@ void WorldSession::HandleAcceptTradeOpcode(WorldPackets::Trade::AcceptTrade cons
                 {
                     ItemPrototype const* itemProto = sObjectMgr.GetItemPrototype(item->GetEntry());
                     if (itemProto && itemProto->Quality > 2) {
-                        CharacterDatabase.PExecute("INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Trade', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                        // Phase3 (see HPHA.md) - routed through sCharactersOutbox, same reasoning
+                        // as the trader-side INSERT above.
+                        char sql[512];
+                        snprintf(sql, sizeof(sql), "INSERT INTO `character_log_item` (`guid`, `name`, `item`, `itemguid`, `count`, `type`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%u', '%u', 'Trade', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
                             _player->GetGUIDLow(), _player->GetName(), item->GetEntry(), item->GetGUIDLow(), item->GetCount(), trader->GetGUIDLow(), _player->GetZoneId(), _player->GetMapId(), _player->GetPositionX(), _player->GetPositionY(), _player->GetPositionZ(), _player->GetSession()->GetRemoteAddress().c_str());
+                        sCharactersOutbox.Enqueue(sql);
                     }
                 }
             }
