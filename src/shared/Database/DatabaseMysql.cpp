@@ -310,8 +310,23 @@ bool MySQLConnection::_TransactionCmd(std::string const& sql)
 
     if (mysql_query(mMysql, sql.c_str()))
     {
+        // Unlike Execute() (which already does this), _TransactionCmd() used to just log and
+        // return false here without ever calling HandleMySQLError() - meaning a connection whose
+        // mMysql looked non-null but was actually dead (server-side timeout/drop) would never get
+        // mysql_close()'d or reconnected via this path, and would keep failing every single
+        // BeginTransaction()/CommitTransaction()/RollbackTransaction() forever, until some
+        // unrelated Execute()/_Query() call on the same connection object happened to trigger the
+        // reconnect. Observed in practice: a stuck connection kept failing the same
+        // START TRANSACTION/.../ROLLBACK sequence minutes after sibling connections had already
+        // successfully reconnected. Mirroring Execute()'s retry-after-reconnect pattern lets this
+        // connection self-heal the same way.
+        uint32 lErrno = mysql_errno(mMysql);
+
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "SQL: %s", sql.c_str());
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "SQL ERROR: %s", mysql_error(mMysql));
+
+        if (HandleMySQLError(lErrno)) // If error is handled (e.g. reconnected), just try again
+            return _TransactionCmd(sql);
         return false;
     }
     else
