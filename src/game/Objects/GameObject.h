@@ -87,6 +87,19 @@ class GameObject : public SpellCaster
         ObjectGuid const& GetOwnerGuid() const { return m_ownerGuid; }
 #endif
         Unit* GetOwner() const;
+
+        // Direct, non-owning back-reference to the Unit currently holding this GO in its
+        // m_spellGameObjects list - kept in sync by Unit::AddGameObject()/RemoveGameObject()/
+        // RemoveAllGameObjects() (the same three call sites that already maintain GetOwnerGuid()
+        // and the ~Unit() empty-list invariant), so it's valid for exactly as long as
+        // GetOwnerGuid() is non-empty. Exists solely so GameObject::RemoveFromWorld() can unlink
+        // itself from the owner's list without depending on ObjectAccessor::GetUnit(guid), which
+        // can transiently fail to resolve a genuinely-still-alive owner (see HPHA-adjacent bug:
+        // "Delete Gameobject ... lost references to owner ... Crash possible later" / the
+        // dangling-pointer UAF that log was warning about). Not a general-purpose owner accessor -
+        // use GetOwner() for that; this is internal bookkeeping for Unit's exclusive use.
+        void SetOwnerLink(Unit* owner) { m_ownerLink = owner; }
+        Unit* GetOwnerLink() const { return m_ownerLink; }
         Player* GetAffectingPlayer() const final;
         bool IsCharmerOrOwnerPlayerOrPlayerItself() const final { return GetOwnerGuid().IsPlayer(); }
 
@@ -289,6 +302,8 @@ class GameObject : public SpellCaster
         GameObjectAI* m_AI;
 
         uint32 m_playerGroupId;
+
+        Unit* m_ownerLink = nullptr;                         // see SetOwnerLink()/GetOwnerLink() above
     private:
         void SwitchDoorOrButton(bool activate, bool alternative = false);
 

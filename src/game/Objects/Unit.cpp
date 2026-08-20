@@ -3051,6 +3051,7 @@ void Unit::_UpdateSpells(uint32 time)
             if (!(*i)->isSpawned())
             {
                 (*i)->SetOwnerGuid(ObjectGuid());
+                (*i)->SetOwnerLink(nullptr); // keep m_ownerLink in sync, see GameObject.h
                 (*i)->SetRespawnTime(0);
                 (*i)->Delete();
                 i = m_spellGameObjects.erase(i);
@@ -4481,6 +4482,7 @@ void Unit::AddGameObject(GameObject* pGo)
     MANGOS_ASSERT(pGo && !pGo->GetOwnerGuid());
     m_spellGameObjects.push_back(pGo);
     pGo->SetOwnerGuid(GetObjectGuid());
+    pGo->SetOwnerLink(this); // see GameObject::SetOwnerLink()/GetOwnerLink() for why this exists
     pGo->SetWorldMask(GetWorldMask());
 
     if (pGo->GetSpellId())
@@ -4500,6 +4502,7 @@ void Unit::RemoveGameObject(GameObject* pGo, bool del)
     MANGOS_ASSERT(pGo && pGo->GetOwnerGuid() == GetObjectGuid());
 
     pGo->SetOwnerGuid(ObjectGuid());
+    pGo->SetOwnerLink(nullptr); // keep m_ownerLink in sync, see GameObject.h
 
     // GO created by some spell
     if (uint32 spellid = pGo->GetSpellId())
@@ -4542,6 +4545,7 @@ void Unit::RemoveGameObject(uint32 spellid, bool del)
         if (spellid == 0 || (*i)->GetSpellId() == spellid)
         {
             (*i)->SetOwnerGuid(ObjectGuid());
+            (*i)->SetOwnerLink(nullptr); // keep m_ownerLink in sync, see GameObject.h
             if (del)
             {
                 (*i)->SetRespawnTime(0);
@@ -4561,6 +4565,7 @@ void Unit::RemoveAllGameObjects()
     for (auto const& pGo : m_spellGameObjects)
     {
         pGo->SetOwnerGuid(ObjectGuid());
+        pGo->SetOwnerLink(nullptr); // keep m_ownerLink in sync, see GameObject.h
         pGo->SetRespawnTime(0);
         pGo->Delete();
     }
@@ -8747,6 +8752,17 @@ void Unit::CleanupsBeforeDelete()
         }
         RemoveAllAuras(AURA_REMOVE_BY_DELETE);
         CleanupDeletedAuras(); // any long range channeled spells need to be cleaned up after aura deletion
+
+        // Map::Remove(Player*, true) - the normal full-logout path - calls CleanupsBeforeDelete()
+        // instead of RemoveFromWorld() (see Map.cpp), so RemoveFromWorld()'s own
+        // RemoveAllGameObjects() call never runs there. In practice this is rarely observed
+        // because summoned GOs (rituals, traps) usually self-expire via their own respawn timer
+        // long before a player logs out - but if a player disconnects immediately after summoning
+        // one, it's left in m_spellGameObjects with nothing to clear it, tripping ~Unit()'s
+        // MANGOS_ASSERT(m_spellGameObjects.empty()) at destruction (a hard crash, not just a
+        // leak). Safe to call unconditionally here even when RemoveFromWorld() already did it
+        // earlier in this object's lifetime - it's a no-op on an already-empty list.
+        RemoveAllGameObjects();
     }
     WorldObject::CleanupsBeforeDelete();
 }

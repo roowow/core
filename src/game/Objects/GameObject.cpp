@@ -160,29 +160,48 @@ void GameObject::RemoveFromWorld()
 
         RemoveAllDynObjects();
 
-        // Remove GO from owner
-        if (ObjectGuid owner_guid = GetOwnerGuid())
+        // Remove GO from owner. Two paths, depending on whether this GO was ever registered in
+        // the owner's m_spellGameObjects (i.e. went through Unit::AddGameObject()):
+        //
+        // 1. GetOwnerLink() set: this GO IS in that list. Use the pointer directly instead of
+        //    ObjectAccessor::GetUnit(guid), which used to transiently fail to resolve a
+        //    genuinely-still-alive owner - for players, GetUnit()->FindPlayer() requires
+        //    IsInWorld() (fails mid-logout, after the player leaves the map but before the
+        //    Player object is destroyed); for creatures, Map::GetCreature() only finds objects
+        //    currently in this map's object store, which isn't always true for a still-alive
+        //    creature at the exact instant this runs (confirmed in production: a stationary,
+        //    never-despawning mob triggered this repeatedly and predictably). Failing to resolve
+        //    the owner here used to leave a dangling GameObject* sitting in that list - a real
+        //    use-after-free (and potential double-free) the next time anything walks it
+        //    (Unit::Update() does, every tick). GetOwnerLink() sidesteps needing to know *why*
+        //    any particular lookup failed: it's set the instant Unit::AddGameObject() links this
+        //    GO in, and cleared by the same call sites that already have to run before ~Unit()'s
+        //    MANGOS_ASSERT(m_spellGameObjects.empty()) can hold - valid for exactly as long as
+        //    this GO is actually in that list.
+        //
+        // 2. GetOwnerLink() null but GetOwnerGuid() set: this GO was tagged via a direct
+        //    SetOwnerGuid() call (Crystal Prison DND, EffectTransmitted's non-ritual GO types,
+        //    SummonLinkedTrapIfAny()'s companion GOs - see their call sites) and deliberately
+        //    never added to m_spellGameObjects. m_ownerLink is never set for these on purpose:
+        //    nothing would ever clear it if the owner were destroyed first, since
+        //    RemoveAllGameObjects() only walks the list this GO was never part of - caching a
+        //    pointer here would be a genuine unguarded dangling pointer, strictly worse than the
+        //    guid lookup it would replace. Fall back to that lookup instead; same probabilistic-
+        //    but-bounded behavior these call sites have always had.
+        if (GetOwnerGuid())
         {
-            Unit* owner = ObjectAccessor::GetUnit(*this, owner_guid);
-            // ObjectAccessor::GetUnit() -> FindPlayer() requires the owner to still be
-            // IsInWorld(). A player mid-logout (already pulled off the map, but the Player
-            // object itself not yet destroyed) fails that check - even though m_spellGameObjects
-            // is still a perfectly valid, live list that the rest of the logout sequence (or any
-            // other code touching this player) will walk again later. Skipping the unlink below
-            // in that case leaves a dangling GameObject* in that list - a real use-after-free the
-            // next time anything iterates m_spellGameObjects (Unit::Update(),
-            // RemoveAllGameObjects(), the ~Unit() empty-list assert). FindPlayerNotInWorld()
-            // doesn't have that gate - it just looks the Player object up by guid regardless of
-            // map placement, which is all RemoveGameObject() below actually needs.
-            if (!owner && owner_guid.IsPlayer())
-                owner = ObjectAccessor::FindPlayerNotInWorld(owner_guid);
+            Unit* owner = GetOwnerLink();
+            if (!owner)
+                owner = ObjectAccessor::GetUnit(*this, GetOwnerGuid());
+            if (!owner && GetOwnerGuid().IsPlayer())
+                owner = ObjectAccessor::FindPlayerNotInWorld(GetOwnerGuid());
 
             if (owner)
                 owner->RemoveGameObject(this, false);
             else
             {
                 sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Delete %s with SpellId %u LinkedGO %u that lost references to owner %s GO list. Crash possible later.",
-                              GetGuidStr().c_str(), m_spellId, GetGOInfo()->GetLinkedGameObjectEntry(), owner_guid.GetString().c_str());
+                              GetGuidStr().c_str(), m_spellId, GetGOInfo()->GetLinkedGameObjectEntry(), GetOwnerGuid().GetString().c_str());
             }
         }
 
@@ -1292,6 +1311,13 @@ void GameObject::SummonLinkedTrapIfAny()
     if (GetOwnerGuid())
     {
         linkedGO->SetOwnerGuid(GetOwnerGuid());
+        // Deliberately NOT propagating GetOwnerLink() here, even when the parent has one: this
+        // linkedGO is never added to the owner's m_spellGameObjects (no Unit::AddGameObject()
+        // call for it), so nothing would ever clear m_ownerLink on *this* object if the owner
+        // got destroyed first - RemoveAllGameObjects() only walks entries actually in that list.
+        // Setting it anyway would trade the old "guid lookup occasionally fails" gap for a real,
+        // unguarded dangling pointer. Leaving it null makes RemoveFromWorld() fall back to the
+        // guid lookup for this GO specifically - same behavior this had before m_ownerLink existed.
         linkedGO->SetUInt32Value(GAMEOBJECT_LEVEL, GetUInt32Value(GAMEOBJECT_LEVEL));
     }
 

@@ -985,6 +985,12 @@ void Spell::EffectDummy(SpellEffectIndex effIdx)
 
                     pGameObj->SetRespawnTime(creatureTarget->GetRespawnTime() - time(nullptr));
                     pGameObj->SetOwnerGuid(m_caster->GetObjectGuid());
+                    // Deliberately not setting SetOwnerLink() here: this GO is never routed
+                    // through Unit::AddGameObject(), so it's never in the caster's
+                    // m_spellGameObjects - nothing would clear a link here if the caster were
+                    // destroyed first (RemoveAllGameObjects() only walks that list). Leaving it
+                    // null makes RemoveFromWorld() fall back to the old guid lookup for this GO,
+                    // same as before m_ownerLink existed - not a regression, just not upgraded.
                     //Pose un soucis(Maxinus)
                     // pGameObj->SetUInt32Value(GAMEOBJECT_LEVEL, m_caster->GetLevel());
                     pGameObj->SetSpellId(m_spellInfo->Id);
@@ -5720,6 +5726,14 @@ void Spell::EffectTransmitted(SpellEffectIndex effIdx)
     pGameObj->SetRespawnTime(duration > 0 ? duration / IN_MILLISECONDS : 0);
 
     pGameObj->SetOwnerGuid(m_casterUnit->GetObjectGuid());
+    // Only GAMEOBJECT_TYPE_SUMMONING_RITUAL routes through Unit::AddGameObject() above, which
+    // already set SetOwnerLink() as part of that call - correctly, since that path also puts
+    // pGameObj in m_casterUnit->m_spellGameObjects, so RemoveAllGameObjects() will find and clear
+    // it if the caster is destroyed first. Every other GO type summoned through this same
+    // function only got the guid tag above, never added to that list - deliberately not calling
+    // SetOwnerLink() for those here would otherwise leave a link nothing ever clears if the
+    // caster died first. RemoveFromWorld() falls back to the guid lookup for those, same
+    // (imperfect but not dangerous) behavior as before m_ownerLink existed.
     if (m_casterUnit->GetTypeId() == TYPEID_PLAYER)
     {
         if (Group* group = ((Player*)m_casterUnit)->GetGroup())
