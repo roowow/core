@@ -382,6 +382,18 @@ bool MySqlPreparedStatement::prepare()
     if(isPrepared())
         return true;
 
+    // Same class of bug as Execute()/_TransactionCmd() needing a null-mMysql guard, one level
+    // removed: m_pMySQLConn is a snapshot of mMysql taken when MySQLConnection::CreateStatement()
+    // built this object (see its call site) - if the connection was already dead (mMysql null)
+    // at that moment, e.g. the first use of a not-yet-cached prepared statement index while
+    // MariaDB is down, m_pMySQLConn is null here and mysql_stmt_init() segfaults on it. A
+    // connection that reconnects later already has FreePreparedStatements() clear this class's
+    // whole cache (see MySQLConnection::Reconnect()), so returning false here just means "try
+    // again once something else has fixed the connection" - it self-heals via that path, not
+    // by retrying from inside this function.
+    if (!m_pMySQLConn)
+        return false;
+
     //remove old binds
     RemoveBinds();
 
