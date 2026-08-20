@@ -365,6 +365,24 @@ SqlPreparedStatement* MySQLConnection::CreateStatement(std::string const& fmt)
     return new MySqlPreparedStatement(fmt, *this, mMysql);
 }
 
+// See OnPreparedStatementFailure()'s comment in Database.h for why this exists and why it's only
+// ever called from GetStmt()/ExecuteStmt(), never from inside MySqlPreparedStatement itself.
+void MySQLConnection::OnPreparedStatementFailure()
+{
+    // Ping() is a real round trip, not just "is the handle non-null" (same reasoning as this
+    // class's other uses of it) - only reconnect if the connection is actually confirmed dead,
+    // not on every ordinary statement-level error (a bad bind, a constraint violation, etc.),
+    // which would be pointless churn and would wrongly nuke an otherwise-healthy connection's
+    // entire prepared-statement cache.
+    if (mMysql && Ping())
+        return;
+
+    if (mMysql)
+        mysql_close(mMysql);
+    mMysql = nullptr;
+    Reconnect(); // on success, closes the loop by calling FreePreparedStatements() itself
+}
+
 
 //////////////////////////////////////////////////////////////////////////
 MySqlPreparedStatement::MySqlPreparedStatement(std::string const& fmt, SqlConnection& conn, MYSQL* mysql) : SqlPreparedStatement(fmt, conn),

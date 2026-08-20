@@ -108,6 +108,7 @@ class MySQLConnection : public SqlConnection
 
     protected:
         SqlPreparedStatement* CreateStatement(std::string const& fmt) override;
+        void OnPreparedStatementFailure() override;
 
     private:
         bool _TransactionCmd(std::string const& sql);

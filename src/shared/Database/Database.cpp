@@ -77,6 +77,11 @@ SqlPreparedStatement* SqlConnection::GetStmt(int nIndex)
         {
             //MANGOS_ASSERT(false && "Unable to prepare SQL statement");
             sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Can't prepare %s, statement not executed!", fmt.c_str());
+            // pStmt was never cached into m_holder, so it's safe to trigger a reconnect from
+            // here (see OnPreparedStatementFailure()'s comment) without risking a self-delete -
+            // and to free it ourselves, since nothing else owns it now.
+            OnPreparedStatementFailure();
+            delete pStmt;
             return nullptr;
         }
 
@@ -133,7 +138,20 @@ bool SqlConnection::ExecuteStmt(int nIndex, SqlStmtParameters const& id)
         //bind parameters
         pStmt->bind(id);
         //execute statement
-        return pStmt->execute();
+        if (pStmt->execute())
+            return true;
+
+        // pStmt isn't touched again after this - safe to let OnPreparedStatementFailure()
+        // reconnect (which may delete pStmt via FreePreparedStatements() as a side effect, see
+        // its comment). Without this, a prepared statement that was already cached before a
+        // connection loss stays permanently stale: unlike a fresh GetStmt() attempt (which
+        // re-snapshots mMysql each time and so recovers on its own once something else fixes the
+        // connection), an already-`isPrepared()` cached statement is returned as-is forever and
+        // never gets the chance to notice the connection is dead - observed in practice as a
+        // `characters` write repeating the same "Lost connection" failure indefinitely even
+        // minutes after MariaDB had already been restarted.
+        OnPreparedStatementFailure();
+        return false;
     }
     return false;
 }

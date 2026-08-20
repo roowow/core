@@ -97,6 +97,16 @@ class SqlConnection
         //allocate prepared statement and return statement ID
         SqlPreparedStatement* GetStmt(int nIndex);
 
+        // Called by GetStmt()/ExecuteStmt() right after a prepared statement's prepare()/
+        // execute() fails, from a point in the call stack where it's safe to reconnect (never
+        // from inside a SqlPreparedStatement's own methods - a successful reconnect frees every
+        // cached statement via FreePreparedStatements(), which would delete a still-executing
+        // statement out from under itself). Base no-op; MySQLConnection overrides it to verify
+        // the connection is actually dead (not just this one statement failing for some other
+        // reason) and reconnect if so - see HPHA.md "部署实测：共享 Database/MySQLConnection
+        // 层的两处崩溃缺陷" for the underlying bug this fixes.
+        virtual void OnPreparedStatementFailure() {}
+
         Database& m_db;
 
         //free prepared statements objects
