@@ -26,6 +26,7 @@
 #include "Opcodes.h"
 #include "WorldPacket.h"
 #include "Database/DatabaseEnv.h"
+#include "OO/DbWriteOutbox.h"
 #include "ItemEnchantmentMgr.h"
 #include "GuildMgr.h"
 
@@ -478,30 +479,35 @@ bool Item::LoadFromDB(uint32 guidLow, ObjectGuid ownerGuid, Field* fields, uint3
 
 void Item::DeleteAllFromDB()
 {
-    static SqlStatementID delItemText;
-    static SqlStatementID delInst;
-    static SqlStatementID delGifts;
-    static SqlStatementID delLoot;
-
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Was 4 independent prepared-
+    // statement DELETEs (SqlStatement/CreateStatement); Outbox needs fully-formatted SQL
+    // strings, and every parameter here is a plain uint32 (no escaping needed), so this is a
+    // direct snprintf swap. Each DELETE is by non-PK filter, safe to replay independently.
     if (uint32 item_text_id = GetUInt32Value(ITEM_FIELD_ITEM_TEXT_ID))
     {
-        SqlStatement stmt = CharacterDatabase.CreateStatement(delItemText, "DELETE FROM `item_text` WHERE `id` = ?");
-        stmt.PExecute(item_text_id);
+        char sql[128];
+        snprintf(sql, sizeof(sql), "DELETE FROM `item_text` WHERE `id` = %u", item_text_id);
+        sCharactersOutbox.Enqueue(sql);
     }
 
-    SqlStatement stmt = CharacterDatabase.CreateStatement(delInst, "DELETE FROM `item_instance` WHERE `guid` = ?");
-    stmt.PExecute(GetGUIDLow());
+    {
+        char sql[128];
+        snprintf(sql, sizeof(sql), "DELETE FROM `item_instance` WHERE `guid` = %u", GetGUIDLow());
+        sCharactersOutbox.Enqueue(sql);
+    }
 
     if (HasFlag(ITEM_FIELD_FLAGS, ITEM_DYNFLAG_WRAPPED))
     {
-        stmt = CharacterDatabase.CreateStatement(delGifts, "DELETE FROM `character_gifts` WHERE `item_guid` = ?");
-        stmt.PExecute(GetGUIDLow());
+        char sql[128];
+        snprintf(sql, sizeof(sql), "DELETE FROM `character_gifts` WHERE `item_guid` = %u", GetGUIDLow());
+        sCharactersOutbox.Enqueue(sql);
     }
 
     if (HasSavedLoot())
     {
-        stmt = CharacterDatabase.CreateStatement(delLoot, "DELETE FROM `item_loot` WHERE `guid` = ?");
-        stmt.PExecute(GetGUIDLow());
+        char sql[128];
+        snprintf(sql, sizeof(sql), "DELETE FROM `item_loot` WHERE `guid` = %u", GetGUIDLow());
+        sCharactersOutbox.Enqueue(sql);
     }
 }
 

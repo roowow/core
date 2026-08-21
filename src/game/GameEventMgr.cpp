@@ -775,7 +775,14 @@ uint32 GameEventMgr::Update(ActiveEvents const* activeAtShutdown /*= nullptr*/)
 void GameEventMgr::UnApplyEvent(uint16 event_id)
 {
     m_ActiveEvents.erase(event_id);
-    CharacterDatabase.PExecute("DELETE FROM game_event_status WHERE event = %u", event_id);
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK filter, safe to
+    // replay. CharacterDatabase-side sibling of the already-migrated WorldDatabase `game_event`
+    // table (sWorldOutbox, above) - missed in Phase 2 because that scan was WorldDatabase-only.
+    {
+        char sql[64];
+        snprintf(sql, sizeof(sql), "DELETE FROM game_event_status WHERE event = %u", event_id);
+        sCharactersOutbox.Enqueue(sql);
+    }
 
     sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "GameEvent %u \"%s\" removed.", event_id, mGameEvent[event_id].description.c_str());
     // un-spawn positive event tagged objects
@@ -793,7 +800,12 @@ void GameEventMgr::UnApplyEvent(uint16 event_id)
 void GameEventMgr::ApplyNewEvent(uint16 event_id, bool resume)
 {
     m_ActiveEvents.insert(event_id);
-    CharacterDatabase.PExecute("INSERT IGNORE INTO game_event_status (event) VALUES (%u)", event_id);
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. `INSERT IGNORE` is idempotent.
+    {
+        char sql[64];
+        snprintf(sql, sizeof(sql), "INSERT IGNORE INTO game_event_status (event) VALUES (%u)", event_id);
+        sCharactersOutbox.Enqueue(sql);
+    }
 
     if (sWorld.getConfig(CONFIG_BOOL_EVENT_ANNOUNCE))
         sWorld.SendWorldText(LANG_EVENTMESSAGE, mGameEvent[event_id].description.c_str());

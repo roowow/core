@@ -25,6 +25,7 @@
 #include "ObjectAccessor.h"
 #include "ObjectGuid.h"
 #include "Database/DatabaseEnv.h"
+#include "OO/DbWriteOutbox.h"
 #include "World.h"
 #include "ObjectMgr.h"
 #include "MapManager.h"
@@ -125,7 +126,8 @@ void Corpse::SaveToDB()
         << uint64(m_time) << ", "
         << uint32(GetType()) << ", "
         << int(GetInstanceId()) << ")";
-    CharacterDatabase.Execute(ss.str().c_str());
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. `REPLACE INTO`, safe to replay.
+    sCharactersOutbox.Enqueue(ss.str());
 }
 
 void Corpse::DeleteBonesFromWorld()
@@ -147,11 +149,13 @@ void Corpse::DeleteFromDB()
     // bones should not be saved to DB (would be deleted on startup anyway)
     MANGOS_ASSERT(GetType() != CORPSE_BONES);
 
-    // all corpses (not bones)
-    static SqlStatementID id;
-
-    SqlStatement stmt = CharacterDatabase.CreateStatement(id, "DELETE FROM `corpse` WHERE `player_guid` = ? AND `corpse_type` <> '0'");
-    stmt.PExecute(GetOwnerGuid().GetCounter());
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK filter, safe to
+    // replay (a repeat just deletes zero rows the second time). Was a prepared statement
+    // (SqlStatement/CreateStatement); Outbox needs a fully-formatted SQL string, and the only
+    // parameter here is a plain uint32 (no escaping needed), so this is a direct snprintf swap.
+    char sql[128];
+    snprintf(sql, sizeof(sql), "DELETE FROM `corpse` WHERE `player_guid` = %u AND `corpse_type` <> '0'", GetOwnerGuid().GetCounter());
+    sCharactersOutbox.Enqueue(sql);
 }
 
 bool Corpse::LoadFromDB(uint32 lowguid, Field* fields)

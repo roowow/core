@@ -84,6 +84,17 @@ LogsDatabase.Info = "127.0.0.1;3306;mangos;mangos;logs"
 LogsDatabase.Connections = 1
 LogsDatabase.WorkerThreads = 1
 Database.AliveCheckInternal = 600
+
+#
+#    DbHealthMonitor.ProbeIntervalSec
+#        How often (seconds) the CharacterDatabase circuit breaker pings the DB on its own
+#        independent connection. See HPHA.md "熔断 + 错误区分设计" - currently gates the mail
+#        module and the auction house entrance (the writes not covered by sCharactersOutbox)
+#        during an outage instead of risking silent data loss/desync.
+#        Default: 3
+#
+DbHealthMonitor.ProbeIntervalSec = 3
+
 WorldServerPort = 8085
 BindIP = "0.0.0.0"
 

@@ -21,6 +21,7 @@
 
 #include "Common.h"
 #include "Database/DatabaseEnv.h"
+#include "OO/DbWriteOutbox.h"
 #include "Opcodes.h"
 #include "Log.h"
 #include "Player.h"
@@ -36,7 +37,17 @@ void WorldSession::HandleLearnTalentOpcode(WorldPackets::Skill::LearnTalent cons
         // DualTalent
         _player->oowowInfo.DualTalent_CoolDown = time(nullptr) + 5*60;
         if (_player->ActiveTalent())
-            CharacterDatabase.PExecute("INSERT INTO `character_spell_tmp` (`ID`, `TalentID`, `Rank`, `Guid`, `Flag`, `Changed`) VALUES (NULL, %u, %u, %u, %u, UNIX_TIMESTAMP())", packet.talent_id, packet.requested_rank, _player->GetGUIDLow(), _player->ActiveTalent());
+        {
+            // Phase3 (see HPHA.md) - routed through sCharactersOutbox. `ID` is auto-increment
+            // (not a natural key we can upsert against), so a replay could in theory insert a
+            // harmless duplicate row - acceptable because this table is never read back by SELECT
+            // anywhere in the C++ code (only written and later bulk-DELETEd by guid+flag), so a
+            // stray duplicate has no functional effect, same reasoning as the character_log_*
+            // tables in the first batch.
+            char sql[256];
+            snprintf(sql, sizeof(sql), "INSERT INTO `character_spell_tmp` (`ID`, `TalentID`, `Rank`, `Guid`, `Flag`, `Changed`) VALUES (NULL, %u, %u, %u, %u, UNIX_TIMESTAMP())", packet.talent_id, packet.requested_rank, _player->GetGUIDLow(), _player->ActiveTalent());
+            sCharactersOutbox.Enqueue(sql);
+        }
     }
 }
 
@@ -61,8 +72,18 @@ void WorldSession::HandleTalentWipeConfirmOpcode(WorldPackets::Skill::TalentWipe
     else
     {
         // DualTalent
-        CharacterDatabase.PExecute("DELETE FROM character_spell_extra WHERE guid = %u and flag = %u", _player->GetGUIDLow(), _player->ActiveTalent());
-        CharacterDatabase.PExecute("DELETE FROM character_spell_tmp   WHERE guid = %u and flag = %u", _player->GetGUIDLow(), _player->ActiveTalent());
+        // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK filter, safe
+        // to replay (a repeat just deletes zero rows the second time).
+        {
+            char sql[128];
+            snprintf(sql, sizeof(sql), "DELETE FROM character_spell_extra WHERE guid = %u and flag = %u", _player->GetGUIDLow(), _player->ActiveTalent());
+            sCharactersOutbox.Enqueue(sql);
+        }
+        {
+            char sql[128];
+            snprintf(sql, sizeof(sql), "DELETE FROM character_spell_tmp   WHERE guid = %u and flag = %u", _player->GetGUIDLow(), _player->ActiveTalent());
+            sCharactersOutbox.Enqueue(sql);
+        }
     }
     unit->CastSpell(_player, 14867, true); // spell: "Untalent Visual Effect"
 }

@@ -20,6 +20,7 @@
  */
 
 #include "Database/DatabaseEnv.h"
+#include "OO/DbWriteOutbox.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "Player.h"
@@ -53,8 +54,14 @@ void MemberSlot::SetPNOTE(std::string pnote)
     Pnote = pnote;
 
     // pnote now can be used for encoding to DB
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE, safe
+    // to replay.
     CharacterDatabase.escape_string(pnote);
-    CharacterDatabase.PExecute("UPDATE `guild_member` SET `player_note` = '%s' WHERE `guid` = '%u'", pnote.c_str(), guid.GetCounter());
+    {
+        char sql[512];
+        snprintf(sql, sizeof(sql), "UPDATE `guild_member` SET `player_note` = '%s' WHERE `guid` = '%u'", pnote.c_str(), guid.GetCounter());
+        sCharactersOutbox.Enqueue(sql);
+    }
 }
 
 void MemberSlot::SetOFFNOTE(std::string offnote)
@@ -62,8 +69,14 @@ void MemberSlot::SetOFFNOTE(std::string offnote)
     OFFnote = offnote;
 
     // offnote now can be used for encoding to DB
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE, safe
+    // to replay.
     CharacterDatabase.escape_string(offnote);
-    CharacterDatabase.PExecute("UPDATE `guild_member` SET `officer_note` = '%s' WHERE `guid` = '%u'", offnote.c_str(), guid.GetCounter());
+    {
+        char sql[512];
+        snprintf(sql, sizeof(sql), "UPDATE `guild_member` SET `officer_note` = '%s' WHERE `guid` = '%u'", offnote.c_str(), guid.GetCounter());
+        sCharactersOutbox.Enqueue(sql);
+    }
 }
 
 void MemberSlot::ChangeRank(uint32 newRank)
@@ -75,7 +88,13 @@ void MemberSlot::ChangeRank(uint32 newRank)
     if (player)
         player->SetRank(newRank);
 
-    CharacterDatabase.PExecute("UPDATE `guild_member` SET `rank`='%u' WHERE `guid`='%u'", newRank, guid.GetCounter());
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE, safe
+    // to replay.
+    {
+        char sql[128];
+        snprintf(sql, sizeof(sql), "UPDATE `guild_member` SET `rank`='%u' WHERE `guid`='%u'", newRank, guid.GetCounter());
+        sCharactersOutbox.Enqueue(sql);
+    }
 }
 
 //// Guild /////////////////////////////////////////////////
@@ -160,13 +179,23 @@ bool Guild::Create(Player* leader, std::string gname)
     CharacterDatabase.escape_string(dbGINFO);
     CharacterDatabase.escape_string(dbMOTD);
 
-    CharacterDatabase.BeginTransaction();
+    // Phase3 (see HPHA.md "多语句事务扩展") - routed through sCharactersOutbox as one atomic
+    // group instead of Begin/CommitTransaction().
     // CharacterDatabase.PExecute("DELETE FROM guild WHERE guild_id='%u'", Id); - MAX(guild_id)+1 not exist
-    CharacterDatabase.PExecute("DELETE FROM `guild_member` WHERE `guild_id`='%u'", m_Id);
-    CharacterDatabase.PExecute("INSERT INTO `guild` (`guild_id`, `name`, `leader_guid`, `info`, `motd`, `create_date`, `emblem_style`, `emblem_color`, `border_style`, `border_color`, `background_color`) "
-                               "VALUES('%u','%s','%u', '%s', '%s','" UI64FMTD "','%i','%i','%i','%i','%i')",
-                               m_Id, gname.c_str(), m_LeaderGuid.GetCounter(), dbGINFO.c_str(), dbMOTD.c_str(), uint64(now), m_EmblemStyle, m_EmblemColor, m_BorderStyle, m_BorderColor, m_BackgroundColor);
-    CharacterDatabase.CommitTransaction();
+    {
+        std::vector<std::string> sqls;
+        char delSql[64];
+        snprintf(delSql, sizeof(delSql), "DELETE FROM `guild_member` WHERE `guild_id`='%u'", m_Id);
+        sqls.push_back(delSql);
+
+        char insSql[1024];
+        snprintf(insSql, sizeof(insSql), "INSERT INTO `guild` (`guild_id`, `name`, `leader_guid`, `info`, `motd`, `create_date`, `emblem_style`, `emblem_color`, `border_style`, `border_color`, `background_color`) "
+                 "VALUES('%u','%s','%u', '%s', '%s','" UI64FMTD "','%i','%i','%i','%i','%i')",
+                 m_Id, gname.c_str(), m_LeaderGuid.GetCounter(), dbGINFO.c_str(), dbMOTD.c_str(), uint64(now), m_EmblemStyle, m_EmblemColor, m_BorderStyle, m_BorderColor, m_BackgroundColor);
+        sqls.push_back(insSql);
+
+        sCharactersOutbox.Enqueue(sqls);
+    }
 
     CreateDefaultGuildRanks(lSession->GetSessionDbLocaleIndex());
 
@@ -175,7 +204,13 @@ bool Guild::Create(Player* leader, std::string gname)
 
 void Guild::CreateDefaultGuildRanks(int locale_idx)
 {
-    CharacterDatabase.PExecute("DELETE FROM `guild_rank` WHERE `guild_id`='%u'", m_Id);
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK filter, safe to
+    // replay.
+    {
+        char sql[64];
+        snprintf(sql, sizeof(sql), "DELETE FROM `guild_rank` WHERE `guild_id`='%u'", m_Id);
+        sCharactersOutbox.Enqueue(sql);
+    }
 
     CreateRank(sObjectMgr.GetMangosString(LANG_GUILD_MASTER, locale_idx),   GR_RIGHT_ALL);
     CreateRank(sObjectMgr.GetMangosString(LANG_GUILD_OFFICER, locale_idx),  GR_RIGHT_ALL);
@@ -191,7 +226,13 @@ void Guild::Rename(std::string& newName)
     std::string escaped = m_Name;
     CharacterDatabase.escape_string(escaped);
 
-    CharacterDatabase.PExecute("UPDATE `guild` SET `name` = '%s' WHERE `guild_id` = '%u'", escaped.c_str(), m_Id);
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE, safe
+    // to replay.
+    {
+        char sql[192];
+        snprintf(sql, sizeof(sql), "UPDATE `guild` SET `name` = '%s' WHERE `guild_id` = '%u'", escaped.c_str(), m_Id);
+        sCharactersOutbox.Enqueue(sql);
+    }
 }
 
 GuildAddStatus Guild::AddMember(ObjectGuid plGuid, uint32 plRank, uint32 petitionId)
@@ -261,8 +302,14 @@ GuildAddStatus Guild::AddMember(ObjectGuid plGuid, uint32 plRank, uint32 petitio
     CharacterDatabase.escape_string(dbPnote);
     CharacterDatabase.escape_string(dbOFFnote);
 
-    CharacterDatabase.PExecute("INSERT INTO `guild_member` (`guild_id`, `guid`, `rank`, `player_note`, `officer_note`) VALUES ('%u', '%u', '%u','%s','%s')",
-                               m_Id, lowguid, newmember.RankId, dbPnote.c_str(), dbOFFnote.c_str());
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Independent INSERT, notes are
+    // short player-supplied text (already escaped above).
+    {
+        char sql[768];
+        snprintf(sql, sizeof(sql), "INSERT INTO `guild_member` (`guild_id`, `guid`, `rank`, `player_note`, `officer_note`) VALUES ('%u', '%u', '%u','%s','%s')",
+                 m_Id, lowguid, newmember.RankId, dbPnote.c_str(), dbOFFnote.c_str());
+        sCharactersOutbox.Enqueue(sql);
+    }
 
     // If player not in game data in data field will be loaded from guild tables, no need to update it!!
     if (pl)
@@ -282,8 +329,11 @@ void Guild::SetMOTD(std::string motd)
     MOTD = motd;
 
     // motd now can be used for encoding to DB
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE, safe
+    // to replay. std::string (not a fixed snprintf buffer) since motd length isn't capped
+    // server-side.
     CharacterDatabase.escape_string(motd);
-    CharacterDatabase.PExecute("UPDATE `guild` SET `motd`='%s' WHERE `guild_id`='%u'", motd.c_str(), m_Id);
+    sCharactersOutbox.Enqueue("UPDATE `guild` SET `motd`='" + motd + "' WHERE `guild_id`='" + std::to_string(m_Id) + "'");
 }
 
 void Guild::SetGINFO(std::string ginfo)
@@ -291,8 +341,11 @@ void Guild::SetGINFO(std::string ginfo)
     GINFO = ginfo;
 
     // ginfo now can be used for encoding to DB
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE, safe
+    // to replay. std::string (not a fixed snprintf buffer) since ginfo length isn't capped
+    // server-side.
     CharacterDatabase.escape_string(ginfo);
-    CharacterDatabase.PExecute("UPDATE `guild` SET `info`='%s' WHERE `guild_id`='%u'", ginfo.c_str(), m_Id);
+    sCharactersOutbox.Enqueue("UPDATE `guild` SET `info`='" + ginfo + "' WHERE `guild_id`='" + std::to_string(m_Id) + "'");
 }
 
 bool Guild::LoadGuildFromDB(const std::unique_ptr<QueryResult>& guildDataResult)
@@ -379,7 +432,13 @@ bool Guild::LoadRanksFromDB(const std::unique_ptr<QueryResult>& guildRanksResult
         {
             //there is in table guild_rank record which doesn't have guild_id in guild table, report error
             sLog.Out(LOG_DBERROR, LOG_LVL_MINIMAL, "Guild %u does not exist but it has a record in guild_rank table, deleting it!", guildId);
-            CharacterDatabase.PExecute("DELETE FROM `guild_rank` WHERE `guild_id` = '%u'", guildId);
+            // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK filter,
+            // safe to replay.
+            {
+                char sql[64];
+                snprintf(sql, sizeof(sql), "DELETE FROM `guild_rank` WHERE `guild_id` = '%u'", guildId);
+                sCharactersOutbox.Enqueue(sql);
+            }
             continue;
         }
 
@@ -412,16 +471,24 @@ bool Guild::LoadRanksFromDB(const std::unique_ptr<QueryResult>& guildRanksResult
     if (broken_ranks)
     {
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Guild %u has broken `guild_rank` data, repairing...", m_Id);
-        CharacterDatabase.BeginTransaction();
-        CharacterDatabase.PExecute("DELETE FROM `guild_rank` WHERE `guild_id`='%u'", m_Id);
-        for (size_t i = 0; i < m_Ranks.size(); ++i)
+        // Phase3 (see HPHA.md "多语句事务扩展") - routed through sCharactersOutbox as one atomic
+        // group instead of Begin/CommitTransaction().
         {
-            std::string name = m_Ranks[i].Name;
-            uint32 rights = m_Ranks[i].Rights;
-            CharacterDatabase.escape_string(name);
-            CharacterDatabase.PExecute("INSERT INTO `guild_rank` (`guild_id`, `id`, `name`, `rights`) VALUES ('%u', '%u', '%s', '%u')", m_Id, uint32(i), name.c_str(), rights);
+            std::vector<std::string> sqls;
+            char delSql[64];
+            snprintf(delSql, sizeof(delSql), "DELETE FROM `guild_rank` WHERE `guild_id`='%u'", m_Id);
+            sqls.push_back(delSql);
+            for (size_t i = 0; i < m_Ranks.size(); ++i)
+            {
+                std::string name = m_Ranks[i].Name;
+                uint32 rights = m_Ranks[i].Rights;
+                CharacterDatabase.escape_string(name);
+                char sql[256];
+                snprintf(sql, sizeof(sql), "INSERT INTO `guild_rank` (`guild_id`, `id`, `name`, `rights`) VALUES ('%u', '%u', '%s', '%u')", m_Id, uint32(i), name.c_str(), rights);
+                sqls.push_back(sql);
+            }
+            sCharactersOutbox.Enqueue(sqls);
         }
-        CharacterDatabase.CommitTransaction();
     }
 
     return true;
@@ -443,7 +510,13 @@ bool Guild::LoadMembersFromDB(const std::unique_ptr<QueryResult>& guildMembersRe
         {
             // there is in table guild_member record which doesn't have guild_id in guild table, report error
             sLog.Out(LOG_DBERROR, LOG_LVL_MINIMAL, "Guild %u does not exist but it has a record in guild_member table, deleting it!", guildId);
-            CharacterDatabase.PExecute("DELETE FROM `guild_member` WHERE `guild_id` = '%u'", guildId);
+            // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK filter,
+            // safe to replay.
+            {
+                char sql[64];
+                snprintf(sql, sizeof(sql), "DELETE FROM `guild_member` WHERE `guild_id` = '%u'", guildId);
+                sCharactersOutbox.Enqueue(sql);
+            }
             continue;
         }
 
@@ -473,7 +546,13 @@ bool Guild::LoadMembersFromDB(const std::unique_ptr<QueryResult>& guildMembersRe
         if (newmember.Level < 1 || newmember.Level > PLAYER_STRONG_MAX_LEVEL) // can be at broken `data` field
         {
             sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "%s has a broken data in field `characters`.`data`, deleting him from guild!", newmember.guid.GetString().c_str());
-            CharacterDatabase.PExecute("DELETE FROM `guild_member` WHERE `guid` = '%u'", lowguid);
+            // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK filter,
+            // safe to replay.
+            {
+                char sql[64];
+                snprintf(sql, sizeof(sql), "DELETE FROM `guild_member` WHERE `guid` = '%u'", lowguid);
+                sCharactersOutbox.Enqueue(sql);
+            }
             continue;
         }
         if (!newmember.ZoneId)
@@ -486,13 +565,25 @@ bool Guild::LoadMembersFromDB(const std::unique_ptr<QueryResult>& guildMembersRe
         if (!((1 << (newmember.Class - 1)) & CLASSMASK_ALL_PLAYABLE)) // can be at broken `class` field
         {
             sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "%s has a broken data in field `characters`.`class`, deleting him from guild!", newmember.guid.GetString().c_str());
-            CharacterDatabase.PExecute("DELETE FROM `guild_member` WHERE `guid` = '%u'", lowguid);
+            // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK filter,
+            // safe to replay.
+            {
+                char sql[64];
+                snprintf(sql, sizeof(sql), "DELETE FROM `guild_member` WHERE `guid` = '%u'", lowguid);
+                sCharactersOutbox.Enqueue(sql);
+            }
             continue;
         }
         if (newmember.Name.empty()) // no deleted characters
         {
             sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "%s has no name, deleting him from guild!", newmember.guid.GetString().c_str());
-            CharacterDatabase.PExecute("DELETE FROM `guild_member` WHERE `guid` = '%u'", lowguid);
+            // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK filter,
+            // safe to replay.
+            {
+                char sql[64];
+                snprintf(sql, sizeof(sql), "DELETE FROM `guild_member` WHERE `guid` = '%u'", lowguid);
+                sCharactersOutbox.Enqueue(sql);
+            }
             continue;
         }
 
@@ -519,7 +610,13 @@ void Guild::SetLeader(ObjectGuid guid)
     m_LeaderGuid = guid;
     slot->ChangeRank(GR_GUILDMASTER);
 
-    CharacterDatabase.PExecute("UPDATE `guild` SET `leader_guid`='%u' WHERE `guild_id`='%u'", guid.GetCounter(), m_Id);
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE, safe
+    // to replay.
+    {
+        char sql[128];
+        snprintf(sql, sizeof(sql), "UPDATE `guild` SET `leader_guid`='%u' WHERE `guild_id`='%u'", guid.GetCounter(), m_Id);
+        sCharactersOutbox.Enqueue(sql);
+    }
 }
 
 /**
@@ -584,7 +681,13 @@ bool Guild::DelMember(ObjectGuid guid, bool isDisbanding)
         player->SetRank(0);
     }
 
-    CharacterDatabase.PExecute("DELETE FROM `guild_member` WHERE `guid` = '%u'", lowguid);
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK filter, safe to
+    // replay.
+    {
+        char sql[64];
+        snprintf(sql, sizeof(sql), "DELETE FROM `guild_member` WHERE `guid` = '%u'", lowguid);
+        sCharactersOutbox.Enqueue(sql);
+    }
 
     if (!isDisbanding)
         UpdateAccountsNumber();
@@ -684,8 +787,13 @@ void Guild::CreateRank(std::string name_, uint32 rights)
     AddRank(name_, rights);
 
     // name now can be used for encoding to DB
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Independent INSERT.
     CharacterDatabase.escape_string(name_);
-    CharacterDatabase.PExecute("INSERT INTO `guild_rank` (`guild_id`, `id`, `name`, `rights`) VALUES ('%u', '%u', '%s', '%u')", m_Id, new_rank_id, name_.c_str(), rights);
+    {
+        char sql[256];
+        snprintf(sql, sizeof(sql), "INSERT INTO `guild_rank` (`guild_id`, `id`, `name`, `rights`) VALUES ('%u', '%u', '%s', '%u')", m_Id, new_rank_id, name_.c_str(), rights);
+        sCharactersOutbox.Enqueue(sql);
+    }
 }
 
 void Guild::AddRank(std::string const& name_, uint32 rights)
@@ -700,8 +808,14 @@ void Guild::DelRank()
         return;
 
     // delete lowest guild_rank
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK filter, safe to
+    // replay.
     uint32 rank = GetLowestRank();
-    CharacterDatabase.PExecute("DELETE FROM `guild_rank` WHERE `id`>='%u' AND `guild_id`='%u'", rank, m_Id);
+    {
+        char sql[128];
+        snprintf(sql, sizeof(sql), "DELETE FROM `guild_rank` WHERE `id`>='%u' AND `guild_id`='%u'", rank, m_Id);
+        sCharactersOutbox.Enqueue(sql);
+    }
 
     m_Ranks.pop_back();
 }
@@ -730,8 +844,14 @@ void Guild::SetRankName(uint32 rankId, std::string name_)
     m_Ranks[rankId].Name = name_;
 
     // name now can be used for encoding to DB
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE, safe
+    // to replay.
     CharacterDatabase.escape_string(name_);
-    CharacterDatabase.PExecute("UPDATE `guild_rank` SET `name`='%s' WHERE `id`='%u' AND `guild_id`='%u'", name_.c_str(), rankId, m_Id);
+    {
+        char sql[256];
+        snprintf(sql, sizeof(sql), "UPDATE `guild_rank` SET `name`='%s' WHERE `id`='%u' AND `guild_id`='%u'", name_.c_str(), rankId, m_Id);
+        sCharactersOutbox.Enqueue(sql);
+    }
 }
 
 void Guild::SetRankRights(uint32 rankId, uint32 rights)
@@ -741,7 +861,13 @@ void Guild::SetRankRights(uint32 rankId, uint32 rights)
 
     m_Ranks[rankId].Rights = rights;
 
-    CharacterDatabase.PExecute("UPDATE `guild_rank` SET `rights`='%u' WHERE `id`='%u' AND `guild_id`='%u'", rights, rankId, m_Id);
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE, safe
+    // to replay.
+    {
+        char sql[128];
+        snprintf(sql, sizeof(sql), "UPDATE `guild_rank` SET `rights`='%u' WHERE `id`='%u' AND `guild_id`='%u'", rights, rankId, m_Id);
+        sCharactersOutbox.Enqueue(sql);
+    }
 }
 
 /**
@@ -759,11 +885,17 @@ void Guild::Disband()
         DelMember(ObjectGuid(HIGHGUID_PLAYER, itr->first), true);
     }
 
-    CharacterDatabase.BeginTransaction();
-    CharacterDatabase.PExecute("DELETE FROM `guild` WHERE `guild_id` = '%u'", m_Id);
-    CharacterDatabase.PExecute("DELETE FROM `guild_rank` WHERE `guild_id` = '%u'", m_Id);
-    CharacterDatabase.PExecute("DELETE FROM `guild_eventlog` WHERE `guild_id` = '%u'", m_Id);
-    CharacterDatabase.CommitTransaction();
+    // Phase3 (see HPHA.md "多语句事务扩展") - routed through sCharactersOutbox as one atomic
+    // group instead of Begin/CommitTransaction().
+    {
+        char sql1[64];
+        snprintf(sql1, sizeof(sql1), "DELETE FROM `guild` WHERE `guild_id` = '%u'", m_Id);
+        char sql2[64];
+        snprintf(sql2, sizeof(sql2), "DELETE FROM `guild_rank` WHERE `guild_id` = '%u'", m_Id);
+        char sql3[64];
+        snprintf(sql3, sizeof(sql3), "DELETE FROM `guild_eventlog` WHERE `guild_id` = '%u'", m_Id);
+        sCharactersOutbox.Enqueue(std::vector<std::string>{sql1, sql2, sql3});
+    }
     sGuildMgr.RemoveGuild(m_Id);
 }
 
@@ -888,7 +1020,13 @@ void Guild::SetEmblem(int32 emblemStyle, int32 emblemColor, int32 borderStyle, i
     m_BorderColor = borderColor;
     m_BackgroundColor = backgroundColor;
 
-    CharacterDatabase.PExecute("UPDATE `guild` SET `emblem_style`=%i, `emblem_color`=%i, `border_style`=%i, `border_color`=%i, `background_color`=%i WHERE `guild_id` = %u", m_EmblemStyle, m_EmblemColor, m_BorderStyle, m_BorderColor, m_BackgroundColor, m_Id);
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE, safe
+    // to replay.
+    {
+        char sql[256];
+        snprintf(sql, sizeof(sql), "UPDATE `guild` SET `emblem_style`=%i, `emblem_color`=%i, `border_style`=%i, `border_color`=%i, `background_color`=%i WHERE `guild_id` = %u", m_EmblemStyle, m_EmblemColor, m_BorderStyle, m_BorderColor, m_BackgroundColor, m_Id);
+        sCharactersOutbox.Enqueue(sql);
+    }
 }
 
 /**
@@ -975,8 +1113,14 @@ void Guild::LogGuildEvent(uint8 eventType, ObjectGuid playerGuid1, ObjectGuid pl
     // Add event to list
     m_GuildEventLog.push_back(newEvent);
     // Save event to DB
-    CharacterDatabase.PExecute("REPLACE INTO `guild_eventlog` (`guild_id`, `log_guid`, `event_type`, `player_guid1`, `player_guid2`, `new_rank`, `timestamp`) VALUES ('%u','%u','%u','%u','%u','%u','" UI64FMTD "')",
-                               m_Id, m_GuildEventLogNextGuid, uint32(newEvent.eventType), newEvent.playerGuid1, newEvent.playerGuid2, uint32(newEvent.newRank), newEvent.timestamp);
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. `REPLACE INTO`, naturally
+    // idempotent (log_guid is a rolling counter, replaying overwrites the same key).
+    {
+        char sql[256];
+        snprintf(sql, sizeof(sql), "REPLACE INTO `guild_eventlog` (`guild_id`, `log_guid`, `event_type`, `player_guid1`, `player_guid2`, `new_rank`, `timestamp`) VALUES ('%u','%u','%u','%u','%u','%u','" UI64FMTD "')",
+                 m_Id, m_GuildEventLogNextGuid, uint32(newEvent.eventType), newEvent.playerGuid1, newEvent.playerGuid2, uint32(newEvent.newRank), newEvent.timestamp);
+        sCharactersOutbox.Enqueue(sql);
+    }
 }
 
 ObjectGuid Guild::GetGuildInviter(ObjectGuid playerGuid) const

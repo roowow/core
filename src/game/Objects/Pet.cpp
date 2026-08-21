@@ -22,6 +22,7 @@
 #include "Pet.h"
 #include "Group.h"
 #include "Database/DatabaseEnv.h"
+#include "OO/DbWriteOutbox.h"
 #include "Log.h"
 #include "Opcodes.h"
 #include "WorldPacket.h"
@@ -298,18 +299,18 @@ bool Pet::LoadPetFromDB(Player* owner, uint32 petEntry, uint32 petNumber, bool c
     // PET_SAVE_NOT_IN_SLOT(100) = not stable slot (summoning))
     if (m_pTmpCache->slot != 0)
     {
-        CharacterDatabase.BeginTransaction();
-
-        static SqlStatementID id_1;
-        static SqlStatementID id_2;
-
-        SqlStatement stmt = CharacterDatabase.CreateStatement(id_1, "UPDATE `character_pet` SET `slot` = ? WHERE `owner_guid` = ? AND `slot` = ? AND `id` <> ?");
-        stmt.PExecute(uint32(PET_SAVE_NOT_IN_SLOT), ownerGuidLow, uint32(PET_SAVE_AS_CURRENT), m_charmInfo->GetPetNumber());
-
-        stmt = CharacterDatabase.CreateStatement(id_2, "UPDATE `character_pet` SET `slot` = ? WHERE `owner_guid` = ? AND `id` = ?");
-        stmt.PExecute(uint32(PET_SAVE_AS_CURRENT), ownerGuidLow, m_charmInfo->GetPetNumber());
-
-        CharacterDatabase.CommitTransaction();
+        // Phase3 (see HPHA.md "character_pet") - routed through sCharactersOutbox as one atomic
+        // group instead of Begin/CommitTransaction(). Converted from SqlStatement prepared-
+        // statement bindings to raw SQL; params are plain numbers, no escaping needed.
+        {
+            char sql1[192];
+            snprintf(sql1, sizeof(sql1), "UPDATE `character_pet` SET `slot` = '%u' WHERE `owner_guid` = '%u' AND `slot` = '%u' AND `id` <> '%u'",
+                     uint32(PET_SAVE_NOT_IN_SLOT), ownerGuidLow, uint32(PET_SAVE_AS_CURRENT), m_charmInfo->GetPetNumber());
+            char sql2[192];
+            snprintf(sql2, sizeof(sql2), "UPDATE `character_pet` SET `slot` = '%u' WHERE `owner_guid` = '%u' AND `id` = '%u'",
+                     uint32(PET_SAVE_AS_CURRENT), ownerGuidLow, m_charmInfo->GetPetNumber());
+            sCharactersOutbox.Enqueue(std::vector<std::string>{sql1, sql2});
+        }
 
         m_pTmpCache->slot = PET_SAVE_AS_CURRENT;
         sCharacterDatabaseCache.CharacterPetSetOthersNotInSlot(m_pTmpCache);
@@ -481,35 +482,38 @@ void Pet::SavePetToDB(PetSaveMode mode)
              mode == PET_SAVE_FIRST_STABLE_SLOT || mode == PET_SAVE_LAST_STABLE_SLOT)
             RemoveAllAuras();
 
-        //save pet's data as one single transaction
-        CharacterDatabase.BeginTransaction();
+        // Phase3 (see HPHA.md "character_pet") - _SaveSpells()/_SaveSpellCooldowns()/_SaveAuras()
+        // and the character_pet row block below used to share one Begin/CommitTransaction(); now
+        // each routes through sCharactersOutbox as its own independent atomic group instead of
+        // one cross-function transaction. Every write here is durable, just not perfectly atomic
+        // with the others - same tradeoff already accepted for Group::Disband()/_setLeader() in
+        // Phase3 batch 5 (see HPHA.md).
         _SaveSpells();
         _SaveSpellCooldowns();
         _SaveAuras();
 
         // remove current data
-        static SqlStatementID delPet ;
-        static SqlStatementID insPet ;
-
-        SqlStatement stmt = CharacterDatabase.CreateStatement(delPet, "DELETE FROM `character_pet` WHERE `owner_guid` = ? AND `id` = ?");
-        stmt.PExecute(ownerLow, m_charmInfo->GetPetNumber());
+        std::vector<std::string> sqls;
+        {
+            char sql[128];
+            snprintf(sql, sizeof(sql), "DELETE FROM `character_pet` WHERE `owner_guid` = '%u' AND `id` = '%u'", ownerLow, m_charmInfo->GetPetNumber());
+            sqls.push_back(sql);
+        }
 
         // prevent duplicate using slot (except PET_SAVE_NOT_IN_SLOT)
         if (mode <= PET_SAVE_LAST_STABLE_SLOT)
         {
-            static SqlStatementID updPet ;
-
-            stmt = CharacterDatabase.CreateStatement(updPet, "UPDATE `character_pet` SET `slot` = ? WHERE `owner_guid` = ? AND `slot` = ?");
-            stmt.PExecute(uint32(PET_SAVE_NOT_IN_SLOT), ownerLow, uint32(mode));
+            char sql[128];
+            snprintf(sql, sizeof(sql), "UPDATE `character_pet` SET `slot` = '%u' WHERE `owner_guid` = '%u' AND `slot` = '%u'", uint32(PET_SAVE_NOT_IN_SLOT), ownerLow, uint32(mode));
+            sqls.push_back(sql);
         }
 
         // prevent existence another hunter pet in PET_SAVE_AS_CURRENT and PET_SAVE_NOT_IN_SLOT
         if (GetPetType() == HUNTER_PET && (mode == PET_SAVE_AS_CURRENT || mode > PET_SAVE_LAST_STABLE_SLOT))
         {
-            static SqlStatementID del ;
-
-            stmt = CharacterDatabase.CreateStatement(del, "DELETE FROM `character_pet` WHERE `owner_guid` = ? AND (`slot` = ? OR `slot` > ?)");
-            stmt.PExecute(ownerLow, uint32(PET_SAVE_AS_CURRENT), uint32(PET_SAVE_LAST_STABLE_SLOT));
+            char sql[192];
+            snprintf(sql, sizeof(sql), "DELETE FROM `character_pet` WHERE `owner_guid` = '%u' AND (`slot` = '%u' OR `slot` > '%u')", ownerLow, uint32(PET_SAVE_AS_CURRENT), uint32(PET_SAVE_LAST_STABLE_SLOT));
+            sqls.push_back(sql);
         }
 
         // save pet
@@ -536,26 +540,11 @@ void Pet::SavePetToDB(PetSaveMode mode)
         m_pTmpCache->createdBySpell = GetUInt32Value(UNIT_CREATED_BY_SPELL);
         m_pTmpCache->petType = GetPetType();
 
-        SqlStatement savePet = CharacterDatabase.CreateStatement(insPet, "INSERT INTO `character_pet` "
-                               "( `id`, `entry`,  `owner_guid`, `display_id`, `level`, `xp`, `react_state`, `loyalty_points`, `loyalty`, `training_points`, `slot`, `name`, `renamed`, `current_health`, `current_mana`, `current_happiness`, `action_bar_data`, `teach_spell_data`, `save_time`, `reset_talents_cost`, `reset_talents_time`, `created_by_spell`, `pet_type`) "
-                               "VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-
-        savePet.addUInt32(m_charmInfo->GetPetNumber());
-        savePet.addUInt32(GetEntry());
-        savePet.addUInt32(ownerLow);
-        savePet.addUInt32(GetNativeDisplayId());
-        savePet.addUInt32(GetLevel());
-        savePet.addUInt32(GetUInt32Value(UNIT_FIELD_PETEXPERIENCE));
-        savePet.addUInt32(uint32(GetReactState()));
-        savePet.addInt32(m_loyaltyPoints);
-        savePet.addUInt32(GetLoyaltyLevel());
-        savePet.addInt32(m_trainingPoints);
-        savePet.addUInt32(uint32(mode));
-        savePet.addString(m_name);
-        savePet.addUInt32(uint32(HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PET_RENAME) ? 0 : 1));
-        savePet.addUInt32(curhealth);
-        savePet.addUInt32(curmana);
-        savePet.addUInt32(GetPower(POWER_HAPPINESS));
+        // Phase3 (see HPHA.md "character_pet") - routed through sCharactersOutbox, part of the
+        // same group as the DELETE/UPDATE above. Converted from SqlStatement prepared-statement
+        // bindings to raw SQL; `name` is player-supplied (pet rename), escaped below.
+        std::string safeName = m_name;
+        CharacterDatabase.escape_string(safeName);
 
         std::ostringstream ss;
         for (uint32 i = ACTION_BAR_INDEX_START; i < ACTION_BAR_INDEX_END; ++i)
@@ -564,7 +553,7 @@ void Pet::SavePetToDB(PetSaveMode mode)
                << uint32(m_charmInfo->GetActionBarEntry(i)->GetAction()) << " ";
         };
         m_pTmpCache->actionBarData = ss.str();
-        savePet.addString(ss);
+        std::string actionBarData = ss.str();
 
         ss.str("");
         // save spells the pet can teach to it's Master
@@ -576,17 +565,20 @@ void Pet::SavePetToDB(PetSaveMode mode)
                 ss << uint32(0) << " " << uint32(0) << " ";
         }
         m_pTmpCache->teachSpellData = ss.str();
-        savePet.addString(ss);
+        std::string teachSpellData = ss.str();
 
-        savePet.addUInt64(uint64(time(nullptr)));
-        savePet.addUInt32(uint32(m_resetTalentsCost));
-        savePet.addUInt64(uint64(m_resetTalentsTime));
-        savePet.addUInt32(GetUInt32Value(UNIT_CREATED_BY_SPELL));
-        savePet.addUInt32(uint32(GetPetType()));
+        char insSql[1024];
+        snprintf(insSql, sizeof(insSql), "INSERT INTO `character_pet` "
+                 "( `id`, `entry`,  `owner_guid`, `display_id`, `level`, `xp`, `react_state`, `loyalty_points`, `loyalty`, `training_points`, `slot`, `name`, `renamed`, `current_health`, `current_mana`, `current_happiness`, `action_bar_data`, `teach_spell_data`, `save_time`, `reset_talents_cost`, `reset_talents_time`, `created_by_spell`, `pet_type`) "
+                 "VALUES ('%u', '%u', '%u', '%u', '%u', '%u', '%u', '%d', '%u', '%d', '%u', '%s', '%u', '%u', '%u', '%u', '%s', '%s', '" UI64FMTD "', '%u', '" UI64FMTD "', '%u', '%u')",
+                 m_charmInfo->GetPetNumber(), GetEntry(), ownerLow, GetNativeDisplayId(), GetLevel(), GetUInt32Value(UNIT_FIELD_PETEXPERIENCE),
+                 uint32(GetReactState()), m_loyaltyPoints, GetLoyaltyLevel(), m_trainingPoints, uint32(mode), safeName.c_str(),
+                 uint32(HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PET_RENAME) ? 0 : 1), curhealth, curmana, GetPower(POWER_HAPPINESS),
+                 actionBarData.c_str(), teachSpellData.c_str(), uint64(time(nullptr)), uint32(m_resetTalentsCost), uint64(m_resetTalentsTime),
+                 GetUInt32Value(UNIT_CREATED_BY_SPELL), uint32(GetPetType()));
+        sqls.push_back(insSql);
 
-        savePet.Execute();
-
-        CharacterDatabase.CommitTransaction();
+        sCharactersOutbox.Enqueue(sqls);
         if (!bInCache) // New in the cache.
         {
             sCharacterDatabaseCache.InsertCharacterPet(m_pTmpCache);
@@ -604,29 +596,23 @@ void Pet::SavePetToDB(PetSaveMode mode)
 
 void Pet::DeleteFromDB(uint32 guidlow, bool separateTransaction)
 {
-    if (separateTransaction)
-        CharacterDatabase.BeginTransaction();
+    // Phase3 (see HPHA.md "character_pet") - routed through sCharactersOutbox as one atomic
+    // group instead of Begin/CommitTransaction(). Converted from SqlStatement prepared-statement
+    // bindings to raw SQL; params are plain numbers, no escaping needed. `separateTransaction`
+    // no longer changes anything - sCharactersOutbox.Enqueue() is always independent of whatever
+    // the caller might be doing on CharacterDatabase's own transaction state, unlike the old
+    // BeginTransaction()/CommitTransaction() pair this replaces.
+    char sql1[64];
+    snprintf(sql1, sizeof(sql1), "DELETE FROM `character_pet` WHERE `id` = '%u'", guidlow);
+    char sql2[64];
+    snprintf(sql2, sizeof(sql2), "DELETE FROM `pet_aura` WHERE `guid` = '%u'", guidlow);
+    char sql3[64];
+    snprintf(sql3, sizeof(sql3), "DELETE FROM `pet_spell` WHERE `guid` = '%u'", guidlow);
+    char sql4[64];
+    snprintf(sql4, sizeof(sql4), "DELETE FROM `pet_spell_cooldown` WHERE `guid` = '%u'", guidlow);
+    sCharactersOutbox.Enqueue(std::vector<std::string>{sql1, sql2, sql3, sql4});
 
-    static SqlStatementID delPet ;
-    static SqlStatementID delAuras ;
-    static SqlStatementID delSpells ;
-    static SqlStatementID delSpellCD ;
-
-    SqlStatement stmt = CharacterDatabase.CreateStatement(delPet, "DELETE FROM `character_pet` WHERE `id` = ?");
-    stmt.PExecute(guidlow);
-
-    stmt = CharacterDatabase.CreateStatement(delAuras, "DELETE FROM `pet_aura` WHERE `guid` = ?");
-    stmt.PExecute(guidlow);
-
-    stmt = CharacterDatabase.CreateStatement(delSpells, "DELETE FROM `pet_spell` WHERE `guid` = ?");
-    stmt.PExecute(guidlow);
-
-    stmt = CharacterDatabase.CreateStatement(delSpellCD, "DELETE FROM `pet_spell_cooldown` WHERE `guid` = ?");
-    stmt.PExecute(guidlow);
     sCharacterDatabaseCache.DeleteCharacterPetById(guidlow);
-
-    if (separateTransaction)
-        CharacterDatabase.CommitTransaction();
 }
 
 void Pet::SetDeathState(DeathState s)                       // overwrite virtual Creature::SetDeathState and Unit::SetDeathState
@@ -1582,11 +1568,17 @@ void Pet::_SaveSpellCooldowns()
     if (m_pTmpCache)
         m_pTmpCache->spellCooldowns.clear();
 
-    static SqlStatementID delSpellCD;
-    static SqlStatementID insSpellCD;
-
-    SqlStatement stmt = CharacterDatabase.CreateStatement(delSpellCD, "DELETE FROM `pet_spell_cooldown` WHERE `guid` = ?");
-    stmt.PExecute(m_charmInfo->GetPetNumber());
+    // Phase3 (see HPHA.md "character_pet") - routed through sCharactersOutbox as one atomic
+    // group. Converted from SqlStatement prepared-statement bindings to raw SQL; params are
+    // plain numbers, no escaping needed. Independent from _SaveSpells()/_SaveAuras()/the
+    // character_pet row update in SavePetToDB() (each its own Outbox entry, not merged into one
+    // cross-function transaction) - see SavePetToDB()'s note for the tradeoff.
+    std::vector<std::string> sqls;
+    {
+        char sql[64];
+        snprintf(sql, sizeof(sql), "DELETE FROM `pet_spell_cooldown` WHERE `guid` = '%u'", m_charmInfo->GetPetNumber());
+        sqls.push_back(sql);
+    }
 
     for (auto& cdItr : m_cooldownMap)
     {
@@ -1611,10 +1603,14 @@ void Pet::_SaveSpellCooldowns()
                 m_pTmpCache->spellCooldowns.push_back(cd);
             }
 
-            stmt = CharacterDatabase.CreateStatement(insSpellCD, "INSERT INTO `pet_spell_cooldown` (`guid`, `spell`, `time`) VALUES (?, ?, ?)");
-            stmt.PExecute(m_charmInfo->GetPetNumber(), cdItr.first, static_cast<uint64>(Clock::to_time_t(spellExpireTime)));
+            char sql[128];
+            snprintf(sql, sizeof(sql), "INSERT INTO `pet_spell_cooldown` (`guid`, `spell`, `time`) VALUES ('%u', '%u', '" UI64FMTD "')",
+                     m_charmInfo->GetPetNumber(), cdItr.first, static_cast<uint64>(Clock::to_time_t(spellExpireTime)));
+            sqls.push_back(sql);
         }
     }
+
+    sCharactersOutbox.Enqueue(sqls);
 }
 
 void Pet::_LoadSpells()
@@ -1638,8 +1634,11 @@ void Pet::_SaveSpells()
     if (m_pTmpCache)
         m_pTmpCache->spells.clear();
 
-    static SqlStatementID delSpell ;
-    static SqlStatementID insSpell ;
+    // Phase3 (see HPHA.md "character_pet") - routed through sCharactersOutbox as one atomic
+    // group. Converted from SqlStatement prepared-statement bindings to raw SQL; params are
+    // plain numbers, no escaping needed. Independent from _SaveSpellCooldowns()/_SaveAuras()/the
+    // character_pet row update in SavePetToDB() - see that function's note for the tradeoff.
+    std::vector<std::string> sqls;
 
     for (PetSpellMap::iterator itr = m_petSpells.begin(), next = m_petSpells.begin(); itr != m_petSpells.end(); itr = next)
     {
@@ -1660,24 +1659,28 @@ void Pet::_SaveSpells()
         {
             case PETSPELL_REMOVED:
             {
-                SqlStatement stmt = CharacterDatabase.CreateStatement(delSpell, "DELETE FROM `pet_spell` WHERE `guid` = ? and `spell` = ?");
-                stmt.PExecute(m_charmInfo->GetPetNumber(), itr->first);
+                char sql[128];
+                snprintf(sql, sizeof(sql), "DELETE FROM `pet_spell` WHERE `guid` = '%u' and `spell` = '%u'", m_charmInfo->GetPetNumber(), itr->first);
+                sqls.push_back(sql);
                 m_petSpells.erase(itr);
             }
             continue;
             case PETSPELL_CHANGED:
             {
-                SqlStatement stmt = CharacterDatabase.CreateStatement(delSpell, "DELETE FROM `pet_spell` WHERE `guid` = ? and `spell` = ?");
-                stmt.PExecute(m_charmInfo->GetPetNumber(), itr->first);
+                char sql1[128];
+                snprintf(sql1, sizeof(sql1), "DELETE FROM `pet_spell` WHERE `guid` = '%u' and `spell` = '%u'", m_charmInfo->GetPetNumber(), itr->first);
+                sqls.push_back(sql1);
 
-                stmt = CharacterDatabase.CreateStatement(insSpell, "INSERT INTO `pet_spell` (`guid`, `spell`, `active`) VALUES (?, ?, ?)");
-                stmt.PExecute(m_charmInfo->GetPetNumber(), itr->first, uint32(itr->second.active));
+                char sql2[128];
+                snprintf(sql2, sizeof(sql2), "INSERT INTO `pet_spell` (`guid`, `spell`, `active`) VALUES ('%u', '%u', '%u')", m_charmInfo->GetPetNumber(), itr->first, uint32(itr->second.active));
+                sqls.push_back(sql2);
             }
             break;
             case PETSPELL_NEW:
             {
-                SqlStatement stmt = CharacterDatabase.CreateStatement(insSpell, "INSERT INTO `pet_spell` (`guid`, `spell`, `active`) VALUES (?, ?, ?)");
-                stmt.PExecute(m_charmInfo->GetPetNumber(), itr->first, uint32(itr->second.active));
+                char sql[128];
+                snprintf(sql, sizeof(sql), "INSERT INTO `pet_spell` (`guid`, `spell`, `active`) VALUES ('%u', '%u', '%u')", m_charmInfo->GetPetNumber(), itr->first, uint32(itr->second.active));
+                sqls.push_back(sql);
             }
             break;
             case PETSPELL_UNCHANGED:
@@ -1686,6 +1689,9 @@ void Pet::_SaveSpells()
 
         itr->second.state = PETSPELL_UNCHANGED;
     }
+
+    if (!sqls.empty())
+        sCharactersOutbox.Enqueue(sqls);
 }
 
 void Pet::_LoadAuras(uint32 timediff)
@@ -1784,20 +1790,24 @@ void Pet::_SaveAuras()
     if (m_pTmpCache)
         m_pTmpCache->auras.clear();
 
-    static SqlStatementID delAuras ;
-    static SqlStatementID insAuras ;
-
-    SqlStatement stmt = CharacterDatabase.CreateStatement(delAuras, "DELETE FROM `pet_aura` WHERE `guid` = ?");
-    stmt.PExecute(m_charmInfo->GetPetNumber());
+    // Phase3 (see HPHA.md "character_pet") - routed through sCharactersOutbox as one atomic
+    // group. Converted from SqlStatement prepared-statement bindings to raw SQL; params are
+    // plain numbers, no escaping needed. Independent from _SaveSpells()/_SaveSpellCooldowns()/the
+    // character_pet row update in SavePetToDB() - see that function's note for the tradeoff.
+    std::vector<std::string> sqls;
+    {
+        char sql[64];
+        snprintf(sql, sizeof(sql), "DELETE FROM `pet_aura` WHERE `guid` = '%u'", m_charmInfo->GetPetNumber());
+        sqls.push_back(sql);
+    }
 
     SpellAuraHolderMap const& auraHolders = GetSpellAuraHolderMap();
 
     if (auraHolders.empty())
+    {
+        sCharactersOutbox.Enqueue(sqls);
         return;
-
-    stmt = CharacterDatabase.CreateStatement(insAuras, "INSERT INTO `pet_aura` (`guid`, `caster_guid`, `item_guid`, `spell`, `stacks`, `charges`, "
-            "`base_points0`, `base_points1`, `base_points2`, `periodic_time0`, `periodic_time1`, `periodic_time2`, `max_duration`, `duration`, `effect_index_mask`) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    }
 
     for (const auto& auraHolder : auraHolders)
     {
@@ -1863,25 +1873,26 @@ void Pet::_SaveAuras()
                 m_pTmpCache->auras.push_back(c);
             }
 
-            stmt.addUInt32(m_charmInfo->GetPetNumber());
-            stmt.addUInt64(holder->GetCasterGuid().GetRawValue());
-            stmt.addUInt32(holder->GetCastItemGuid().GetCounter());
-            stmt.addUInt32(holder->GetId());
-            stmt.addUInt32(holder->GetStackAmount());
-            stmt.addUInt8(holder->GetAuraCharges());
-
-            for (int32 i : damage)
-                stmt.addFloat(i);
-
-            for (uint32 i : periodicTime)
-                stmt.addUInt32(i);
-
-            stmt.addInt32(holder->GetAuraMaxDuration());
-            stmt.addInt32(holder->GetAuraDuration());
-            stmt.addUInt8(effIndexMask);
-            stmt.Execute();
+            // NB: base_points0-2 are truncated to int32 here (matches the pre-existing behavior
+            // of the old `for (int32 i : damage) stmt.addFloat(i);` loop - damage[] is a float[]
+            // but the range-for's declared int32 element type silently truncated each value
+            // before re-widening it for the bind; preserved as-is, not a regression from this
+            // conversion, and harmless in practice since almost all spell base points are
+            // whole numbers).
+            char sql[640];
+            snprintf(sql, sizeof(sql), "INSERT INTO `pet_aura` (`guid`, `caster_guid`, `item_guid`, `spell`, `stacks`, `charges`, "
+                     "`base_points0`, `base_points1`, `base_points2`, `periodic_time0`, `periodic_time1`, `periodic_time2`, `max_duration`, `duration`, `effect_index_mask`) "
+                     "VALUES ('%u', '" UI64FMTD "', '%u', '%u', '%u', '%u', '%d', '%d', '%d', '%u', '%u', '%u', '%d', '%d', '%u')",
+                     m_charmInfo->GetPetNumber(), holder->GetCasterGuid().GetRawValue(), holder->GetCastItemGuid().GetCounter(), holder->GetId(),
+                     holder->GetStackAmount(), uint32(holder->GetAuraCharges()),
+                     int32(damage[0]), int32(damage[1]), int32(damage[2]),
+                     periodicTime[0], periodicTime[1], periodicTime[2],
+                     holder->GetAuraMaxDuration(), holder->GetAuraDuration(), uint32(effIndexMask));
+            sqls.push_back(sql);
         }
     }
+
+    sCharactersOutbox.Enqueue(sqls);
 }
 
 bool Pet::AddSpell(uint32 spellId, ActiveStates active /*= ACT_DECIDE*/, PetSpellState state /*= PETSPELL_NEW*/, PetSpellType type /*= PETSPELL_NORMAL*/)
@@ -1893,7 +1904,13 @@ bool Pet::AddSpell(uint32 spellId, ActiveStates active /*= ACT_DECIDE*/, PetSpel
         if (state == PETSPELL_UNCHANGED)                    // spell load case
         {
             sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Pet::AddSpell: nonexistent in SpellStore spell #%u request, deleting for all pets in `pet_spell`.", spellId);
-            CharacterDatabase.PExecute("DELETE FROM `pet_spell` WHERE `spell` = '%u'", spellId);
+            // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK filter,
+            // safe to replay.
+            {
+                char sql[64];
+                snprintf(sql, sizeof(sql), "DELETE FROM `pet_spell` WHERE `spell` = '%u'", spellId);
+                sCharactersOutbox.Enqueue(sql);
+            }
         }
         else
             sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Pet::AddSpell: nonexistent in SpellStore spell #%u request.", spellId);

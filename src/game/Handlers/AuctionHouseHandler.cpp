@@ -33,6 +33,7 @@
 #include "Util.h"
 #include "Chat.h"
 #include "Anticheat.h"
+#include "OO/DbHealthMonitor.h"
 
 // please DO NOT use iterator++, because it is slower than ++iterator!!!
 // post-incrementation is always slower than pre-incrementation !
@@ -44,6 +45,17 @@ void WorldSession::HandleAuctionHelloOpcode(WorldPackets::AuctionHouse::AuctionH
     if (!unit)
     {
         sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "WORLD: HandleAuctionHelloOpcode - %s not found or you can't interact with him.", packet.auctioneerGuid.GetString().c_str());
+        return;
+    }
+
+    // Phase4 (see HPHA.md "熔断 + 错误区分设计") - entrance-level block: sell/bid/cancel all
+    // route through SaveInventoryAndGoldToDB()'s anti-cheat fast-save, which isn't covered by
+    // sCharactersOutbox (see HPHA.md Tier2). Only gates opening the window here, not a player who
+    // already has it open when CharacterDatabase goes unhealthy - accepted gap, not full
+    // defense-in-depth like the mail module's CheckMailBox().
+    if (!IsCharacterDatabaseHealthy())
+    {
+        ChatHandler(GetPlayer()).SendSysMessage("拍卖行暂时不可用（数据库维护中），请稍后再试。");
         return;
     }
 

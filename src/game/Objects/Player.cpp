@@ -23,6 +23,7 @@
 #include <unordered_map>
 #include <cmath>
 #include <sstream>
+#include <iomanip>
 
 #include "Player.h"
 #include "Bag.h"
@@ -3023,7 +3024,14 @@ bool Player::SetHardcore(bool on)
             return false;
 
         m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_ON;
-        CharacterDatabase.PExecute("INSERT INTO character_hardcore (guid, created, status) VALUES (%u, UNIX_TIMESTAMP(), 1)", GetGUIDLow());
+        // Phase3 (see HPHA.md) - routed through sCharactersOutbox. `ON DUPLICATE KEY UPDATE`
+        // makes an Outbox replay a safe no-op (reasserts status=1, doesn't touch `created`)
+        // instead of a harmless-but-noisy duplicate-key error.
+        {
+            char sql[192];
+            snprintf(sql, sizeof(sql), "INSERT INTO character_hardcore (guid, created, status) VALUES (%u, UNIX_TIMESTAMP(), 1) ON DUPLICATE KEY UPDATE status = VALUES(status)", GetGUIDLow());
+            sCharactersOutbox.Enqueue(sql);
+        }
 
         CastSpell(this, 15852, true);
         AddAura(7363, 0, this); // 火光
@@ -3040,7 +3048,13 @@ bool Player::SetHardcore(bool on)
     {
         // normalize
         m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_ON;
-        CharacterDatabase.PExecute("UPDATE `character_hardcore` SET `normal` = 1, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
+        // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE,
+        // safe to replay.
+        {
+            char sql[192];
+            snprintf(sql, sizeof(sql), "UPDATE `character_hardcore` SET `normal` = 1, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
+            sCharactersOutbox.Enqueue(sql);
+        }
     }
 
     return true;
@@ -3054,7 +3068,13 @@ void Player::SetTianxuan(bool on)
             return;
 
         m_ExtraFlags |= PLAYER_EXTRA_TIANXUAN_ON;
-        CharacterDatabase.PExecute("UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
+        // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE
+        // (the full flag bitmask, recomputed here, not a delta), safe to replay.
+        {
+            char sql[128];
+            snprintf(sql, sizeof(sql), "UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
+            sCharactersOutbox.Enqueue(sql);
+        }
         ClearInventoryForTianxuan();
         // 佩戴 item 17774 时不加永久 buff，让 proc 机制正常触发 spell 21970 并加属性
         if (!HasItemWithIdEquipped(17774))
@@ -3074,7 +3094,12 @@ void Player::SetTianxuan(bool on)
     else
     {
         m_ExtraFlags &= ~PLAYER_EXTRA_TIANXUAN_ON;
-        CharacterDatabase.PExecute("UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
+        // Phase3 (see HPHA.md) - same reasoning as the enable branch above.
+        {
+            char sql[128];
+            snprintf(sql, sizeof(sql), "UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
+            sCharactersOutbox.Enqueue(sql);
+        }
         RemoveAurasDueToSpell(21970);
     }
 }
@@ -3132,7 +3157,13 @@ void Player::SetTurtle(bool on)
             return;
 
         m_ExtraFlags |= PLAYER_EXTRA_TURTLE_ON;
-        CharacterDatabase.PExecute("UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
+        // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE
+        // (the full flag bitmask, recomputed here, not a delta), safe to replay.
+        {
+            char sql[128];
+            snprintf(sql, sizeof(sql), "UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
+            sCharactersOutbox.Enqueue(sql);
+        }
         // 赠送乌龟宠物礼盒
         StoreNewItemInBestSlots(23002, 1);
         // 加永久 Shell Shield 视觉 buff
@@ -3148,7 +3179,12 @@ void Player::SetTurtle(bool on)
     else
     {
         m_ExtraFlags &= ~PLAYER_EXTRA_TURTLE_ON;
-        CharacterDatabase.PExecute("UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
+        // Phase3 (see HPHA.md) - same reasoning as the enable branch above.
+        {
+            char sql[128];
+            snprintf(sql, sizeof(sql), "UPDATE characters SET extra_flags = %u WHERE guid = %u", m_ExtraFlags, GetGUIDLow());
+            sCharactersOutbox.Enqueue(sql);
+        }
         RemoveAurasDueToSpell(26064);
     }
 }
@@ -3163,7 +3199,13 @@ bool Player::IsMailBlockedFromPlayers() const
 void Player::SetHardcoreRetired()
 {
     m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_RETIRED;
-    CharacterDatabase.PExecute("UPDATE `character_hardcore` SET `retired` = 1, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE, safe
+    // to replay.
+    {
+        char sql[192];
+        snprintf(sql, sizeof(sql), "UPDATE `character_hardcore` SET `retired` = 1, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
+        sCharactersOutbox.Enqueue(sql);
+    }
 
     SetHardcorePVP(true);
     SetPvP(true);
@@ -3188,12 +3230,23 @@ void Player::SetHardcorePVP(bool on)
     if (on)
     {
         m_ExtraFlags |= PLAYER_EXTRA_HARDCORE_PVP;
-        CharacterDatabase.PExecute("UPDATE `character_hardcore` SET `pvpflag` = 1, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
+        // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE,
+        // safe to replay.
+        {
+            char sql[192];
+            snprintf(sql, sizeof(sql), "UPDATE `character_hardcore` SET `pvpflag` = 1, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
+            sCharactersOutbox.Enqueue(sql);
+        }
     }
     else
     {
         m_ExtraFlags &= ~ PLAYER_EXTRA_HARDCORE_PVP;
-        CharacterDatabase.PExecute("UPDATE `character_hardcore` SET `pvpflag` = 0, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
+        // Phase3 (see HPHA.md) - same reasoning as the pvpflag=1 branch above.
+        {
+            char sql[192];
+            snprintf(sql, sizeof(sql), "UPDATE `character_hardcore` SET `pvpflag` = 0, `changed` = UNIX_TIMESTAMP() WHERE `guid` ='%u'", GetGUIDLow());
+            sCharactersOutbox.Enqueue(sql);
+        }
     }
 }
 /// Hardcore
@@ -3203,9 +3256,18 @@ void Player::SetActiveTalent(uint32 talent)
 {
     oowowInfo.activeTalent = talent;
 
-    CharacterDatabase.PExecute("UPDATE character_spell_talent SET active = 0 WHERE guid = %u", GetGUIDLow());
-
-    CharacterDatabase.PExecute("UPDATE character_spell_talent SET active = 1 WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Two independent absolute-assignment
+    // UPDATEs, safe to replay.
+    {
+        char sql[128];
+        snprintf(sql, sizeof(sql), "UPDATE character_spell_talent SET active = 0 WHERE guid = %u", GetGUIDLow());
+        sCharactersOutbox.Enqueue(sql);
+    }
+    {
+        char sql[128];
+        snprintf(sql, sizeof(sql), "UPDATE character_spell_talent SET active = 1 WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
+        sCharactersOutbox.Enqueue(sql);
+    }
 }
 
 bool Player::IsAllowSwitchTalent()
@@ -3354,9 +3416,23 @@ bool Player::DeleteTalent(uint32 talent)
     if (! IsAllowSwitchTalent())
         return false;
 
-    CharacterDatabase.PExecute("DELETE FROM `character_spell_talent` WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
-    CharacterDatabase.PExecute("DELETE FROM `character_spell_extra`  WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
-    CharacterDatabase.PExecute("DELETE FROM `character_spell_tmp`    WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Three independent DELETEs by
+    // non-PK filter, safe to replay (a repeat just deletes zero rows the second time).
+    {
+        char sql[128];
+        snprintf(sql, sizeof(sql), "DELETE FROM `character_spell_talent` WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
+        sCharactersOutbox.Enqueue(sql);
+    }
+    {
+        char sql[128];
+        snprintf(sql, sizeof(sql), "DELETE FROM `character_spell_extra`  WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
+        sCharactersOutbox.Enqueue(sql);
+    }
+    {
+        char sql[128];
+        snprintf(sql, sizeof(sql), "DELETE FROM `character_spell_tmp`    WHERE guid = %u and flag = %u", GetGUIDLow(), talent);
+        sCharactersOutbox.Enqueue(sql);
+    }
 
     oowowInfo.DualTalents.erase(talent);
 
@@ -14933,17 +15009,23 @@ void Player::LogModifyMoney(int32 d, char const* type, ObjectGuid fromGuid, uint
             GetShortDescription().c_str(), d, data, fromGuid.GetString().c_str());
 
         /// BigData - character_log_money
+        // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Append-only log INSERT, safe
+        // to replay. Sibling of already-migrated character_log_item/pvpkill/guildbank, missed in
+        // the first batch.
         if (d >= 10000)
         {
+            char sql[512];
             if (fromGuid.IsPlayer())
             {
-                CharacterDatabase.PExecute("INSERT INTO `character_log_money` (`guid`, `name`, `money`, `type`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%s', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+                snprintf(sql, sizeof(sql), "INSERT INTO `character_log_money` (`guid`, `name`, `money`, `type`, `fromguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%s', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
                     GetGUIDLow(), GetName(), d, type, fromGuid.GetCounter(), GetZoneId(), GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetSession()->GetRemoteAddress().c_str());
             }
-            else{
-                CharacterDatabase.PExecute("INSERT INTO `character_log_money` (`guid`, `name`, `money`, `type`, `lootguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%s', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
+            else
+            {
+                snprintf(sql, sizeof(sql), "INSERT INTO `character_log_money` (`guid`, `name`, `money`, `type`, `lootguid`, `zone`, `map`, `pos_x`, `pos_y`, `pos_z`, `ip`) VALUES ('%u', '%s', '%u', '%s', '%u', '%u', '%u', '%f', '%f', '%f', '%s')",
                     GetGUIDLow(), GetName(), d, type, fromGuid.GetCounter(), GetZoneId(), GetMapId(), GetPositionX(), GetPositionY(), GetPositionZ(), GetSession()->GetRemoteAddress().c_str());
             }
+            sCharactersOutbox.Enqueue(sql);
         }
 
         if (d > 0)
@@ -16723,7 +16805,13 @@ void Player::_LoadBoundInstances(std::unique_ptr<QueryResult> result)
             if (!mapEntry || !mapEntry->IsDungeon())
             {
                 sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "_LoadBoundInstances: player %s(%d) has bind to nonexistent or not dungeon map %d", GetName(), GetGUIDLow(), mapId);
-                CharacterDatabase.PExecute("DELETE FROM `character_instance` WHERE `guid` = '%u' AND `instance` = '%u'", GetGUIDLow(), instanceId);
+                // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK
+                // filter, safe to replay.
+                {
+                    char sql[128];
+                    snprintf(sql, sizeof(sql), "DELETE FROM `character_instance` WHERE `guid` = '%u' AND `instance` = '%u'", GetGUIDLow(), instanceId);
+                    sCharactersOutbox.Enqueue(sql);
+                }
                 continue;
             }
 
@@ -16756,9 +16844,15 @@ void Player::UnbindInstance(BoundInstancesMap::iterator &itr, bool unload)
 {
     if (itr != m_boundInstances.end())
     {
+        // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK filter,
+        // safe to replay.
         if (!unload)
-            CharacterDatabase.PExecute("DELETE FROM `character_instance` WHERE `guid` = '%u' AND `instance` = '%u'",
+        {
+            char sql[128];
+            snprintf(sql, sizeof(sql), "DELETE FROM `character_instance` WHERE `guid` = '%u' AND `instance` = '%u'",
                                        GetGUIDLow(), itr->second.state->GetInstanceId());
+            sCharactersOutbox.Enqueue(sql);
+        }
         itr->second.state->RemovePlayer(this);              // state can become invalid
         m_boundInstances.erase(itr++);
     }
@@ -16777,8 +16871,14 @@ InstancePlayerBind* Player::BindToInstance(DungeonPersistentState* state, bool p
             // update the state when the group kills a boss
             if (permanent != bind.perm || state != bind.state)
                 if (!load)
-                    CharacterDatabase.PExecute("UPDATE `character_instance` SET `instance` = '%u', `permanent` = '%u' WHERE `guid` = '%u' AND `instance` = '%u'",
+                {
+                    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment
+                    // UPDATE, safe to replay.
+                    char sql[192];
+                    snprintf(sql, sizeof(sql), "UPDATE `character_instance` SET `instance` = '%u', `permanent` = '%u' WHERE `guid` = '%u' AND `instance` = '%u'",
                                                state->GetInstanceId(), permanent, GetGUIDLow(), bind.state->GetInstanceId());
+                    sCharactersOutbox.Enqueue(sql);
+                }
         }
         else
         {
@@ -16790,11 +16890,17 @@ InstancePlayerBind* Player::BindToInstance(DungeonPersistentState* state, bool p
             // key error (`DBErrors_*.log`: "Duplicate entry 'guid-instance' for key 'PRIMARY'").
             // Falling back to an update keeps the row in sync with what we're trying to write
             // either way, instead of just failing.
+            // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Already an
+            // ON DUPLICATE KEY UPDATE upsert (see comment above), safe to replay.
             if (!load)
-                CharacterDatabase.PExecute(
+            {
+                char sql[192];
+                snprintf(sql, sizeof(sql),
                     "INSERT INTO `character_instance` (`guid`, `instance`, `permanent`) VALUES ('%u', '%u', '%u') "
                     "ON DUPLICATE KEY UPDATE `permanent` = VALUES(`permanent`)",
                     GetGUIDLow(), state->GetInstanceId(), permanent);
+                sCharactersOutbox.Enqueue(sql);
+            }
         }
 
         if (bind.state != state)
@@ -16951,13 +17057,24 @@ void Player::ConvertInstancesToGroup(Player* player, Group* group, ObjectGuid pl
 
     uint32 playerLowGuid = playerGuid.GetCounter();
 
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. `INSERT IGNORE` is idempotent
+    // (a duplicate-key row is silently skipped, same end state on replay); the DELETE is by
+    // non-PK filter, also safe to replay.
     // if the player's not online we don't know what binds it has
     if (!player || !group || has_binds)
-        CharacterDatabase.PExecute("INSERT IGNORE INTO `group_instance` SELECT `guid`, `instance`, `permanent` FROM `character_instance` WHERE `guid` = '%u'", playerLowGuid);
+    {
+        char sql[192];
+        snprintf(sql, sizeof(sql), "INSERT IGNORE INTO `group_instance` SELECT `guid`, `instance`, `permanent` FROM `character_instance` WHERE `guid` = '%u'", playerLowGuid);
+        sCharactersOutbox.Enqueue(sql);
+    }
 
     // the following should not get executed when changing leaders
     if (!player || has_solo)
-        CharacterDatabase.PExecute("DELETE FROM `character_instance` WHERE `guid` = '%u' AND `permanent` = 0", playerLowGuid);
+    {
+        char sql[128];
+        snprintf(sql, sizeof(sql), "DELETE FROM `character_instance` WHERE `guid` = '%u' AND `permanent` = 0", playerLowGuid);
+        sCharactersOutbox.Enqueue(sql);
+    }
 }
 
 bool Player::_LoadHomeBind(std::unique_ptr<QueryResult> result)
@@ -16987,7 +17104,13 @@ bool Player::_LoadHomeBind(std::unique_ptr<QueryResult> result)
             !bindMapEntry->Instanceable())
             ok = true;
         else
-            CharacterDatabase.PExecute("DELETE FROM `character_homebind` WHERE `guid` = '%u'", GetGUIDLow());
+        {
+            // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK filter,
+            // safe to replay.
+            char sql[128];
+            snprintf(sql, sizeof(sql), "DELETE FROM `character_homebind` WHERE `guid` = '%u'", GetGUIDLow());
+            sCharactersOutbox.Enqueue(sql);
+        }
     }
 
     if (!ok)
@@ -16998,7 +17121,18 @@ bool Player::_LoadHomeBind(std::unique_ptr<QueryResult> result)
         m_homebind.y = info->positionY;
         m_homebind.z = info->positionZ;
 
-        CharacterDatabase.PExecute("INSERT INTO `character_homebind` (`guid`, `map`, `zone`, `position_x`, `position_y`, `position_z`) VALUES ('%u', '%u', '%u', '%f', '%f', '%f')", GetGUIDLow(), m_homebind.mapId, (uint32)m_homebindAreaId, m_homebind.x, m_homebind.y, m_homebind.z);
+        // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Plain INSERT would collide
+        // with itself on replay (`guid` is the primary key and this row was just confirmed
+        // absent/invalid above, but Outbox's at-least-once delivery could still apply it twice);
+        // `ON DUPLICATE KEY UPDATE` makes a replay a safe no-op instead, same pattern as
+        // character_hardcore's enable-INSERT in the second batch.
+        {
+            char sql[256];
+            snprintf(sql, sizeof(sql), "INSERT INTO `character_homebind` (`guid`, `map`, `zone`, `position_x`, `position_y`, `position_z`) VALUES ('%u', '%u', '%u', '%f', '%f', '%f') "
+                "ON DUPLICATE KEY UPDATE `map` = VALUES(`map`), `zone` = VALUES(`zone`), `position_x` = VALUES(`position_x`), `position_y` = VALUES(`position_y`), `position_z` = VALUES(`position_z`)",
+                GetGUIDLow(), m_homebind.mapId, (uint32)m_homebindAreaId, m_homebind.x, m_homebind.y, m_homebind.z);
+            sCharactersOutbox.Enqueue(sql);
+        }
     }
 
     sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Setting player home position: mapid is: %u, zoneid is %u, X is %f, Y is %f, Z is %f",
@@ -17841,38 +17975,41 @@ void Player::_SaveStats()
     if (!sWorld.getConfig(CONFIG_UINT32_MIN_LEVEL_STAT_SAVE) || GetLevel() < sWorld.getConfig(CONFIG_UINT32_MIN_LEVEL_STAT_SAVE))
         return;
 
-    static SqlStatementID delStats ;
-    static SqlStatementID insertStats ;
+    // Phase3 (see HPHA.md "全库表核对") - routed through sCharactersOutbox as one atomic group.
+    // Was two independent SqlStatement PExecute calls with no transaction between them (a crash
+    // between the DELETE and INSERT could leave this player's stats row missing) - packaging
+    // them together is strictly safer than the previous behavior, not just a like-for-like port.
+    // Converted from prepared-statement bindings to raw SQL since Enqueue() needs a formatted
+    // string; all fields are plain numbers, no escaping needed.
+    char delSql[64];
+    snprintf(delSql, sizeof(delSql), "DELETE FROM `character_stats` WHERE `guid` = '%u'", GetGUIDLow());
 
-    SqlStatement stmt = CharacterDatabase.CreateStatement(delStats, "DELETE FROM `character_stats` WHERE `guid` = ?");
-    stmt.PExecute(GetGUIDLow());
-
-    stmt = CharacterDatabase.CreateStatement(insertStats, "INSERT INTO `character_stats` (`guid`, `max_health`, `max_power1`, `max_power2`, `max_power3`, `max_power4`, `max_power5`, "
-            "`strength`, `agility`, `stamina`, `intellect`, `spirit`, `armor`, `holy_res`, `fire_res`, `nature_res`, `frost_res`, `shadow_res`, `arcane_res`, "
-            "`block_chance`, `dodge_chance`, `parry_chance`, `crit_chance`, `ranged_crit_chance`, `spell_crit_chance`, `attack_power`, `ranged_attack_power`, `spell_damage`, `spell_healing`) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-
-    stmt.addUInt32(GetGUIDLow());
-    stmt.addUInt32(GetMaxHealth());
+    std::ostringstream ins;
+    ins << std::fixed << std::setprecision(6);
+    ins << "INSERT INTO `character_stats` (`guid`, `max_health`, `max_power1`, `max_power2`, `max_power3`, `max_power4`, `max_power5`, "
+           "`strength`, `agility`, `stamina`, `intellect`, `spirit`, `armor`, `holy_res`, `fire_res`, `nature_res`, `frost_res`, `shadow_res`, `arcane_res`, "
+           "`block_chance`, `dodge_chance`, `parry_chance`, `crit_chance`, `ranged_crit_chance`, `spell_crit_chance`, `attack_power`, `ranged_attack_power`, `spell_damage`, `spell_healing`) VALUES ("
+        << GetGUIDLow() << ',' << GetMaxHealth();
     for (int i = 0; i < MAX_POWERS; ++i)
-        stmt.addUInt32(GetMaxPower(Powers(i)));
+        ins << ',' << GetMaxPower(Powers(i));
     for (int i = 0; i < MAX_STATS; ++i)
-        stmt.addFloat(GetStat(Stats(i)));
+        ins << ',' << GetStat(Stats(i));
     // armor + school resistances
     for (int i = 0; i < MAX_SPELL_SCHOOL; ++i)
-        stmt.addInt32(GetResistance(SpellSchools(i)));
-    stmt.addFloat(GetFloatValue(PLAYER_BLOCK_PERCENTAGE));
-    stmt.addFloat(GetFloatValue(PLAYER_DODGE_PERCENTAGE));
-    stmt.addFloat(GetFloatValue(PLAYER_PARRY_PERCENTAGE));
-    stmt.addFloat(GetFloatValue(PLAYER_CRIT_PERCENTAGE));
-    stmt.addFloat(GetFloatValue(PLAYER_RANGED_CRIT_PERCENTAGE));
-    stmt.addFloat(GetSpellCritPercent(SPELL_SCHOOL_HOLY));
-    stmt.addUInt32(GetUInt32Value(UNIT_FIELD_ATTACK_POWER));
-    stmt.addUInt32(GetUInt32Value(UNIT_FIELD_RANGED_ATTACK_POWER));
-    stmt.addUInt32(GetUInt32Value(PLAYER_FIELD_MOD_DAMAGE_DONE_POS + 1));
-    stmt.addUInt32(GetTotalAuraModifier(SPELL_AURA_MOD_HEALING_DONE));
+        ins << ',' << GetResistance(SpellSchools(i));
+    ins << ',' << GetFloatValue(PLAYER_BLOCK_PERCENTAGE)
+        << ',' << GetFloatValue(PLAYER_DODGE_PERCENTAGE)
+        << ',' << GetFloatValue(PLAYER_PARRY_PERCENTAGE)
+        << ',' << GetFloatValue(PLAYER_CRIT_PERCENTAGE)
+        << ',' << GetFloatValue(PLAYER_RANGED_CRIT_PERCENTAGE)
+        << ',' << GetSpellCritPercent(SPELL_SCHOOL_HOLY)
+        << ',' << GetUInt32Value(UNIT_FIELD_ATTACK_POWER)
+        << ',' << GetUInt32Value(UNIT_FIELD_RANGED_ATTACK_POWER)
+        << ',' << GetUInt32Value(PLAYER_FIELD_MOD_DAMAGE_DONE_POS + 1)
+        << ',' << GetTotalAuraModifier(SPELL_AURA_MOD_HEALING_DONE)
+        << ')';
 
-    stmt.Execute();
+    sCharactersOutbox.Enqueue(std::vector<std::string>{delSql, ins.str()});
 }
 
 /*********************************************************/
@@ -18680,10 +18817,18 @@ void Player::RemovePetitionsAndSigns(ObjectGuid guid, uint32 exceptPetitionId)
 {
     uint32 lowGuid = guid.GetCounter();
 
-    CharacterDatabase.BeginTransaction();
-    CharacterDatabase.PExecute("DELETE FROM `petition` WHERE `owner_guid` = '%u'", lowGuid);
-    CharacterDatabase.PExecute("DELETE FROM `petition_sign` WHERE (`owner_guid` = '%u') || (`player_guid` = '%u')", lowGuid, lowGuid);
-    CharacterDatabase.CommitTransaction();
+    // Phase3 (see HPHA.md "多语句事务扩展") - routed through sCharactersOutbox as one atomic
+    // group instead of Begin/CommitTransaction(). Called both from the character-deletion
+    // cascade (Player.cpp:4959) and from Guild::AddMember() (Guild.cpp:254 - a real runtime
+    // path: clears a player's petition/petition_sign rows when they successfully join a guild),
+    // so this isn't purely a Tier3 maintenance path.
+    {
+        char sql1[64];
+        snprintf(sql1, sizeof(sql1), "DELETE FROM `petition` WHERE `owner_guid` = '%u'", lowGuid);
+        char sql2[128];
+        snprintf(sql2, sizeof(sql2), "DELETE FROM `petition_sign` WHERE (`owner_guid` = '%u') || (`player_guid` = '%u')", lowGuid, lowGuid);
+        sCharactersOutbox.Enqueue(std::vector<std::string>{sql1, sql2});
+    }
 
     sGuildMgr.DeletePetitionSignaturesByPlayer(guid, exceptPetitionId);
 }
@@ -19438,15 +19583,29 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
     {
         oowowInfo.wareffort_used++;
         ChatHandler(this).PSendSysMessage("我的战争物质贡献值：%u, 已使用：%u。", oowowInfo.wareffort_count, oowowInfo.wareffort_used);
-        CharacterDatabase.PExecute("UPDATE character_wareffort SET Used = %u WHERE guid=%u", oowowInfo.wareffort_used, GetGUIDLow());
+        // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE
+        // (the already-incremented counter is written as its new absolute value, not a delta),
+        // safe to replay.
+        {
+            char sql[128];
+            snprintf(sql, sizeof(sql), "UPDATE character_wareffort SET Used = %u WHERE guid=%u", oowowInfo.wareffort_used, GetGUIDLow());
+            sCharactersOutbox.Enqueue(sql);
+        }
     }
 
     // BR 孤胆称雄积分商店：记一笔购买流水，方便审计/查刷分
     if (isBrPointsVendor)
     {
-        CharacterDatabase.PExecute(
-            "INSERT INTO `character_log_battle_royale_shop` (`guid`, `item_entry`, `cost`, `purchase_time`) VALUES (%u, %u, %u, NOW())",
-            GetGUIDLow(), item, price);
+        // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Append-only log INSERT, safe
+        // to replay - same shape as character_log_battle_royale in BattleRoyale.cpp (already
+        // migrated in the first batch).
+        {
+            char sql[256];
+            snprintf(sql, sizeof(sql),
+                "INSERT INTO `character_log_battle_royale_shop` (`guid`, `item_entry`, `cost`, `purchase_time`) VALUES (%u, %u, %u, NOW())",
+                GetGUIDLow(), item, price);
+            sCharactersOutbox.Enqueue(sql);
+        }
         ChatHandler(this).PSendSysMessage("[孤胆称雄] 花费 %u 积分，剩余 %u 积分。", price, oowowInfo.brSeasonPoints);
     }
 
@@ -22277,9 +22436,15 @@ void Player::SetHomebindToLocation(WorldLocation const& loc, uint32 areaId)
     m_homebindAreaId = areaId;
 
     // update sql homebind
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE, safe
+    // to replay.
     if (!IsSavingDisabled())
-        CharacterDatabase.PExecute("UPDATE `character_homebind` SET `map` = '%u', `zone` = '%u', `position_x` = '%f', `position_y` = '%f', `position_z` = '%f' WHERE `guid` = '%u'",
+    {
+        char sql[256];
+        snprintf(sql, sizeof(sql), "UPDATE `character_homebind` SET `map` = '%u', `zone` = '%u', `position_x` = '%f', `position_y` = '%f', `position_z` = '%f' WHERE `guid` = '%u'",
                                     m_homebind.mapId, m_homebindAreaId, m_homebind.x, m_homebind.y, m_homebind.z, GetGUIDLow());
+        sCharactersOutbox.Enqueue(sql);
+    }
 }
 
 bool Player::TeleportToHomebind(uint32 options, bool hearthCooldown)

@@ -29,6 +29,7 @@
 #include "MapManager.h"
 #include "Timer.h"
 #include "OO/InstanceDataCache.h"
+#include "OO/DbWriteOutbox.h"
 #include "GridNotifiersImpl.h"
 #include "ObjectMgr.h"
 #include "GameEventMgr.h"
@@ -85,19 +86,23 @@ void MapPersistentState::SaveCreatureRespawnTime(uint32 loguid, time_t t)
     // BGs/Arenas always reset at server restart/unload, so no reason store in DB
     if (GetMapEntry()->IsBattleGround())
         return;
-    static SqlStatementID delSpawnTime;
-    static SqlStatementID replSpawnTime;
 
-
+    // Phase3 (see HPHA.md "全库表核对") - routed through sCharactersOutbox. `REPLACE INTO` /
+    // DELETE by non-PK filter, both safe to replay. Converted from SqlStatement prepared-
+    // statement bindings to raw SQL since Enqueue() needs a formatted string; fields are plain
+    // numbers, no escaping needed. Every creature death/despawn across the whole world calls
+    // this - was completely missing from the Outbox migration until the 2026-08-21 full-DB audit.
     if (t > sWorld.GetGameTime())
     {
-        SqlStatement stmt = CharacterDatabase.CreateStatement(replSpawnTime, "REPLACE INTO `creature_respawn` (`guid`, `respawn_time`, `instance`, `map`) VALUES ( ?, ?, ?, ?)");
-        stmt.PExecute(loguid, uint64(t), m_instanceid, GetMapId());
+        char sql[192];
+        snprintf(sql, sizeof(sql), "REPLACE INTO `creature_respawn` (`guid`, `respawn_time`, `instance`, `map`) VALUES ('%u', '" UI64FMTD "', '%u', '%u')", loguid, uint64(t), m_instanceid, GetMapId());
+        sCharactersOutbox.Enqueue(sql);
     }
     else
     {
-        SqlStatement stmt = CharacterDatabase.CreateStatement(delSpawnTime, "DELETE FROM `creature_respawn` WHERE `guid` = ? AND `instance` = ?");
-        stmt.PExecute(loguid, m_instanceid);
+        char sql[128];
+        snprintf(sql, sizeof(sql), "DELETE FROM `creature_respawn` WHERE `guid` = '%u' AND `instance` = '%u'", loguid, m_instanceid);
+        sCharactersOutbox.Enqueue(sql);
     }
 }
 
@@ -108,18 +113,20 @@ void MapPersistentState::SaveGORespawnTime(uint32 loguid, time_t t)
     // BGs/Arenas always reset at server restart/unload, so no reason store in DB
     if (GetMapEntry()->IsBattleGround())
         return;
-    static SqlStatementID delSpawnTime;
-    static SqlStatementID replSpawnTime;
 
+    // Phase3 (see HPHA.md "全库表核对") - routed through sCharactersOutbox, same reasoning as
+    // SaveCreatureRespawnTime() above (identical table shape, identical write pattern).
     if (t > sWorld.GetGameTime())
     {
-        SqlStatement stmt = CharacterDatabase.CreateStatement(replSpawnTime, "REPLACE INTO `gameobject_respawn` (`guid`, `respawn_time`, `instance`, `map`) VALUES ( ?, ?, ?, ?)");
-        stmt.PExecute(loguid, uint64(t), m_instanceid, GetMapId());
+        char sql[192];
+        snprintf(sql, sizeof(sql), "REPLACE INTO `gameobject_respawn` (`guid`, `respawn_time`, `instance`, `map`) VALUES ('%u', '" UI64FMTD "', '%u', '%u')", loguid, uint64(t), m_instanceid, GetMapId());
+        sCharactersOutbox.Enqueue(sql);
     }
     else
     {
-        SqlStatement stmt = CharacterDatabase.CreateStatement(delSpawnTime, "DELETE FROM `gameobject_respawn` WHERE `guid` = ? AND `instance` = ?");
-        stmt.PExecute(loguid, m_instanceid);
+        char sql[128];
+        snprintf(sql, sizeof(sql), "DELETE FROM `gameobject_respawn` WHERE `guid` = '%u' AND `instance` = '%u'", loguid, m_instanceid);
+        sCharactersOutbox.Enqueue(sql);
     }
 }
 
@@ -268,17 +275,26 @@ void DungeonPersistentState::SaveToDB()
     // Write-through, raw value, before escaping mangles it for SQL below.
     sInstanceDataCache.Set(MakeInstanceCacheKey(true, GetInstanceId()), data);
 
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Independent INSERT. std::string
+    // (not a fixed snprintf buffer) since the serialized blob size varies a lot by
+    // encounter/raid complexity.
     CharacterDatabase.escape_string(data);
-    CharacterDatabase.PExecute("INSERT INTO `instance` (`id`, `map`, `reset_time`, `data`) VALUES ('%u', '%u', '" UI64FMTD "', '%s')", GetInstanceId(), GetMapId(), (uint64)GetResetTimeForDB(), data.c_str());
+    sCharactersOutbox.Enqueue("INSERT INTO `instance` (`id`, `map`, `reset_time`, `data`) VALUES ('" + std::to_string(GetInstanceId()) + "', '" + std::to_string(GetMapId()) + "', '" + std::to_string((uint64)GetResetTimeForDB()) + "', '" + data + "')");
 }
 
 void DungeonPersistentState::DeleteRespawnTimesAndData()
 {
-    CharacterDatabase.BeginTransaction();
-    CharacterDatabase.PExecute("DELETE FROM `creature_respawn` WHERE `instance` = '%u'", GetInstanceId());
-    CharacterDatabase.PExecute("DELETE FROM `gameobject_respawn` WHERE `instance` = '%u'", GetInstanceId());
-    CharacterDatabase.PExecute("UPDATE `instance` SET `data` = '' WHERE `id` = '%u'", GetInstanceId());
-    CharacterDatabase.CommitTransaction();
+    // Phase3 (see HPHA.md "多语句事务扩展") - routed through sCharactersOutbox as one atomic
+    // group instead of Begin/CommitTransaction().
+    {
+        char sql1[128];
+        snprintf(sql1, sizeof(sql1), "DELETE FROM `creature_respawn` WHERE `instance` = '%u'", GetInstanceId());
+        char sql2[128];
+        snprintf(sql2, sizeof(sql2), "DELETE FROM `gameobject_respawn` WHERE `instance` = '%u'", GetInstanceId());
+        char sql3[64];
+        snprintf(sql3, sizeof(sql3), "UPDATE `instance` SET `data` = '' WHERE `id` = '%u'", GetInstanceId());
+        sCharactersOutbox.Enqueue(std::vector<std::string>{sql1, sql2, sql3});
+    }
 
     sInstanceDataCache.Set(MakeInstanceCacheKey(true, GetInstanceId()), "");
 
@@ -579,10 +595,15 @@ void DungeonResetScheduler::Update()
                 time_t next_reset = DungeonResetScheduler::CalculateNextResetTime(instanceTemplate, resetTime);
 
                 // Nothing below depends on this write completing first (SetResetTimeFor uses the
-                // already-computed in-memory next_reset), so the async-queued PExecute is safe here
-                // and avoids blocking the whole world tick on every dungeon/raid reset rollover.
+                // already-computed in-memory next_reset). Phase3 (see HPHA.md "全库表核对") -
+                // routed through sCharactersOutbox on top of that. Absolute-assignment UPDATE,
+                // safe to replay.
                 // Original (always-synchronous): CharacterDatabase.DirectPExecute("UPDATE `instance_reset` SET `reset_time` = '" UI64FMTD "' WHERE `map` = '%u'", uint64(next_reset), uint32(event.mapId));
-                CharacterDatabase.PExecute("UPDATE `instance_reset` SET `reset_time` = '" UI64FMTD "' WHERE `map` = '%u'", uint64(next_reset), uint32(event.mapId));
+                {
+                    char sql[128];
+                    snprintf(sql, sizeof(sql), "UPDATE `instance_reset` SET `reset_time` = '" UI64FMTD "' WHERE `map` = '%u'", uint64(next_reset), uint32(event.mapId));
+                    sCharactersOutbox.Enqueue(sql);
+                }
 
                 SetResetTimeFor(event.mapId, next_reset);
 
@@ -717,13 +738,22 @@ void MapPersistentStateManager::DeleteInstanceFromDB(uint32 mapId, uint32 instan
     // eg. DELETE FROM character_instance WHERE instance = '101' AND EXISTS (SELECT id FROM instance WHERE id = '101' AND map = '429');
     if (instanceId)
     {
-        CharacterDatabase.BeginTransaction();
-        CharacterDatabase.PExecute("DELETE FROM `instance` WHERE `id` = '%u'", instanceId);
-        CharacterDatabase.PExecute("DELETE FROM `character_instance` WHERE `instance` = '%u'", instanceId);
-        CharacterDatabase.PExecute("DELETE FROM `group_instance` WHERE `instance` = '%u'", instanceId);
-        CharacterDatabase.PExecute("DELETE FROM `creature_respawn` WHERE `instance` = '%u'", instanceId);
-        CharacterDatabase.PExecute("DELETE FROM `gameobject_respawn` WHERE `instance` = '%u'", instanceId);
-        CharacterDatabase.CommitTransaction();
+        // Phase3 (see HPHA.md "多语句事务扩展") - routed through sCharactersOutbox as one atomic
+        // group instead of Begin/CommitTransaction(). Called both from the scheduled global
+        // reset path (DungeonResetScheduler::Update() -> _ResetInstance()) and from player/group-
+        // triggered instance resets (Group::ResetInstances()/Player::ResetInstances()), so this
+        // is a real runtime path, not just server maintenance.
+        char sql1[64];
+        snprintf(sql1, sizeof(sql1), "DELETE FROM `instance` WHERE `id` = '%u'", instanceId);
+        char sql2[64];
+        snprintf(sql2, sizeof(sql2), "DELETE FROM `character_instance` WHERE `instance` = '%u'", instanceId);
+        char sql3[64];
+        snprintf(sql3, sizeof(sql3), "DELETE FROM `group_instance` WHERE `instance` = '%u'", instanceId);
+        char sql4[64];
+        snprintf(sql4, sizeof(sql4), "DELETE FROM `creature_respawn` WHERE `instance` = '%u'", instanceId);
+        char sql5[64];
+        snprintf(sql5, sizeof(sql5), "DELETE FROM `gameobject_respawn` WHERE `instance` = '%u'", instanceId);
+        sCharactersOutbox.Enqueue(std::vector<std::string>{sql1, sql2, sql3, sql4, sql5});
 
         // Instance ids are never reused within a server's lifetime (MapManager::GenerateInstanceId()
         // only ever increments) EXCEPT across a restart, where the counter reloads from MAX(id) in
@@ -988,16 +1018,25 @@ void MapPersistentStateManager::_ResetOrWarnAll(uint32 mapId, bool warn, uint32 
         sMapMgr.DoForAllMapsWithMapId(mapId, worker);
 
         // delete them from the DB, even if not loaded
-        CharacterDatabase.BeginTransaction();
-        CharacterDatabase.PExecute("DELETE FROM `character_instance` USING `character_instance` LEFT JOIN `instance` ON `character_instance`.`instance` = `id` WHERE `map` = '%u'", mapId);
-        CharacterDatabase.PExecute("DELETE FROM `group_instance` USING `group_instance` LEFT JOIN `instance` ON `group_instance`.`instance` = `id` WHERE `map` = '%u'", mapId);
-        CharacterDatabase.PExecute("DELETE FROM `instance` WHERE `map` = '%u'", mapId);
-        CharacterDatabase.CommitTransaction();
+        // Phase3 (see HPHA.md "多语句事务扩展") - routed through sCharactersOutbox as one atomic
+        // group instead of Begin/CommitTransaction(). Folded the trailing instance_reset UPDATE
+        // (previously a separate raw PExecute, see HPHA.md "instance_reset" note) into the same
+        // group since it's part of the same logical global-reset operation.
+        {
+            char sql1[256];
+            snprintf(sql1, sizeof(sql1), "DELETE FROM `character_instance` USING `character_instance` LEFT JOIN `instance` ON `character_instance`.`instance` = `id` WHERE `map` = '%u'", mapId);
+            char sql2[256];
+            snprintf(sql2, sizeof(sql2), "DELETE FROM `group_instance` USING `group_instance` LEFT JOIN `instance` ON `group_instance`.`instance` = `id` WHERE `map` = '%u'", mapId);
+            char sql3[64];
+            snprintf(sql3, sizeof(sql3), "DELETE FROM `instance` WHERE `map` = '%u'", mapId);
 
-        // calculate the next reset time
-        time_t next_reset = DungeonResetScheduler::CalculateNextResetTime(mapEntry, now + timeLeft);
-        // update it in the DB
-        CharacterDatabase.PExecute("UPDATE `instance_reset` SET `reset_time` = '" UI64FMTD "' WHERE `map` = '%u'", (uint64)next_reset, mapId);
+            // calculate the next reset time
+            time_t next_reset = DungeonResetScheduler::CalculateNextResetTime(mapEntry, now + timeLeft);
+            char sql4[128];
+            snprintf(sql4, sizeof(sql4), "UPDATE `instance_reset` SET `reset_time` = '" UI64FMTD "' WHERE `map` = '%u'", (uint64)next_reset, mapId);
+
+            sCharactersOutbox.Enqueue(std::vector<std::string>{sql1, sql2, sql3, sql4});
+        }
         return;
     }
 

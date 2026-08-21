@@ -4,6 +4,7 @@
 #include "Database/DatabaseMysql.h"
 #include <hiredis/hiredis.h>
 #include <chrono>
+#include <cstdlib>
 
 DbWriteOutbox sLogsOutbox;
 DbWriteOutbox sWorldOutbox;
@@ -141,6 +142,87 @@ void DbWriteOutbox::Enqueue(std::string const& sql)
     }
 }
 
+void DbWriteOutbox::Enqueue(std::vector<std::string> const& sqls)
+{
+    if (sqls.empty())
+        return;
+
+    if (sqls.size() == 1)
+    {
+        // Same wire format as always (a plain "sql" field) - no transaction wrapper needed for
+        // a single statement, so just reuse the existing path byte-for-byte.
+        Enqueue(sqls[0]);
+        return;
+    }
+
+    if (!m_targetDb)
+        return;
+
+    std::unique_lock<std::mutex> lock(m_redisMutex);
+
+    if (!EnsureEnqueueRedisConnected())
+    {
+        lock.unlock();
+        // Same fallback principle as the single-statement path (never just drop the write), but
+        // wrapped in a real transaction so "Redis briefly unavailable" doesn't turn an atomic
+        // group into a partially-applied one - this is exactly what the call site's code would
+        // have done pre-Outbox.
+        m_totalFallbackDirect.fetch_add(1, std::memory_order_relaxed);
+        m_targetDb->BeginTransaction();
+        for (std::string const& sql : sqls)
+            m_targetDb->Execute(sql.c_str());
+        m_targetDb->CommitTransaction();
+        return;
+    }
+
+    // Variable field count (count + sql0..sqlN-1), so the fixed-format redisCommand(fmt, ...)
+    // helper used by the single-statement path doesn't fit - build the argv manually instead.
+    // Binary-safe (length-prefixed), same as the %b used for the single-statement "sql" field.
+    std::vector<std::string> args;
+    args.reserve(3 + 2 + sqls.size() * 2);
+    args.push_back("XADD");
+    args.push_back(m_streamKey);
+    args.push_back("*");
+    args.push_back("count");
+    args.push_back(std::to_string(sqls.size()));
+    for (size_t i = 0; i < sqls.size(); ++i)
+    {
+        args.push_back("sql" + std::to_string(i));
+        args.push_back(sqls[i]);
+    }
+
+    std::vector<char const*> argv;
+    std::vector<size_t> argvLen;
+    argv.reserve(args.size());
+    argvLen.reserve(args.size());
+    for (std::string const& a : args)
+    {
+        argv.push_back(a.data());
+        argvLen.push_back(a.size());
+    }
+
+    redisReply* reply = (redisReply*)redisCommandArgv(m_redisCtx, int(argv.size()), argv.data(), argvLen.data());
+    bool const ok = reply && reply->type != REDIS_REPLY_ERROR;
+    if (reply)
+        freeReplyObject(reply);
+
+    if (ok)
+    {
+        m_totalEnqueued.fetch_add(1, std::memory_order_relaxed);
+    }
+    else
+    {
+        DisconnectEnqueueRedis();
+        m_redisLastFailTime = time(nullptr);
+        lock.unlock();
+        m_totalFallbackDirect.fetch_add(1, std::memory_order_relaxed);
+        m_targetDb->BeginTransaction();
+        for (std::string const& sql : sqls)
+            m_targetDb->Execute(sql.c_str());
+        m_targetDb->CommitTransaction();
+    }
+}
+
 DbWriteOutbox::Status DbWriteOutbox::GetStatus()
 {
     Status s;
@@ -265,7 +347,14 @@ void DbWriteOutbox::DisconnectFlusherMysql()
 
 // Parses the first (and, given COUNT 1, only) delivered entry out of an XREADGROUP reply.
 // Returns false if the reply is empty/nil (nothing delivered) or malformed.
-static bool ParseFirstStreamEntry(redisReply* reply, std::string& outId, std::string& outSql)
+//
+// Two wire formats, both produced by this class (see the two Enqueue() overloads):
+//   - legacy/single-statement: one field named "sql".
+//   - multi-statement group: a "count" field plus N fields named "sql0".."sql{count-1}".
+// Both are supported here (not just the format the currently-running binary's Enqueue() would
+// produce) so that entries written by an older build, still sitting in the Stream across a
+// rolling restart, remain readable instead of silently stuck unparseable forever.
+static bool ParseFirstStreamEntry(redisReply* reply, std::string& outId, std::vector<std::string>& outSqls)
 {
     if (!reply || reply->type != REDIS_REPLY_ARRAY || reply->elements < 1)
         return false;
@@ -289,19 +378,59 @@ static bool ParseFirstStreamEntry(redisReply* reply, std::string& outId, std::st
 
     outId.assign(idReply->str, idReply->len);
 
+    bool haveCount = false;
+    size_t count = 0;
+    std::vector<std::string> indexed; // indexed[i] <- field "sql<i>", only meaningful if haveCount
+    std::string legacySql;
+    bool haveLegacySql = false;
+
     for (size_t i = 0; i + 1 < fields->elements; i += 2)
     {
         redisReply* fname = fields->element[i];
         redisReply* fval   = fields->element[i + 1];
-        if (fname && fname->type == REDIS_REPLY_STRING && fval && fval->type == REDIS_REPLY_STRING &&
-            std::string(fname->str, fname->len) == "sql")
+        if (!fname || fname->type != REDIS_REPLY_STRING || !fval || fval->type != REDIS_REPLY_STRING)
+            continue;
+
+        std::string const name(fname->str, fname->len);
+        if (name == "count")
         {
-            outSql.assign(fval->str, fval->len);
-            return true;
+            haveCount = true;
+            count = size_t(strtoul(fval->str, nullptr, 10));
+            indexed.resize(count);
+        }
+        else if (name == "sql")
+        {
+            haveLegacySql = true;
+            legacySql.assign(fval->str, fval->len);
+        }
+        else if (name.size() > 3 && name.compare(0, 3, "sql") == 0)
+        {
+            char* endPtr = nullptr;
+            unsigned long idx = strtoul(name.c_str() + 3, &endPtr, 10);
+            if (endPtr && *endPtr == '\0')
+            {
+                if (idx >= indexed.size())
+                    indexed.resize(idx + 1);
+                indexed[idx].assign(fval->str, fval->len);
+            }
         }
     }
 
-    return false; // delivered, but no "sql" field - shouldn't happen, we control the producer
+    if (haveCount)
+    {
+        if (count == 0 || indexed.size() != count)
+            return false; // malformed - shouldn't happen, we control the producer
+        outSqls = std::move(indexed);
+        return true;
+    }
+
+    if (haveLegacySql)
+    {
+        outSqls.assign(1, std::move(legacySql));
+        return true;
+    }
+
+    return false; // delivered, but neither format matched - shouldn't happen, we control the producer
 }
 
 // Best-effort ack, not retried: whoever calls this has either successfully applied the SQL,
@@ -344,18 +473,52 @@ void DbWriteOutbox::Ack(std::string const& entryId)
         freeReplyObject(delReply);
 }
 
-bool DbWriteOutbox::ExecuteAndAck(std::string const& entryId, std::string const& sql)
+bool DbWriteOutbox::ExecuteAndAck(std::string const& entryId, std::vector<std::string> const& sqls)
 {
     // Separate, much smaller budget for "connection is fine but this specific statement keeps
     // failing" (see below) - deliberately not unbounded like the connectivity-retry path.
     static uint32 const MAX_QUERY_ERROR_ATTEMPTS = 5;
     uint32 queryErrorAttempts = 0;
     uint32 backoffMs = 200;
+    bool const isGroup = sqls.size() > 1;
 
     while (!m_stop)
     {
         bool const wasConnected = EnsureFlusherMysqlConnected();
-        if (wasConnected && m_flusherMysqlConn->Execute(sql))
+        bool succeeded = false;
+        if (wasConnected)
+        {
+            if (!isGroup)
+            {
+                succeeded = m_flusherMysqlConn->Execute(sqls[0]);
+            }
+            else
+            {
+                // All-or-nothing on the Flusher's own connection (never targetDb's shared one -
+                // see class comment). BeginTransaction()/CommitTransaction()/RollbackTransaction()
+                // are the ones fixed to self-heal a dead connection instead of crashing/wedging
+                // (see HPHA.md "部署实测：共享 Database/MySQLConnection 层的两处崩溃缺陷"), so
+                // this reuses that same safety net rather than anything new.
+                succeeded = m_flusherMysqlConn->BeginTransaction();
+                if (succeeded)
+                {
+                    for (std::string const& sql : sqls)
+                    {
+                        if (!m_flusherMysqlConn->Execute(sql))
+                        {
+                            succeeded = false;
+                            break;
+                        }
+                    }
+                    if (succeeded)
+                        succeeded = m_flusherMysqlConn->CommitTransaction();
+                    else
+                        m_flusherMysqlConn->RollbackTransaction();
+                }
+            }
+        }
+
+        if (succeeded)
         {
             Ack(entryId);
             m_totalApplied.fetch_add(1, std::memory_order_relaxed);
@@ -389,12 +552,20 @@ bool DbWriteOutbox::ExecuteAndAck(std::string const& entryId, std::string const&
             // for each failed attempt is still only in DBErrors.log (MySQLConnection::Execute()
             // writes it there, not exposed to this class to duplicate) - cross-reference by
             // timestamp/SQL text for that level of detail if this summary line isn't enough.
+            // For a group, join every statement into the one log line - groups are expected to
+            // stay small (a handful of statements, see HPHA.md "多语句事务扩展"), so this stays
+            // readable; the point is being able to see the whole all-or-nothing unit that got
+            // dropped, not just whichever statement happened to fail.
+            std::string sqlJoined = sqls[0];
+            for (size_t i = 1; i < sqls.size(); ++i)
+                sqlJoined += "; " + sqls[i];
             sLog.Out(LOG_DB_OUTBOX, LOG_LVL_ERROR,
-                     "DbWriteOutbox[%s]: entry %s failed %u times in a row (query error, not a "
-                     "connectivity issue - see DBErrors.log for the mysql errno/message of each "
-                     "attempt) and is being DROPPED so the queue isn't stuck behind it forever. "
-                     "SQL: %s",
-                     m_streamKey.c_str(), entryId.c_str(), queryErrorAttempts, sql.c_str());
+                     "DbWriteOutbox[%s]: entry %s (%u statement%s) failed %u times in a row (query "
+                     "error, not a connectivity issue - see DBErrors.log for the mysql errno/message "
+                     "of each attempt) and is being DROPPED so the queue isn't stuck behind it "
+                     "forever. SQL: %s",
+                     m_streamKey.c_str(), entryId.c_str(), (uint32)sqls.size(), isGroup ? "s" : "",
+                     queryErrorAttempts, sqlJoined.c_str());
             Ack(entryId);
             m_totalDropped.fetch_add(1, std::memory_order_relaxed);
             return true;
@@ -430,14 +601,15 @@ bool DbWriteOutbox::ReplayPending()
             return false;
         }
 
-        std::string id, sql;
-        bool const got = ParseFirstStreamEntry(reply, id, sql);
+        std::string id;
+        std::vector<std::string> sqls;
+        bool const got = ParseFirstStreamEntry(reply, id, sqls);
         freeReplyObject(reply);
 
         if (!got)
             return true; // backlog fully drained
 
-        if (!ExecuteAndAck(id, sql))
+        if (!ExecuteAndAck(id, sqls))
             return false; // shutting down
     }
 }
@@ -513,13 +685,14 @@ void DbWriteOutbox::FlusherThreadMain()
             continue;
         }
 
-        std::string id, sql;
-        bool const got = ParseFirstStreamEntry(reply, id, sql);
+        std::string id;
+        std::vector<std::string> sqls;
+        bool const got = ParseFirstStreamEntry(reply, id, sqls);
         freeReplyObject(reply);
 
         if (!got)
             continue; // BLOCK timed out, nothing new - loop back and check m_stop
 
-        ExecuteAndAck(id, sql);
+        ExecuteAndAck(id, sqls);
     }
 }

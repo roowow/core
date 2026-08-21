@@ -29,6 +29,7 @@
 #include "Language.h"
 #include "Log.h"
 #include "OO/DbWriteOutbox.h"
+#include "OO/DbHealthMonitor.h"
 #include "ObjectGuid.h"
 #include "ObjectMgr.h"
 #include "Item.h"
@@ -65,6 +66,17 @@ void WorldSession::SendNewMail()
 
 bool WorldSession::CheckMailBox(ObjectGuid guid)
 {
+    // Phase4 (see HPHA.md "熔断 + 错误区分设计") - single choke point, every mail opcode handler
+    // calls this first. Coarse module-level block: the whole mail system (including just opening
+    // the mailbox) is unavailable while CharacterDatabase is unhealthy, not just the specific
+    // writes that aren't covered by sCharactersOutbox (mail-with-item/money still routes through
+    // Item::SaveToDB()'s prepared-statement path and SaveInventoryAndGoldToDB(), see Mail.cpp).
+    if (!IsCharacterDatabaseHealthy())
+    {
+        ChatHandler(this).SendSysMessage("邮件系统暂时不可用（数据库维护中），请稍后再试。");
+        return false;
+    }
+
     if (!GetPlayer()->GetGameObjectIfCanInteractWith(guid, GAMEOBJECT_TYPE_MAILBOX))
     {
         sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Mailbox %s not found or you can't interact with it.", guid.GetString().c_str());

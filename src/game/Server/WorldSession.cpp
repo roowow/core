@@ -22,6 +22,7 @@
 #include "WorldSocket.h"
 #include "Common.h"
 #include "Database/DatabaseEnv.h"
+#include "OO/DbWriteOutbox.h"
 #include "Log.h"
 #include "Opcodes.h"
 #include "WorldPacket.h"
@@ -1042,15 +1043,23 @@ void WorldSession::SetAccountData(NewAccountData::AccountDataType type, const st
     time_t const currentTime = time(nullptr);
     if ((1 << type) & NewAccountData::GLOBAL_CACHE_MASK)
     {
+        // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE-by-filter and
+        // REPLACE INTO are both safe to replay. Payload can be up to ~64KB pre-escape (see
+        // HandleUpdateAccountData()'s 0xFFFF cap) - built as a std::string, not a fixed char[]
+        // buffer, since it doesn't fit the small stack buffers used elsewhere in this batch.
         if (data.empty())
         {
-            CharacterDatabase.PExecute("DELETE FROM `account_data` WHERE `account`=%u AND `type`=%u", GetAccountId(), uint32(type));
+            char sql[128];
+            snprintf(sql, sizeof(sql), "DELETE FROM `account_data` WHERE `account`=%u AND `type`=%u", GetAccountId(), uint32(type));
+            sCharactersOutbox.Enqueue(sql);
         }
         else
         {
             std::string escapedData = data;
             CharacterDatabase.escape_string(escapedData);
-            CharacterDatabase.PExecute("REPLACE INTO `account_data` VALUES (%u, %u, %llu, '%s')", GetAccountId(), uint32(type), uint64(currentTime), escapedData.c_str());
+            std::string sql = "REPLACE INTO `account_data` VALUES (" + std::to_string(GetAccountId()) + ", " +
+                std::to_string(uint32(type)) + ", " + std::to_string(uint64(currentTime)) + ", '" + escapedData + "')";
+            sCharactersOutbox.Enqueue(sql);
         }
     }
     else
@@ -1059,15 +1068,20 @@ void WorldSession::SetAccountData(NewAccountData::AccountDataType type, const st
         if (!m_currentPlayerGuid)
             return;
 
+        // Phase3 (see HPHA.md) - same reasoning as the account_data branch above.
         if (data.empty())
         {
-            CharacterDatabase.PExecute("DELETE FROM `character_account_data` WHERE `guid`=%u AND `type`=%u", m_currentPlayerGuid.GetCounter(), uint32(type));
+            char sql[128];
+            snprintf(sql, sizeof(sql), "DELETE FROM `character_account_data` WHERE `guid`=%u AND `type`=%u", m_currentPlayerGuid.GetCounter(), uint32(type));
+            sCharactersOutbox.Enqueue(sql);
         }
         else
         {
             std::string escapedData = data;
             CharacterDatabase.escape_string(escapedData);
-            CharacterDatabase.PExecute("REPLACE INTO `character_account_data` VALUES (%u, %u, %llu, '%s')", m_currentPlayerGuid.GetCounter(), uint32(type), uint64(currentTime), escapedData.c_str());
+            std::string sql = "REPLACE INTO `character_account_data` VALUES (" + std::to_string(m_currentPlayerGuid.GetCounter()) + ", " +
+                std::to_string(uint32(type)) + ", " + std::to_string(uint64(currentTime)) + ", '" + escapedData + "')";
+            sCharactersOutbox.Enqueue(sql);
         }
     }
 

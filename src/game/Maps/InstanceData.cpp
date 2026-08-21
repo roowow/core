@@ -23,6 +23,7 @@
 #include "Database/DatabaseEnv.h"
 #include "Map.h"
 #include "OO/InstanceDataCache.h"
+#include "OO/DbWriteOutbox.h"
 
 void InstanceData::SaveToDB()
 {
@@ -43,10 +44,13 @@ void InstanceData::SaveToDB()
 
     CharacterDatabase.escape_string(data);
 
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE, safe
+    // to replay. std::string (not a fixed snprintf buffer) since the serialized blob size varies
+    // a lot by encounter/raid complexity.
     if (instance->Instanceable())
-        CharacterDatabase.PExecute("UPDATE `instance` SET `data` = '%s' WHERE `id` = %u", data.c_str(), instance->GetInstanceId());
+        sCharactersOutbox.Enqueue("UPDATE `instance` SET `data` = '" + data + "' WHERE `id` = " + std::to_string(instance->GetInstanceId()));
     else
-        CharacterDatabase.PExecute("UPDATE `world` SET `data` = '%s' WHERE `map` = %u", data.c_str(), instance->GetId());
+        sCharactersOutbox.Enqueue("UPDATE `world` SET `data` = '" + data + "' WHERE `map` = " + std::to_string(instance->GetId()));
 }
 
 bool InstanceData::CheckConditionCriteriaMeet(Player const* /*player*/, uint32 map_id, WorldObject const* source, uint32 instance_condition_id) const

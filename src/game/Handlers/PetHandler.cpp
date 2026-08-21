@@ -26,6 +26,7 @@
 #include "SpellMgr.h"
 #include "Log.h"
 #include "Opcodes.h"
+#include "OO/DbWriteOutbox.h"
 #include "Spell.h"
 #include "CreatureAI.h"
 #include "Pet.h"
@@ -335,11 +336,16 @@ void WorldSession::HandlePetRename(WorldPackets::Pet::PetRename const& packet)
 
     pet->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PET_RENAME);
 
-    CharacterDatabase.BeginTransaction();
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Was wrapped in Begin/CommitTransaction()
+    // for a single statement (no atomicity need), so the wrapper is dropped along with the switch -
+    // absolute-assignment UPDATE, safe to replay.
     std::string safeName = packet.name;
     CharacterDatabase.escape_string(safeName);
-    CharacterDatabase.PExecute("UPDATE `character_pet` SET `name` = '%s', `renamed` = '1' WHERE `owner_guid` = '%u' AND `id` = '%u'", safeName.c_str(), _player->GetGUIDLow(), pet->GetCharmInfo()->GetPetNumber());
-    CharacterDatabase.CommitTransaction();
+    {
+        char sql[256];
+        snprintf(sql, sizeof(sql), "UPDATE `character_pet` SET `name` = '%s', `renamed` = '1' WHERE `owner_guid` = '%u' AND `id` = '%u'", safeName.c_str(), _player->GetGUIDLow(), pet->GetCharmInfo()->GetPetNumber());
+        sCharactersOutbox.Enqueue(sql);
+    }
 
     pet->SetUInt32Value(UNIT_FIELD_PET_NAME_TIMESTAMP, uint32(time(nullptr)));
 }

@@ -1256,7 +1256,13 @@ void Unit::Kill(Unit* pVictim, SpellEntry const* spellProto, bool durabilityLoss
             {
                 if (! pPlayerVictim->InBattleGround() && pPlayerVictim->IsHardcore() && ! pPlayerVictim->IsHardcoreRetired())
                 {
-                    CharacterDatabase.PExecute("UPDATE character_hardcore SET status = 0, changed = UNIX_TIMESTAMP(), killedby=%u, killertype=1, area=%u, killedlevel=%u WHERE guid=%u", killer->GetGUIDLow(), pPlayerVictim->GetAreaId(), pPlayerVictim->GetLevel(), pPlayerVictim->GetGUIDLow());
+                    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment
+                    // UPDATE, safe to replay.
+                    {
+                        char sql[256];
+                        snprintf(sql, sizeof(sql), "UPDATE character_hardcore SET status = 0, changed = UNIX_TIMESTAMP(), killedby=%u, killertype=1, area=%u, killedlevel=%u WHERE guid=%u", killer->GetGUIDLow(), pPlayerVictim->GetAreaId(), pPlayerVictim->GetLevel(), pPlayerVictim->GetGUIDLow());
+                        sCharactersOutbox.Enqueue(sql);
+                    }
                     pPlayerVictim->SetHardcoreDead(true);
 
                     ChatHandler(pPlayerVictim).SendSysMessage("勇敢者，您已经死亡。遇险情报将稍后送达世界各地，您会被永远铭记！");

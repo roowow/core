@@ -21,6 +21,7 @@
 #include "Log.h"
 #include "ObjectGuid.h"
 #include "Database/DatabaseEnv.h"
+#include "OO/DbWriteOutbox.h"
 #include "Policies/SingletonImp.h"
 #include "ProgressBar.h"
 #include "World.h"
@@ -223,15 +224,27 @@ void GuildMgr::LoadPetitions()
             {
                 // Signatures for a petition that does not exist. Delete it
                 sLog.Out(LOG_DBERROR, LOG_LVL_MINIMAL, "Signatures exist for petition %u that does not exist", petitionId);
-                CharacterDatabase.PExecute("DELETE FROM `petition_sign` WHERE `petition_guid` = '%u'", petitionId);
+                // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK
+                // filter, safe to replay.
+                {
+                    char sql[64];
+                    snprintf(sql, sizeof(sql), "DELETE FROM `petition_sign` WHERE `petition_guid` = '%u'", petitionId);
+                    sCharactersOutbox.Enqueue(sql);
+                }
                 continue;
             }
 
             if (ownerGuid != petition->GetOwnerGuid())
             {
                 sLog.Out(LOG_DBERROR, LOG_LVL_MINIMAL, "Signatures exist for petition %u with a different owner, updating", petitionId);
-                CharacterDatabase.PExecute("UPDATE `petition_sign` SET `owner_guid` = '%u' WHERE `petition_guid` = '%u'",
-                    petition->GetOwnerGuid().GetCounter(), petition->GetId());
+                // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment
+                // UPDATE, safe to replay.
+                {
+                    char sql[128];
+                    snprintf(sql, sizeof(sql), "UPDATE `petition_sign` SET `owner_guid` = '%u' WHERE `petition_guid` = '%u'",
+                        petition->GetOwnerGuid().GetCounter(), petition->GetId());
+                    sCharactersOutbox.Enqueue(sql);
+                }
 
                 ownerGuid = petition->GetOwnerGuid();
             }
@@ -346,12 +359,15 @@ bool Petition::LoadFromDB(const std::unique_ptr<QueryResult>& result)
 void Petition::Delete()
 {
     // Only delete if initialized
+    // Phase3 (see HPHA.md "多语句事务扩展") - routed through sCharactersOutbox as one atomic
+    // group instead of Begin/CommitTransaction().
     if (m_id)
     {
-        CharacterDatabase.BeginTransaction();
-        CharacterDatabase.PExecute("DELETE FROM `petition` WHERE `petition_guid` = '%u'", m_id);
-        CharacterDatabase.PExecute("DELETE FROM `petition_sign` WHERE `petition_guid` = '%u'", m_id);
-        CharacterDatabase.CommitTransaction();
+        char sql1[64];
+        snprintf(sql1, sizeof(sql1), "DELETE FROM `petition` WHERE `petition_guid` = '%u'", m_id);
+        char sql2[64];
+        snprintf(sql2, sizeof(sql2), "DELETE FROM `petition_sign` WHERE `petition_guid` = '%u'", m_id);
+        sCharactersOutbox.Enqueue(std::vector<std::string>{sql1, sql2});
     }
 }
 
@@ -367,9 +383,15 @@ void Petition::BuildSignatureData(WorldPacket& data) const
 bool Petition::Rename(std::string const& newname)
 {
     std::string db_newname = newname;
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE, safe
+    // to replay.
     CharacterDatabase.escape_string(db_newname);
-    CharacterDatabase.PExecute("UPDATE `petition` SET `name` = '%s' WHERE `petition_guid` = '%u'",
-        db_newname.c_str(), m_id);
+    {
+        char sql[192];
+        snprintf(sql, sizeof(sql), "UPDATE `petition` SET `name` = '%s' WHERE `petition_guid` = '%u'",
+            db_newname.c_str(), m_id);
+        sCharactersOutbox.Enqueue(sql);
+    }
 
     sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Petition %u renamed to '%s'", m_id, newname.c_str());
 
@@ -381,9 +403,14 @@ bool Petition::Rename(std::string const& newname)
 void Petition::SaveToDB()
 {
     std::string escaped_name = m_name;
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Independent INSERT.
     CharacterDatabase.escape_string(escaped_name);
-    CharacterDatabase.PExecute("INSERT INTO `petition` (`owner_guid`, `petition_guid`, `charter_guid`, `name`) VALUES ('%u', '%u', '%u', '%s')",
-        m_ownerGuid.GetCounter(), m_id, m_charterGuid.GetCounter(), escaped_name.c_str());
+    {
+        char sql[256];
+        snprintf(sql, sizeof(sql), "INSERT INTO `petition` (`owner_guid`, `petition_guid`, `charter_guid`, `name`) VALUES ('%u', '%u', '%u', '%s')",
+            m_ownerGuid.GetCounter(), m_id, m_charterGuid.GetCounter(), escaped_name.c_str());
+        sCharactersOutbox.Enqueue(sql);
+    }
 }
 
 PetitionSignature* Petition::GetSignatureForPlayer(Player* player)
@@ -462,6 +489,11 @@ PetitionSignature::PetitionSignature(Petition* petition, Player* player)
 
 void PetitionSignature::SaveToDB()
 {
-    CharacterDatabase.PExecute("INSERT INTO `petition_sign` (`owner_guid`, `petition_guid`, `player_guid`, `player_account`) VALUES ('%u', '%u', '%u','%u')",
-        m_petition->GetOwnerGuid().GetCounter(), m_petition->GetId(), m_playerGuid.GetCounter(), m_playerAccount);
+    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Independent INSERT.
+    {
+        char sql[192];
+        snprintf(sql, sizeof(sql), "INSERT INTO `petition_sign` (`owner_guid`, `petition_guid`, `player_guid`, `player_account`) VALUES ('%u', '%u', '%u','%u')",
+            m_petition->GetOwnerGuid().GetCounter(), m_petition->GetId(), m_playerGuid.GetCounter(), m_playerAccount);
+        sCharactersOutbox.Enqueue(sql);
+    }
 }

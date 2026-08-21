@@ -27,6 +27,7 @@
 #include "OO/WebChatMgr.h"
 #include "OO/InstanceDataCache.h"
 #include "OO/DbWriteOutbox.h"
+#include "OO/DbHealthMonitor.h"
 #include "OO/JianJiaAI.h"
 #include "Database/DatabaseEnv.h"
 #include "Config/Config.h"
@@ -211,6 +212,7 @@ void World::Shutdown()
     sLogsOutbox.Shutdown();
     sWorldOutbox.Shutdown();
     sCharactersOutbox.Shutdown();
+    StopDbHealthMonitor();
     sPlayerBotMgr.DeleteAll();
     KickAll();                                     // save and kick all players
     UpdateSessions(1);                             // real players unload required UpdateSessions call
@@ -1962,6 +1964,15 @@ void World::SetInitialWorldSettings()
     // guildbank), character_displayid, character_social. NOT Player::SaveToDB() - see DbWriteOutbox.h.
     sCharactersOutbox.Initialize(sConfig.GetStringDefault("LocalRedis.Socket", ""), "outbox:characters:" + std::to_string(realmID),
                                  CharacterDatabase, sConfig.GetStringDefault("CharacterDatabase.Info", ""));
+
+    // Phase4 of the DB-decoupling effort (see HPHA.md) - circuit breaker for the handful of
+    // CharacterDatabase writes that are NOT covered by sCharactersOutbox, all entangled with
+    // Item::SaveToDB()'s prepared-statement path or the SaveInventoryAndGoldToDB() anti-cheat
+    // fast-save (see HPHA.md Tier2). Currently wired into the mail module (MailHandler.cpp::
+    // CheckMailBox()) and the auction house entrance (HandleAuctionHelloOpcode) - trade and
+    // petition signing have the identical entanglement but aren't gated yet, out of scope for
+    // this pass. See DbHealthMonitor.h.
+    StartDbHealthMonitor(sConfig.GetStringDefault("CharacterDatabase.Info", ""));
 
     // Register AI companion bot after WebChatMgr::Initialize() so SetJianJiaName is not overwritten
     if (uint32 jjGuid = sConfig.GetIntDefault("JianJia.CharGuid", 0))

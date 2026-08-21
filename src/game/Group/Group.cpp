@@ -145,20 +145,33 @@ bool Group::Create(ObjectGuid guid, char const*  name)
         Player::ConvertInstancesToGroup(leader, this, guid);
 
         // store group in database
-        CharacterDatabase.BeginTransaction(m_Id);
-        CharacterDatabase.PExecute("DELETE FROM `groups` WHERE `group_id` ='%u'", m_Id);
-        CharacterDatabase.PExecute("DELETE FROM `group_member` WHERE `group_id` ='%u'", m_Id);
-
-        CharacterDatabase.PExecute("REPLACE INTO `groups` (`group_id`, `leader_guid`, `main_tank_guid`, `main_assistant_guid`, `loot_method`, `looter_guid`, `loot_threshold`, `icon1`, `icon2`, `icon3`, `icon4`, `icon5`, `icon6`, `icon7`, `icon8`, `is_raid`) "
-                                   "VALUES('%u','%u','%u','%u','%u','%u','%u','" UI64FMTD "','" UI64FMTD "','" UI64FMTD "','" UI64FMTD "','" UI64FMTD "','" UI64FMTD "','" UI64FMTD "','" UI64FMTD "','%u')",
-                                   m_Id, m_leaderGuid.GetCounter(), m_mainTankGuid.GetCounter(), m_mainAssistantGuid.GetCounter(), uint32(m_lootMethod),
-                                   m_looterGuid.GetCounter(), uint32(m_lootThreshold),
-                                   m_targetIcons[0].GetRawValue(), m_targetIcons[1].GetRawValue(),
-                                   m_targetIcons[2].GetRawValue(), m_targetIcons[3].GetRawValue(),
-                                   m_targetIcons[4].GetRawValue(), m_targetIcons[5].GetRawValue(),
-                                   m_targetIcons[6].GetRawValue(), m_targetIcons[7].GetRawValue(),
-                                   isRaidGroup());
-        CharacterDatabase.CommitTransaction();
+        // Phase3 (see HPHA.md "多语句事务扩展") - routed through sCharactersOutbox. DELETE+REPLACE
+        // is naturally idempotent, safe to replay as a group.
+        std::vector<std::string> sqls;
+        {
+            char sql[96];
+            snprintf(sql, sizeof(sql), "DELETE FROM `groups` WHERE `group_id` ='%u'", m_Id);
+            sqls.push_back(sql);
+        }
+        {
+            char sql[96];
+            snprintf(sql, sizeof(sql), "DELETE FROM `group_member` WHERE `group_id` ='%u'", m_Id);
+            sqls.push_back(sql);
+        }
+        {
+            char sql[768];
+            snprintf(sql, sizeof(sql), "REPLACE INTO `groups` (`group_id`, `leader_guid`, `main_tank_guid`, `main_assistant_guid`, `loot_method`, `looter_guid`, `loot_threshold`, `icon1`, `icon2`, `icon3`, `icon4`, `icon5`, `icon6`, `icon7`, `icon8`, `is_raid`) "
+                     "VALUES('%u','%u','%u','%u','%u','%u','%u','" UI64FMTD "','" UI64FMTD "','" UI64FMTD "','" UI64FMTD "','" UI64FMTD "','" UI64FMTD "','" UI64FMTD "','" UI64FMTD "','%u')",
+                     m_Id, m_leaderGuid.GetCounter(), m_mainTankGuid.GetCounter(), m_mainAssistantGuid.GetCounter(), uint32(m_lootMethod),
+                     m_looterGuid.GetCounter(), uint32(m_lootThreshold),
+                     m_targetIcons[0].GetRawValue(), m_targetIcons[1].GetRawValue(),
+                     m_targetIcons[2].GetRawValue(), m_targetIcons[3].GetRawValue(),
+                     m_targetIcons[4].GetRawValue(), m_targetIcons[5].GetRawValue(),
+                     m_targetIcons[6].GetRawValue(), m_targetIcons[7].GetRawValue(),
+                     isRaidGroup());
+            sqls.push_back(sql);
+        }
+        sCharactersOutbox.Enqueue(sqls);
     }
 
     if (!AddMember(guid, name))
@@ -243,7 +256,11 @@ void Group::ConvertToRaid()
     _initRaidSubGroupsCounter();
 
     if (!isBGGroup())
-        CharacterDatabase.PExecute("UPDATE `groups` SET `is_raid` = 1 WHERE `group_id`='%u'", m_Id);
+    {
+        char sql[96];
+        snprintf(sql, sizeof(sql), "UPDATE `groups` SET `is_raid` = 1 WHERE `group_id`='%u'", m_Id);
+        sCharactersOutbox.Enqueue(sql);
+    }
     SendUpdate();
 
     // update quest related GO states (quest activity dependent from raid membership)
@@ -625,9 +642,21 @@ void Group::Disband(bool hideDestroy, ObjectGuid initiator)
 
     if (!isBGGroup())
     {
-        CharacterDatabase.BeginTransaction(m_Id);
-        CharacterDatabase.PExecute("DELETE FROM `groups` WHERE `group_id`='%u'", m_Id);
-        CharacterDatabase.PExecute("DELETE FROM `group_member` WHERE `group_id`='%u'", m_Id);
+        // Phase3 (see HPHA.md "多语句事务扩展") - routed through sCharactersOutbox as one atomic
+        // group instead of Begin/CommitTransaction(). BindToInstance()'s own write below already
+        // routes through sCharactersOutbox independently (batch 3) - not part of this group, see
+        // the equivalent note in _setLeader().
+        std::vector<std::string> sqls;
+        {
+            char sql[96];
+            snprintf(sql, sizeof(sql), "DELETE FROM `groups` WHERE `group_id`='%u'", m_Id);
+            sqls.push_back(sql);
+        }
+        {
+            char sql[96];
+            snprintf(sql, sizeof(sql), "DELETE FROM `group_member` WHERE `group_id`='%u'", m_Id);
+            sqls.push_back(sql);
+        }
 
         // transfer instance save to last player in dungeon
         if (remainingPlayer)
@@ -637,14 +666,16 @@ void Group::Disband(bool hideDestroy, ObjectGuid initiator)
                 !remainingPlayer->GetBoundInstance(remainingPlayer->GetMapId()))
             {
                 remainingPlayer->BindToInstance(itr->second.state, itr->second.perm, false);
-                CharacterDatabase.PExecute("DELETE FROM `group_instance` WHERE `leader_guid` = '%u' AND `instance` = '%u'",
+                char sql[192];
+                snprintf(sql, sizeof(sql), "DELETE FROM `group_instance` WHERE `leader_guid` = '%u' AND `instance` = '%u'",
                     GetLeaderGuid().GetCounter(), itr->second.state->GetInstanceId());
+                sqls.push_back(sql);
                 itr->second.state->RemoveGroup(this);               // save can become invalid
                 m_boundInstances.erase(itr);
             }
         }
 
-        CharacterDatabase.CommitTransaction();
+        sCharactersOutbox.Enqueue(sqls);
         ResetInstances(INSTANCE_RESET_GROUP_DISBAND, nullptr);
     }
 
@@ -1654,11 +1685,10 @@ bool Group::_addMember(ObjectGuid guid, char const* name, bool isAssistant, uint
     if (!isBGGroup() && !(player && player->IsSavingDisabled()))
     {
         // insert into group table
-        CharacterDatabase.BeginTransaction(m_Id);
-        CharacterDatabase.PExecute("INSERT INTO `group_member` (`group_id`, `member_guid`, `assistant`, `subgroup`) VALUES('%u','%u','%u','%u')",
-                                   m_Id, member.guid.GetCounter(), ((member.assistant == 1) ? 1 : 0), member.group);
-        CharacterDatabase.CommitTransaction();
-
+        char sql[192];
+        snprintf(sql, sizeof(sql), "INSERT INTO `group_member` (`group_id`, `member_guid`, `assistant`, `subgroup`) VALUES('%u','%u','%u','%u')",
+                 m_Id, member.guid.GetCounter(), ((member.assistant == 1) ? 1 : 0), member.group);
+        sCharactersOutbox.Enqueue(sql);
     }
 
     return true;
@@ -1694,9 +1724,9 @@ bool Group::_removeMember(ObjectGuid guid)
 
     if (!isBGGroup())
     {
-        CharacterDatabase.BeginTransaction(m_Id);
-        CharacterDatabase.PExecute("DELETE FROM `group_member` WHERE `member_guid`='%u'", guid.GetCounter());
-        CharacterDatabase.CommitTransaction();
+        char sql[96];
+        snprintf(sql, sizeof(sql), "DELETE FROM `group_member` WHERE `member_guid`='%u'", guid.GetCounter());
+        sCharactersOutbox.Enqueue(sql);
     }
 
     if (m_leaderGuid == guid)                               // leader was removed
@@ -1768,17 +1798,28 @@ void Group::_setLeader(ObjectGuid guid)
         uint32 oldLeaderLowGuid = m_leaderGuid.GetCounter();
 
         // TODO: set a time limit to have this function run rarely cause it can be slow
-        CharacterDatabase.BeginTransaction(m_Id);
+        // Phase3 (see HPHA.md "多语句事务扩展") - routed through sCharactersOutbox as one atomic
+        // group instead of Begin/CommitTransaction(). Note: BindToInstance()/UnbindInstance()/
+        // ConvertInstancesToGroup() calls inside this block (both Player:: and Group:: versions)
+        // already route through sCharactersOutbox independently (see HPHA.md batch 2/3) - they are
+        // NOT part of this group, so this doesn't give perfect single-transaction atomicity with
+        // those writes, only with each other. Still strictly more durable than before (every write
+        // here now survives a MariaDB outage instead of only some of them).
+        std::vector<std::string> sqls;
 
         // update the group's bound instances when changing leaders
 
         // remove all permanent binds from the group
         // in the DB also remove solo binds that will be replaced with permbinds
         // from the new leader
-        CharacterDatabase.PExecute(
-            "DELETE FROM `group_instance` WHERE `leader_guid`='%u' AND (`permanent` = 1 OR "
-            "`instance` IN (SELECT `instance` FROM `character_instance` WHERE `guid` = '%u')"
-            ")", oldLeaderLowGuid, newLeaderLowGuid);
+        {
+            char sql[320];
+            snprintf(sql, sizeof(sql),
+                "DELETE FROM `group_instance` WHERE `leader_guid`='%u' AND (`permanent` = 1 OR "
+                "`instance` IN (SELECT `instance` FROM `character_instance` WHERE `guid` = '%u')"
+                ")", oldLeaderLowGuid, newLeaderLowGuid);
+            sqls.push_back(sql);
+        }
 
         Player* player = sObjectMgr.GetPlayer(slot->guid);
 
@@ -1798,8 +1839,10 @@ void Group::_setLeader(ObjectGuid guid)
                         if (!pOldLeader->GetBoundInstance(itr->first))
                             pOldLeader->BindToInstance(itr->second.state, itr->second.perm, false);
 
-                    CharacterDatabase.PExecute("DELETE FROM `group_instance` WHERE `leader_guid` = '%u' AND `instance` = '%u'",
+                    char sql[192];
+                    snprintf(sql, sizeof(sql), "DELETE FROM `group_instance` WHERE `leader_guid` = '%u' AND `instance` = '%u'",
                         oldLeaderLowGuid, itr->second.state->GetInstanceId());
+                    sqls.push_back(sql);
                     itr->second.state->RemoveGroup(this);
                     m_boundInstances.erase(itr++);
                 }
@@ -1809,8 +1852,12 @@ void Group::_setLeader(ObjectGuid guid)
         }
 
         // update the group's solo binds to the new leader
-        CharacterDatabase.PExecute("UPDATE `group_instance` SET `leader_guid`='%u' WHERE `leader_guid` = '%u'",
-                                   newLeaderLowGuid, oldLeaderLowGuid);
+        {
+            char sql[192];
+            snprintf(sql, sizeof(sql), "UPDATE `group_instance` SET `leader_guid`='%u' WHERE `leader_guid` = '%u'",
+                     newLeaderLowGuid, oldLeaderLowGuid);
+            sqls.push_back(sql);
+        }
 
         // copy the permanent binds from the new leader to the group
         // overwriting the solo binds with permanent ones if necessary
@@ -1820,9 +1867,18 @@ void Group::_setLeader(ObjectGuid guid)
         // update the group leader; remove any orphaned group record that already lists the new
         // leader (stale DB rows left by a server crash), otherwise the unique key on leader_guid
         // would reject the UPDATE and leave memory/DB out of sync.
-        CharacterDatabase.PExecute("DELETE FROM `groups` WHERE `leader_guid` = '%u' AND `group_id` != '%u'", newLeaderLowGuid, m_Id);
-        CharacterDatabase.PExecute("UPDATE `groups` SET `leader_guid`='%u' WHERE `group_id`='%u'", newLeaderLowGuid, m_Id);
-        CharacterDatabase.CommitTransaction();
+        {
+            char sql[192];
+            snprintf(sql, sizeof(sql), "DELETE FROM `groups` WHERE `leader_guid` = '%u' AND `group_id` != '%u'", newLeaderLowGuid, m_Id);
+            sqls.push_back(sql);
+        }
+        {
+            char sql[128];
+            snprintf(sql, sizeof(sql), "UPDATE `groups` SET `leader_guid`='%u' WHERE `group_id`='%u'", newLeaderLowGuid, m_Id);
+            sqls.push_back(sql);
+        }
+
+        sCharactersOutbox.Enqueue(sqls);
     }
 
     _updateLeaderFlag(true);
@@ -1884,10 +1940,14 @@ bool Group::_swapMembersGroup(ObjectGuid guid, ObjectGuid swapGuid)
     // Don't need to change group counters since we are swapping
     if (!isBGGroup())
     {
-        CharacterDatabase.BeginTransaction(m_Id);
-        CharacterDatabase.PExecute("UPDATE `group_member` SET `subgroup`='%u' WHERE `member_guid`='%u'", slot->group, guid.GetCounter());
-        CharacterDatabase.PExecute("UPDATE `group_member` SET `subgroup`='%u' WHERE `member_guid`='%u'", swapSlot->group, swapGuid.GetCounter());
-        CharacterDatabase.CommitTransaction();
+        std::vector<std::string> sqls;
+        char sql1[128];
+        snprintf(sql1, sizeof(sql1), "UPDATE `group_member` SET `subgroup`='%u' WHERE `member_guid`='%u'", slot->group, guid.GetCounter());
+        sqls.push_back(sql1);
+        char sql2[128];
+        snprintf(sql2, sizeof(sql2), "UPDATE `group_member` SET `subgroup`='%u' WHERE `member_guid`='%u'", swapSlot->group, swapGuid.GetCounter());
+        sqls.push_back(sql2);
+        sCharactersOutbox.Enqueue(sqls);
     }
 
     return true;
@@ -1905,9 +1965,9 @@ bool Group::_setMembersGroup(ObjectGuid guid, uint8 group)
 
     if (!isBGGroup())
     {
-        CharacterDatabase.BeginTransaction(m_Id);
-        CharacterDatabase.PExecute("UPDATE `group_member` SET `subgroup`='%u' WHERE `member_guid`='%u'", group, guid.GetCounter());
-        CharacterDatabase.CommitTransaction();
+        char sql[128];
+        snprintf(sql, sizeof(sql), "UPDATE `group_member` SET `subgroup`='%u' WHERE `member_guid`='%u'", group, guid.GetCounter());
+        sCharactersOutbox.Enqueue(sql);
     }
 
     return true;
@@ -1922,9 +1982,9 @@ bool Group::_setAssistantFlag(ObjectGuid guid, bool const& state)
     slot->assistant = state;
     if (!isBGGroup())
     {
-        CharacterDatabase.BeginTransaction(m_Id);
-        CharacterDatabase.PExecute("UPDATE `group_member` SET `assistant`='%u' WHERE `member_guid`='%u'", (state) ? 1 : 0, guid.GetCounter());
-        CharacterDatabase.CommitTransaction();
+        char sql[128];
+        snprintf(sql, sizeof(sql), "UPDATE `group_member` SET `assistant`='%u' WHERE `member_guid`='%u'", (state) ? 1 : 0, guid.GetCounter());
+        sCharactersOutbox.Enqueue(sql);
     }
 
     return true;
@@ -1949,9 +2009,9 @@ bool Group::_setMainTank(ObjectGuid guid)
 
     if (!isBGGroup())
     {
-        CharacterDatabase.BeginTransaction(m_Id);
-        CharacterDatabase.PExecute("UPDATE `groups` SET `main_tank_guid`='%u' WHERE `group_id`='%u'", m_mainTankGuid.GetCounter(), m_Id);
-        CharacterDatabase.CommitTransaction();
+        char sql[128];
+        snprintf(sql, sizeof(sql), "UPDATE `groups` SET `main_tank_guid`='%u' WHERE `group_id`='%u'", m_mainTankGuid.GetCounter(), m_Id);
+        sCharactersOutbox.Enqueue(sql);
     }
 
     return true;
@@ -1976,9 +2036,9 @@ bool Group::_setMainAssistant(ObjectGuid guid)
 
     if (!isBGGroup())
     {
-        CharacterDatabase.BeginTransaction(m_Id);
-        CharacterDatabase.PExecute("UPDATE `groups` SET `main_assistant_guid`='%u' WHERE `group_id`='%u'", m_mainAssistantGuid.GetCounter(), m_Id);
-        CharacterDatabase.CommitTransaction();
+        char sql[128];
+        snprintf(sql, sizeof(sql), "UPDATE `groups` SET `main_assistant_guid`='%u' WHERE `group_id`='%u'", m_mainAssistantGuid.GetCounter(), m_Id);
+        sCharactersOutbox.Enqueue(sql);
     }
 
     return true;
@@ -2261,7 +2321,13 @@ void Group::ResetInstances(InstanceResetMethod method, Player* SendMsgTo)
             if (state->CanReset())
                 state->DeleteFromDB();
             else
-                CharacterDatabase.PExecute("DELETE FROM `group_instance` WHERE `instance` = '%u'", state->GetInstanceId());
+            {
+                // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK
+                // filter, safe to replay.
+                char sql[128];
+                snprintf(sql, sizeof(sql), "DELETE FROM `group_instance` WHERE `instance` = '%u'", state->GetInstanceId());
+                sCharactersOutbox.Enqueue(sql);
+            }
             // i don't know for sure if hash_map iterators
             m_boundInstances.erase(itr);
             itr = m_boundInstances.begin();
@@ -2299,20 +2365,32 @@ InstanceGroupBind* Group::BindToInstance(DungeonPersistentState* state, bool per
             // when a boss is killed or when copying the players's binds to the group
             if (permanent != bind.perm || state != bind.state)
                 if (!load)
-                    CharacterDatabase.PExecute("UPDATE `group_instance` SET `instance` = '%u', `permanent` = '%u' WHERE `leader_guid` = '%u' AND `instance` = '%u'",
+                {
+                    // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment
+                    // UPDATE, safe to replay.
+                    char sql[192];
+                    snprintf(sql, sizeof(sql), "UPDATE `group_instance` SET `instance` = '%u', `permanent` = '%u' WHERE `leader_guid` = '%u' AND `instance` = '%u'",
                                                state->GetInstanceId(), permanent, GetLeaderGuid().GetCounter(), bind.state->GetInstanceId());
+                    sCharactersOutbox.Enqueue(sql);
+                }
         }
         else if (!load)
+        {
             // ON DUPLICATE KEY UPDATE: same class of issue as Player::BindToInstance (see
             // HPHA.md "DBErrors_*.log 巡查") - bind.state being unset here only reflects this
             // Group object's in-memory m_boundInstances, not necessarily group_instance's
             // actual contents (leader change timing, a prior bind not yet reflected here,
             // etc.), so a plain INSERT can hit a real existing row and fail with a duplicate-
             // key error instead of just correcting it.
-            CharacterDatabase.PExecute(
+            // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Already an upsert, safe
+            // to replay.
+            char sql[192];
+            snprintf(sql, sizeof(sql),
                 "INSERT INTO `group_instance` (`leader_guid`, `instance`, `permanent`) VALUES ('%u', '%u', '%u') "
                 "ON DUPLICATE KEY UPDATE `permanent` = VALUES(`permanent`)",
                 GetLeaderGuid().GetCounter(), state->GetInstanceId(), permanent);
+            sCharactersOutbox.Enqueue(sql);
+        }
 
         if (bind.state != state)
         {
@@ -2337,9 +2415,15 @@ void Group::UnbindInstance(uint32 mapid, bool unload)
     BoundInstancesMap::iterator itr = m_boundInstances.find(mapid);
     if (itr != m_boundInstances.end())
     {
+        // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK filter,
+        // safe to replay.
         if (!unload)
-            CharacterDatabase.PExecute("DELETE FROM `group_instance` WHERE `leader_guid` = '%u' AND `instance` = '%u'",
+        {
+            char sql[192];
+            snprintf(sql, sizeof(sql), "DELETE FROM `group_instance` WHERE `leader_guid` = '%u' AND `instance` = '%u'",
                                        GetLeaderGuid().GetCounter(), itr->second.state->GetInstanceId());
+            sCharactersOutbox.Enqueue(sql);
+        }
         itr->second.state->RemoveGroup(this);               // save can become invalid
         m_boundInstances.erase(itr);
     }

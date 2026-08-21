@@ -1,6 +1,7 @@
 #pragma once
 #include "Common.h"
 #include <string>
+#include <vector>
 #include <thread>
 #include <atomic>
 #include <mutex>
@@ -30,14 +31,22 @@ class MySQLConnection;
 // targetDb.PExecute(sql) - today's exact behavior, zero regression, this is a pure upgrade
 // layered on top of the existing write path, never a hard new dependency.
 //
-// v1 scope: every Enqueue()'d string must be a single, independent, already-fully-formatted
-// SQL statement (no multi-statement atomic transactions). This is enough for every current
-// consumer (Phase1's InstanceStatistics.cpp writes, rewritten as single `INSERT ... ON
-// DUPLICATE KEY UPDATE` statements instead of DELETE+INSERT pairs) and deliberately avoids
-// touching Database::BeginTransaction()/m_currentTransaction, which is a single non-thread-
-// local member on the Database object - not safe for this class's independently-threaded
-// Flusher to share with whatever else (main thread, other Enqueue() callers) might also be
-// using transactions on the same Database object. See HPHA.md Phase1 notes.
+// v1 scope: every Enqueue(string)'d value must be a single, independent, already-fully-formatted
+// SQL statement. This deliberately avoids touching Database::BeginTransaction()/
+// m_currentTransaction, which is a single non-thread-local member on the Database object - not
+// safe for this class's independently-threaded Flusher to share with whatever else (main thread,
+// other Enqueue() callers) might also be using transactions on the same Database object. See
+// HPHA.md Phase1 notes.
+//
+// Multi-statement groups (added Phase3 batch 4, see HPHA.md "多语句事务扩展"): Enqueue(vector)
+// durably queues N statements as one Stream entry, applied by the Flusher inside a single
+// BeginTransaction()/CommitTransaction() on its OWN independent connection (never targetDb's
+// shared one, so the m_currentTransaction sharing problem above still doesn't apply) - all-or-
+// nothing, any statement failing rolls back the whole group and the group is retried/dropped as
+// one unit, same policy as a single statement. Every statement in a group must still be safe
+// under the class's normal at-least-once replay semantics (see the 幂等性/去重 decision in
+// HPHA.md) - grouping doesn't relax that, it just extends "safe to replay" from one statement to
+// N applied together.
 class DbWriteOutbox
 {
 public:
@@ -59,6 +68,12 @@ public:
     // Durably queues sql for eventual execution against targetDb. See class comment for the
     // single-statement requirement and the disabled/unavailable fallback behavior.
     void Enqueue(std::string const& sql);
+
+    // Durably queues sqls to be applied together as one atomic transaction. See class comment
+    // for the multi-statement group semantics. sqls.size()==1 is equivalent to (and internally
+    // just calls) Enqueue(std::string const&) - no transaction wrapper for that case, byte-for-
+    // byte the same wire format as before. sqls.empty() is a no-op.
+    void Enqueue(std::vector<std::string> const& sqls);
 
     // Snapshot for GM/diagnostic reporting (see .server dboutbox). streamLength/pendingCount
     // are live XLEN/XPENDING queries against Redis (borrows the Enqueue-side connection under
@@ -99,12 +114,15 @@ private:
     bool EnsureFlusherMysqlConnected();
     void DisconnectFlusherMysql();
     void Ack(std::string const& entryId);
-    // Executes one already-fetched (id, sql) pair against MariaDB, retrying with backoff
+    // Executes one already-fetched (id, sqls) entry against MariaDB, retrying with backoff
     // until it succeeds, or until it's identified as a permanent query-level error rather
     // than MariaDB being unreachable (see .cpp) - either way it's ack'd once resolved. Returns
     // false only if m_stop was set mid-retry (shutdown), in which case the entry is left
     // unacked for next startup.
-    bool ExecuteAndAck(std::string const& entryId, std::string const& sql);
+    // sqls.size()==1: plain Execute(), exactly the pre-grouping behavior. sqls.size()>1: wrapped
+    // in BeginTransaction()/CommitTransaction() on the Flusher's own connection, all-or-nothing -
+    // any statement failing rolls back and the whole group is treated as one retry/drop unit.
+    bool ExecuteAndAck(std::string const& entryId, std::vector<std::string> const& sqls);
     // Drains anything left pending for our (fixed) consumer from a previous crash/restart,
     // executing each in order before moving on to genuinely new entries. Returns true if the
     // backlog was fully drained (caller can stop worrying about it until the next reconnect),

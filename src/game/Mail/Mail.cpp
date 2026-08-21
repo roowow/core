@@ -39,6 +39,8 @@
 #include "Item.h"
 #include "AuctionHouseMgr.h"
 #include "MasterPlayer.h"
+#include "OO/DbWriteOutbox.h"
+#include "OO/DbHealthMonitor.h"
 
 /**
  * Creates a new MailSender object.
@@ -202,7 +204,13 @@ void MailDraft::deleteIncludedItems(bool inDB /**= false*/)
         Item* item = itr.second;
 
         if (inDB)
-            CharacterDatabase.PExecute("DELETE FROM `item_instance` WHERE `guid`='%u'", item->GetGUIDLow());
+        {
+            // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Independent per-item DELETE,
+            // not part of a transaction, safe to replay (idempotent - deleting an already-deleted row is a no-op).
+            char sql[64];
+            snprintf(sql, sizeof(sql), "DELETE FROM `item_instance` WHERE `guid`='%u'", item->GetGUIDLow());
+            sCharactersOutbox.Enqueue(sql);
+        }
 
         delete item;
     }
@@ -329,21 +337,31 @@ void MailDraft::SendMailTo(MailReceiver const& receiver, MailSender const& sende
     time_t expire_time = deliver_time + expire_delay;
 
     // Add to DB
+    // Phase3 (see HPHA.md "多语句事务扩展") - routed through sCharactersOutbox as one atomic
+    // group instead of Begin/CommitTransaction(). Note: item->SaveToDB() for m_items already ran
+    // earlier via prepareItems()/CloneFrom() (outside this block), so it's not part of this group.
     std::string safe_subject = GetSubject();
-
-    CharacterDatabase.BeginTransaction();
     CharacterDatabase.escape_string(safe_subject);
-    CharacterDatabase.PExecute("INSERT INTO `mail` (`id`, `message_type`, `stationery`, `mail_template_id`, `sender_guid`, `receiver_guid`, `subject`, `item_text_id`, `has_items`, `expire_time`, `deliver_time`, `money`, `cod`, `checked`) "
-                               "VALUES ('%u', '%u', '%u', '%u', '%u', '%u', '%s', '%u', '%u', '" UI64FMTD "','" UI64FMTD "', '%u', '%u', '%u')",
-                               mailId, sender.GetMailMessageType(), sender.GetStationery(), GetMailTemplateId(), sender.GetSenderId(), receiver.GetPlayerGuid().GetCounter(), safe_subject.c_str(), GetBodyId(), (has_items ? 1 : 0), (uint64)expire_time, (uint64)deliver_time, m_money, m_COD, checked);
+
+    std::vector<std::string> sqls;
+    sqls.reserve(1 + m_items.size());
+
+    char mailSql[1024];
+    snprintf(mailSql, sizeof(mailSql), "INSERT INTO `mail` (`id`, `message_type`, `stationery`, `mail_template_id`, `sender_guid`, `receiver_guid`, `subject`, `item_text_id`, `has_items`, `expire_time`, `deliver_time`, `money`, `cod`, `checked`) "
+             "VALUES ('%u', '%u', '%u', '%u', '%u', '%u', '%s', '%u', '%u', '" UI64FMTD "','" UI64FMTD "', '%u', '%u', '%u')",
+             mailId, sender.GetMailMessageType(), sender.GetStationery(), GetMailTemplateId(), sender.GetSenderId(), receiver.GetPlayerGuid().GetCounter(), safe_subject.c_str(), GetBodyId(), (has_items ? 1 : 0), (uint64)expire_time, (uint64)deliver_time, m_money, m_COD, checked);
+    sqls.push_back(mailSql);
 
     for (const auto& itr : m_items)
     {
         Item* item = itr.second;
-        CharacterDatabase.PExecute("INSERT INTO `mail_items` (`mail_id`, `item_guid`, `item_id`, `receiver_guid`) VALUES ('%u', '%u', '%u','%u')",
-                                   mailId, item->GetGUIDLow(), item->GetEntry(), receiver.GetPlayerGuid().GetCounter());
+        char sql[128];
+        snprintf(sql, sizeof(sql), "INSERT INTO `mail_items` (`mail_id`, `item_guid`, `item_id`, `receiver_guid`) VALUES ('%u', '%u', '%u','%u')",
+                 mailId, item->GetGUIDLow(), item->GetEntry(), receiver.GetPlayerGuid().GetCounter());
+        sqls.push_back(sql);
     }
-    CharacterDatabase.CommitTransaction();
+
+    sCharactersOutbox.Enqueue(sqls);
 
     // For online receiver update in game mail status and data
     if (masterReceiver)
@@ -395,6 +413,13 @@ void Mail::prepareTemplateItems(Player* receiver)
 {
     MasterPlayer* masterReceiver = receiver->GetSession()->GetMasterPlayer();
     if (!mailTemplateId || !items.empty() || !masterReceiver)
+        return;
+
+    // Phase4 (see HPHA.md "熔断 + 错误区分设计") - runs at mail-load time (login), not from a
+    // player-triggered mail opcode, so it's not covered by MailHandler.cpp::CheckMailBox()'s
+    // gate. Safe to just skip: `items` stays empty, so the `!items.empty()` guard above lets
+    // this retry on the player's next login once CharacterDatabase recovers.
+    if (!IsCharacterDatabaseHealthy())
         return;
 
     has_items = true;
