@@ -28,6 +28,7 @@
 #include "Crypto/Hash/HMACSHA1.h"
 #include "Crypto/Encoding/Base32.h"
 #include "Database/DatabaseEnv.h"
+#include "Database/DatabaseImpl.h"
 #include "Config/Config.h"
 #include "Log.h"
 #include "RealmList.h"
