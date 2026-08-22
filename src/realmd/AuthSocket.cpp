@@ -355,14 +355,36 @@ void AuthSocket::_HandleLogonChallenge()
             return;
         }
 
-        // Check if the IP is banned
+        // Phase6 (see HPHA.md "设计方案") - was a blocking LoginDatabase.PQuery() here (and two
+        // more further down this same handler); now kicks off an async chain (ip_banned ->
+        // account -> account_banned) instead, each step jumping back to the IO thread via
+        // EnterIoContext() before touching m_socket/handshake state. See the
+        // _HandleLogonChallenge__On*Result() static callbacks below for the rest of this
+        // handler's original logic - unchanged branch-by-branch, just split across the async
+        // boundaries where a query used to block.
         std::string safeIp = clientIpAddress;
         LoginDatabase.escape_string(safeIp);
-        std::unique_ptr<QueryResult> ipBanResult = LoginDatabase.PQuery(
+        LoginDatabase.AsyncPQuery(&AuthSocket::_HandleLogonChallenge__OnIpBanResult, self,
             "SELECT 1 FROM `ip_banned` WHERE `ip` = '%s' AND (`unbandate` = `bandate` OR `unbandate` > UNIX_TIMESTAMP()) LIMIT 1",
             safeIp.c_str());
-        if (ipBanResult)
+    });
+}
+
+void AuthSocket::_HandleLogonChallenge__OnIpBanResult(std::unique_ptr<QueryResult> result, std::shared_ptr<AuthSocket> self)
+{
+    bool const banned = (result != nullptr);
+    self->m_socket.EnterIoContext([self, banned](IO::NetworkError error)
+    {
+        if (error)
+            return; // socket gone mid-flight, nothing left to respond to
+
+        std::string clientIpAddress = self->GetRemoteIpString();
+
+        if (banned)
         {
+            std::shared_ptr<ByteBuffer> pkt = std::make_shared<ByteBuffer>();
+            *pkt << (uint8) CMD_AUTH_LOGON_CHALLENGE;
+            *pkt << (uint8) 0x00;
             *pkt << uint8(WOW_FAIL_FAIL_NOACCESS);
             sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[AuthChallenge] Banned ip '%s' tries to login with account '%s'!", clientIpAddress.c_str(), self->m_login.c_str());
 
@@ -382,6 +404,10 @@ void AuthSocket::_HandleLogonChallenge()
         {
             sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[AuthChallenge] IP '%s' is temporarily locked after %u failed attempts",
                      clientIpAddress.c_str(), wrongPassResult.failedAttempts);
+
+            std::shared_ptr<ByteBuffer> pkt = std::make_shared<ByteBuffer>();
+            *pkt << (uint8) CMD_AUTH_LOGON_CHALLENGE;
+            *pkt << (uint8) 0x00;
             *pkt << uint8(WOW_FAIL_DB_BUSY);
 
             self->m_socket.Write(std::move(pkt), [self](IO::NetworkError const& error)
@@ -397,10 +423,25 @@ void AuthSocket::_HandleLogonChallenge()
         // Get the account details from the account table
         // No SQL injection (escaped username)
         //                                                                            0     1         2          3    4    5           6              7              8       9
-        std::unique_ptr<QueryResult> sqlAccountResult = LoginDatabase.PQuery("SELECT `id`, `locked`, `last_ip`, `v`, `s`, `security`, `email_verif`, `geolock_pin`, `email`, UNIX_TIMESTAMP(`joindate`) FROM `account` WHERE `username` = '%s'", self->m_safelogin.c_str());
-        if (sqlAccountResult)
+        LoginDatabase.AsyncPQuery(&AuthSocket::_HandleLogonChallenge__OnAccountResult, self,
+            "SELECT `id`, `locked`, `last_ip`, `v`, `s`, `security`, `email_verif`, `geolock_pin`, `email`, UNIX_TIMESTAMP(`joindate`) FROM `account` WHERE `username` = '%s'", self->m_safelogin.c_str());
+    });
+}
+
+void AuthSocket::_HandleLogonChallenge__OnAccountResult(std::unique_ptr<QueryResult> result, std::shared_ptr<AuthSocket> self)
+{
+    self->m_socket.EnterIoContext([self, result = std::shared_ptr<QueryResult>(std::move(result))](IO::NetworkError error) mutable
+    {
+        if (error)
+            return; // socket gone mid-flight
+
+        std::shared_ptr<ByteBuffer> pkt = std::make_shared<ByteBuffer>();
+        *pkt << (uint8) CMD_AUTH_LOGON_CHALLENGE;
+        *pkt << (uint8) 0x00;
+
+        if (result)
         {
-            Field* fields = sqlAccountResult->Fetch();
+            Field* fields = result->Fetch();
 
             // Prevent login if the user's email address has not been verified
             bool requireVerification = sConfig.GetBoolDefault("ReqEmailVerification", false);
@@ -480,82 +521,118 @@ void AuthSocket::_HandleLogonChallenge()
             {
                 uint32 pendingAccountId = fields[0].GetUInt32();
 
+                sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "database authentication values: v='%s' s='%s'", databaseV.c_str(), databaseS.c_str());
+
                 // If the account is banned, reject the logon attempt
-                std::unique_ptr<QueryResult> sqlAccountBanResult = LoginDatabase.PQuery("SELECT `bandate`, `unbandate` FROM `account_banned` WHERE `id` = %u AND `active` = 1 AND (`unbandate` > UNIX_TIMESTAMP() OR `unbandate` = `bandate`) LIMIT 1", pendingAccountId);
-                if (sqlAccountBanResult)
-                {
-                    uint64_t banTimestamp = (*sqlAccountBanResult)[0].GetUInt64();
-                    uint64_t unbanTimestamp = (*sqlAccountBanResult)[1].GetUInt64();
-                    if (banTimestamp == unbanTimestamp)
-                    {
-                        *pkt << (uint8) WOW_FAIL_BANNED;
-                        sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[AuthChallenge] Banned account '%s' using IP '%s' tries to login!", self->m_login.c_str(), self->GetRemoteIpString().c_str());
-                    }
-                    else
-                    {
-                        *pkt << (uint8) WOW_FAIL_SUSPENDED;
-                        sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[AuthChallenge] Temporarily banned account '%s' using IP '%s' tries to login!", self->m_login.c_str(), self->GetRemoteIpString().c_str());
-                    }
-                }
-                else
-                {
-                    sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "database authentication values: v='%s' s='%s'", databaseV.c_str(), databaseS.c_str());
-
-                    BigNumber s;
-                    s.SetHexStr(databaseS.c_str());
-
-                    self->srp.CalculateHostPublicEphemeral();
-
-                    // Fill the response packet with the result
-                    *pkt << uint8(WOW_SUCCESS);
-
-                    // B may be calculated < 32B so we force minimal length to 32B
-                    pkt->append(self->srp.GetHostPublicEphemeral().AsByteArray(32)); // 32 bytes
-                    *pkt << uint8(1);
-                    pkt->append(self->srp.GetGeneratorModulo().AsByteArray());
-                    *pkt << uint8(32);
-                    pkt->append(self->srp.GetPrime().AsByteArray(32));
-                    pkt->append(s.AsByteArray(32));// 32 bytes
-                    pkt->append(VersionChallenge.data(), VersionChallenge.size());
-
-                    // figure out whether we need to display the PIN grid
-                    self->m_promptPin = locked; // always prompt if the account is IP locked & 2FA is enabled
-
-                    if ((!locked && ((self->m_lockFlags & ALWAYS_ENFORCE) == ALWAYS_ENFORCE)) || self->m_geoUnlockPIN)
-                    {
-                        self->m_promptPin = true; // prompt if the lock hasn't been triggered but ALWAYS_ENFORCE is set
-                    }
-
-                    if (self->m_promptPin)
-                    {
-                        sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[AuthChallenge] Account '%s' using IP '%s' requires PIN authentication", self->m_login.c_str(), self->GetRemoteIpString().c_str());
-
-                        uint32 gridSeedPkt = self->m_gridSeed = randu32();
-                        EndianConvert(gridSeedPkt);
-                        self->m_serverSecuritySalt.SetRand(16 * 8); // 16 bytes random
-
-                        *pkt << uint8(1); // securityFlags, only '1' is available in classic (PIN input)
-                        *pkt << gridSeedPkt;
-                        pkt->append(self->m_serverSecuritySalt.AsByteArray(16).data(), 16);
-                    }
-                    else
-                    {
-                        if (self->m_build >= 5428)        // version 1.11.0 or later
-                            *pkt << uint8(0);
-                    }
-
-                    self->LoadAccountSecurityLevels(pendingAccountId);
-                    self->m_accountId = pendingAccountId;
-
-                    // All good, await client's proof
-                    self->m_status = STATUS_LOGON_PROOF;
-                }
+                LoginDatabase.AsyncPQuery(&AuthSocket::_HandleLogonChallenge__OnAccountBanResult, self, pendingAccountId,
+                    "SELECT `bandate`, `unbandate` FROM `account_banned` WHERE `id` = %u AND `active` = 1 AND (`unbandate` > UNIX_TIMESTAMP() OR `unbandate` = `bandate`) LIMIT 1", pendingAccountId);
+                return;
             }
+            // else: locked with no 2FA - pkt already has WOW_FAIL_SUSPENDED (or nothing, if the
+            // IP actually matched) appended above; fall through to the shared write below.
         }
         else
         { // no account
             *pkt << (uint8) WOW_FAIL_UNKNOWN_ACCOUNT;
+            std::string safeIp = self->GetRemoteIpString();
+            LoginDatabase.escape_string(safeIp);
             RecordWrongPasswordAttempt(safeIp);
+        }
+
+        self->m_socket.Write(std::move(pkt), [self](IO::NetworkError const& error)
+        {
+            if (error)
+                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "_HandleLogonChallenge self->Write() Error: %s", error.ToString().c_str());
+            else
+                self->DoRecvIncomingData();
+        });
+    });
+}
+
+void AuthSocket::_HandleLogonChallenge__OnAccountBanResult(std::unique_ptr<QueryResult> result, std::shared_ptr<AuthSocket> self, uint32 pendingAccountId)
+{
+    self->m_socket.EnterIoContext([self, result = std::shared_ptr<QueryResult>(std::move(result)), pendingAccountId](IO::NetworkError error) mutable
+    {
+        if (error)
+            return; // socket gone mid-flight
+
+        std::shared_ptr<ByteBuffer> pkt = std::make_shared<ByteBuffer>();
+        *pkt << (uint8) CMD_AUTH_LOGON_CHALLENGE;
+        *pkt << (uint8) 0x00;
+
+        if (result)
+        {
+            uint64_t banTimestamp = (*result)[0].GetUInt64();
+            uint64_t unbanTimestamp = (*result)[1].GetUInt64();
+            if (banTimestamp == unbanTimestamp)
+            {
+                *pkt << (uint8) WOW_FAIL_BANNED;
+                sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[AuthChallenge] Banned account '%s' using IP '%s' tries to login!", self->m_login.c_str(), self->GetRemoteIpString().c_str());
+            }
+            else
+            {
+                *pkt << (uint8) WOW_FAIL_SUSPENDED;
+                sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[AuthChallenge] Temporarily banned account '%s' using IP '%s' tries to login!", self->m_login.c_str(), self->GetRemoteIpString().c_str());
+            }
+        }
+        else
+        {
+            // Same value self->srp.SetSalt(databaseS) parsed in the previous step - GetSalt()
+            // just returns srp's own copy of it, see SRP6::SetSalt()/GetSalt().
+            BigNumber s = self->srp.GetSalt();
+
+            self->srp.CalculateHostPublicEphemeral();
+
+            // Fill the response packet with the result
+            *pkt << uint8(WOW_SUCCESS);
+
+            // B may be calculated < 32B so we force minimal length to 32B
+            pkt->append(self->srp.GetHostPublicEphemeral().AsByteArray(32)); // 32 bytes
+            *pkt << uint8(1);
+            pkt->append(self->srp.GetGeneratorModulo().AsByteArray());
+            *pkt << uint8(32);
+            pkt->append(self->srp.GetPrime().AsByteArray(32));
+            pkt->append(s.AsByteArray(32));// 32 bytes
+            pkt->append(VersionChallenge.data(), VersionChallenge.size());
+
+            // figure out whether we need to display the PIN grid - `locked` recomputed here
+            // exactly like the previous step derived it (same self->m_lockFlags/m_lastIP,
+            // untouched since then).
+            bool locked = (self->m_lockFlags & IP_LOCK) && self->m_lastIP != self->GetRemoteIpString();
+            self->m_promptPin = locked; // always prompt if the account is IP locked & 2FA is enabled
+
+            if ((!locked && ((self->m_lockFlags & ALWAYS_ENFORCE) == ALWAYS_ENFORCE)) || self->m_geoUnlockPIN)
+            {
+                self->m_promptPin = true; // prompt if the lock hasn't been triggered but ALWAYS_ENFORCE is set
+            }
+
+            if (self->m_promptPin)
+            {
+                sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[AuthChallenge] Account '%s' using IP '%s' requires PIN authentication", self->m_login.c_str(), self->GetRemoteIpString().c_str());
+
+                uint32 gridSeedPkt = self->m_gridSeed = randu32();
+                EndianConvert(gridSeedPkt);
+                self->m_serverSecuritySalt.SetRand(16 * 8); // 16 bytes random
+
+                *pkt << uint8(1); // securityFlags, only '1' is available in classic (PIN input)
+                *pkt << gridSeedPkt;
+                pkt->append(self->m_serverSecuritySalt.AsByteArray(16).data(), 16);
+            }
+            else
+            {
+                if (self->m_build >= 5428)        // version 1.11.0 or later
+                    *pkt << uint8(0);
+            }
+
+            // Phase6 - LoadAccountSecurityLevels() is itself now async/fire-and-forget (see its
+            // own comment): its result (m_accountDefaultSecurityLevel/m_accountSecurityOnRealm)
+            // is only ever consumed later by _HandleRealmList(), several round trips away, so it
+            // no longer needs to finish before this Challenge response goes out.
+            self->LoadAccountSecurityLevels(pendingAccountId);
+            self->m_accountId = pendingAccountId;
+
+            // All good, await client's proof
+            self->m_status = STATUS_LOGON_PROOF;
         }
 
         self->m_socket.Write(std::move(pkt), [self](IO::NetworkError const& error)
@@ -804,21 +881,33 @@ void AuthSocket::_HandleLogonProof__PostRecv(std::shared_ptr<sAuthLogonProof_C c
             {
                 sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Unable to remove geolock PIN for %s - account has not been unlocked", m_safelogin.c_str());
             }
+
+            _HandleLogonProof__PostRecv_FinishSuccessfulLogin();
+            return;
         }
-        else if (GeographicalLockCheck())
+
+        // Phase6 (see HPHA.md "设计方案") - was a blocking bool GeographicalLockCheck() call
+        // here; now async, see the callback below.
+        GeographicalLockCheck(shared_from_this(), [self = shared_from_this()](bool locked)
         {
-            sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "Account '%s' (%u) using IP '%s' has been geolocked", m_login.c_str(), m_accountId, GetRemoteIpString().c_str()); // todo, add additional logging info
+            if (!locked)
+            {
+                self->_HandleLogonProof__PostRecv_FinishSuccessfulLogin();
+                return;
+            }
+
+            sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "Account '%s' (%u) using IP '%s' has been geolocked", self->m_login.c_str(), self->m_accountId, self->GetRemoteIpString().c_str()); // todo, add additional logging info
 
             uint32_t pin = urand(100000, 999999); // check rand32_max
-            bool result = LoginDatabase.PExecute("UPDATE `account` SET `geolock_pin` = %u WHERE `username` = '%s'", pin, m_safelogin.c_str());
+            bool result = LoginDatabase.PExecute("UPDATE `account` SET `geolock_pin` = %u WHERE `username` = '%s'", pin, self->m_safelogin.c_str());
             if (!result)
             {
-                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Unable to write geolock PIN for %s - account has not been locked", m_safelogin.c_str());
+                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Unable to write geolock PIN for %s - account has not been locked", self->m_safelogin.c_str());
 
                 std::shared_ptr<ByteBuffer> pkt(new ByteBuffer());
                 *pkt << (uint8) CMD_AUTH_LOGON_PROOF;
                 *pkt << (uint8) WOW_FAIL_DB_BUSY;
-                m_socket.Write(std::move(pkt), [self = shared_from_this()](IO::NetworkError const& error)
+                self->m_socket.Write(std::move(pkt), [self](IO::NetworkError const& error)
                 {
                     self->DoRecvIncomingData();
                 });
@@ -834,11 +923,11 @@ void AuthSocket::_HandleLogonProof__PostRecv(std::shared_ptr<sAuthLogonProof_C c
                     sConfig.GetStringDefault("GeolockGUID", "")
                 );
 
-                mail->recipient(m_email);
+                mail->recipient(self->m_email);
                 mail->from(sConfig.GetStringDefault("MailFrom", ""));
-                mail->substitution("%username%", m_login);
+                mail->substitution("%username%", self->m_login);
                 mail->substitution("%unlock_pin%", std::to_string(pin));
-                mail->substitution("%originating_ip%", GetRemoteIpString());
+                mail->substitution("%originating_ip%", self->GetRemoteIpString());
 
                 MailerService::get_global_mailer()->send(std::move(mail),
                     [](SendgridMail::Result res)
@@ -852,39 +941,10 @@ void AuthSocket::_HandleLogonProof__PostRecv(std::shared_ptr<sAuthLogonProof_C c
             std::shared_ptr<ByteBuffer> pkt(new ByteBuffer());
             *pkt << (uint8) CMD_AUTH_LOGON_PROOF;
             *pkt << (uint8) WOW_FAIL_PARENTCONTROL;
-            m_socket.Write(std::move(pkt), [self = shared_from_this()](IO::NetworkError const& error)
+            self->m_socket.Write(std::move(pkt), [self](IO::NetworkError const& error)
             {
                 self->DoRecvIncomingData();
             });
-            return;
-        }
-
-        sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[AuthChallenge] Account '%s' using IP '%s' successfully authenticated", m_login.c_str(), GetRemoteIpString().c_str());
-
-        // Successful login clears the brute-force failure counter for this IP.
-        ClearWrongPasswordCount(GetRemoteIpString());
-
-        // Update the sessionkey, last_ip, last login time and reset number of failed logins in the account table for this account
-        // No SQL injection (escaped username) and IP address as received by socket
-        std::string K_hex = srp.GetStrongSessionKey().AsHexStr();
-        // Why it must be sync: The new network implementation is so fast that the async db cant execute the UPDATE statement before the client tries to reach mangosd
-        // If it is async there would be a race condition
-        bool result = LoginDatabase.PExecute(DbExecMode::MustBeSync, "UPDATE `account` SET `sessionkey` = '%s', `last_ip` = '%s', `last_login` = NOW(), `locale` = '%u', `os` = '%s', `platform` = '%s' WHERE `username` = '%s'",
-                                             K_hex.c_str(), GetRemoteIpString().c_str(), GetLocaleByName(m_localizationName), m_os.c_str(), m_platform.c_str(), m_safelogin.c_str() );
-        if (!result)
-        {
-            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Unable to update login stats for account '%s'", m_safelogin.c_str());
-        }
-
-        // Finish SRP6 and send the final result to the client
-        Crypto::Hash::SHA1::Digest shaDigest = srp.Finalize();
-
-        std::shared_ptr<ByteBuffer> pkt = GenerateLogonProofResponse(shaDigest);
-        m_status = STATUS_AUTHED;
-
-        m_socket.Write(std::move(pkt), [self = shared_from_this()](IO::NetworkError const& error)
-        {
-            self->DoRecvIncomingData();
         });
     }
     else
@@ -908,6 +968,37 @@ void AuthSocket::_HandleLogonProof__PostRecv(std::shared_ptr<sAuthLogonProof_C c
             self->DoRecvIncomingData();
         });
     }
+}
+
+void AuthSocket::_HandleLogonProof__PostRecv_FinishSuccessfulLogin()
+{
+    sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[AuthChallenge] Account '%s' using IP '%s' successfully authenticated", m_login.c_str(), GetRemoteIpString().c_str());
+
+    // Successful login clears the brute-force failure counter for this IP.
+    ClearWrongPasswordCount(GetRemoteIpString());
+
+    // Update the sessionkey, last_ip, last login time and reset number of failed logins in the account table for this account
+    // No SQL injection (escaped username) and IP address as received by socket
+    std::string K_hex = srp.GetStrongSessionKey().AsHexStr();
+    // Why it must be sync: The new network implementation is so fast that the async db cant execute the UPDATE statement before the client tries to reach mangosd
+    // If it is async there would be a race condition
+    bool result = LoginDatabase.PExecute(DbExecMode::MustBeSync, "UPDATE `account` SET `sessionkey` = '%s', `last_ip` = '%s', `last_login` = NOW(), `locale` = '%u', `os` = '%s', `platform` = '%s' WHERE `username` = '%s'",
+                                         K_hex.c_str(), GetRemoteIpString().c_str(), GetLocaleByName(m_localizationName), m_os.c_str(), m_platform.c_str(), m_safelogin.c_str() );
+    if (!result)
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Unable to update login stats for account '%s'", m_safelogin.c_str());
+    }
+
+    // Finish SRP6 and send the final result to the client
+    Crypto::Hash::SHA1::Digest shaDigest = srp.Finalize();
+
+    std::shared_ptr<ByteBuffer> pkt = GenerateLogonProofResponse(shaDigest);
+    m_status = STATUS_AUTHED;
+
+    m_socket.Write(std::move(pkt), [self = shared_from_this()](IO::NetworkError const& error)
+    {
+        self->DoRecvIncomingData();
+    });
 }
 
 // Reconnect Challenge command handler
@@ -937,16 +1028,28 @@ void AuthSocket::_HandleReconnectChallenge()
             return;
         }
 
-        std::unique_ptr<QueryResult> queryResult = LoginDatabase.PQuery("SELECT `sessionkey`, `id` FROM `account` WHERE `username` = '%s'", self->m_safelogin.c_str());
+        // Phase6 (see HPHA.md "设计方案") - was a blocking LoginDatabase.PQuery() here; now
+        // async, see _HandleReconnectChallenge__OnAccountResult() below.
+        LoginDatabase.AsyncPQuery(&AuthSocket::_HandleReconnectChallenge__OnAccountResult, self,
+            "SELECT `sessionkey`, `id` FROM `account` WHERE `username` = '%s'", self->m_safelogin.c_str());
+    });
+}
+
+void AuthSocket::_HandleReconnectChallenge__OnAccountResult(std::unique_ptr<QueryResult> result, std::shared_ptr<AuthSocket> self)
+{
+    self->m_socket.EnterIoContext([self, result = std::shared_ptr<QueryResult>(std::move(result))](IO::NetworkError error) mutable
+    {
+        if (error)
+            return; // socket gone mid-flight
 
         // Stop if the account is not found
-        if (!queryResult)
+        if (!result)
         {
             sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "user %s tried to login and we cannot find his session key in the database.", self->m_login.c_str());
             return; // implicit close
         }
 
-        Field* fields = queryResult->Fetch();
+        Field* fields = result->Fetch();
         self->srp.SetStrongSessionKey(fields[0].GetString());
         self->m_accountId = fields[1].GetUInt32();
 
@@ -1073,139 +1176,201 @@ void AuthSocket::_HandleRealmList()
         // Update realm list if need
         sRealmList.UpdateIfNeed();
 
-        // Circle through realms in the RealmList and construct the return packet (including # of user characters in each realm)
-        ByteBuffer realmlistBuffer;
-        self->LoadRealmlistAndWriteIntoBuffer(realmlistBuffer);
-
-        std::shared_ptr<ByteBuffer> pkt(new ByteBuffer());
-        *pkt << (uint8) CMD_REALM_LIST;
-        *pkt << (uint16)realmlistBuffer.size();
-        pkt->append(realmlistBuffer);
-
-        self->m_socket.Write(std::move(pkt), [self](IO::NetworkError const& error)
+        // Circle through realms in the RealmList and construct the return packet (including # of
+        // user characters in each realm). Phase6 (see HPHA.md "设计方案") - now async, see
+        // LoadRealmlistAndWriteIntoBuffer()'s own comment.
+        self->LoadRealmlistAndWriteIntoBuffer([self](ByteBuffer realmlistBuffer)
         {
-            self->DoRecvIncomingData();
+            std::shared_ptr<ByteBuffer> pkt(new ByteBuffer());
+            *pkt << (uint8) CMD_REALM_LIST;
+            *pkt << (uint16)realmlistBuffer.size();
+            pkt->append(realmlistBuffer);
+
+            self->m_socket.Write(std::move(pkt), [self](IO::NetworkError const& error)
+            {
+                self->DoRecvIncomingData();
+            });
         });
     });
 }
 
-void AuthSocket::LoadRealmlistAndWriteIntoBuffer(ByteBuffer &pkt)
+namespace
 {
-    if (m_build < 6299)        // before version 2.0.3 (exclusive)
+    // Everything LoadRealmlistAndWriteIntoBuffer() needs per realm to finish serializing it,
+    // captured up front (see that function's comment for why).
+    struct RealmListSnapshotEntry
     {
-        pkt << uint32(0);                               // unused value
-        pkt << uint8(sRealmList.size());
+        uint32 id;
+        std::string name;
+        std::string addressForClient;
+        float populationLevel;
+        uint8 icon;
+        RealmFlags realmFlags; // unmodified Realm::realmFlags - OFFLINE/etc bits get OR'd in per-branch at serialize time, same as the original code did
+        uint8 timeZone;
+        bool ok_build;
+        bool locked;
+        RealmBuildInfo buildInfo; // resolved: ok_build ? *FindBuildInfo(m_build) : Realm::realmBuildInfo, copied by value (not a pointer into sRealmList)
+    };
+} // namespace
 
-        for (RealmList::RealmMap::const_iterator i = sRealmList.begin(); i != sRealmList.end(); ++i)
+// Bundles everything AuthSocket::LoadRealmlistAndWriteIntoBuffer()'s per-realm async chain needs
+// to survive across the EnterIoContext()/AsyncPQuery() waits between realms. Defined here (not
+// in AuthSocket.h) since it's purely an implementation detail of this one function - only
+// forward-declared in the header for the two static callback signatures.
+struct RealmListLoadState
+{
+    std::shared_ptr<AuthSocket> self;
+    std::vector<RealmListSnapshotEntry> entries;
+    size_t index = 0;
+    bool oldClient = false;
+    ByteBuffer resultPkt;
+    std::function<void(ByteBuffer)> onComplete;
+};
+
+void AuthSocket::LoadRealmlistAndWriteIntoBuffer(std::function<void(ByteBuffer)> onComplete)
+{
+    // Phase6 (see HPHA.md "设计方案") - was a synchronous PQuery-per-realm loop, blocking the IO
+    // thread once per realm on every CMD_REALM_LIST request; now chains one AsyncPQuery per
+    // realm instead.
+    //
+    // Snapshot everything from `sRealmList` synchronously up front, exactly like the old fully-
+    // synchronous version effectively did (it read the whole map in one uninterrupted pass) -
+    // this part never touched the DB, so nothing about doing it synchronously changes. This is
+    // required for correctness, not just style: `sRealmList` is a process-wide singleton that a
+    // *different* connection's concurrent CMD_REALM_LIST could cause to be rebuilt
+    // (RealmList::UpdateIfNeed() -> m_realms.clear()) while this chain is paused waiting on a
+    // query for some other realm - a std::map iterator held across that wait would be left
+    // dangling by the clear(). Copying the small set of fields each realm needs into a plain
+    // std::vector up front sidesteps that entirely.
+    auto state = std::make_shared<RealmListLoadState>();
+    state->self = shared_from_this();
+    state->oldClient = (m_build < 6299); // before version 2.0.3 (exclusive)
+    state->onComplete = std::move(onComplete);
+
+    state->entries.reserve(sRealmList.size());
+    for (RealmList::RealmMap::const_iterator i = sRealmList.begin(); i != sRealmList.end(); ++i)
+    {
+        RealmListSnapshotEntry entry;
+        entry.id = i->second.id;
+        entry.name = i->first;
+        entry.addressForClient = i->second.GetAddressForClient(m_socket.GetRemoteEndpoint().ip).toString();
+        entry.populationLevel = i->second.populationLevel;
+        entry.icon = i->second.icon;
+        entry.realmFlags = i->second.realmFlags;
+        entry.timeZone = i->second.timeZone;
+        entry.ok_build = std::find(i->second.realmBuilds.begin(), i->second.realmBuilds.end(), m_build) != i->second.realmBuilds.end();
+        entry.locked = i->second.allowedSecurityLevel > GetSecurityOn(i->second.id);
+        RealmBuildInfo const* buildInfo = entry.ok_build ? FindBuildInfo(m_build) : nullptr;
+        entry.buildInfo = buildInfo ? *buildInfo : i->second.realmBuildInfo;
+        state->entries.push_back(std::move(entry));
+    }
+
+    if (state->oldClient)
+        state->resultPkt << uint32(0) << uint8(state->entries.size());     // unused value, realm count
+    else
+        state->resultPkt << uint32(0) << uint16(state->entries.size());    // unused value, realm count
+
+    _LoadRealmlistNextStep(state);
+}
+
+void AuthSocket::_LoadRealmlistNextStep(std::shared_ptr<RealmListLoadState> state)
+{
+    if (state->index >= state->entries.size())
+    {
+        if (state->oldClient)
+            state->resultPkt << uint16(0x0002);         // unused value (why 2?)
+        else
+            state->resultPkt << uint16(0x0010);         // unused value (why 10?)
+        state->onComplete(std::move(state->resultPkt));
+        return;
+    }
+
+    RealmListSnapshotEntry const& entry = state->entries[state->index];
+    // No SQL injection. id of realm is controlled by the database.
+    LoginDatabase.AsyncPQuery(&AuthSocket::_OnLoadRealmlistNumCharsResult, state,
+        "SELECT `numchars` FROM `realmcharacters` WHERE `realmid` = '%d' AND `acctid`='%u'", entry.id, state->self->m_accountId);
+}
+
+void AuthSocket::_OnLoadRealmlistNumCharsResult(std::unique_ptr<QueryResult> result, std::shared_ptr<RealmListLoadState> state)
+{
+    uint8 amountOfCharacters = 0;
+    if (result)
+    {
+        Field* fields = result->Fetch();
+        amountOfCharacters = fields[0].GetUInt8();
+    }
+
+    state->self->m_socket.EnterIoContext([state, amountOfCharacters](IO::NetworkError error) mutable
+    {
+        if (error)
+            return; // socket gone mid-flight
+
+        RealmListSnapshotEntry const& entry = state->entries[state->index];
+        uint16 const build = state->self->m_build;
+
+        if (state->oldClient)
         {
-            uint8 AmountOfCharacters;
-
-            // No SQL injection. id of realm is controlled by the database.
-            std::unique_ptr<QueryResult> result = LoginDatabase.PQuery("SELECT `numchars` FROM `realmcharacters` WHERE `realmid` = '%d' AND `acctid`='%u'", i->second.id, m_accountId);
-            if (result)
-            {
-                Field *fields = result->Fetch();
-                AmountOfCharacters = fields[0].GetUInt8();
-            }
-            else
-                AmountOfCharacters = 0;
-
-            bool ok_build = std::find(i->second.realmBuilds.begin(), i->second.realmBuilds.end(), m_build) != i->second.realmBuilds.end();
-
-            RealmBuildInfo const* buildInfo = ok_build ? FindBuildInfo(m_build) : nullptr;
-            if (!buildInfo)
-                buildInfo = &i->second.realmBuildInfo;
-
-            RealmFlags realmflags = i->second.realmFlags;
-
             // 1.x clients not support explicitly REALM_FLAG_SPECIFYBUILD, so manually form similar name as show in more recent clients
-            std::string name = i->first;
-            if (realmflags & REALM_FLAG_SPECIFYBUILD)
+            std::string name = entry.name;
+            if (entry.realmFlags & REALM_FLAG_SPECIFYBUILD)
             {
                 char buf[20];
-                snprintf(buf, 20, " (%u,%u,%u)", buildInfo->majorVersion, buildInfo->minorVersion, buildInfo->bugfixVersion);
+                snprintf(buf, 20, " (%u,%u,%u)", entry.buildInfo.majorVersion, entry.buildInfo.minorVersion, entry.buildInfo.bugfixVersion);
                 name += buf;
             }
 
             // Show offline state for unsupported client builds and locked realms (1.x clients not support locked state show)
-            if (!ok_build || (i->second.allowedSecurityLevel > GetSecurityOn(i->second.id)))
+            RealmFlags realmflags = entry.realmFlags;
+            if (!entry.ok_build || entry.locked)
                 realmflags = RealmFlags(realmflags | REALM_FLAG_OFFLINE);
 
-            std::string realmIpPortStr = i->second.GetAddressForClient(m_socket.GetRemoteEndpoint().ip).toString();
-            uint8 const categoryId = GetRealmCategoryIdByBuildAndZone(m_build, RealmZone(i->second.timeZone));
-
-            pkt << uint32(i->second.icon);              // realm type
-            pkt << uint8(realmflags);                   // realmflags
-            pkt << name;                                // name
-            pkt << realmIpPortStr;                      // address
-            pkt << float(i->second.populationLevel);
-            pkt << uint8(AmountOfCharacters);
-            pkt << uint8(categoryId);                   // realm category
-            pkt << uint8(0x00);                         // unk, may be realm number/id?
+            state->resultPkt << uint32(entry.icon);         // realm type
+            state->resultPkt << uint8(realmflags);          // realmflags
+            state->resultPkt << name;                       // name
+            state->resultPkt << entry.addressForClient;     // address
+            state->resultPkt << float(entry.populationLevel);
+            state->resultPkt << uint8(amountOfCharacters);
+            state->resultPkt << uint8(GetRealmCategoryIdByBuildAndZone(build, RealmZone(entry.timeZone))); // realm category
+            state->resultPkt << uint8(0x00);                 // unk, may be realm number/id?
         }
-
-        pkt << uint16(0x0002);                          // unused value (why 2?)
-    }
-    else
-    {
-        pkt << uint32(0);                               // unused value
-        pkt << uint16(sRealmList.size());
-
-        for (RealmList::RealmMap::const_iterator i = sRealmList.begin(); i != sRealmList.end(); ++i)
+        else
         {
-            uint8 AmountOfCharacters;
+            uint8 const lock = entry.locked ? 1 : 0;         // flags, if 0x01, then realm locked
 
-            // No SQL injection. id of realm is controlled by the database.
-            std::unique_ptr<QueryResult> result = LoginDatabase.PQuery("SELECT `numchars` FROM `realmcharacters` WHERE `realmid` = '%d' AND `acctid`='%u'", i->second.id, m_accountId);
-            if (result)
-            {
-                Field *fields = result->Fetch();
-                AmountOfCharacters = fields[0].GetUInt8();
-            }
-            else
-                AmountOfCharacters = 0;
-
-            bool ok_build = std::find(i->second.realmBuilds.begin(), i->second.realmBuilds.end(), m_build) != i->second.realmBuilds.end();
-
-            RealmBuildInfo const* buildInfo = ok_build ? FindBuildInfo(m_build) : nullptr;
-            if (!buildInfo)
-                buildInfo = &i->second.realmBuildInfo;
-
-            uint8 lock = (i->second.allowedSecurityLevel > GetSecurityOn(i->second.id)) ? 1 : 0;
-
-            RealmFlags realmFlags = i->second.realmFlags;
-
+            RealmFlags realmFlags = entry.realmFlags;
             // Show offline state for unsupported client builds
-            if (!ok_build)
+            if (!entry.ok_build)
                 realmFlags = RealmFlags(realmFlags | REALM_FLAG_OFFLINE);
-
-            if (!buildInfo)
+            // NB: preserved from the original code - buildInfo is never actually null by this
+            // point (see LoadRealmlistAndWriteIntoBuffer()'s snapshot, which already resolves
+            // the FindBuildInfo()-or-fallback choice), so this never fires. Kept as-is rather
+            // than removed, since this refactor isn't the place to also change behavior.
+            RealmBuildInfo const* buildInfoPtr = &entry.buildInfo;
+            if (!buildInfoPtr)
                 realmFlags = RealmFlags(realmFlags & ~REALM_FLAG_SPECIFYBUILD);
 
-            std::string realmIpPortStr = i->second.GetAddressForClient(m_socket.GetRemoteEndpoint().ip).toString();
-            uint8 const categoryId = GetRealmCategoryIdByBuildAndZone(m_build, RealmZone(i->second.timeZone));
-
-            pkt << uint8(i->second.icon);               // realm type (this is second column in Cfg_Configs.dbc)
-            pkt << uint8(lock);                         // flags, if 0x01, then realm locked
-            pkt << uint8(realmFlags);                   // see enum RealmFlags
-            pkt << i->first;                            // name
-            pkt << realmIpPortStr;                      // address
-            pkt << float(i->second.populationLevel);
-            pkt << uint8(AmountOfCharacters);
-            pkt << uint8(categoryId);                   // realm category (Cfg_Categories.dbc)
-            pkt << uint8(i->second.id);                 // realm id
+            state->resultPkt << uint8(entry.icon);           // realm type (this is second column in Cfg_Configs.dbc)
+            state->resultPkt << uint8(lock);
+            state->resultPkt << uint8(realmFlags);           // see enum RealmFlags
+            state->resultPkt << entry.name;                  // name
+            state->resultPkt << entry.addressForClient;      // address
+            state->resultPkt << float(entry.populationLevel);
+            state->resultPkt << uint8(amountOfCharacters);
+            state->resultPkt << uint8(GetRealmCategoryIdByBuildAndZone(build, RealmZone(entry.timeZone))); // realm category (Cfg_Categories.dbc)
+            state->resultPkt << uint8(entry.id);             // realm id
 
             if (realmFlags & REALM_FLAG_SPECIFYBUILD)
             {
-                pkt << uint8(buildInfo->majorVersion);
-                pkt << uint8(buildInfo->minorVersion);
-                pkt << uint8(buildInfo->bugfixVersion);
-                pkt << uint16(m_build);
+                state->resultPkt << uint8(entry.buildInfo.majorVersion);
+                state->resultPkt << uint8(entry.buildInfo.minorVersion);
+                state->resultPkt << uint8(entry.buildInfo.bugfixVersion);
+                state->resultPkt << uint16(build);
             }
         }
 
-        pkt << uint16(0x0010);                          // unused value (why 10?)
-    }
+        ++state->index;
+        AuthSocket::_LoadRealmlistNextStep(state);
+    });
 }
 
 // Accept patch transfer
@@ -1397,96 +1562,179 @@ void AuthSocket::InitAndHandOverControlToPatchHandler()
     RepeatInternalXferLoop(rawChunk);
 }
 
+// Phase6 (see HPHA.md "设计方案") - was a blocking LoginDatabase.PQuery(); now fire-and-forget
+// async. Doesn't need to finish before the Challenge response goes out: its result
+// (m_accountDefaultSecurityLevel/m_accountSecurityOnRealm) is only ever read by GetSecurityOn(),
+// called from LoadRealmlistAndWriteIntoBuffer() when _HandleRealmList() runs - several full
+// client round trips later (SRP6 proof exchange, then the client's own realm-list request), so
+// in practice this always finishes first. In the worst case (a GM requests the realm list before
+// this lands), GetSecurityOn() just returns the default SEC_PLAYER a little longer than it
+// otherwise would - never a privilege *escalation*, only a briefly-late elevation, so it's safe
+// to not block on.
 void AuthSocket::LoadAccountSecurityLevels(uint32 accountId)
 {
-    std::unique_ptr<QueryResult> result = LoginDatabase.PQuery("SELECT `gmlevel`, `RealmID` FROM `account_access` WHERE `id` = %u", accountId);
+    LoginDatabase.AsyncPQuery(&AuthSocket::_OnLoadAccountSecurityLevelsResult, shared_from_this(),
+        "SELECT `gmlevel`, `RealmID` FROM `account_access` WHERE `id` = %u", accountId);
+}
+
+void AuthSocket::_OnLoadAccountSecurityLevelsResult(std::unique_ptr<QueryResult> result, std::shared_ptr<AuthSocket> self)
+{
     if (!result)
         return; // The account has no special permissions (most likely a normal user)
 
-    do
+    // m_accountDefaultSecurityLevel/m_accountSecurityOnRealm are only ever read from the IO
+    // thread (GetSecurityOn()) - jump back before writing them, same as every other async DB
+    // callback in this file, to avoid a data race with a concurrent read.
+    self->m_socket.EnterIoContext([self, result = std::shared_ptr<QueryResult>(std::move(result))](IO::NetworkError error) mutable
     {
-        Field *fields = result->Fetch();
-        AccountTypes security = AccountTypes(fields[0].GetUInt32());
-        int realmId = fields[1].GetInt32();
-        if (realmId < 0)
-            m_accountDefaultSecurityLevel = security;
-        else
-            m_accountSecurityOnRealm[realmId] = security;
-    } while (result->NextRow());
+        if (error)
+            return; // socket gone, nothing left to update for
+
+        do
+        {
+            Field* fields = result->Fetch();
+            AccountTypes security = AccountTypes(fields[0].GetUInt32());
+            int realmId = fields[1].GetInt32();
+            if (realmId < 0)
+                self->m_accountDefaultSecurityLevel = security;
+            else
+                self->m_accountSecurityOnRealm[realmId] = security;
+        } while (result->NextRow());
+    });
 }
 
-bool AuthSocket::GeographicalLockCheck()
+// Bundles what GeographicalLockCheck()'s two sequential geoip lookups (current IP, then
+// previous IP) need to survive the async waits between them and combine into a final verdict.
+// Defined here (not in AuthSocket.h) for the same reason as RealmListLoadState - only
+// forward-declared there for the two static callback signatures.
+struct GeoLockCheckState
 {
+    std::shared_ptr<AuthSocket> self;
+    std::function<void(bool)> onResult;
+    bool hasCurrent = false;
+    uint32_t ip = 0;
+    uint32_t net_start = 0;
+    std::string geoname_id;
+    std::string country_geoname_id;
+};
+
+void AuthSocket::GeographicalLockCheck(std::shared_ptr<AuthSocket> self, std::function<void(bool)> onResult)
+{
+    // Phase6 (see HPHA.md "设计方案") - was two blocking PQuery() calls here; now chained via
+    // AsyncPQuery(), same per-step pattern as the RealmList batch. The early-outs below never
+    // touch the DB, so they still run synchronously and call onResult() inline.
     if (!sConfig.GetBoolDefault("GeoLocking", false))
     {
-        return false;
+        onResult(false);
+        return;
     }
 
-    if (m_lastIP.empty() || m_lastIP == GetRemoteIpString())
+    if (self->m_lastIP.empty() || self->m_lastIP == self->GetRemoteIpString())
     {
-        return false;
+        onResult(false);
+        return;
     }
 
-    if ((m_lockFlags & GEO_CITY) == 0 && (m_lockFlags & GEO_COUNTRY) == 0)
+    if ((self->m_lockFlags & GEO_CITY) == 0 && (self->m_lockFlags & GEO_COUNTRY) == 0)
     {
-        return false;
+        onResult(false);
+        return;
     }
 
-    auto result = std::unique_ptr<QueryResult>(LoginDatabase.PQuery(
+    auto state = std::make_shared<GeoLockCheckState>();
+    state->self = self;
+    state->onResult = std::move(onResult);
+
+    LoginDatabase.AsyncPQuery(&AuthSocket::_OnGeoLockCheckCurrentIpResult, state,
         "SELECT INET_ATON('%s') AS ip, network_start_integer, geoname_id, registered_country_geoname_id "
         "FROM geoip "
         "WHERE network_last_integer >= INET_ATON('%s') "
         "ORDER BY network_last_integer ASC LIMIT 1",
-        GetRemoteIpString().c_str(), GetRemoteIpString().c_str())
-        );
+        self->GetRemoteIpString().c_str(), self->GetRemoteIpString().c_str());
+}
 
-    auto result_prev = std::unique_ptr<QueryResult>(LoginDatabase.PQuery(
-        "SELECT INET_ATON('%s') AS ip, network_start_integer, geoname_id, registered_country_geoname_id "
-        "FROM geoip "
-        "WHERE network_last_integer >= INET_ATON('%s') "
-        "ORDER BY network_last_integer ASC LIMIT 1",
-        m_lastIP.c_str(), m_lastIP.c_str())
-        );
-
-    if (!result && !result_prev)
+void AuthSocket::_OnGeoLockCheckCurrentIpResult(std::unique_ptr<QueryResult> result, std::shared_ptr<GeoLockCheckState> state)
+{
+    if (result)
     {
-        return false;
+        Field* fields = result->Fetch();
+        state->hasCurrent = true;
+        state->ip = fields[0].GetUInt32();
+        state->net_start = fields[1].GetUInt32();
+        state->geoname_id = fields[2].GetString();
+        state->country_geoname_id = fields[3].GetString();
     }
 
+    state->self->m_socket.EnterIoContext([state](IO::NetworkError error)
+    {
+        if (error)
+            return; // socket gone mid-flight
+
+        LoginDatabase.AsyncPQuery(&AuthSocket::_OnGeoLockCheckPrevIpResult, state,
+            "SELECT INET_ATON('%s') AS ip, network_start_integer, geoname_id, registered_country_geoname_id "
+            "FROM geoip "
+            "WHERE network_last_integer >= INET_ATON('%s') "
+            "ORDER BY network_last_integer ASC LIMIT 1",
+            state->self->m_lastIP.c_str(), state->self->m_lastIP.c_str());
+    });
+}
+
+void AuthSocket::_OnGeoLockCheckPrevIpResult(std::unique_ptr<QueryResult> result_prev, std::shared_ptr<GeoLockCheckState> state)
+{
+    bool hasPrev = false;
+    uint32_t ip_prev = 0;
+    uint32_t net_start_prev = 0;
+    std::string prev_geoname_id;
+    std::string prev_country_geoname_id;
+    if (result_prev)
+    {
+        Field* fields = result_prev->Fetch();
+        hasPrev = true;
+        ip_prev = fields[0].GetUInt32();
+        net_start_prev = fields[1].GetUInt32();
+        prev_geoname_id = fields[2].GetString();
+        prev_country_geoname_id = fields[3].GetString();
+    }
+
+    bool locked;
+    if (!state->hasCurrent && !hasPrev)
+    {
+        locked = false;
+    }
     // If only one of the queries returns a result, assume location has changed
-    if ((result && !result_prev) || (!result && result_prev))
+    else if (state->hasCurrent != hasPrev)
     {
-        return true;
-    }
-
-    uint32_t net_start = result->Fetch()[1].GetUInt32();
-    uint32_t net_start_prev = result_prev->Fetch()[1].GetUInt32();
-    uint32_t ip = result->Fetch()[0].GetUInt32();
-    uint32_t ip_prev = result_prev->Fetch()[0].GetUInt32();
-
-    // The optimised query will return the next highest range in the event
-    // of the address not being found in the database. Therefore, we need
-    // to perform a second check to ensure our address falls within
-    // the returned range.
-    // See: https://blog.jcole.us/2007/11/24/on-efficiently-geo-referencing-ips-with-maxmind-geoip-and-mysql-gis/
-    if (net_start > ip || net_start_prev > ip_prev)
-    {
-        return false;
-    }
-
-    std::string geoname_id = result->Fetch()[2].GetString();
-    std::string country_geoname_id = result->Fetch()[3].GetString();
-    std::string prev_geoname_id = result_prev->Fetch()[2].GetString();
-    std::string prev_country_geoname_id = result_prev->Fetch()[3].GetString();
-
-    if (m_lockFlags & GEO_CITY)
-    {
-        return geoname_id != prev_geoname_id;
+        locked = true;
     }
     else
     {
-        return country_geoname_id != prev_country_geoname_id;
+        // The optimised query will return the next highest range in the event
+        // of the address not being found in the database. Therefore, we need
+        // to perform a second check to ensure our address falls within
+        // the returned range.
+        // See: https://blog.jcole.us/2007/11/24/on-efficiently-geo-referencing-ips-with-maxmind-geoip-and-mysql-gis/
+        if (state->net_start > state->ip || net_start_prev > ip_prev)
+        {
+            locked = false;
+        }
+        else if (state->self->m_lockFlags & GEO_CITY)
+        {
+            locked = (state->geoname_id != prev_geoname_id);
+        }
+        else
+        {
+            locked = (state->country_geoname_id != prev_country_geoname_id);
+        }
     }
+
+    std::shared_ptr<AuthSocket> self = state->self;
+    std::function<void(bool)> onResult = std::move(state->onResult);
+    self->m_socket.EnterIoContext([onResult, locked](IO::NetworkError error)
+    {
+        if (error)
+            return; // socket gone mid-flight
+        onResult(locked);
+    });
 }
 
 bool AuthSocket::VerifyVersion(uint8 const* a, int32 aLength, uint8 const* versionProof, bool isReconnect)

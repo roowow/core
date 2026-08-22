@@ -33,6 +33,7 @@
 #include "Crypto/Hash/SHA1.h"
 #include "Database/SqlPreparedStatement.h"
 #include "Database/DatabaseEnv.h"
+#include "OO/AccountAuthCache.h"
 #include "DBCStores.h"
 #include "Config/Config.h"
 #include "Util.h"
@@ -290,8 +291,17 @@ WorldSocket::HandlerResult WorldSocket::_HandleAuthSession(WorldPacket& recvPack
                              "LEFT JOIN `account_banned` ab ON a.`id` = ab.`id` AND ab.`active` = 1 WHERE a.`username` = '%s' && DATEDIFF(NOW(), a.`last_login`) < 1 "
                              "ORDER BY aa.`RealmID` DESC LIMIT 1", realmID, safe_account.c_str());
 
-    // Stop if the account is not found
-    if (!accountQueryResult)
+    // Phase6 (see HPHA.md "拍定方案：mangosd 本地缓存 WorldSocket 鉴权查询") - if the live query
+    // came back empty (most commonly CharacterDatabase being unreachable, but also a genuinely
+    // unknown account), fall back to a cached result from this account's last successful login
+    // before giving up. Only ever helps a player who already authenticated once and is now
+    // reconnecting on the same sessionkey - a brand-new realmd login during an outage still
+    // fails exactly as before (nothing in the cache for a sessionkey it's never seen).
+    AccountAuthCache::Entry cacheEntry;
+    bool const fromCache = !accountQueryResult && sAccountAuthCache.Get(safe_account, cacheEntry);
+
+    // Stop if the account is not found and there's no usable cache entry either
+    if (!accountQueryResult && !fromCache)
     {
         packet.Initialize(SMSG_AUTH_RESPONSE, 1);
         packet << uint8(AUTH_UNKNOWN_ACCOUNT);
@@ -302,39 +312,92 @@ WorldSocket::HandlerResult WorldSocket::_HandleAuthSession(WorldPacket& recvPack
         return HandlerResult::Fail;
     }
 
-    Field* fields = accountQueryResult->Fetch();
+    time_t mutetime;
+    uint32 accFlags;
+    std::string email;
+    bool verifiedEmail;
+    bool isBanned;
 
-    // Prevent connecting directly to mangosd by checking
-    // that same ip connected to realmd previously.
-    if (fields[3].GetCppString() != GetRemoteIpString() && serverAddressList.find(GetRemoteIpString()) == serverAddressList.end())
+    if (fromCache)
     {
-        // packet.Initialize(SMSG_AUTH_RESPONSE, 1);
-        // packet << uint8(AUTH_FAILED);
-        // SendPacket(packet);
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "WorldSocket::HandleAuthSession: LoginDatabase account query failed, served account '%s' from AccountAuthCache instead.", account.c_str());
 
-        sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "WorldSocket::HandleAuthSession: Sent Auth Response (Account IP differs from realmd).");
-        //return HandlerResult::Fail;
+        accountId = cacheEntry.accountId;
+        security  = cacheEntry.security;
+
+        K.SetHexStr(cacheEntry.sessionKeyHex.c_str());
+        if (K.AsByteArray().empty())
+            return HandlerResult::Fail;
+
+        mutetime = cacheEntry.mutetime;
+        locale = LocaleConstant(cacheEntry.locale);
+        if (locale >= MAX_LOCALE)
+            locale = LOCALE_enUS;
+        os = cacheEntry.os;
+        platform = cacheEntry.platform;
+        accFlags = cacheEntry.accountFlags;
+        email = cacheEntry.email;
+        verifiedEmail = cacheEntry.verifiedEmail;
+        isBanned = cacheEntry.banned;
+
+        // Prevent connecting directly to mangosd by checking that same ip connected to realmd
+        // previously - same soft check as the live-query path below, against the cached last_ip.
+        if (cacheEntry.lastIp != GetRemoteIpString() && serverAddressList.find(GetRemoteIpString()) == serverAddressList.end())
+            sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "WorldSocket::HandleAuthSession: Sent Auth Response (Account IP differs from realmd) [from cache].");
     }
+    else
+    {
+        Field* fields = accountQueryResult->Fetch();
 
-    accountId = fields[0].GetUInt32();
-    security = fields[1].GetString() ? (AccountTypes)(fields[1].GetUInt32()) : SEC_PLAYER;
-    if (security > SEC_ADMINISTRATOR) // prevent invalid security settings in DB
-        security = SEC_ADMINISTRATOR;
+        // Prevent connecting directly to mangosd by checking
+        // that same ip connected to realmd previously.
+        if (fields[3].GetCppString() != GetRemoteIpString() && serverAddressList.find(GetRemoteIpString()) == serverAddressList.end())
+        {
+            // packet.Initialize(SMSG_AUTH_RESPONSE, 1);
+            // packet << uint8(AUTH_FAILED);
+            // SendPacket(packet);
 
-    K.SetHexStr(fields[2].GetString());
-    if (K.AsByteArray().empty())
-        return HandlerResult::Fail;
+            sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "WorldSocket::HandleAuthSession: Sent Auth Response (Account IP differs from realmd).");
+            //return HandlerResult::Fail;
+        }
 
-    time_t mutetime = time_t(fields[6].GetUInt64());
-    locale = LocaleConstant(fields[7].GetUInt8());
-    if (locale >= MAX_LOCALE)
-        locale = LOCALE_enUS;
-    os = fields[8].GetCppString();
-    platform = fields[9].GetCppString();
-    uint32 accFlags = fields[10].GetUInt32();
-    std::string email = fields[11].GetCppString();
-    bool verifiedEmail = fields[12].GetBool() || email.empty(); // treat no email as verified (created from console)
-    bool isBanned = fields[13].GetBool();
+        accountId = fields[0].GetUInt32();
+        security = fields[1].GetString() ? (AccountTypes)(fields[1].GetUInt32()) : SEC_PLAYER;
+        if (security > SEC_ADMINISTRATOR) // prevent invalid security settings in DB
+            security = SEC_ADMINISTRATOR;
+
+        K.SetHexStr(fields[2].GetString());
+        if (K.AsByteArray().empty())
+            return HandlerResult::Fail;
+
+        mutetime = time_t(fields[6].GetUInt64());
+        locale = LocaleConstant(fields[7].GetUInt8());
+        if (locale >= MAX_LOCALE)
+            locale = LOCALE_enUS;
+        os = fields[8].GetCppString();
+        platform = fields[9].GetCppString();
+        accFlags = fields[10].GetUInt32();
+        email = fields[11].GetCppString();
+        verifiedEmail = fields[12].GetBool() || email.empty(); // treat no email as verified (created from console)
+        isBanned = fields[13].GetBool();
+
+        // Phase6 (see HPHA.md) - write-through, fire-and-forget. Failure here never fails a
+        // login that's already succeeded against the live DB.
+        AccountAuthCache::Entry toCache;
+        toCache.accountId     = accountId;
+        toCache.security      = security;
+        toCache.sessionKeyHex = K.AsHexStr();
+        toCache.lastIp        = fields[3].GetCppString();
+        toCache.mutetime      = mutetime;
+        toCache.locale        = uint8(locale);
+        toCache.os            = os;
+        toCache.platform      = platform;
+        toCache.accountFlags  = accFlags;
+        toCache.email         = email;
+        toCache.verifiedEmail = verifiedEmail;
+        toCache.banned        = isBanned;
+        sAccountAuthCache.Set(safe_account, toCache);
+    }
 
     if (isBanned || sAccountMgr.IsIPBanned(GetRemoteIpString()))
     {

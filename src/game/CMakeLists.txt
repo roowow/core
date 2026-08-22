@@ -34,6 +34,8 @@ set (game_SRCS
     OO/DbWriteOutbox.h
     OO/DbHealthMonitor.cpp
     OO/DbHealthMonitor.h
+    OO/AccountAuthCache.cpp
+    OO/AccountAuthCache.h
     OO/JianJiaAI.cpp
     OO/JianJiaAI.h
     Camera.cpp

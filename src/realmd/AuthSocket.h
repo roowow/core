@@ -46,6 +46,9 @@ enum LockFlag
 };
 
 struct sAuthLogonProof_C;
+class QueryResult;
+struct RealmListLoadState;
+struct GeoLockCheckState;
 
 /// Handle login commands
 class AuthSocket : public std::enable_shared_from_this<AuthSocket>, MaNGOS::Policies::NoCopyNoMove
@@ -58,7 +61,12 @@ class AuthSocket : public std::enable_shared_from_this<AuthSocket>, MaNGOS::Poli
 
         void DoRecvIncomingData();
         std::shared_ptr<ByteBuffer> GenerateLogonProofResponse(Crypto::Hash::SHA1::Digest const& shaDigest);
-        void LoadRealmlistAndWriteIntoBuffer(ByteBuffer& pkt);
+        // Phase6 (see HPHA.md "设计方案") - async now (was a synchronous PQuery-per-realm loop
+        // writing directly into a caller-owned buffer). Calls `onComplete(pkt)` once every
+        // realm's `numchars` lookup has finished, instead of returning the finished buffer
+        // directly - see the .cpp for why a `sRealmList` iterator can't just be held across the
+        // per-realm async waits.
+        void LoadRealmlistAndWriteIntoBuffer(std::function<void(ByteBuffer)> onComplete);
         bool VerifyPinData(uint32 pin, PINData const& clientData);
         uint32 GenerateTotpPin(std::string const& secret, int interval);
 
@@ -66,6 +74,11 @@ class AuthSocket : public std::enable_shared_from_this<AuthSocket>, MaNGOS::Poli
         void _HandleLogonProof();
         void _HandleLogonProof__PostRecv(std::shared_ptr<sAuthLogonProof_C const> const& lp, std::shared_ptr<PINData const> const& pinData);
         void _HandleLogonProof__PostRecv_HandleInvalidVersion(std::shared_ptr<sAuthLogonProof_C const> const& lp);
+        // Phase6 (see HPHA.md "设计方案") - the tail end of a successful login (log, clear
+        // brute-force counter, sessionkey UPDATE, send the final proof packet). Split out because
+        // it's now reached from two places: directly (no geolock needed) and from
+        // GeographicalLockCheck()'s async callback (geolock checked, not locked).
+        void _HandleLogonProof__PostRecv_FinishSuccessfulLogin();
         void _HandleReconnectChallenge();
         void _HandleReconnectProof();
         void _HandleRealmList();
@@ -103,6 +116,32 @@ class AuthSocket : public std::enable_shared_from_this<AuthSocket>, MaNGOS::Poli
         void ReadChallengeRequest(char const* logPrefix, std::function<void(std::shared_ptr<sAuthLogonChallengeBody> const&)> onBody);
         static bool IsAllowedLocale(std::string const& locale);
 
+        // Phase6 (see HPHA.md "设计方案") - _HandleLogonChallenge()'s DB calls, chained through
+        // AsyncPQuery()+EnterIoContext() instead of blocking the IO thread. Static callbacks
+        // (not member-function-bound ones) so the async DB queue holds a std::shared_ptr<AuthSocket>
+        // param, not a raw `this` - keeps the socket alive across the async wait even if the
+        // client disconnects mid-query (see HPHA.md's UAF note). Each step only threads through
+        // the state the next step actually needs; everything else it needs (m_login, srp, the
+        // lock-flag/geolock members set by the previous step) is already sitting on `self` by
+        // the time each step runs, same idiom this class already uses for its handshake state.
+        static void _HandleLogonChallenge__OnIpBanResult(std::unique_ptr<QueryResult> result, std::shared_ptr<AuthSocket> self);
+        static void _HandleLogonChallenge__OnAccountResult(std::unique_ptr<QueryResult> result, std::shared_ptr<AuthSocket> self);
+        static void _HandleLogonChallenge__OnAccountBanResult(std::unique_ptr<QueryResult> result, std::shared_ptr<AuthSocket> self, uint32 pendingAccountId);
+        static void _OnLoadAccountSecurityLevelsResult(std::unique_ptr<QueryResult> result, std::shared_ptr<AuthSocket> self);
+        static void _HandleReconnectChallenge__OnAccountResult(std::unique_ptr<QueryResult> result, std::shared_ptr<AuthSocket> self);
+
+        // RealmListLoadState is defined in the .cpp (needs types LoadRealmlistAndWriteIntoBuffer()
+        // already pulls in there) - only forward-declared above since these two just need the
+        // shared_ptr<> type to declare their signatures.
+        static void _OnLoadRealmlistNumCharsResult(std::unique_ptr<QueryResult> result, std::shared_ptr<RealmListLoadState> state);
+        static void _LoadRealmlistNextStep(std::shared_ptr<RealmListLoadState> state);
+
+        // Phase6 (see HPHA.md "设计方案") - GeographicalLockCheck()'s two independent geoip
+        // lookups (current IP, then previous IP), chained the same way as the RealmList batch.
+        // GeoLockCheckState is defined in the .cpp, same reasoning as RealmListLoadState above.
+        static void _OnGeoLockCheckCurrentIpResult(std::unique_ptr<QueryResult> result, std::shared_ptr<GeoLockCheckState> state);
+        static void _OnGeoLockCheckPrevIpResult(std::unique_ptr<QueryResult> result, std::shared_ptr<GeoLockCheckState> state);
+
         SRP6 srp;
         BigNumber m_reconnectProof;
 
@@ -139,7 +178,11 @@ class AuthSocket : public std::enable_shared_from_this<AuthSocket>, MaNGOS::Poli
 
         AccountTypes GetSecurityOn(uint32 realmId) const;
         void LoadAccountSecurityLevels(uint32 accountId);
-        bool GeographicalLockCheck();
+        // Phase6 (see HPHA.md "设计方案") - was a synchronous bool-returning check with two
+        // blocking PQuery() calls inside; now async, calls onResult(locked) once both geoip
+        // lookups are done (or synchronously, still on the caller's thread, for the early-out
+        // cases that never touch the DB at all).
+        static void GeographicalLockCheck(std::shared_ptr<AuthSocket> self, std::function<void(bool)> onResult);
 
         AccountTypes m_accountDefaultSecurityLevel = SEC_PLAYER;
         typedef std::map<uint32, AccountTypes> AccountSecurityMap;

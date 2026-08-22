@@ -16,6 +16,17 @@ ConfVersion=2026042601
 #                 .;/path/to/unix_socket;username;password;database - use Unix sockets at Unix/Linux
 #                       Unix sockets: experimental, not tested
 #
+#    LoginDatabaseConnections
+#        Number of synchronous query connections to LoginDatabase. See HPHA.md "推荐落地顺序"
+#        step 2 - independent of the IO-thread-blocking problem the DbHealthMonitor circuit
+#        breaker addresses; this is about how many logins can query the DB concurrently once
+#        it's healthy again, not about surviving an outage.
+#        Default: 1
+#
+#    LoginDatabaseWorkerThreads
+#        Number of async DB worker threads for LoginDatabase.
+#        Default: 1
+#
 #    LogsDir
 #         Logs directory setting.
 #         Important: Logs dir must exists, or all logs be disable
@@ -158,6 +169,8 @@ ConfVersion=2026042601
 ###################################################################################################################
 
 LoginDatabaseInfo = "127.0.0.1;3306;mangos;mangos;realmd"
+LoginDatabaseConnections = 1
+LoginDatabaseWorkerThreads = 1
 LogsDir = ""
 PatchesDir = "./patches"
 MaxPingTime = 30

@@ -26,6 +26,7 @@
 #include "World.h"
 #include "OO/WebChatMgr.h"
 #include "OO/InstanceDataCache.h"
+#include "OO/AccountAuthCache.h"
 #include "OO/DbWriteOutbox.h"
 #include "OO/DbHealthMonitor.h"
 #include "OO/JianJiaAI.h"
@@ -209,6 +210,7 @@ void World::Shutdown()
 {
     sWebChatMgr.Shutdown();
     sInstanceDataCache.Shutdown();
+    sAccountAuthCache.Shutdown();
     sLogsOutbox.Shutdown();
     sWorldOutbox.Shutdown();
     sCharactersOutbox.Shutdown();
@@ -1948,6 +1950,13 @@ void World::SetInitialWorldSettings()
     // (e.g. multiple realms) would collide on identical instance/map IDs each realm numbers
     // independently, silently serving one realm's cached data to another.
     sInstanceDataCache.Initialize(sConfig.GetStringDefault("LocalRedis.Socket", ""), realmID);
+
+    // Phase6 of the DB-decoupling effort (see HPHA.md "拍定方案：mangosd 本地缓存 WorldSocket
+    // 鉴权查询") - same LocalRedis.Socket, another consumer. Caches WorldSocket::
+    // _HandleAuthSession()'s account lookup (mangosd's own LoginDatabase connection, not
+    // CharacterDatabase) so a player who already logged in once can still reconnect (network
+    // blip, zoning) while that connection is down.
+    sAccountAuthCache.Initialize(sConfig.GetStringDefault("LocalRedis.Socket", ""), realmID);
 
     // Phase1 of the DB-decoupling effort (see HPHA.md) - durable write queue in front of
     // LogsDatabase, currently used by InstanceStatistics.cpp. Same LocalRedis.Socket as

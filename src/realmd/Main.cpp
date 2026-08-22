@@ -449,8 +449,19 @@ bool StartDB()
         return false;
     }
 
-    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Database: %s", dbStringLog.c_str());
-    if (!LoginDatabase.Initialize(dbstring.c_str()))
+    // Phase6 (see HPHA.md "推荐落地顺序" step 2) - was hardcoded to Database::Initialize()'s
+    // default of 1 sync connection / 1 async worker (Initialize() was called with no extra
+    // args). That's an independent bottleneck from the IO-thread-blocking problem the
+    // DbHealthMonitor circuit breaker and the not-yet-done AsyncPQuery work address - even once
+    // queries stop blocking the IO thread, they'd still serialize through this single
+    // connection/worker. Configurable now, mirrors mangosd's <Name>Database.Connections/
+    // WorkerThreads pattern (Master.cpp::StartDB()); defaults keep today's exact behavior for
+    // anyone who doesn't set them.
+    int nConnections = sConfig.GetIntDefault("LoginDatabaseConnections", 1);
+    int nWorkerThreads = sConfig.GetIntDefault("LoginDatabaseWorkerThreads", 1);
+
+    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Database: %s, sync threads: %i, workers: %i", dbStringLog.c_str(), nConnections, nWorkerThreads);
+    if (!LoginDatabase.Initialize(dbstring.c_str(), nConnections, nWorkerThreads))
     {
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Cannot connect to database");
         return false;
