@@ -90,7 +90,8 @@ enum WorldTimers
     WUPDATE_EVENTS      = 3,
     WUPDATE_SAVE_VAR    = 4,
     WUPDATE_GROUPS      = 5,
-    WUPDATE_COUNT       = 6
+    WUPDATE_DUAL_TALENT_MIGRATE = 6,
+    WUPDATE_COUNT       = 7
 };
 
 // Configuration elements

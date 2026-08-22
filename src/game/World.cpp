@@ -1819,6 +1819,13 @@ void World::SetInitialWorldSettings()
     // Update groups with offline leader after delay in seconds
     m_timers[WUPDATE_GROUPS].SetInterval(IN_MILLISECONDS);
 
+    // Was an external per-realm cron job (dualtalent.sh, ran every 60s - cron's own minimum
+    // granularity, not a deliberate cooldown choice) migrating character_spell_tmp rows into
+    // character_spell_extra once a talent pick had settled. Brought in-process so it doesn't
+    // depend on an external script anymore, and checked more often than cron could (see the
+    // 60s stability threshold inside the query itself, in World::Update()).
+    m_timers[WUPDATE_DUAL_TALENT_MIGRATE].SetInterval(10 * IN_MILLISECONDS);
+
     // Initialize static helper structures
     AIRegistry::Initialize();
 
@@ -2177,6 +2184,37 @@ void World::Update(uint32 diff)
     {
         m_timers[WUPDATE_SAVE_VAR].Reset();
         sObjectMgr.SaveVariables();
+    }
+
+    // Dual-talent staging: move character_spell_tmp rows that have sat unchanged for 60s
+    // (the player's stopped fiddling with their respec) into character_spell_extra, so the
+    // other talent group's spec is ready next time they switch. Replaces the old dualtalent.sh
+    // cron job (see HPHA.md). The INSERT...SELECT and DELETE below share the exact same WHERE
+    // filter and always run together as one sCharactersOutbox group, so an at-least-once replay
+    // just re-evaluates "whatever still qualifies right now" - the first successful run already
+    // deleted the source rows, so a duplicate delivery finds nothing left to do. Genuinely
+    // filters by age via UNIX_TIMESTAMP() (character_spell_tmp.Changed is populated with
+    // UNIX_TIMESTAMP() too, see SkillHandler.cpp) - the original cron script's WHERE clause
+    // compared this against `current_timestamp() - 60`, which is a DATETIME implicitly cast to
+    // a YYYYMMDDHHMMSS-shaped number (~2*10^13) against a value that's really a unix epoch
+    // second count (~1.8*10^9), so it was never actually filtering by recency at all; it only
+    // looked like a 60s delay because the cron itself only ran once a minute.
+    if (m_timers[WUPDATE_DUAL_TALENT_MIGRATE].Passed())
+    {
+        m_timers[WUPDATE_DUAL_TALENT_MIGRATE].Reset();
+        // INSERT IGNORE, not plain INSERT: character_spell_extra has a UNIQUE KEY on
+        // (TalentID, Rank, Guid, Flag) but character_spell_tmp doesn't - if the same talent
+        // point got learned twice in quick succession (double-click, client resend) before
+        // either row aged past the threshold, both would be selected here and a plain INSERT
+        // would fail the whole batch on the second one. IGNORE just skips the duplicate - the
+        // surviving row has identical data anyway, so nothing is lost.
+        static char const* const s_dualTalentMigrateInsertSql =
+            "INSERT IGNORE INTO `character_spell_extra` (`TalentID`, `Rank`, `Guid`, `Flag`) "
+            "SELECT `TalentID`, `Rank`, `Guid`, `Flag` FROM `character_spell_tmp` "
+            "WHERE `Changed` < UNIX_TIMESTAMP() - 60 ORDER BY `ID`";
+        static char const* const s_dualTalentMigrateDeleteSql =
+            "DELETE FROM `character_spell_tmp` WHERE `Changed` < UNIX_TIMESTAMP() - 60";
+        sCharactersOutbox.Enqueue(std::vector<std::string>{s_dualTalentMigrateInsertSql, s_dualTalentMigrateDeleteSql});
     }
 
     // execute callbacks from sql queries that were queued recently
