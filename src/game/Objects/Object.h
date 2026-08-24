@@ -675,6 +675,19 @@ class WorldObject : public Object
         void SendMovementMessageToSet(std::unique_ptr<ServerPacket const> packet, bool self, WorldObject const* except = nullptr);
         void SendMovementMessageToSet(WorldPacket data, bool self, WorldObject const* except = nullptr);
 
+        // Phase "网络带宽优化" 序3 (see HPHA.md) - unified combat log send: the event's
+        // participant(s) (this + target, resolved up to their controlling real player if either
+        // is a pet/totem/charmed Unit rather than a player itself - see 2026-08-24 "改进角度"
+        // 第1条) get an instant direct send (channel A, never queued/dropped); every other real
+        // player within the map's normal visibility range gets it too, either immediately
+        // (unchanged behavior everywhere except battlegrounds for now) or as a self-only queued
+        // copy on a battleground map (可丢/大窗口, 序4). target may be null for source-only events
+        // (e.g. periodic aura ticks where the caster isn't separately notified, matching
+        // pre-existing behavior). Lives on WorldObject rather than Unit because combat log
+        // sources aren't always Units (SpellCaster - traps, totems acting on their owner's
+        // behalf - derives from WorldObject directly).
+        void SendCombatLogMessageToSet(WorldPacket& data, WorldObject const* target) const;
+
         virtual void SendMessageToSetInRange(WorldPacket* data, float dist, bool self) const;
         void SendMessageToSetExcept(WorldPacket* data, Player const* skipped_receiver) const;
         void DirectSendPublicValueUpdate(uint32 index, uint32 count = 1);

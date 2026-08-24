@@ -19,6 +19,13 @@ class PlayerBroadcaster final
         WorldPacket packet;
         bool sendToSelf;
         ObjectGuid except;
+        // See QueueSelfOnlyPacket() - true for combat log entries queued for this player alone.
+        // ProcessQueue() must not fan these out to m_listeners (that list is "who's watching my
+        // movement", unrelated to a combat event this player merely needs to see as a bystander).
+        bool selfOnly = false;
+        // Only meaningful when selfOnly - overrides CanSkipPacket()'s movement-opcode-specific
+        // heuristic, since combat log opcodes aren't in the range that function understands.
+        bool allowDrop = true;
     };
 
     std::size_t const MAX_QUEUE_SIZE;
@@ -57,6 +64,15 @@ public:
     ObjectGuid GetGUID() const;
 
     void QueuePacket(WorldPacket packet, bool self, ObjectGuid except);
+
+    // Phase "网络带宽优化" 序3 (see HPHA.md) - queues a packet for delivery to this player
+    // alone on the next flush, bypassing m_listeners entirely (unlike QueuePacket(), which is
+    // "broadcast my own packet to whoever's watching me"). Used for combat log: the recipient
+    // here isn't necessarily broadcasting anything of their own, they just happen to be a
+    // bystander who needs a copy of someone else's combat event. allowDrop controls whether an
+    // overflowing queue may drop this entry (battleground) or must instead let the queue grow
+    // past MAX_QUEUE_SIZE rather than lose it (raid, once 序5 turns this on for raid maps).
+    void QueueSelfOnlyPacket(WorldPacket packet, bool allowDrop);
 
     void AddListener(Player const* player);
     void RemoveListener(Player const* player);

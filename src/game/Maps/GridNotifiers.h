@@ -24,6 +24,7 @@
 
 #include "ObjectGridLoader.h"
 #include "UpdateData.h"
+#include <array>
 #include <iostream>
 #include <memory>
 
@@ -87,6 +88,27 @@ namespace MaNGOS
     {
         WorldPacket* i_message;
         explicit ObjectMessageDeliverer(WorldPacket* msg) : i_message(msg) {}
+        void Visit(CameraMapType& m);
+        template<class SKIP> void Visit(GridRefManager<SKIP>&) {}
+    };
+
+    // Phase "网络带宽优化" 序3 (see HPHA.md) - same grid-radius recipient search as
+    // ObjectMessageDeliverer (distance filtering unchanged), but for bystanders on a
+    // battleground/raid map: either sends immediately (i_useQueue false, current behavior
+    // unchanged) or queues one self-only copy per recipient onto their own PlayerBroadcaster
+    // (i_useQueue true) instead of writing straight to the socket. i_except holds the combat
+    // event's participants and (per 2026-08-24 "改进角度" 第1条) their resolved pet/totem
+    // owners - already sent an instant copy by the caller before this visit runs, so they're
+    // skipped here to avoid a duplicate. Unused slots are nullptr.
+    struct CombatLogMessageDeliverer
+    {
+        std::array<WorldObject const*, 4> i_except;
+        WorldPacket* i_message;
+        bool i_useQueue;
+        bool i_allowDrop;
+
+        CombatLogMessageDeliverer(std::array<WorldObject const*, 4> const& except, WorldPacket* msg, bool useQueue, bool allowDrop)
+            : i_except(except), i_message(msg), i_useQueue(useQueue), i_allowDrop(allowDrop) {}
         void Visit(CameraMapType& m);
         template<class SKIP> void Visit(GridRefManager<SKIP>&) {}
     };

@@ -649,6 +649,27 @@ void Map::MessageBroadcast(WorldObject const* obj, WorldPacket* msg)
     cell.Visit(p, message, *this, *obj, GetVisibilityDistance());
 }
 
+void Map::CombatLogBroadcast(WorldObject const* obj, WorldPacket* msg, std::array<WorldObject const*, 4> const& except, bool useQueue, bool allowDrop)
+{
+    CellPair p = MaNGOS::ComputeCellPair(obj->GetPositionX(), obj->GetPositionY());
+
+    if (p.x_coord >= TOTAL_NUMBER_OF_CELLS_PER_MAP || p.y_coord >= TOTAL_NUMBER_OF_CELLS_PER_MAP)
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Map::CombatLogBroadcast: Object (GUID: %u TypeId: %u) have invalid coordinates X:%f Y:%f grid cell [%u:%u]", obj->GetGUIDLow(), obj->GetTypeId(), obj->GetPositionX(), obj->GetPositionY(), p.x_coord, p.y_coord);
+        return;
+    }
+
+    Cell cell(p);
+    cell.SetNoCreate();
+
+    if (!loaded(GridPair(cell.data.Part.grid_x, cell.data.Part.grid_y)))
+        return;
+
+    MaNGOS::CombatLogMessageDeliverer post_man(except, msg, useQueue, allowDrop);
+    TypeContainerVisitor<MaNGOS::CombatLogMessageDeliverer, WorldTypeMapContainer > message(post_man);
+    cell.Visit(p, message, *this, *obj, GetVisibilityDistance());
+}
+
 void Map::MessageDistBroadcast(Player const* player, WorldPacket* msg, float dist, bool to_self, bool own_team_only)
 {
     CellPair p = MaNGOS::ComputeCellPair(player->GetPositionX(), player->GetPositionY());

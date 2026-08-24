@@ -58,11 +58,27 @@ void PlayerBroadcaster::ProcessQueue(uint32& num_packets)
     auto queue = std::move(m_queue);
     q_g.unlock();
 
-    lastUpdatePackets = queue.size() * m_listeners.size();
+    // selfOnly entries (QueueSelfOnlyPacket()) always cost exactly 1 send, not one per listener -
+    // count them separately so this estimate (used for slow-instance detection) stays meaningful
+    // now that combat log traffic can share this same queue with movement.
+    std::size_t selfOnlyCount = 0;
+    for (auto const& data : queue)
+        if (data.selfOnly)
+            ++selfOnlyCount;
+    lastUpdatePackets = uint32(selfOnlyCount + (queue.size() - selfOnlyCount) * m_listeners.size());
     num_packets += lastUpdatePackets;
 
     for (auto& data : queue)
     {
+        // Combat log entry queued for this player alone (QueueSelfOnlyPacket()) - deliver to
+        // self only, never fan out to m_listeners (that list means "watching my movement", not
+        // "wants a copy of every bystander event I happen to also receive").
+        if (data.selfOnly)
+        {
+            SendPacket(data.packet);
+            continue;
+        }
+
         // Send to self?
         if (data.sendToSelf && data.except != GetGUID())
             SendPacket(data.packet);
@@ -92,12 +108,51 @@ void PlayerBroadcaster::QueuePacket(WorldPacket packet, bool self, ObjectGuid ex
     if (m_queue.size() >= MAX_QUEUE_SIZE)
     {
         BroadcastData& last_in_queue = m_queue[m_queue.size() - 1];
-        if (CanSkipPacket(last_in_queue.packet.GetOpcode()) && CanSkipPacket(packet.GetOpcode()))
+        // Phase "网络带宽优化" 序3 (see HPHA.md) - the queue is now shared with combat log
+        // entries (QueueSelfOnlyPacket()), whose opcodes CanSkipPacket() was never taught to
+        // recognize (it's a movement-opcode-range heuristic). Must check selfOnly/allowDrop
+        // first, or a movement packet could silently evict a raid combat log entry that was
+        // explicitly marked non-droppable (allowDrop=false, 序5) - the exact "never drop"
+        // guarantee this whole design exists to protect.
+        bool const lastSkippable = last_in_queue.selfOnly ? last_in_queue.allowDrop
+                                                            : CanSkipPacket(last_in_queue.packet.GetOpcode());
+        if (lastSkippable && CanSkipPacket(packet.GetOpcode()))
         {
             m_queue[m_queue.size() - 1] = std::move(data);
             guard.unlock();
             return;
         }
+    }
+    m_queue.emplace_back(std::move(data));
+
+    guard.unlock();
+}
+
+void PlayerBroadcaster::QueueSelfOnlyPacket(WorldPacket packet, bool allowDrop)
+{
+    BroadcastData data;
+    data.sendToSelf = true;
+    data.selfOnly = true;
+    data.allowDrop = allowDrop;
+    data.packet = std::move(packet);
+
+    std::unique_lock<std::mutex> guard(m_queue_lock, std::defer_lock);
+    guard.lock();
+
+    if (m_queue.size() >= MAX_QUEUE_SIZE)
+    {
+        BroadcastData& last_in_queue = m_queue[m_queue.size() - 1];
+        bool const lastSkippable = last_in_queue.selfOnly ? last_in_queue.allowDrop
+                                                            : CanSkipPacket(last_in_queue.packet.GetOpcode());
+        if (lastSkippable && allowDrop)
+        {
+            m_queue[m_queue.size() - 1] = std::move(data);
+            guard.unlock();
+            return;
+        }
+        // Not droppable (raid) - fall through and grow the queue past MAX_QUEUE_SIZE rather than
+        // lose a stats-relevant entry. Same "soft cap, hard for non-skippable content" behavior
+        // QueuePacket() already has for movement's own protected opcodes, just reused here.
     }
     m_queue.emplace_back(std::move(data));
 

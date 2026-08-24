@@ -20,6 +20,7 @@
  */
 
 #include "Object.h"
+#include <array>
 #include "SharedDefines.h"
 #include "WorldPacket.h"
 #include "Opcodes.h"
@@ -2288,6 +2289,51 @@ void WorldObject::SendMovementMessageToSet(WorldPacket data, bool self, WorldObj
         if (player_broadcast)
             player_broadcast->QueuePacket(std::move(data), self, except ? except->GetObjectGuid() : ObjectGuid());
     }
+}
+
+void WorldObject::SendCombatLogMessageToSet(WorldPacket& data, WorldObject const* target) const
+{
+    // Channel A (see HPHA.md 序3 "改进角度" 第1条, 2026-08-24) - the event's own participants
+    // always get an instant, unqueued copy, regardless of map type. "Participant" is resolved up
+    // to the controlling real player, not just the exact attacker/target object: a hunter's pet
+    // fighting something (or a totem, or any other charmed/owned Unit) is still the owner's own
+    // combat log, they shouldn't be treated as a random bystander for their own pet's damage -
+    // that's what the old fully-synchronous code effectively gave everyone for free, and this
+    // queueing change must not quietly take it away from pet/totem owners specifically.
+    // GetCharmerOrOwnerPlayerOrPlayerItself() already returns `this` itself when this IS a
+    // player, so a single call covers both cases; nullptr for a wild Unit with no player
+    // connection at all, or for a non-Unit WorldObject (e.g. a trap GameObject) that ToUnit()
+    // can't resolve - those fall through to the same bystander treatment as before this fix.
+    Unit const* meUnit = ToUnit();
+    Player* sourcePlayer = meUnit ? meUnit->GetCharmerOrOwnerPlayerOrPlayerItself() : nullptr;
+
+    Player* targetPlayer = nullptr;
+    if (target && target != this)
+        if (Unit const* targetUnit = target->ToUnit())
+            targetPlayer = targetUnit->GetCharmerOrOwnerPlayerOrPlayerItself();
+
+    if (sourcePlayer)
+        sourcePlayer->GetSession()->SendPacket(&data);
+    // Dedupe: e.g. healing/dispelling your own pet resolves both sides to the same player.
+    if (targetPlayer && targetPlayer != sourcePlayer)
+        targetPlayer->GetSession()->SendPacket(&data);
+
+    if (!IsInWorld())
+        return;
+
+    // 序3+4: only battleground maps route through the queue for now. Raid (序5) still falls
+    // through to the synchronous branch below, unchanged from today's behavior, until the
+    // forceNoDrop path has been separately validated (see HPHA.md).
+    bool const useQueue = sWorld.GetBroadcaster()->IsEnabled() && GetMap()->IsBattleGround();
+    bool const allowDrop = true; // only reachable when useQueue is true, i.e. battleground today
+
+    // this/target/their resolved owners are all excluded here regardless of useQueue - they were
+    // already handled above (directly, or via their owner), and (unlike ObjectMessageDeliverer)
+    // this deliverer takes explicit excludes instead of relying on natural grid inclusion, so
+    // passing them is required to avoid a duplicate - a pet owner standing next to their pet
+    // would otherwise also show up as an ordinary bystander in the grid visit below.
+    std::array<WorldObject const*, 4> const except { this, target, sourcePlayer, targetPlayer };
+    GetMap()->CombatLogBroadcast(this, &data, except, useQueue, allowDrop);
 }
 
 void WorldObject::SendMessageToSetInRange(WorldPacket* data, float dist, bool /*bToSelf*/) const

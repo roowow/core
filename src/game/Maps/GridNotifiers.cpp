@@ -151,6 +151,39 @@ void ObjectMessageDeliverer::Visit(CameraMapType& m)
     }
 }
 
+void CombatLogMessageDeliverer::Visit(CameraMapType& m)
+{
+    for (const auto& iter : m)
+    {
+        Player* player = iter.getSource()->GetOwner();
+        if (!player)
+            continue;
+
+        bool excluded = false;
+        for (WorldObject const* ex : i_except)
+        {
+            if (ex && player == ex)
+            {
+                excluded = true;
+                break;
+            }
+        }
+        if (excluded)
+            continue;
+
+        if (i_useQueue)
+        {
+            // Bot recipients silently no-op here: their own PlayerBroadcaster's socket is null
+            // (see HPHA.md 序3 "关键简化"), same as the direct-send branch below already did via
+            // WorldSession::SendPacket()'s own !m_socket check - no extra bot filtering needed.
+            if (std::shared_ptr<PlayerBroadcaster> broadcaster = player->GetPacketBroadcaster())
+                broadcaster->QueueSelfOnlyPacket(*i_message, i_allowDrop);
+        }
+        else if (WorldSession* session = player->GetSession())
+            session->SendPacket(i_message);
+    }
+}
+
 void MessageDistDeliverer::Visit(CameraMapType& m)
 {
     for (const auto& iter : m)

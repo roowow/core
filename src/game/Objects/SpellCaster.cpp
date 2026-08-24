@@ -804,7 +804,13 @@ void SpellCaster::SendHealSpellLog(Unit const* pTarget, uint32 spellId, uint32 a
     packet->spellId = spellId;
     packet->healAmount = amount;
     packet->isCritical = critical;
-    SendMessageToSet(std::move(packet), true);
+    // Phase "网络带宽优化" 序3+4 (see HPHA.md) - was: SendMessageToSet(std::move(packet), true);
+    // SendCombatLogMessageToSet() needs a WorldPacket (channel A direct-send + queueing both
+    // work on the raw wire format), not a ServerPacket - same conversion SendMessageToSet()'s
+    // own unique_ptr<ServerPacket> overload already does internally.
+    WorldPacket binaryPacket(packet->GetOpcode());
+    packet->AppendBodyTo(binaryPacket);
+    SendCombatLogMessageToSet(binaryPacket, pTarget);
 #endif
 }
 
@@ -843,7 +849,10 @@ void SpellCaster::SendSpellNonMeleeDamageLog(SpellNonMeleeDamage const* log) con
     packet->periodicLog = log->periodicLog;
     packet->blocked = log->blocked;
     packet->hitInfo = log->HitInfo;
-    SendMessageToSet(std::move(packet), true);
+    // Phase "网络带宽优化" 序3+4 (see HPHA.md) - was: SendMessageToSet(std::move(packet), true);
+    WorldPacket binaryPacket(packet->GetOpcode());
+    packet->AppendBodyTo(binaryPacket);
+    SendCombatLogMessageToSet(binaryPacket, log->target);
 }
 
 void SpellCaster::SendSpellNonMeleeDamageLog(Unit const* target, uint32 spellId, uint32 damage, SpellSchoolMask damageSchoolMask, uint32 absorbedDamage, int32 resist, bool isPeriodic, uint32 blocked, bool criticalHit, bool split) const

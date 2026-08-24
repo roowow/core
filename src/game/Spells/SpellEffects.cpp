@@ -2543,7 +2543,8 @@ void Spell::EffectDispel(SpellEffectIndex effIdx)
                 data << uint32(dispelledHolder->GetId());   // Spell Id
                 unitTarget->RemoveAuraHolderDueToSpellByDispel(dispelledHolder->GetId(), j.second, dispelledHolder->GetCasterGuid());
             }
-            m_caster->SendMessageToSet(&data, true);
+            // Phase "网络带宽优化" 序3+4 (see HPHA.md) - was: m_caster->SendMessageToSet(&data, true);
+            m_caster->SendCombatLogMessageToSet(data, unitTarget);
 
             // On success dispel
             if (m_spellScript)

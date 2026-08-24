@@ -1280,6 +1280,20 @@ void PlayerBotMgr::BalanceOverflowAVInstances()
         uint32 const allianceFree = bg->GetFreeSlotsForTeam(ALLIANCE);
         uint32 const hordeFree = bg->GetFreeSlotsForTeam(HORDE);
 
+        // Both sides caught up (the top-up from an earlier tick has now been seated) —
+        // this instance is complete. Lock it so PlayerBotMgr::Update()'s queue-fill
+        // bookkeeping — which otherwise treats unlocked AV as "keep 1 slot open per
+        // side" — stops fighting the fully-seated side. Without this, an unlocked-but-
+        // actually-full instance gets its just-added bot trimmed straight back out
+        // every ~10s by that logic (queuedXCount is summed across all concurrent AV
+        // instances, so it reads as over target even though this one instance is at
+        // capacity), producing an endless add/remove loop that never finishes the match.
+        if (allianceFree == 0 && hordeFree == 0)
+        {
+            bg->LockForNewPlayers();
+            continue;
+        }
+
         Team teamToFill = TEAM_NONE;
         uint32 slotsToFill = 0;
         if (allianceFree == 0 && hordeFree > 0)

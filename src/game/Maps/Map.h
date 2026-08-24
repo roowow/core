@@ -23,6 +23,7 @@
 #define MANGOS_MAP_H
 
 #include "Common.h"
+#include <array>
 #include "Policies/ThreadingModel.h"
 #include "SharedDefines.h"
 #include "GridDefines.h"
@@ -366,6 +367,13 @@ class Map : public GridRefManager<NGridType>
 
         void MessageBroadcast(Player const*, WorldPacket*, bool to_self);
         void MessageBroadcast(WorldObject const*, WorldPacket*);
+        // Phase "网络带宽优化" 序3 (see HPHA.md) - same recipient search/range as
+        // MessageBroadcast(WorldObject const*, WorldPacket*), except (the combat event's
+        // participants and, per 2026-08-24 "改进角度" 第1条, their resolved pet/totem owners -
+        // already sent an instant copy by the caller) are skipped, and on a battleground map
+        // (useQueue true) each remaining recipient gets a self-only queued copy instead of an
+        // immediate synchronous send. Unused slots in except must be nullptr.
+        void CombatLogBroadcast(WorldObject const* obj, WorldPacket* msg, std::array<WorldObject const*, 4> const& except, bool useQueue, bool allowDrop);
         void MessageDistBroadcast(Player const*, WorldPacket*, float dist, bool to_self, bool own_team_only = false);
         void MessageDistBroadcast(WorldObject const*, WorldPacket*, float dist);
 

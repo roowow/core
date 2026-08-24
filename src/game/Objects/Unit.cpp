@@ -4630,7 +4630,10 @@ void Unit::SendPeriodicAuraLog(SpellPeriodicAuraLogInfo const* pInfo, AuraType a
             return;
     }
 
-    aura->GetTarget()->SendObjectMessageToSet(&data, true);
+    // Phase "网络带宽优化" 序3+4 (see HPHA.md) - was: aura->GetTarget()->SendObjectMessageToSet(&data, true);
+    // Original code only ever self-sent to the aura's target (the one taking the DoT/HoT tick),
+    // never to the caster separately - preserved exactly: target=nullptr here, not the caster.
+    aura->GetTarget()->SendCombatLogMessageToSet(data, nullptr);
 }
 
 class RemovedSpellData
@@ -4795,7 +4798,8 @@ void Unit::SendAttackStateUpdate(CalcDamageInfo const* damageInfo) const
     // HITINFO_NOACTION normally set if spell
     data << uint32(damageInfo->blocked_amount);
 
-    SendMessageToSet(&data, true);
+    // Phase "网络带宽优化" 序3+4 (see HPHA.md) - was: SendMessageToSet(&data, true);
+    SendCombatLogMessageToSet(data, damageInfo->target);
 }
 
 void Unit::SendAttackStateUpdate(uint32 HitInfo, Unit const* target, SpellSchoolMask damageSchoolMask, uint32 Damage, uint32 AbsorbDamage, int32 Resist, VictimState TargetState, uint32 BlockedAmount) const
