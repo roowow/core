@@ -106,6 +106,11 @@ void WebChatMgr::Initialize(std::string const& host, int port, uint32 realmId)
     //      inherit the calling thread's signal mask, so AsyncPacket and any other
     //      threads spawned after Initialize() also have SIGPIPE blocked.
     //      Blocked signals are never delivered via GDB ptrace, preventing crash dumps.
+    // Redundant since 2026-08-24: mangosd's Main.cpp now does this exact block as the very
+    // first statement of main(), before any thread (DB pools included) exists - see the
+    // comment there for why that earlier point was needed (this call alone was too late to
+    // protect threads started before it, which is what actually crashed the server). Left
+    // in place as harmless defense-in-depth rather than removed.
     signal(SIGPIPE, SIG_IGN);
     {
         sigset_t set;

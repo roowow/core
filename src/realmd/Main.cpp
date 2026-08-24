@@ -47,6 +47,11 @@
 #include "IO/Timer/AsyncSystemTimer.h"
 #include "IO/Multithreading/CreateThread.h"
 
+#ifndef WIN32
+#include <csignal>
+#include <pthread.h>
+#endif
+
 #ifdef ENABLE_MAILSENDER
 #include "MailerService.h"
 #include <curl/curl.h>
@@ -81,6 +86,19 @@ DatabaseType LoginDatabase;                     // Accessor to the realm server 
 // Launch the realm server
 extern int main(int argc, char** argv)
 {
+#ifndef WIN32
+    // See the identical block at the top of mangosd's Main.cpp for the full explanation
+    // (a real crash traced there on 2026-08-24). realmd has its own DB connection threads
+    // (LoginDatabase) exposed to the exact same risk - a MariaDB/network blip resetting the
+    // socket mid-query raises a raw SIGPIPE that, unblocked, gets treated as fatal. Must run
+    // before any thread is created anywhere in startup, so this is the very first statement.
+    signal(SIGPIPE, SIG_IGN);
+    sigset_t sigpipeSet;
+    sigemptyset(&sigpipeSet);
+    sigaddset(&sigpipeSet, SIGPIPE);
+    pthread_sigmask(SIG_BLOCK, &sigpipeSet, nullptr);
+#endif
+
     ServerStartupArguments args;
     {
         // parseResult is std::expected, where the error is the return code, that might be present when invalid args or "--help" is given

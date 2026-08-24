@@ -35,6 +35,11 @@
 
 #include "Crypto/InitializeCrypto.h"
 
+#ifndef WIN32
+#include <csignal>
+#include <pthread.h>
+#endif
+
 #ifdef WIN32
 #include "ServiceWin32.h"
 char serviceName[] = "mangosd";
@@ -64,6 +69,31 @@ char const* g_mainLogFileName = "Server.log";
 // Launch the mangos server
 extern int main(int argc, char **argv)
 {
+#ifndef WIN32
+    // Every thread this process ever spawns inherits whatever signal mask the creating
+    // thread has *at the moment pthread_create() runs* - so this must happen before any
+    // thread creation anywhere in startup (DB connection pools included), or those threads
+    // are left unprotected. A crash on 2026-08-24 traced to exactly this gap: SqlDelayThread's
+    // periodic keepalive Ping() hit a MySQL connection whose socket had been reset by the peer
+    // (a MariaDB restart/outage), and the resulting raw SIGPIPE from libmysqlclient's send()
+    // was neither ignored nor blocked - this server's GDB-wrapped supervisor (wowadmin.sh)
+    // treated the unhandled signal as a fatal crash and force-restarted the whole process,
+    // dropping every connected player, for what MySQL itself treats as a routine, recoverable
+    // "reconnect and retry" condition (the exact scenario DbWriteOutbox/DbHealthMonitor exist
+    // to survive gracefully at the application layer - this was a lower-level gap underneath
+    // that). SIG_IGN alone is not enough: ptrace intercepts a signal before disposition is
+    // even checked, so GDB still stops on a merely-"ignored" SIGPIPE; actually blocking it (so
+    // it is never delivered at all) is what avoids that. See WebChatMgr.cpp's SigpipeGuard for
+    // the same reasoning applied narrowly to hiredis sockets - this is that same fix moved to
+    // the earliest possible point, so every thread in the process is covered, not just ones
+    // started after WebChatMgr initializes (which runs long after the DB connection threads).
+    signal(SIGPIPE, SIG_IGN);
+    sigset_t sigpipeSet;
+    sigemptyset(&sigpipeSet);
+    sigaddset(&sigpipeSet, SIGPIPE);
+    pthread_sigmask(SIG_BLOCK, &sigpipeSet, nullptr);
+#endif
+
     ServerStartupArguments args;
     {
         // parseResult is std::expected, where the error is the return code, that might be present when invalid args or "--help" is given
