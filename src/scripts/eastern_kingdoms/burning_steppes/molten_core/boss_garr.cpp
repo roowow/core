@@ -16,9 +16,10 @@ enum Garr : uint32
     EMOTE_MASSIVE_ERUPTION  = 8254,
 
     // Events
-    EVENT_ANTIMAGICPULSE    = 1,
-    EVENT_MAGMASHACKLES     = 2,
-    EVENT_MASSIVE_ERUPTION  = 3
+    EVENT_ANTIMAGICPULSE        = 1,
+    EVENT_MAGMASHACKLES         = 2,
+    EVENT_MASSIVE_ERUPTION      = 3,
+    EVENT_FIRESWORN_LEASH_CHECK = 4
 };
 
 struct boss_garrAI : ScriptedAI
@@ -118,9 +119,36 @@ struct boss_garrAI : ScriptedAI
 
     void ScheduleCombatEvents()
     {
-        m_CombatEvents.RescheduleEvent(EVENT_ANTIMAGICPULSE,   Seconds(15));
-        m_CombatEvents.RescheduleEvent(EVENT_MAGMASHACKLES,    Seconds(10));
-        m_CombatEvents.RescheduleEvent(EVENT_MASSIVE_ERUPTION, Minutes(6));
+        m_CombatEvents.RescheduleEvent(EVENT_ANTIMAGICPULSE,        Seconds(15));
+        m_CombatEvents.RescheduleEvent(EVENT_MAGMASHACKLES,         Seconds(10));
+        m_CombatEvents.RescheduleEvent(EVENT_MASSIVE_ERUPTION,      Minutes(6));
+        m_CombatEvents.RescheduleEvent(EVENT_FIRESWORN_LEASH_CHECK, Seconds(5));
+    }
+
+    // Finds the closest valid attack target for pFor anywhere in the instance - used to force
+    // a Firesworn that has never aggroed anyone onto somebody, since it has no threat list of
+    // its own to pick from yet.
+    Player* FindNearestValidAttackTarget(Unit* pFor)
+    {
+        Player* pNearest = nullptr;
+        float nearestDist = 0.0f;
+        Map::PlayerList const& players = m_creature->GetMap()->GetPlayers();
+        for (const auto& itr : players)
+        {
+            Player* pPlayer = itr.getSource();
+            if (!pPlayer || !pPlayer->IsAlive() || !pFor->IsValidAttackTarget(pPlayer))
+            {
+                continue;
+            }
+
+            float const dist = pFor->GetDistance(pPlayer);
+            if (!pNearest || dist < nearestDist)
+            {
+                pNearest = pPlayer;
+                nearestDist = dist;
+            }
+        }
+        return pNearest;
     }
 
     void UpdateEvents()
@@ -129,6 +157,45 @@ struct boss_garrAI : ScriptedAI
         {
             switch (eventId)
             {
+                case EVENT_FIRESWORN_LEASH_CHECK:
+                {
+                    // Players can use LOS/terrain/positioning to keep every Firesworn
+                    // permanently out of its own aggro range while zerging Garr down - since
+                    // the add then never enters combat, mob_fireswornAI::UpdateAI()'s own
+                    // EVENT_THREAT_CHECK safety net (which only runs once
+                    // Creature::SelectHostileTarget() succeeds, i.e. the add already has a
+                    // threat list) never gets a chance to run either - it can maintain
+                    // aggro, not bootstrap it from zero. This is Garr's own catch-all:
+                    // periodically force any known Firesworn that currently isn't in combat
+                    // onto the nearest player in the instance.
+                    //
+                    // Deliberately unconditional on history (checks live IsInCombat() every
+                    // time, not a one-shot "has it ever fought" flag): an earlier version tried
+                    // to spare an add that fought once and then legitimately evaded (e.g. its
+                    // attacker died mid-wipe) by permanently exempting anything that had ever
+                    // triggered Aggro() once - but Aggro() itself calls SetInCombatWithZone(),
+                    // which fires from literally any trigger (even a hunter's pet grazing it),
+                    // so a raid could deliberately manufacture one throwaway engagement to
+                    // permanently launder an add out of this safety net, defeating the whole
+                    // point. Re-checking live combat state every 5s instead means there's no
+                    // one-shot flag to launder - the only cost is that a genuinely evaded add
+                    // gets re-engaged even if Garr is still being fought solo by a lone
+                    // survivor after most of the raid has wiped, which is a far narrower and
+                    // more acceptable edge case than a repeatable exploit.
+                    for (ObjectGuid const& addGuid : m_lFiresworn)
+                    {
+                        Creature* pAdd = m_creature->GetMap()->GetCreature(addGuid);
+                        if (pAdd && pAdd->IsAlive() && !pAdd->IsInCombat())
+                        {
+                            if (Player* pNearest = FindNearestValidAttackTarget(pAdd))
+                            {
+                                pAdd->EnterCombatWithTarget(pNearest);
+                            }
+                        }
+                    }
+                    m_CombatEvents.Repeat(Seconds(5));
+                    return;
+                }
                 case EVENT_ANTIMAGICPULSE:
                 {
                     // Garr lets out anti-magic pulses, removing a beneficial effect from players in the raid.
