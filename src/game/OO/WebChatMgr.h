@@ -2,8 +2,11 @@
 #include "Common.h"
 #include <string>
 #include <queue>
+#include <deque>
+#include <functional>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <atomic>
 
 struct redisContext;
@@ -54,6 +57,11 @@ public:
                     uint32 contextId = 0, bool hardcore = false, bool tianxuan = false,
                     uint32 createTime = 0, uint8 gender = 2,  // gender: see GENDER_NONE note above
                     std::string const& guildName = "", bool turtle = false);  // chatContext: "world"/"guild"; contextId: guild_id for guild
+    // Deliberately still synchronous (unlike the rest of this class) - the return value
+    // gates an immediate fallback notice (see BattleGroundAfkMgr.cpp), which an async
+    // fire-and-forget publish could not provide without silently dropping the player's
+    // notice on a Redis outage. Low frequency (periodic AFK checks, not per chat message),
+    // so it wasn't part of the CMSG_MESSAGECHAT stall this async conversion targets.
     bool        NotifyBgAfkViaJianJia(Player* player, BattleGround* bg, uint8 stage, uint8 afkLevel,
                     char const* noticeType);   // returns false → caller should use fallback
     void        NotifyWorldBroadcastToJianJia(std::string const& broadcastMsg, std::string const& sender = "");
@@ -68,8 +76,17 @@ private:
     void SubscribeThread();
     void DispatchWebMessage(std::string const& json); // main thread only
 
-    void Publish(std::string const& json);
-    void ReconnectPub();
+    // Publisher outbox (game → Redis). WriteWebChat()/Forward*ToJianJia()/etc. are called
+    // synchronously from the main world thread (ChatHandler.cpp chat opcode handlers run
+    // inside World::Update()); the actual Redis network I/O must never happen there - see
+    // the P0-class stall this replaced, documented at RedisRuntimeTimeout() in the .cpp.
+    // Callers do their (fast, no I/O) JSON/arg building inline and hand the actual
+    // publish off via EnqueuePublish(); m_pubThread drains the queue and performs it.
+    void PublishThread();
+    void EnqueuePublish(std::function<void()> task);
+
+    void Publish(std::string const& json); // m_pubThread only
+    void ReconnectPub();                   // m_pubThread only
 
     static std::string BuildJson(std::string const& source,
                                  std::string const& channel,
@@ -95,17 +112,29 @@ private:
     std::string   m_keyJianJiaOut;  // web_chat:jianjia_out:<realmId>  (Python → C++)
     uint32        m_realmId = 0;
     std::string   m_jianJiaName;  // in-game character name
-    redisContext* m_pubCtx = nullptr;
+    // atomic: WriteWebChat()/IsJianJiaActive()/etc. read this from the main thread without
+    // m_pubMutex (a fast pre-check to skip enqueueing when WebChat is known-down), while
+    // m_pubThread writes it (inside m_pubMutex, via ReconnectPub()) once running. Initialize()
+    // and Shutdown() also write it directly from the main thread, but only before m_pubThread
+    // has started / after it has been joined respectively, so those two writes never race it.
+    std::atomic<redisContext*> m_pubCtx{nullptr};
     redisContext* m_subCtx = nullptr;
 
     std::thread       m_subThread;
     std::atomic<bool> m_stop{false};
     std::atomic<int>  m_subFd{-1};   // fd of the active subscribe socket; -1 when not connected
 
-    mutable std::mutex      m_pubMutex;        // guards m_pubCtx and all Redis pub commands
+    mutable std::mutex      m_pubMutex;        // guards m_pubCtx's pointee and all Redis pub commands
     std::mutex              m_queueMutex;
     std::queue<std::string> m_pending;        // web chat messages (web→game)
     std::queue<std::string> m_jianJiaPending; // AI companion replies from Python
+
+    // Publisher outbox - see PublishThread()/EnqueuePublish() above.
+    std::thread                       m_pubThread;
+    std::mutex                        m_pubQueueMutex;
+    std::condition_variable           m_pubQueueCv;
+    std::deque<std::function<void()>> m_pubQueue;
+    static constexpr std::size_t      MAX_PUB_QUEUE = 200; // drop-oldest past this; losing a WebChat/JianJia message is acceptable (see RedisRuntimeTimeout() in the .cpp)
 };
 
 #define sWebChatMgr WebChatMgr::instance()

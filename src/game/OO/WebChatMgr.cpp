@@ -75,13 +75,14 @@ static timeval RedisConnectTimeout()
 // Bounds redisGetReply() on the *established* publisher connection (m_pubCtx). Without this,
 // RedisConnectTimeout() above only protects the initial TCP handshake - once connected, a
 // socket that goes quiet (packet loss, half-open connection, no clean RST) has no application-
-// level timeout at all, and WriteWebChat()/Publish() run synchronously on the main game thread
-// (called directly from ChatHandler.cpp's chat opcode handlers). That combination would hang
-// the whole server for every player on a degraded-but-not-fully-down link, the same class of
-// bug P0 eliminated for the DB, just moved to WebChat's remote Redis. WebChat messages are not
-// worth protecting for reliability (losing one is fine), so this is deliberately short - it
-// only needs to bound the stall, Publish()'s existing reconnect-and-retry-once already covers
-// the "just missed one message" case.
+// level timeout at all. Publish()/ReconnectPub() now run on m_pubThread (see PublishThread()),
+// not the main game thread - WriteWebChat() et al. only build the JSON/args there and hand the
+// actual send off via EnqueuePublish() - so a stuck socket no longer stalls every player.
+// NotifyBgAfkViaJianJia() is the one deliberate exception still calling these inline on the
+// main thread (see its declaration in WebChatMgr.h for why); this timeout is what bounds *that*
+// call's worst case. WebChat messages are not worth protecting for reliability (losing one is
+// fine), so this is deliberately short - it only needs to bound the stall, Publish()'s existing
+// reconnect-and-retry-once already covers the "just missed one message" case.
 static timeval RedisRuntimeTimeout()
 {
     timeval tv;
@@ -122,17 +123,20 @@ void WebChatMgr::Initialize(std::string const& host, int port, uint32 realmId)
     m_realmId       = realmId;
     m_jianJiaName   = ""; // set by World.cpp after Initialize() via SetJianJiaName()
 
-    m_pubCtx = redisConnectWithTimeout(host.c_str(), port, RedisConnectTimeout());
-    if (!m_pubCtx || m_pubCtx->err)
+    redisContext* pubCtx = redisConnectWithTimeout(host.c_str(), port, RedisConnectTimeout());
+    if (!pubCtx || pubCtx->err)
     {
         // Redis not available — WebChat disabled, no error
         sLog.Out(LOG_BASIC, LOG_LVL_DETAIL, "WebChatMgr: Redis not available at %s:%d, WebChat disabled.", host.c_str(), port);
-        if (m_pubCtx) { redisFree(m_pubCtx); m_pubCtx = nullptr; }
+        if (pubCtx) { redisFree(pubCtx); }
+        m_pubCtx = nullptr;
         return;
     }
-    redisSetTimeout(m_pubCtx, RedisRuntimeTimeout());
+    redisSetTimeout(pubCtx, RedisRuntimeTimeout());
+    m_pubCtx = pubCtx;
     m_stop = false;
     m_subThread = std::thread(&WebChatMgr::SubscribeThread, this);
+    m_pubThread = std::thread(&WebChatMgr::PublishThread, this);
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "WebChatMgr: connected to Redis (realm %u), WebChat enabled.", realmId);
 }
 
@@ -154,6 +158,12 @@ void WebChatMgr::Shutdown()
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     if (m_subThread.joinable()) m_subThread.join();
+    // Wake m_pubThread out of its condition_variable wait (setting m_stop above doesn't,
+    // by itself, wake a thread already parked in wait()) and let it exit; it may finish
+    // whatever single task it's mid-flight on first (bounded by RedisConnectTimeout()/
+    // RedisRuntimeTimeout()), same "bounded wait on shutdown" pattern as m_subThread above.
+    m_pubQueueCv.notify_all();
+    if (m_pubThread.joinable()) m_pubThread.join();
     {
         std::lock_guard<std::mutex> lock(m_pubMutex);
         if (m_pubCtx) { redisFree(m_pubCtx); m_pubCtx = nullptr; }
@@ -175,41 +185,87 @@ void WebChatMgr::Update()
     }
 }
 
+// ── publisher outbox ──────────────────────────────────────────────────────────
+
+void WebChatMgr::EnqueuePublish(std::function<void()> task)
+{
+    std::lock_guard<std::mutex> lock(m_pubQueueMutex);
+    if (m_pubQueue.size() >= MAX_PUB_QUEUE)
+        m_pubQueue.pop_front(); // drop oldest - see MAX_PUB_QUEUE comment in the header
+    m_pubQueue.push_back(std::move(task));
+    m_pubQueueCv.notify_one();
+}
+
+void WebChatMgr::PublishThread()
+{
+    while (!m_stop.load(std::memory_order_relaxed))
+    {
+        std::function<void()> task;
+        {
+            std::unique_lock<std::mutex> lock(m_pubQueueMutex);
+            m_pubQueueCv.wait(lock, [this] { return m_stop.load(std::memory_order_relaxed) || !m_pubQueue.empty(); });
+            if (m_stop.load(std::memory_order_relaxed))
+                return;
+            task = std::move(m_pubQueue.front());
+            m_pubQueue.pop_front();
+        }
+        task();
+    }
+}
+
 // ── game → Redis ──────────────────────────────────────────────────────────────
 
 void WebChatMgr::WriteWebChat(std::string const& channel, std::string const& charName,
     uint32 faction, uint32 classId, std::string const& recipient, std::string const& msg,
     uint32 contextId, bool hc, bool tianxuan, bool turtle)
 {
+    // Fast, lock-free pre-check on the caller's (main) thread - only m_pubThread ever
+    // writes m_pubCtx, see its declaration. Building the JSON/enqueueing below is cheap
+    // (string work only); the actual Redis I/O happens on m_pubThread, never here - this
+    // function is called synchronously from ChatHandler.cpp's chat opcode handlers, i.e.
+    // from inside World::Update() on the main game thread.
     if (!m_pubCtx) return;
     std::string json = BuildJson("game", channel, charName, faction, classId, recipient, msg, contextId, hc, tianxuan, turtle);
-    Publish(json);
+
     // For party/raid: update char→group mapping so PHP can filter by group membership
-    if (contextId > 0 && (channel == "party" || channel == "raid" || channel == "raid_leader"))
-    {
-        SigpipeGuard guard;
-        std::lock_guard<std::mutex> lock(m_pubMutex);
-        if (m_pubCtx)
-        {
-            std::string key = "web_chat:char_group:" + std::to_string(m_realmId) + ":" + charName;
-            redisReply* r = (redisReply*)redisCommand(m_pubCtx, "SETEX %s 3600 %u", key.c_str(), contextId);
-            if (r) freeReplyObject(r);
-            else ReconnectPub();
-        }
-    }
+    bool const groupKeyUpdate = contextId > 0 && (channel == "party" || channel == "raid" || channel == "raid_leader");
+    std::string groupKey;
+    if (groupKeyUpdate)
+        groupKey = "web_chat:char_group:" + std::to_string(m_realmId) + ":" + charName;
+
     // For world: invalidate PHP world-history cache so next page load sees this message
-    if (channel == "world")
+    bool const worldCacheInvalidate = (channel == "world");
+    std::string worldCacheKey;
+    if (worldCacheInvalidate)
+        worldCacheKey = "web_chat:wh_cache:" + std::to_string(m_realmId);
+
+    EnqueuePublish([this, json = std::move(json), groupKeyUpdate, groupKey = std::move(groupKey),
+                    contextId, worldCacheInvalidate, worldCacheKey = std::move(worldCacheKey)]()
     {
-        SigpipeGuard guard;
-        std::lock_guard<std::mutex> lock(m_pubMutex);
-        if (m_pubCtx)
+        Publish(json);
+        if (groupKeyUpdate)
         {
-            std::string key = "web_chat:wh_cache:" + std::to_string(m_realmId);
-            redisReply* r = (redisReply*)redisCommand(m_pubCtx, "DEL %s", key.c_str());
-            if (r) freeReplyObject(r);
-            else ReconnectPub();
+            SigpipeGuard guard;
+            std::lock_guard<std::mutex> lock(m_pubMutex);
+            if (m_pubCtx)
+            {
+                redisReply* r = (redisReply*)redisCommand(m_pubCtx, "SETEX %s 3600 %u", groupKey.c_str(), contextId);
+                if (r) freeReplyObject(r);
+                else ReconnectPub();
+            }
         }
-    }
+        if (worldCacheInvalidate)
+        {
+            SigpipeGuard guard;
+            std::lock_guard<std::mutex> lock(m_pubMutex);
+            if (m_pubCtx)
+            {
+                redisReply* r = (redisReply*)redisCommand(m_pubCtx, "DEL %s", worldCacheKey.c_str());
+                if (r) freeReplyObject(r);
+                else ReconnectPub();
+            }
+        }
+    });
 }
 
 void WebChatMgr::Publish(std::string const& json)
@@ -247,12 +303,13 @@ void WebChatMgr::Publish(std::string const& json)
 
 void WebChatMgr::ReconnectPub()
 {
-    if (m_pubCtx) { redisFree(m_pubCtx); m_pubCtx = nullptr; }
-    m_pubCtx = redisConnectWithTimeout(m_redisHost.c_str(), m_redisPort, RedisConnectTimeout());
-    if (m_pubCtx && m_pubCtx->err) { redisFree(m_pubCtx); m_pubCtx = nullptr; }
-    if (m_pubCtx)
+    if (redisContext* old = m_pubCtx) { redisFree(old); m_pubCtx = nullptr; }
+    redisContext* pubCtx = redisConnectWithTimeout(m_redisHost.c_str(), m_redisPort, RedisConnectTimeout());
+    if (pubCtx && pubCtx->err) { redisFree(pubCtx); pubCtx = nullptr; }
+    m_pubCtx = pubCtx;
+    if (pubCtx)
     {
-        redisSetTimeout(m_pubCtx, RedisRuntimeTimeout());
+        redisSetTimeout(pubCtx, RedisRuntimeTimeout());
         sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "WebChatMgr: publisher reconnected to Redis.");
     }
     else
@@ -461,7 +518,7 @@ void WebChatMgr::WriteBroadcast(std::string const& msg)
     j += "\",\"ts\":";
     j += std::to_string(uint32(time(nullptr)));
     j += '}';
-    Publish(j);
+    EnqueuePublish([this, j = std::move(j)]() { Publish(j); });
 }
 
 // ── 蒹葭 AI companion ─────────────────────────────────────────────────────────
@@ -476,9 +533,6 @@ void WebChatMgr::ForwardWhisperToJianJia(std::string const& senderName, std::str
     uint32 createTime, uint8 gender, std::string const& guildName, bool turtle)
 {
     if (!m_pubCtx || senderName.empty()) return;
-    SigpipeGuard guard;
-    std::lock_guard<std::mutex> lock(m_pubMutex);
-    if (!m_pubCtx) return;
     std::string j = "{\"sender\":\"";
     j += EscapeJson(senderName);
     j += "\",\"bot_name\":\"";
@@ -505,19 +559,22 @@ void WebChatMgr::ForwardWhisperToJianJia(std::string const& senderName, std::str
     j += ",\"message\":\"";
     j += EscapeJson(message);
     j += "\"}";
-    redisReply* r = (redisReply*)redisCommand(m_pubCtx, "PUBLISH %s %b",
-        m_keyJianJiaIn.c_str(), j.data(), j.size());
-    if (r) freeReplyObject(r);
-    else ReconnectPub();
+    EnqueuePublish([this, j = std::move(j)]()
+    {
+        SigpipeGuard guard;
+        std::lock_guard<std::mutex> lock(m_pubMutex);
+        if (!m_pubCtx) return;
+        redisReply* r = (redisReply*)redisCommand(m_pubCtx, "PUBLISH %s %b",
+            m_keyJianJiaIn.c_str(), j.data(), j.size());
+        if (r) freeReplyObject(r);
+        else ReconnectPub();
+    });
 }
 
 void WebChatMgr::ForwardGroupChatToJianJia(std::string const& senderName, std::string const& message,
     char const* chatContext, uint32 groupId, bool hardcore, bool tianxuan, bool turtle)
 {
     if (!m_pubCtx || senderName.empty() || !chatContext) return;
-    SigpipeGuard guard;
-    std::lock_guard<std::mutex> lock(m_pubMutex);
-    if (!m_pubCtx) return;
     std::string j = "{\"event\":\"group_chat\",\"sender\":\"";
     j += EscapeJson(senderName);
     j += "\",\"bot_name\":\"";
@@ -534,10 +591,16 @@ void WebChatMgr::ForwardGroupChatToJianJia(std::string const& senderName, std::s
     j += ",\"message\":\"";
     j += EscapeJson(message);
     j += "\"}";
-    redisReply* r = (redisReply*)redisCommand(m_pubCtx, "PUBLISH %s %b",
-        m_keyJianJiaIn.c_str(), j.data(), j.size());
-    if (r) freeReplyObject(r);
-    else ReconnectPub();
+    EnqueuePublish([this, j = std::move(j)]()
+    {
+        SigpipeGuard guard;
+        std::lock_guard<std::mutex> lock(m_pubMutex);
+        if (!m_pubCtx) return;
+        redisReply* r = (redisReply*)redisCommand(m_pubCtx, "PUBLISH %s %b",
+            m_keyJianJiaIn.c_str(), j.data(), j.size());
+        if (r) freeReplyObject(r);
+        else ReconnectPub();
+    });
 }
 
 void WebChatMgr::ForwardChannelChatToJianJia(std::string const& senderName, std::string const& message,
@@ -546,9 +609,6 @@ void WebChatMgr::ForwardChannelChatToJianJia(std::string const& senderName, std:
 {
     if (!m_pubCtx || senderName.empty() || !chatContext) return;
     if (IsJianJiaName(senderName)) return;
-    SigpipeGuard guard;
-    std::lock_guard<std::mutex> lock(m_pubMutex);
-    if (!m_pubCtx) return;
     std::string j = "{\"event\":\"channel_chat\",\"sender\":\"";
     j += EscapeJson(senderName);
     j += "\",\"bot_name\":\"";
@@ -577,15 +637,22 @@ void WebChatMgr::ForwardChannelChatToJianJia(std::string const& senderName, std:
     j += ",\"message\":\"";
     j += EscapeJson(message);
     j += "\"}";
-    redisReply* r = (redisReply*)redisCommand(m_pubCtx, "PUBLISH %s %b",
-        m_keyJianJiaIn.c_str(), j.data(), j.size());
-    if (r) freeReplyObject(r);
-    else ReconnectPub();
+    EnqueuePublish([this, j = std::move(j)]()
+    {
+        SigpipeGuard guard;
+        std::lock_guard<std::mutex> lock(m_pubMutex);
+        if (!m_pubCtx) return;
+        redisReply* r = (redisReply*)redisCommand(m_pubCtx, "PUBLISH %s %b",
+            m_keyJianJiaIn.c_str(), j.data(), j.size());
+        if (r) freeReplyObject(r);
+        else ReconnectPub();
+    });
 }
 
 bool WebChatMgr::NotifyBgAfkViaJianJia(Player* player, BattleGround* /*bg*/, uint8 stage, uint8 afkLevel,
     char const* noticeType)
 {
+    // Deliberately synchronous - see the comment on this declaration in WebChatMgr.h.
     if (!m_pubCtx || m_jianJiaName.empty() || !player) return false;
     SigpipeGuard guard;
     std::lock_guard<std::mutex> lock(m_pubMutex);
@@ -625,9 +692,6 @@ bool WebChatMgr::NotifyBgAfkViaJianJia(Player* player, BattleGround* /*bg*/, uin
 void WebChatMgr::NotifyWorldBroadcastToJianJia(std::string const& broadcastMsg, std::string const& sender)
 {
     if (!m_pubCtx || m_jianJiaName.empty() || broadcastMsg.empty()) return;
-    SigpipeGuard guard;
-    std::lock_guard<std::mutex> lock(m_pubMutex);
-    if (!m_pubCtx) return;
     std::string j = "{\"event\":\"world_broadcast\",\"sender\":\"";
     j += EscapeJson(sender);
     j += "\",\"bot_name\":\"";
@@ -635,10 +699,16 @@ void WebChatMgr::NotifyWorldBroadcastToJianJia(std::string const& broadcastMsg, 
     j += "\",\"broadcast_msg\":\"";
     j += EscapeJson(broadcastMsg);
     j += "\"}";
-    redisReply* r = (redisReply*)redisCommand(m_pubCtx, "PUBLISH %s %b",
-        m_keyJianJiaIn.c_str(), j.data(), j.size());
-    if (r) freeReplyObject(r);
-    else ReconnectPub();
+    EnqueuePublish([this, j = std::move(j)]()
+    {
+        SigpipeGuard guard;
+        std::lock_guard<std::mutex> lock(m_pubMutex);
+        if (!m_pubCtx) return;
+        redisReply* r = (redisReply*)redisCommand(m_pubCtx, "PUBLISH %s %b",
+            m_keyJianJiaIn.c_str(), j.data(), j.size());
+        if (r) freeReplyObject(r);
+        else ReconnectPub();
+    });
 }
 
 void WebChatMgr::SpeakAsJianJia(std::string const& targetName, std::string const& message, ChatMsg groupType)
