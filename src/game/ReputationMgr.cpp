@@ -24,6 +24,7 @@
 #include "Opcodes.h"
 #include "ObjectMgr.h"
 #include "Packets/Misc.h"
+#include "OO/DbWriteOutbox.h"
 
 #include <numeric>
 
@@ -430,19 +431,34 @@ void ReputationMgr::LoadFromDB(std::unique_ptr<QueryResult> result)
 
 void ReputationMgr::SaveToDB()
 {
-    static SqlStatementID delRep ;
-    static SqlStatementID insRep ;
-
-    SqlStatement stmtDel = CharacterDatabase.CreateStatement(delRep, "DELETE FROM character_reputation WHERE guid = ? AND faction=?");
-    SqlStatement stmtIns = CharacterDatabase.CreateStatement(insRep, "INSERT INTO character_reputation (guid,faction,standing,flags) VALUES (?, ?, ?, ?)");
-
+    // Phase3 continuation (see HPHA.md "Phase 3 续") - routed through sCharactersOutbox, each
+    // faction an independent statement (no grouping needed, matches _SaveQuestStatus()/
+    // _SaveSpells()'s same per-row delta shape). DELETE is already idempotent; the INSERT needs
+    // `ON DUPLICATE KEY UPDATE` to survive an at-least-once replay without colliding on the
+    // `(guid,faction)` PRIMARY KEY.
+    // was:
+    // static SqlStatementID delRep;
+    // static SqlStatementID insRep;
+    // SqlStatement stmtDel = CharacterDatabase.CreateStatement(delRep, "DELETE FROM character_reputation WHERE guid = ? AND faction=?");
+    // SqlStatement stmtIns = CharacterDatabase.CreateStatement(insRep, "INSERT INTO character_reputation
+    //     (guid,faction,standing,flags) VALUES (?, ?, ?, ?)"); (no ON DUPLICATE KEY)
+    // stmtDel.PExecute(m_player->GetGUIDLow(), faction.ID);
+    // stmtIns.PExecute(m_player->GetGUIDLow(), faction.ID, faction.Standing, faction.Flags);
     for (auto& itr : m_factions)
     {
         FactionState& faction = itr.second;
         if (faction.needSave)
         {
-            stmtDel.PExecute(m_player->GetGUIDLow(), faction.ID);
-            stmtIns.PExecute(m_player->GetGUIDLow(), faction.ID, faction.Standing, faction.Flags);
+            char sql[64];
+            snprintf(sql, sizeof(sql), "DELETE FROM character_reputation WHERE guid = %u AND faction=%u", m_player->GetGUIDLow(), faction.ID);
+            sCharactersOutbox.Enqueue(sql);
+
+            char sql2[192];
+            snprintf(sql2, sizeof(sql2), "INSERT INTO character_reputation (guid,faction,standing,flags) VALUES (%u, %u, %d, %u) "
+                "ON DUPLICATE KEY UPDATE `standing`=VALUES(`standing`), `flags`=VALUES(`flags`)",
+                m_player->GetGUIDLow(), faction.ID, faction.Standing, faction.Flags);
+            sCharactersOutbox.Enqueue(sql2);
+
             faction.needSave = false;
         }
     }

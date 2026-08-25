@@ -4598,13 +4598,29 @@ void Player::_LoadSpellCooldowns(std::unique_ptr<QueryResult> result)
 
 void Player::_SaveSpellCooldowns() const
 {
-    static SqlStatementID deleteSpellCooldown;
+    // Phase3 continuation (see HPHA.md "Phase 3 续") - routed through sCharactersOutbox as one
+    // atomic group. "Delete everything for this guid, then reinsert the current full set" is the
+    // same replay-safe shape already proven by _SaveStats()/Pet::SavePetToDB() - a full-group
+    // replay nets the same final state, so the plain INSERTs below don't need ON DUPLICATE KEY.
+    // was:
+    // static SqlStatementID deleteSpellCooldown;
+    //
+    // // delete all old cooldown
+    // SqlStatement stmt = CharacterDatabase.CreateStatement(deleteSpellCooldown, "DELETE FROM `character_spell_cooldown` WHERE `guid` = ?");
+    // stmt.PExecute(GetGUIDLow());
+    //
+    // static SqlStatementID insertSpellCooldown;
+    // (loop below built stmt = CharacterDatabase.CreateStatement(insertSpellCooldown, "INSERT INTO
+    //  `character_spell_cooldown` (`guid`, `spell`, `spell_expire_time`, `category`, `category_expire_time`,
+    //  `item_id`) VALUES( ?, ?, ?, ?, ?, ?)"); stmt.addUInt32(GetGUIDLow()); stmt.addUInt32(cdData->GetSpellEntry()->Id);
+    //  stmt.addUInt64(spellExpireTime); stmt.addUInt32(cdData->GetCategory()); stmt.addUInt64(catExpireTime);
+    //  stmt.addUInt32(cdData->GetItemId()); stmt.Execute(); each iteration)
+    std::vector<std::string> sqls;
+    sqls.reserve(1 + m_cooldownMap.size());
 
-    // delete all old cooldown
-    SqlStatement stmt = CharacterDatabase.CreateStatement(deleteSpellCooldown, "DELETE FROM `character_spell_cooldown` WHERE `guid` = ?");
-    stmt.PExecute(GetGUIDLow());
-
-    static SqlStatementID insertSpellCooldown;
+    char delSql[64];
+    snprintf(delSql, sizeof(delSql), "DELETE FROM `character_spell_cooldown` WHERE `guid` = %u", GetGUIDLow());
+    sqls.push_back(delSql);
 
     for (auto& cdItr : m_cooldownMap)
     {
@@ -4618,16 +4634,14 @@ void Player::_SaveSpellCooldowns() const
             uint64 spellExpireTime = uint64(Clock::to_time_t(sTime));
             uint64 catExpireTime = uint64(Clock::to_time_t(cTime));
 
-            stmt = CharacterDatabase.CreateStatement(insertSpellCooldown, "INSERT INTO `character_spell_cooldown` (`guid`, `spell`, `spell_expire_time`, `category`, `category_expire_time`, `item_id`) VALUES( ?, ?, ?, ?, ?, ?)");
-            stmt.addUInt32(GetGUIDLow());
-            stmt.addUInt32(cdData->GetSpellEntry()->Id);
-            stmt.addUInt64(spellExpireTime);
-            stmt.addUInt32(cdData->GetCategory());
-            stmt.addUInt64(catExpireTime);
-            stmt.addUInt32(cdData->GetItemId());
-            stmt.Execute();
+            char sql[192];
+            snprintf(sql, sizeof(sql), "INSERT INTO `character_spell_cooldown` (`guid`, `spell`, `spell_expire_time`, `category`, `category_expire_time`, `item_id`) VALUES(%u, %u, " UI64FMTD ", %u, " UI64FMTD ", %u)",
+                GetGUIDLow(), cdData->GetSpellEntry()->Id, spellExpireTime, cdData->GetCategory(), catExpireTime, cdData->GetItemId());
+            sqls.push_back(sql);
         }
     }
+
+    sCharactersOutbox.Enqueue(sqls);
 }
 
 void Player::UpdateResetTalentsMultiplier() const
@@ -17368,165 +17382,284 @@ void Player::SaveToDB(bool online, bool force)
         return;
     }
 
-    CharacterDatabase.BeginTransaction(GetGUIDLow());
-
     m_honorMgr.Update();
 
-    static SqlStatementID insChar;
-
-    SqlStatement uberInsert = CharacterDatabase.CreateStatement(insChar, "REPLACE INTO `characters` (`guid`, `account`, `name`, `race`, `class`, `gender`, `level`, `xp`, `money`, `skin`, `face`, `hair_style`, `hair_color`, `facial_hair`, `bank_bag_slots`, `character_flags`,"
-                              "`map`, `instance`, `position_x`, `position_y`, `position_z`, `orientation`, "
-                              "`transport_guid`, `transport_x`, `transport_y`, `transport_z`, `transport_o`, "
-                              "`known_taxi_mask`, `current_taxi_path`, `online`, `played_time_total`, `played_time_level`, "
-                              "`rest_bonus`, `logout_time`, `reset_talents_multiplier`, `reset_talents_time`, "
-                              "`extra_flags`, `stable_slots`, `zone`, `death_expire_time`,"
-                              "`honor_rank_points`, `honor_highest_rank`, `honor_standing`, `honor_last_week_hk`, `honor_last_week_cp`, `honor_stored_hk`, `honor_stored_dk`, "
-                              "`watched_faction`, `drunk`, `health`, `power1`, `power2`, `power3`, `power4`, `power5`, "
-                              "`explored_zones`, `equipment_cache`, `ammo_id`, `action_bars`, `world_phase_mask`, `create_time`) "
-                              "VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-                              "?, ?, ?, ?, ?, ?, "
-                               "?, ?, ?, ?, ?, "
-                              "?, ?, ?, ?, ?, "
-                              "?, ?, ?, ?, ?, "
-                              "?, ?, ?, ?, ?, "
-                              "?, ?, ?, ?, ?, ?, ?, "
-                              "?, ?, ?, ?, ?, ?, ?, ?, "
-                              "?, ?, ?, ?)");
-
-    uberInsert.addUInt32(GetGUIDLow());
-    uberInsert.addUInt32(GetSession()->GetAccountId());
-    uberInsert.addString(m_name);
-    uberInsert.addUInt8(GetRace());
-    uberInsert.addUInt8(GetClass());
-    uberInsert.addUInt8(GetGender());
-    uberInsert.addUInt32(GetLevel());
-    uberInsert.addUInt32(GetUInt32Value(PLAYER_XP));
-    uberInsert.addUInt32(GetMoney());
-    uberInsert.addUInt8(GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_SKIN_ID));
-    uberInsert.addUInt8(GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_FACE_ID));
-    uberInsert.addUInt8(GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_HAIR_STYLE_ID));
-    uberInsert.addUInt8(GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_HAIR_COLOR_ID));
-    uberInsert.addUInt32(GetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE));
-    uberInsert.addUInt32(GetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_BANK_BAG_SLOTS));
-
+    // Phase3 continuation (see HPHA.md "Phase 3 续") - routed through sCharactersOutbox.
+    // `REPLACE INTO` over a full fixed-value row is naturally idempotent (safe to replay any
+    // number of times), so this needs no ON DUPLICATE KEY handling - just a conversion from
+    // prepared-statement bindings to a raw SQL string (Enqueue() needs a formatted string).
+    // Field order/values are unchanged from the original bound-parameter version. `name` is the
+    // only field with user-controlled text content and needs escape_string() (same technique as
+    // MailDraft::SendMailTo()'s subject); the taxi/explored-zones/equipment-cache fields are text
+    // columns but their content is always a space-separated number list (never arbitrary text),
+    // so they only need quoting, not escaping - same as every other Phase3 conversion that
+    // handles this shape. uint8-returning calls (GetRace()/GetClass()/GetGender()/GetByteValue())
+    // are explicitly cast to uint32 before streaming - std::ostream prints uint8/unsigned char as
+    // a literal character, not a number, unlike the addUInt32()/addUInt8() bound-parameter calls
+    // this replaces which never had that gotcha.
+    //
+    // was (this whole block, plus the whole function's BeginTransaction()/CommitTransaction()
+    // wrapping was originally around _SaveInventory()/_SaveQuestStatus()/_SaveSpells()/
+    // _SaveSpellCooldowns()/_SaveAuras()/_SaveSkills()/reputationMgr.SaveToDB()/honorMgr.Save() too
+    // - see those functions' own "was:" comments for each one's original body):
+    // CharacterDatabase.BeginTransaction(GetGUIDLow());
+    // static SqlStatementID insChar;
+    // SqlStatement uberInsert = CharacterDatabase.CreateStatement(insChar, "REPLACE INTO `characters`
+    //     (`guid`, `account`, `name`, `race`, `class`, `gender`, `level`, `xp`, `money`, `skin`, `face`,
+    //     `hair_style`, `hair_color`, `facial_hair`, `bank_bag_slots`, `character_flags`, `map`, `instance`,
+    //     `position_x`, `position_y`, `position_z`, `orientation`, `transport_guid`, `transport_x`,
+    //     `transport_y`, `transport_z`, `transport_o`, `known_taxi_mask`, `current_taxi_path`, `online`,
+    //     `played_time_total`, `played_time_level`, `rest_bonus`, `logout_time`, `reset_talents_multiplier`,
+    //     `reset_talents_time`, `extra_flags`, `stable_slots`, `zone`, `death_expire_time`, `honor_rank_points`,
+    //     `honor_highest_rank`, `honor_standing`, `honor_last_week_hk`, `honor_last_week_cp`, `honor_stored_hk`,
+    //     `honor_stored_dk`, `watched_faction`, `drunk`, `health`, `power1`, `power2`, `power3`, `power4`,
+    //     `power5`, `explored_zones`, `equipment_cache`, `ammo_id`, `action_bars`, `world_phase_mask`,
+    //     `create_time`) VALUES ( ?×61 )");
+    // uberInsert.addUInt32(GetGUIDLow());
+    // uberInsert.addUInt32(GetSession()->GetAccountId());
+    // uberInsert.addString(m_name);
+    // uberInsert.addUInt8(GetRace());
+    // uberInsert.addUInt8(GetClass());
+    // uberInsert.addUInt8(GetGender());
+    // uberInsert.addUInt32(GetLevel());
+    // uberInsert.addUInt32(GetUInt32Value(PLAYER_XP));
+    // uberInsert.addUInt32(GetMoney());
+    // uberInsert.addUInt8(GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_SKIN_ID));
+    // uberInsert.addUInt8(GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_FACE_ID));
+    // uberInsert.addUInt8(GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_HAIR_STYLE_ID));
+    // uberInsert.addUInt8(GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_HAIR_COLOR_ID));
+    // uberInsert.addUInt32(GetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE));
+    // uberInsert.addUInt32(GetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_BANK_BAG_SLOTS));
+    // UpdateCharacterFlags();
+    // uberInsert.addUInt32(m_characterFlags);
+    // if (!IsBeingTeleported())
+    // {
+    //     uberInsert.addUInt32(GetMapId());
+    //     uberInsert.addUInt32(GetInstanceId());
+    //     uberInsert.addFloat(finiteAlways(GetPositionX()));
+    //     uberInsert.addFloat(finiteAlways(GetPositionY()));
+    //     uberInsert.addFloat(finiteAlways(GetPositionZ()));
+    //     uberInsert.addFloat(Geometry::NormalizeOrientation(finiteAlways(GetOrientation())));
+    // }
+    // else
+    // {
+    //     uberInsert.addUInt32(GetTeleportDest().mapId);
+    //     uberInsert.addUInt32(0);
+    //     uberInsert.addFloat(finiteAlways(GetTeleportDest().x));
+    //     uberInsert.addFloat(finiteAlways(GetTeleportDest().y));
+    //     uberInsert.addFloat(finiteAlways(GetTeleportDest().z));
+    //     uberInsert.addFloat(Geometry::NormalizeOrientation(finiteAlways(GetTeleportDest().o)));
+    // }
+    // if (m_transport)
+    //     uberInsert.addUInt32(m_transport->GetGUIDLow());
+    // else
+    //     uberInsert.addUInt32(0);
+    // uberInsert.addFloat(finiteAlways(m_movementInfo.GetTransportPos().x));
+    // uberInsert.addFloat(finiteAlways(m_movementInfo.GetTransportPos().y));
+    // uberInsert.addFloat(finiteAlways(m_movementInfo.GetTransportPos().z));
+    // uberInsert.addFloat(Geometry::NormalizeOrientation(finiteAlways(m_movementInfo.GetTransportPos().o)));
+    // std::ostringstream ss;
+    // ss << m_taxi;                                   // string with TaxiMaskSize numbers
+    // uberInsert.addString(ss);
+    // ss << m_taxi.SaveTaxiDestinationsToString();
+    // uberInsert.addString(ss);
+    // if (!IsInWorld())
+    //     online = false;
+    // uberInsert.addUInt32(online);
+    // uberInsert.addUInt32(m_playedTime[PLAYED_TIME_TOTAL]);
+    // uberInsert.addUInt32(m_playedTime[PLAYED_TIME_LEVEL]);
+    // uberInsert.addFloat(finiteAlways(m_restBonus));
+    // uberInsert.addUInt64(uint64(time(nullptr)));
+    // uberInsert.addUInt32(m_resetTalentsMultiplier);
+    // uberInsert.addUInt64(uint64(m_resetTalentsTime));
+    // uberInsert.addUInt32(m_ExtraFlags);
+    // uberInsert.addUInt32(uint32(m_stableSlots));                    // to prevent save uint8 as char
+    // uberInsert.addUInt32(GetCachedZoneId());
+    // uberInsert.addUInt64(uint64(m_deathExpireTime));
+    // // Honor stored data
+    // uberInsert.addFloat(finiteAlways(m_honorMgr.GetRankPoints()));
+    // uberInsert.addUInt32(uint32(m_honorMgr.GetHighestRank().rank));
+    // uberInsert.addUInt32(m_honorMgr.GetStanding());
+    // uberInsert.addUInt32(m_honorMgr.GetLastWeekHK());
+    // uberInsert.addFloat(finiteAlways(m_honorMgr.GetLastWeekCP()));
+    // uberInsert.addUInt32(m_honorMgr.GetStoredHK());
+    // uberInsert.addUInt32(m_honorMgr.GetStoredDK());
+    // #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_9_4
+    //     uberInsert.addInt32(GetInt32Value(PLAYER_FIELD_WATCHED_FACTION_INDEX));
+    // #else
+    //     uberInsert.addInt32(-1);
+    // #endif
+    // uberInsert.addUInt16(uint16(GetUInt32Value(PLAYER_BYTES_3) & 0xFFFE));
+    // uberInsert.addUInt32(GetHealth());
+    // for (uint32 i = 0; i < MAX_POWERS; ++i)
+    //     uberInsert.addUInt32(GetPower(Powers(i)));
+    // for (uint32 i = 0; i < PLAYER_EXPLORED_ZONES_SIZE; ++i)         //string
+    //     ss << GetUInt32Value(PLAYER_EXPLORED_ZONES_1 + i) << " ";
+    // uberInsert.addString(ss);
+    // for (uint32 i = 0; i < EQUIPMENT_SLOT_END; ++i)         //string: item id, ench (perm/temp)
+    // {
+    //     ss << GetUInt32Value(PLAYER_VISIBLE_ITEM_1_0 + i * MAX_VISIBLE_ITEM_OFFSET) << " ";
+    //     uint32 ench1 = GetUInt32Value(PLAYER_VISIBLE_ITEM_1_0 + i * MAX_VISIBLE_ITEM_OFFSET + 1 + PERM_ENCHANTMENT_SLOT);
+    //     uint32 ench2 = GetUInt32Value(PLAYER_VISIBLE_ITEM_1_0 + i * MAX_VISIBLE_ITEM_OFFSET + 1 + TEMP_ENCHANTMENT_SLOT);
+    //     ss << uint32(MAKE_PAIR32(ench1, ench2)) << " ";
+    // }
+    // // 1 in vanilla/tbc - 4 in wotlk
+    // for (uint32 i = INVENTORY_SLOT_BAG_START; i < INVENTORY_SLOT_BAG_START + 1; ++i) // string: item id, ench (perm/temp)
+    // {
+    //     ss << (m_items[i] ? m_items[i]->GetEntry() : 0) << " ";
+    //     ss << uint32(MAKE_PAIR32(0, 0)) << " ";
+    // }
+    // uberInsert.addString(ss);
+    // uberInsert.addUInt32(GetUInt32Value(PLAYER_AMMO_ID));
+    // uberInsert.addUInt32(uint32(GetByteValue(PLAYER_FIELD_BYTES, PLAYER_FIELD_BYTES_OFFSET_ACTION_BARS)));
+    // uberInsert.addUInt32(GetWorldMask());
+    // uberInsert.addUInt64(uint64(m_createTime));
+    // uberInsert.Execute();
+    // _SaveBGData();
+    // _SaveInventory();
+    // _SaveQuestStatus();
+    // _SaveSpells();
+    // _SaveSpellCooldowns();
+    // _SaveAuras();
+    // _SaveSkills();
+    // m_reputationMgr.SaveToDB();
+    // m_honorMgr.Save();
+    // // Systeme de phasing
+    // sObjectMgr.SetPlayerWorldMask(GetGUIDLow(), GetWorldMask());
+    // GetSession()->SaveTutorialsData();                      // changed only while character in game
+    // CharacterDatabase.CommitTransaction();
+    // (then, unchanged/still present below: stats-save-on-logout check + _SaveStats(), pet save, cache update)
     UpdateCharacterFlags();
-    uberInsert.addUInt32(m_characterFlags);
+
+    std::string safeName = m_name;
+    CharacterDatabase.escape_string(safeName);
+
+    std::ostringstream sql;
+    sql << std::fixed << std::setprecision(6);
+    sql << "REPLACE INTO `characters` (`guid`, `account`, `name`, `race`, `class`, `gender`, `level`, `xp`, `money`, `skin`, `face`, `hair_style`, `hair_color`, `facial_hair`, `bank_bag_slots`, `character_flags`,"
+           "`map`, `instance`, `position_x`, `position_y`, `position_z`, `orientation`, "
+           "`transport_guid`, `transport_x`, `transport_y`, `transport_z`, `transport_o`, "
+           "`known_taxi_mask`, `current_taxi_path`, `online`, `played_time_total`, `played_time_level`, "
+           "`rest_bonus`, `logout_time`, `reset_talents_multiplier`, `reset_talents_time`, "
+           "`extra_flags`, `stable_slots`, `zone`, `death_expire_time`,"
+           "`honor_rank_points`, `honor_highest_rank`, `honor_standing`, `honor_last_week_hk`, `honor_last_week_cp`, `honor_stored_hk`, `honor_stored_dk`, "
+           "`watched_faction`, `drunk`, `health`, `power1`, `power2`, `power3`, `power4`, `power5`, "
+           "`explored_zones`, `equipment_cache`, `ammo_id`, `action_bars`, `world_phase_mask`, `create_time`) VALUES (";
+
+    sql << GetGUIDLow() << ',' << GetSession()->GetAccountId() << ",'" << safeName << "',"
+        << uint32(GetRace()) << ',' << uint32(GetClass()) << ',' << uint32(GetGender()) << ','
+        << GetLevel() << ',' << GetUInt32Value(PLAYER_XP) << ',' << GetMoney() << ','
+        << uint32(GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_SKIN_ID)) << ','
+        << uint32(GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_FACE_ID)) << ','
+        << uint32(GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_HAIR_STYLE_ID)) << ','
+        << uint32(GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_HAIR_COLOR_ID)) << ','
+        << uint32(GetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE)) << ','
+        << uint32(GetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_BANK_BAG_SLOTS)) << ','
+        << m_characterFlags;
 
     if (!IsBeingTeleported())
     {
-        uberInsert.addUInt32(GetMapId());
-        uberInsert.addUInt32(GetInstanceId());
-        uberInsert.addFloat(finiteAlways(GetPositionX()));
-        uberInsert.addFloat(finiteAlways(GetPositionY()));
-        uberInsert.addFloat(finiteAlways(GetPositionZ()));
-        uberInsert.addFloat(Geometry::NormalizeOrientation(finiteAlways(GetOrientation())));
+        sql << ',' << GetMapId() << ',' << GetInstanceId() << ','
+            << finiteAlways(GetPositionX()) << ',' << finiteAlways(GetPositionY()) << ',' << finiteAlways(GetPositionZ()) << ','
+            << Geometry::NormalizeOrientation(finiteAlways(GetOrientation()));
     }
     else
     {
-        uberInsert.addUInt32(GetTeleportDest().mapId);
-        uberInsert.addUInt32(0);
-        uberInsert.addFloat(finiteAlways(GetTeleportDest().x));
-        uberInsert.addFloat(finiteAlways(GetTeleportDest().y));
-        uberInsert.addFloat(finiteAlways(GetTeleportDest().z));
-        uberInsert.addFloat(Geometry::NormalizeOrientation(finiteAlways(GetTeleportDest().o)));
+        sql << ',' << GetTeleportDest().mapId << ',' << 0 << ','
+            << finiteAlways(GetTeleportDest().x) << ',' << finiteAlways(GetTeleportDest().y) << ',' << finiteAlways(GetTeleportDest().z) << ','
+            << Geometry::NormalizeOrientation(finiteAlways(GetTeleportDest().o));
     }
 
-    if (m_transport)
-        uberInsert.addUInt32(m_transport->GetGUIDLow());
-    else
-        uberInsert.addUInt32(0);
-    uberInsert.addFloat(finiteAlways(m_movementInfo.GetTransportPos().x));
-    uberInsert.addFloat(finiteAlways(m_movementInfo.GetTransportPos().y));
-    uberInsert.addFloat(finiteAlways(m_movementInfo.GetTransportPos().z));
-    uberInsert.addFloat(Geometry::NormalizeOrientation(finiteAlways(m_movementInfo.GetTransportPos().o)));
+    sql << ',' << (m_transport ? m_transport->GetGUIDLow() : 0) << ','
+        << finiteAlways(m_movementInfo.GetTransportPos().x) << ',' << finiteAlways(m_movementInfo.GetTransportPos().y) << ','
+        << finiteAlways(m_movementInfo.GetTransportPos().z) << ',' << Geometry::NormalizeOrientation(finiteAlways(m_movementInfo.GetTransportPos().o));
 
-    std::ostringstream ss;
-    ss << m_taxi;                                   // string with TaxiMaskSize numbers
-    uberInsert.addString(ss);
-
-    ss << m_taxi.SaveTaxiDestinationsToString();
-    uberInsert.addString(ss);
+    {
+        std::ostringstream taxiMask;
+        taxiMask << m_taxi;                             // string with TaxiMaskSize numbers
+        sql << ",'" << taxiMask.str() << "','" << m_taxi.SaveTaxiDestinationsToString() << "',";
+    }
 
     if (!IsInWorld())
         online = false;
-    uberInsert.addUInt32(online);
+    sql << uint32(online);
 
-    uberInsert.addUInt32(m_playedTime[PLAYED_TIME_TOTAL]);
-    uberInsert.addUInt32(m_playedTime[PLAYED_TIME_LEVEL]);
-
-    uberInsert.addFloat(finiteAlways(m_restBonus));
-    uberInsert.addUInt64(uint64(time(nullptr)));
-    uberInsert.addUInt32(m_resetTalentsMultiplier);
-    uberInsert.addUInt64(uint64(m_resetTalentsTime));
-    uberInsert.addUInt32(m_ExtraFlags);
-    uberInsert.addUInt32(uint32(m_stableSlots));                    // to prevent save uint8 as char
-    uberInsert.addUInt32(GetCachedZoneId());
-    uberInsert.addUInt64(uint64(m_deathExpireTime));
+    sql << ',' << m_playedTime[PLAYED_TIME_TOTAL] << ',' << m_playedTime[PLAYED_TIME_LEVEL] << ','
+        << finiteAlways(m_restBonus) << ',' << uint64(time(nullptr)) << ',' << m_resetTalentsMultiplier << ',' << uint64(m_resetTalentsTime) << ','
+        << m_ExtraFlags << ',' << uint32(m_stableSlots) << ',' << GetCachedZoneId() << ',' << uint64(m_deathExpireTime);
 
     // Honor stored data
-    uberInsert.addFloat(finiteAlways(m_honorMgr.GetRankPoints()));
-    uberInsert.addUInt32(uint32(m_honorMgr.GetHighestRank().rank));
-    uberInsert.addUInt32(m_honorMgr.GetStanding());
-    uberInsert.addUInt32(m_honorMgr.GetLastWeekHK());
-    uberInsert.addFloat(finiteAlways(m_honorMgr.GetLastWeekCP()));
-    uberInsert.addUInt32(m_honorMgr.GetStoredHK());
-    uberInsert.addUInt32(m_honorMgr.GetStoredDK());
+    sql << ',' << finiteAlways(m_honorMgr.GetRankPoints()) << ',' << uint32(m_honorMgr.GetHighestRank().rank) << ',' << m_honorMgr.GetStanding() << ','
+        << m_honorMgr.GetLastWeekHK() << ',' << finiteAlways(m_honorMgr.GetLastWeekCP()) << ',' << m_honorMgr.GetStoredHK() << ',' << m_honorMgr.GetStoredDK();
 
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_9_4
-    uberInsert.addInt32(GetInt32Value(PLAYER_FIELD_WATCHED_FACTION_INDEX));
+    sql << ',' << GetInt32Value(PLAYER_FIELD_WATCHED_FACTION_INDEX);
 #else
-    uberInsert.addInt32(-1);
+    sql << ',' << -1;
 #endif
 
-    uberInsert.addUInt16(uint16(GetUInt32Value(PLAYER_BYTES_3) & 0xFFFE));
+    sql << ',' << uint16(GetUInt32Value(PLAYER_BYTES_3) & 0xFFFE);
 
-    uberInsert.addUInt32(GetHealth());
+    sql << ',' << GetHealth();
 
     for (uint32 i = 0; i < MAX_POWERS; ++i)
-        uberInsert.addUInt32(GetPower(Powers(i)));
+        sql << ',' << GetPower(Powers(i));
 
-    for (uint32 i = 0; i < PLAYER_EXPLORED_ZONES_SIZE; ++i)         //string
-        ss << GetUInt32Value(PLAYER_EXPLORED_ZONES_1 + i) << " ";
-    uberInsert.addString(ss);
-
-    for (uint32 i = 0; i < EQUIPMENT_SLOT_END; ++i)         //string: item id, ench (perm/temp)
     {
-        ss << GetUInt32Value(PLAYER_VISIBLE_ITEM_1_0 + i * MAX_VISIBLE_ITEM_OFFSET) << " ";
-
-        uint32 ench1 = GetUInt32Value(PLAYER_VISIBLE_ITEM_1_0 + i * MAX_VISIBLE_ITEM_OFFSET + 1 + PERM_ENCHANTMENT_SLOT);
-        uint32 ench2 = GetUInt32Value(PLAYER_VISIBLE_ITEM_1_0 + i * MAX_VISIBLE_ITEM_OFFSET + 1 + TEMP_ENCHANTMENT_SLOT);
-        ss << uint32(MAKE_PAIR32(ench1, ench2)) << " ";
+        std::ostringstream exploredZones;
+        for (uint32 i = 0; i < PLAYER_EXPLORED_ZONES_SIZE; ++i)         //string
+            exploredZones << GetUInt32Value(PLAYER_EXPLORED_ZONES_1 + i) << " ";
+        sql << ",'" << exploredZones.str() << "',";
     }
-    // 1 in vanilla/tbc - 4 in wotlk
-    for (uint32 i = INVENTORY_SLOT_BAG_START; i < INVENTORY_SLOT_BAG_START + 1; ++i) // string: item id, ench (perm/temp)
+
     {
-        ss << (m_items[i] ? m_items[i]->GetEntry() : 0) << " ";
-        ss << uint32(MAKE_PAIR32(0, 0)) << " ";
+        std::ostringstream equipCache;
+        for (uint32 i = 0; i < EQUIPMENT_SLOT_END; ++i)         //string: item id, ench (perm/temp)
+        {
+            equipCache << GetUInt32Value(PLAYER_VISIBLE_ITEM_1_0 + i * MAX_VISIBLE_ITEM_OFFSET) << " ";
+
+            uint32 ench1 = GetUInt32Value(PLAYER_VISIBLE_ITEM_1_0 + i * MAX_VISIBLE_ITEM_OFFSET + 1 + PERM_ENCHANTMENT_SLOT);
+            uint32 ench2 = GetUInt32Value(PLAYER_VISIBLE_ITEM_1_0 + i * MAX_VISIBLE_ITEM_OFFSET + 1 + TEMP_ENCHANTMENT_SLOT);
+            equipCache << uint32(MAKE_PAIR32(ench1, ench2)) << " ";
+        }
+        // 1 in vanilla/tbc - 4 in wotlk
+        for (uint32 i = INVENTORY_SLOT_BAG_START; i < INVENTORY_SLOT_BAG_START + 1; ++i) // string: item id, ench (perm/temp)
+        {
+            equipCache << (m_items[i] ? m_items[i]->GetEntry() : 0) << " ";
+            equipCache << uint32(MAKE_PAIR32(0, 0)) << " ";
+        }
+        sql << "'" << equipCache.str() << "'";
     }
-    uberInsert.addString(ss);
 
-    uberInsert.addUInt32(GetUInt32Value(PLAYER_AMMO_ID));
+    sql << ',' << GetUInt32Value(PLAYER_AMMO_ID)
+        << ',' << uint32(GetByteValue(PLAYER_FIELD_BYTES, PLAYER_FIELD_BYTES_OFFSET_ACTION_BARS))
+        << ',' << GetWorldMask() << ',' << uint64(m_createTime) << ')';
 
-    uberInsert.addUInt32(uint32(GetByteValue(PLAYER_FIELD_BYTES, PLAYER_FIELD_BYTES_OFFSET_ACTION_BARS)));
-    uberInsert.addUInt32(GetWorldMask());
-    uberInsert.addUInt64(uint64(m_createTime));
-    uberInsert.Execute();
+    sCharactersOutbox.Enqueue(sql.str());
 
     _SaveBGData();
-    _SaveInventory();
     _SaveQuestStatus();
     _SaveSpells();
     _SaveSpellCooldowns();
     _SaveAuras();
     _SaveSkills();
     m_reputationMgr.SaveToDB();
+
+    // _SaveInventory()/m_honorMgr.Save() are the only two pieces of this save still synchronous
+    // and transactional - see HPHA.md "Phase 3 续" for why (inventory: BeginTransaction(GetGUIDLow())
+    // is a concurrency-control lock against SaveInventoryAndGoldToDB()'s racing fast-save path, not
+    // just crash-atomicity, and moving it to the async Outbox would drop that mutual exclusion;
+    // honor: character_honor_cp is an append-only log, the "delete-then-reinsert" idempotency
+    // technique used everywhere else in this function doesn't apply to it without a separate
+    // dedup-key design). Everything above is now durable via sCharactersOutbox instead.
+    CharacterDatabase.BeginTransaction(GetGUIDLow());
+    _SaveInventory();
     m_honorMgr.Save();
+    CharacterDatabase.CommitTransaction();
 
     // Systeme de phasing
     sObjectMgr.SetPlayerWorldMask(GetGUIDLow(), GetWorldMask());
     GetSession()->SaveTutorialsData();                      // changed only while character in game
-
-    CharacterDatabase.CommitTransaction();
 
     // check if stats should only be saved on logout
     // save stats can be out of transaction
@@ -17579,20 +17712,36 @@ void Player::SaveGoldToDB()
 
 void Player::_SaveAuras()
 {
-    static SqlStatementID deleteAuras ;
-    static SqlStatementID insertAuras ;
+    // Phase3 continuation (see HPHA.md "Phase 3 续") - routed through sCharactersOutbox as one
+    // atomic group, same "delete everything for guid, reinsert current full set" shape already
+    // proven by _SaveStats()/Pet::SavePetToDB() (and Pet::_SaveAuras(), the sibling of this
+    // function - see its own conversion notes). Unlike Pet::_SaveAuras(), this one binds a real
+    // `float i : s.damage` (not an int32-typed range-for), so base_points0-2 keep full float
+    // precision here rather than the truncation-to-int Pet's version preserved as a pre-existing
+    // quirk - confirmed `character_aura.base_points0-2` are genuine `float` columns.
+    // was:
+    // static SqlStatementID deleteAuras;
+    // static SqlStatementID insertAuras;
+    // SqlStatement stmt = CharacterDatabase.CreateStatement(deleteAuras, "DELETE FROM `character_aura` WHERE `guid` = ?");
+    // stmt.PExecute(GetGUIDLow());
+    // SpellAuraHolderMap const& auraHolders = GetSpellAuraHolderMap();
+    // if (auraHolders.empty())
+    //     return;
+    // stmt = CharacterDatabase.CreateStatement(insertAuras, "INSERT INTO `character_aura` (`guid`, `caster_guid`,
+    //     `item_guid`, `spell`, `stacks`, `charges`, `base_points0`, `base_points1`, `base_points2`,
+    //     `periodic_time0`, `periodic_time1`, `periodic_time2`, `max_duration`, `duration`, `effect_index_mask`)
+    //     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    // (per aura holder: stmt.addUInt32(GetGUIDLow()); stmt.addUInt64(s.casterGuid.GetRawValue());
+    //  stmt.addUInt32(s.itemLowGuid); stmt.addUInt32(s.spellId); stmt.addUInt32(s.stacks); stmt.addUInt8(s.charges);
+    //  for (float i : s.damage) stmt.addFloat(i); for (uint32 i : s.periodicTime) stmt.addUInt32(i);
+    //  stmt.addInt32(s.maxDuration); stmt.addInt32(s.duration); stmt.addInt8(s.effIndexMask); stmt.Execute();)
+    std::vector<std::string> sqls;
 
-    SqlStatement stmt = CharacterDatabase.CreateStatement(deleteAuras, "DELETE FROM `character_aura` WHERE `guid` = ?");
-    stmt.PExecute(GetGUIDLow());
+    char delSql[64];
+    snprintf(delSql, sizeof(delSql), "DELETE FROM `character_aura` WHERE `guid` = %u", GetGUIDLow());
+    sqls.push_back(delSql);
 
     SpellAuraHolderMap const& auraHolders = GetSpellAuraHolderMap();
-
-    if (auraHolders.empty())
-        return;
-
-    stmt = CharacterDatabase.CreateStatement(insertAuras, "INSERT INTO `character_aura` (`guid`, `caster_guid`, `item_guid`, `spell`, `stacks`, `charges`, "
-            "`base_points0`, `base_points1`, `base_points2`, `periodic_time0`, `periodic_time1`, `periodic_time2`, `max_duration`, `duration`, `effect_index_mask`) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
     AuraSaveStruct s;
     for (const auto& auraHolder : auraHolders)
@@ -17602,24 +17751,25 @@ void Player::_SaveAuras()
         if (!SaveAura(holder, s))
             continue;
 
-        stmt.addUInt32(GetGUIDLow());
-        stmt.addUInt64(s.casterGuid.GetRawValue());
-        stmt.addUInt32(s.itemLowGuid);
-        stmt.addUInt32(s.spellId);
-        stmt.addUInt32(s.stacks);
-        stmt.addUInt8(s.charges);
+        std::ostringstream ins;
+        ins << std::fixed << std::setprecision(6);
+        ins << "INSERT INTO `character_aura` (`guid`, `caster_guid`, `item_guid`, `spell`, `stacks`, `charges`, "
+               "`base_points0`, `base_points1`, `base_points2`, `periodic_time0`, `periodic_time1`, `periodic_time2`, `max_duration`, `duration`, `effect_index_mask`) "
+               "VALUES ("
+            << GetGUIDLow() << ',' << s.casterGuid.GetRawValue() << ',' << s.itemLowGuid << ',' << s.spellId << ',' << s.stacks << ',' << uint32(s.charges);
 
         for (float i : s.damage)
-            stmt.addFloat(i);
+            ins << ',' << finiteAlways(i);
 
         for (uint32 i : s.periodicTime)
-            stmt.addUInt32(i);
+            ins << ',' << i;
 
-        stmt.addInt32(s.maxDuration);
-        stmt.addInt32(s.duration);
-        stmt.addInt8(s.effIndexMask);
-        stmt.Execute();
+        ins << ',' << s.maxDuration << ',' << s.duration << ',' << uint32(s.effIndexMask) << ')';
+
+        sqls.push_back(ins.str());
     }
+
+    sCharactersOutbox.Enqueue(sqls);
 }
 
 bool Player::SaveAura(SpellAuraHolder const* holder, AuraSaveStruct& saveStruct)
@@ -17808,19 +17958,33 @@ void Player::_SaveInventory()
 
 void Player::_SaveQuestStatus()
 {
-    static SqlStatementID insertQuestStatus ;
-
-    static SqlStatementID updateQuestStatus ;
-
+    // Phase3 continuation (see HPHA.md "Phase 3 续") - routed through sCharactersOutbox.
+    // "we don't need transactions here" (below) was already true pre-Outbox; each row is an
+    // independent statement, no grouping needed. DELETE/UPDATE are already idempotent (absolute
+    // WHERE guid=?+quest=? scoped writes). The QUEST_NEW INSERT is the only unsafe-to-replay one
+    // (plain INSERT would collide on `(guid,quest)` PRIMARY KEY on a retried/replayed entry) -
+    // `ON DUPLICATE KEY UPDATE` makes replay a safe no-op, same technique as `character_hardcore`.
+    // was (per-row, via SqlStatement CreateStatement()/addUInt8/addUInt32/addUInt64/PExecute()/
+    // Execute() prepared-statement bindings, no ON DUPLICATE KEY on the INSERT):
+    // static SqlStatementID insertQuestStatus;
+    // static SqlStatementID updateQuestStatus;
+    // static SqlStatementID deleteQuestStatus;
+    // "DELETE FROM `character_queststatus` WHERE `guid` = ? AND `quest` = ?"
+    // "INSERT INTO `character_queststatus` (`guid`, `quest`, `status`, `rewarded`, `explored`, `timer`,
+    //   `mob_count1`, `mob_count2`, `mob_count3`, `mob_count4`, `item_count1`, `item_count2`, `item_count3`,
+    //   `item_count4`, `reward_choice`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    // "UPDATE `character_queststatus` SET `status` = ?, `rewarded` = ?, `reward_choice` = ?, `explored` = ?,
+    //   `timer` = ?, `mob_count1` = ?, `mob_count2` = ?, `mob_count3` = ?, `mob_count4` = ?, `item_count1` = ?,
+    //   `item_count2` = ?, `item_count3` = ?, `item_count4` = ?  WHERE `guid` = ? AND `quest` = ?"
     // we don't need transactions here.
     for (QuestStatusMap::iterator i = mQuestStatus.begin(); i != mQuestStatus.end();)
     {
         // Nostalrius
         if (i->second.uState == QUEST_DELETED)
         {
-            static SqlStatementID deleteQuestStatus ;
-            SqlStatement stmt = CharacterDatabase.CreateStatement(deleteQuestStatus, "DELETE FROM `character_queststatus` WHERE `guid` = ? AND `quest` = ?");
-            stmt.PExecute(GetGUIDLow(), i->first);
+            char sql[64];
+            snprintf(sql, sizeof(sql), "DELETE FROM `character_queststatus` WHERE `guid` = %u AND `quest` = %u", GetGUIDLow(), i->first);
+            sCharactersOutbox.Enqueue(sql);
             i = mQuestStatus.erase(i);
             continue;
         }
@@ -17828,40 +17992,31 @@ void Player::_SaveQuestStatus()
         {
             case QUEST_NEW :
             {
-                SqlStatement stmt = CharacterDatabase.CreateStatement(insertQuestStatus, "INSERT INTO `character_queststatus` (`guid`, `quest`, `status`, `rewarded`, `explored`, `timer`, `mob_count1`, `mob_count2`, `mob_count3`, `mob_count4`, `item_count1`, `item_count2`, `item_count3`, `item_count4`, `reward_choice`) "
-                                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-
-                stmt.addUInt32(GetGUIDLow());
-                stmt.addUInt32(i->first);
-                stmt.addUInt8(i->second.m_status);
-                stmt.addUInt8(i->second.m_rewarded);
-                stmt.addUInt8(i->second.m_explored);
-                stmt.addUInt64(uint64(i->second.m_timer / IN_MILLISECONDS + sWorld.GetGameTime()));
-                for (uint32 k : i->second.m_creatureOrGOcount)
-                    stmt.addUInt32(k);
-                for (uint32 k : i->second.m_itemcount)
-                    stmt.addUInt32(k);
-                stmt.addUInt32(i->second.m_reward_choice);
-                stmt.Execute();
+                uint64 timer = uint64(i->second.m_timer / IN_MILLISECONDS + sWorld.GetGameTime());
+                char sql[768];
+                snprintf(sql, sizeof(sql), "INSERT INTO `character_queststatus` (`guid`, `quest`, `status`, `rewarded`, `explored`, `timer`, `mob_count1`, `mob_count2`, `mob_count3`, `mob_count4`, `item_count1`, `item_count2`, `item_count3`, `item_count4`, `reward_choice`) "
+                    "VALUES (%u, %u, %u, %u, %u, " UI64FMTD ", %u, %u, %u, %u, %u, %u, %u, %u, %u) "
+                    "ON DUPLICATE KEY UPDATE `status`=VALUES(`status`), `rewarded`=VALUES(`rewarded`), `explored`=VALUES(`explored`), `timer`=VALUES(`timer`), "
+                    "`mob_count1`=VALUES(`mob_count1`), `mob_count2`=VALUES(`mob_count2`), `mob_count3`=VALUES(`mob_count3`), `mob_count4`=VALUES(`mob_count4`), "
+                    "`item_count1`=VALUES(`item_count1`), `item_count2`=VALUES(`item_count2`), `item_count3`=VALUES(`item_count3`), `item_count4`=VALUES(`item_count4`), `reward_choice`=VALUES(`reward_choice`)",
+                    GetGUIDLow(), i->first, uint32(i->second.m_status), uint32(i->second.m_rewarded), uint32(i->second.m_explored), timer,
+                    i->second.m_creatureOrGOcount[0], i->second.m_creatureOrGOcount[1], i->second.m_creatureOrGOcount[2], i->second.m_creatureOrGOcount[3],
+                    i->second.m_itemcount[0], i->second.m_itemcount[1], i->second.m_itemcount[2], i->second.m_itemcount[3],
+                    i->second.m_reward_choice);
+                sCharactersOutbox.Enqueue(sql);
             }
             break;
             case QUEST_CHANGED :
             {
-                SqlStatement stmt = CharacterDatabase.CreateStatement(updateQuestStatus, "UPDATE `character_queststatus` SET `status` = ?, `rewarded` = ?, `reward_choice` = ?, `explored` = ?, `timer` = ?,"
-                                    "`mob_count1` = ?, `mob_count2` = ?, `mob_count3` = ?, `mob_count4` = ?, `item_count1` = ?, `item_count2` = ?, `item_count3` = ?, `item_count4` = ?  WHERE `guid` = ? AND `quest` = ?");
-
-                stmt.addUInt8(i->second.m_status);
-                stmt.addUInt8(i->second.m_rewarded);
-                stmt.addUInt32(i->second.m_reward_choice);
-                stmt.addUInt8(i->second.m_explored);
-                stmt.addUInt64(uint64(i->second.m_timer / IN_MILLISECONDS + sWorld.GetGameTime()));
-                for (uint32 k : i->second.m_creatureOrGOcount)
-                    stmt.addUInt32(k);
-                for (uint32 k : i->second.m_itemcount)
-                    stmt.addUInt32(k);
-                stmt.addUInt32(GetGUIDLow());
-                stmt.addUInt32(i->first);
-                stmt.Execute();
+                uint64 timer = uint64(i->second.m_timer / IN_MILLISECONDS + sWorld.GetGameTime());
+                char sql[768];
+                snprintf(sql, sizeof(sql), "UPDATE `character_queststatus` SET `status` = %u, `rewarded` = %u, `reward_choice` = %u, `explored` = %u, `timer` = " UI64FMTD ","
+                    "`mob_count1` = %u, `mob_count2` = %u, `mob_count3` = %u, `mob_count4` = %u, `item_count1` = %u, `item_count2` = %u, `item_count3` = %u, `item_count4` = %u  WHERE `guid` = %u AND `quest` = %u",
+                    uint32(i->second.m_status), uint32(i->second.m_rewarded), i->second.m_reward_choice, uint32(i->second.m_explored), timer,
+                    i->second.m_creatureOrGOcount[0], i->second.m_creatureOrGOcount[1], i->second.m_creatureOrGOcount[2], i->second.m_creatureOrGOcount[3],
+                    i->second.m_itemcount[0], i->second.m_itemcount[1], i->second.m_itemcount[2], i->second.m_itemcount[3],
+                    GetGUIDLow(), i->first);
+                sCharactersOutbox.Enqueue(sql);
             }
             break;
             case QUEST_UNCHANGED:
@@ -17874,10 +18029,20 @@ void Player::_SaveQuestStatus()
 
 void Player::_SaveSkills()
 {
-    static SqlStatementID delSkills;
-    static SqlStatementID insSkills;
-    static SqlStatementID updSkills;
-
+    // Phase3 continuation (see HPHA.md "Phase 3 续") - routed through sCharactersOutbox. Same
+    // reasoning as _SaveQuestStatus(): "we don't need transactions here" was already true,
+    // DELETE/UPDATE stay as independent idempotent statements, only SKILL_NEW's plain INSERT
+    // needs `ON DUPLICATE KEY UPDATE` to survive an at-least-once replay.
+    // was:
+    // static SqlStatementID delSkills;
+    // static SqlStatementID insSkills;
+    // static SqlStatementID updSkills;
+    // static SqlStatementID forSkills;
+    // "DELETE FROM `character_skills` WHERE `guid` = ? AND `skill` = ?"
+    // "INSERT INTO `character_skills` (`guid`, `skill`, `value`, `max`) VALUES (?, ?, ?, ?)" (no ON DUPLICATE KEY)
+    // "UPDATE `character_skills` SET `value` = ?, `max` = ? WHERE `guid` = ? AND `skill` = ?"
+    // "REPLACE INTO `character_forgotten_skills` (`guid`, `skill`, `value`) VALUES (?, ?, ?)"
+    // (all via SqlStatement CreateStatement()/PExecute() prepared-statement bindings)
     // we don't need transactions here.
     for (SkillStatusMap::iterator itr = m_skillStatusMap.begin(); itr != m_skillStatusMap.end();)
     {
@@ -17889,8 +18054,9 @@ void Player::_SaveSkills()
 
         if (itr->second.uState == SKILL_DELETED)
         {
-            SqlStatement stmt = CharacterDatabase.CreateStatement(delSkills, "DELETE FROM `character_skills` WHERE `guid` = ? AND `skill` = ?");
-            stmt.PExecute(GetGUIDLow(), itr->first);
+            char sql[64];
+            snprintf(sql, sizeof(sql), "DELETE FROM `character_skills` WHERE `guid` = %u AND `skill` = %u", GetGUIDLow(), itr->first);
+            sCharactersOutbox.Enqueue(sql);
             m_skillStatusMap.erase(itr++);
             continue;
         }
@@ -17903,14 +18069,19 @@ void Player::_SaveSkills()
         {
             case SKILL_NEW:
             {
-                SqlStatement stmt = CharacterDatabase.CreateStatement(insSkills, "INSERT INTO `character_skills` (`guid`, `skill`, `value`, `max`) VALUES (?, ?, ?, ?)");
-                stmt.PExecute(GetGUIDLow(), itr->first, value, max);
+                char sql[192];
+                snprintf(sql, sizeof(sql), "INSERT INTO `character_skills` (`guid`, `skill`, `value`, `max`) VALUES (%u, %u, %u, %u) "
+                    "ON DUPLICATE KEY UPDATE `value`=VALUES(`value`), `max`=VALUES(`max`)",
+                    GetGUIDLow(), itr->first, uint32(value), uint32(max));
+                sCharactersOutbox.Enqueue(sql);
             }
             break;
             case SKILL_CHANGED:
             {
-                SqlStatement stmt = CharacterDatabase.CreateStatement(updSkills, "UPDATE `character_skills` SET `value` = ?, `max` = ? WHERE `guid` = ? AND `skill` = ?");
-                stmt.PExecute(value, max, GetGUIDLow(), itr->first);
+                char sql[128];
+                snprintf(sql, sizeof(sql), "UPDATE `character_skills` SET `value` = %u, `max` = %u WHERE `guid` = %u AND `skill` = %u",
+                    uint32(value), uint32(max), GetGUIDLow(), itr->first);
+                sCharactersOutbox.Enqueue(sql);
             }
             break;
             case SKILL_UNCHANGED:
@@ -17925,15 +18096,16 @@ void Player::_SaveSkills()
 
 
 #if SUPPORTED_CLIENT_BUILD > CLIENT_BUILD_1_10_2
-    // Forgotten weapon skills.
-    static SqlStatementID forSkills;
-
+    // Forgotten weapon skills. Already a `REPLACE INTO`, naturally idempotent - no conversion
+    // needed beyond routing through the outbox.
     for (const auto itr : m_forgottenSkills)
     {
         if (itr.second > 1)
         {
-            SqlStatement stmt = CharacterDatabase.CreateStatement(forSkills, "REPLACE INTO `character_forgotten_skills` (`guid`, `skill`, `value`) VALUES (?, ?, ?)");
-            stmt.PExecute(GetGUIDLow(), itr.first, itr.second);
+            char sql[128];
+            snprintf(sql, sizeof(sql), "REPLACE INTO `character_forgotten_skills` (`guid`, `skill`, `value`) VALUES (%u, %u, %u)",
+                GetGUIDLow(), itr.first, itr.second);
+            sCharactersOutbox.Enqueue(sql);
         }
     }
 #endif
@@ -17941,20 +18113,37 @@ void Player::_SaveSkills()
 
 void Player::_SaveSpells()
 {
-    static SqlStatementID delSpells ;
-    static SqlStatementID insSpells ;
-
-    SqlStatement stmtDel = CharacterDatabase.CreateStatement(delSpells, "DELETE FROM `character_spell` WHERE `guid` = ? and `spell` = ?");
-    SqlStatement stmtIns = CharacterDatabase.CreateStatement(insSpells, "INSERT INTO `character_spell` (`guid`, `spell`, `active`, `disabled`) VALUES (?, ?, ?, ?)");
-
+    // Phase3 continuation (see HPHA.md "Phase 3 续") - routed through sCharactersOutbox, each row
+    // an independent statement (no grouping needed). DELETE is already idempotent; the INSERT
+    // (fired for both PLAYERSPELL_NEW and PLAYERSPELL_CHANGED - the latter always paired with a
+    // preceding DELETE of the same row, same net effect) needs `ON DUPLICATE KEY UPDATE` to
+    // survive an at-least-once replay without colliding on the `(guid,spell)` PRIMARY KEY.
+    // was:
+    // static SqlStatementID delSpells;
+    // static SqlStatementID insSpells;
+    // SqlStatement stmtDel = CharacterDatabase.CreateStatement(delSpells, "DELETE FROM `character_spell` WHERE `guid` = ? and `spell` = ?");
+    // SqlStatement stmtIns = CharacterDatabase.CreateStatement(insSpells, "INSERT INTO `character_spell`
+    //     (`guid`, `spell`, `active`, `disabled`) VALUES (?, ?, ?, ?)"); (no ON DUPLICATE KEY)
+    // stmtDel.PExecute(GetGUIDLow(), itr->first);
+    // stmtIns.PExecute(GetGUIDLow(), itr->first, uint8(itr->second.active ? 1 : 0), uint8(itr->second.disabled ? 1 : 0));
     for (PlayerSpellMap::iterator itr = m_spells.begin(); itr != m_spells.end();)
     {
         if (itr->second.state == PLAYERSPELL_REMOVED || itr->second.state == PLAYERSPELL_CHANGED)
-            stmtDel.PExecute(GetGUIDLow(), itr->first);
+        {
+            char sql[64];
+            snprintf(sql, sizeof(sql), "DELETE FROM `character_spell` WHERE `guid` = %u and `spell` = %u", GetGUIDLow(), itr->first);
+            sCharactersOutbox.Enqueue(sql);
+        }
 
         // add only changed/new not dependent spells
         if (!itr->second.dependent && (itr->second.state == PLAYERSPELL_NEW || itr->second.state == PLAYERSPELL_CHANGED))
-            stmtIns.PExecute(GetGUIDLow(), itr->first, uint8(itr->second.active ? 1 : 0), uint8(itr->second.disabled ? 1 : 0));
+        {
+            char sql[256];
+            snprintf(sql, sizeof(sql), "INSERT INTO `character_spell` (`guid`, `spell`, `active`, `disabled`) VALUES (%u, %u, %u, %u) "
+                "ON DUPLICATE KEY UPDATE `active`=VALUES(`active`), `disabled`=VALUES(`disabled`)",
+                GetGUIDLow(), itr->first, uint32(itr->second.active ? 1 : 0), uint32(itr->second.disabled ? 1 : 0));
+            sCharactersOutbox.Enqueue(sql);
+        }
 
         if (itr->second.state == PLAYERSPELL_REMOVED)
             m_spells.erase(itr++);
@@ -22353,28 +22542,42 @@ void Player::_SaveBGData()
     if (!m_bgData.m_needSave)
         return;
 
-    static SqlStatementID delBGData ;
-    static SqlStatementID insBGData ;
+    // Phase3 continuation (see HPHA.md "Phase 3 续") - routed through sCharactersOutbox as one
+    // atomic group, same "delete everything for guid, reinsert current full set" shape already
+    // proven by _SaveStats()/Pet::SavePetToDB() - a full-group replay nets the same final state.
+    // was:
+    // static SqlStatementID delBGData;
+    // static SqlStatementID insBGData;
+    // SqlStatement stmt = CharacterDatabase.CreateStatement(delBGData, "DELETE FROM `character_battleground_data` WHERE `guid` = ?");
+    // stmt.PExecute(GetGUIDLow());
+    // if (m_bgData.bgInstanceID || InBattleGroundQueue())
+    // {
+    //     stmt = CharacterDatabase.CreateStatement(insBGData, "INSERT INTO `character_battleground_data` VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    //     /* guid, bgInstanceID, bgTeam, x, y, z, o, map */
+    //     stmt.addUInt32(GetGUIDLow()); stmt.addUInt32(m_bgData.bgInstanceID); stmt.addUInt32(uint32(m_bgData.bgTeam));
+    //     stmt.addFloat(m_bgData.joinPos.x); stmt.addFloat(m_bgData.joinPos.y); stmt.addFloat(m_bgData.joinPos.z);
+    //     stmt.addFloat(m_bgData.joinPos.o); stmt.addUInt32(m_bgData.joinPos.mapId);
+    //     stmt.Execute();
+    // }
+    std::vector<std::string> sqls;
 
-    SqlStatement stmt =  CharacterDatabase.CreateStatement(delBGData, "DELETE FROM `character_battleground_data` WHERE `guid` = ?");
-
-    stmt.PExecute(GetGUIDLow());
+    char delSql[64];
+    snprintf(delSql, sizeof(delSql), "DELETE FROM `character_battleground_data` WHERE `guid` = %u", GetGUIDLow());
+    sqls.push_back(delSql);
 
     if (m_bgData.bgInstanceID || InBattleGroundQueue())
     {
-        stmt = CharacterDatabase.CreateStatement(insBGData, "INSERT INTO `character_battleground_data` VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-        /* guid, bgInstanceID, bgTeam, x, y, z, o, map */
-        stmt.addUInt32(GetGUIDLow());
-        stmt.addUInt32(m_bgData.bgInstanceID);
-        stmt.addUInt32(uint32(m_bgData.bgTeam));
-        stmt.addFloat(m_bgData.joinPos.x);
-        stmt.addFloat(m_bgData.joinPos.y);
-        stmt.addFloat(m_bgData.joinPos.z);
-        stmt.addFloat(m_bgData.joinPos.o);
-        stmt.addUInt32(m_bgData.joinPos.mapId);
-
-        stmt.Execute();
+        std::ostringstream ins;
+        ins << std::fixed << std::setprecision(6);
+        ins << "INSERT INTO `character_battleground_data` VALUES ("
+            << GetGUIDLow() << ',' << m_bgData.bgInstanceID << ',' << uint32(m_bgData.bgTeam) << ','
+            << finiteAlways(m_bgData.joinPos.x) << ',' << finiteAlways(m_bgData.joinPos.y) << ','
+            << finiteAlways(m_bgData.joinPos.z) << ',' << finiteAlways(m_bgData.joinPos.o) << ','
+            << m_bgData.joinPos.mapId << ')';
+        sqls.push_back(ins.str());
     }
+
+    sCharactersOutbox.Enqueue(sqls);
 
     m_bgData.m_needSave = false;
 }
