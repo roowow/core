@@ -3361,6 +3361,13 @@ SpellCastResult Spell::prepare(Aura* triggeredByAura, uint32 chance)
         {
             if (!m_originalCasterGUID.IsGameObject())
             {
+                // TEMP DEBUG (SpellQueue testing, remove once confirmed working) - this early
+                // return happens BEFORE the queueing branch further down ever runs, so if THIS is
+                // what's rejecting a press, no [SpellQueue] log of any kind will ever appear for
+                // it, even though the player experiences the same "my press did nothing" feel.
+                if (Player* pDebugPlayer = m_caster->ToPlayer())
+                    sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[SpellQueue][DIAG-EARLY] spell %u rejected: SPELL_FAILED_SPELL_IN_PROGRESS (IsNonMeleeSpellCasted) for %s",
+                        m_spellInfo->Id, pDebugPlayer->GetName());
                 SendCastResult(SPELL_FAILED_SPELL_IN_PROGRESS);
                 finish(false);
                 return SPELL_FAILED_SPELL_IN_PROGRESS;
