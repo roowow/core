@@ -366,6 +366,11 @@ public:
     // cooldown system
     virtual void AddGCD(SpellEntry const* spellEntry, uint32 forcedDuration = 0, bool updateClient = false);
     virtual bool HasGCD(SpellEntry const* spellEntry) const;
+    // Milliseconds remaining on this spell's GCD category, or 0 if it isn't on GCD. The
+    // underlying map already stores an absolute expiry TimePoint (see AddGCD()), so this is
+    // just "expiry minus now" - added for spell queueing (see SpellQueue.md), which needs to
+    // know how close a rejected cast attempt was to actually being allowed.
+    uint32 GetGCDRemaining(SpellEntry const* spellEntry) const;
     void ResetGCD(SpellEntry const* spellEntry = nullptr);
     virtual void AddCooldown(SpellEntry const* spellEntry, ItemPrototype const* itemProto = nullptr, bool permanent = false, uint32 forcedDuration = 0);
     virtual void RemoveSpellCooldown(SpellEntry const* spellEntry, bool updateClient = true);

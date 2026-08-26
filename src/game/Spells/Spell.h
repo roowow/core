@@ -334,6 +334,15 @@ class Spell
 
         bool m_isClientStarted = false;
         void SetClientStarted(bool isClientStarted);
+        // Spell queue (see SpellQueue.md) eligibility - only WorldSession::CastPreparedSpell()
+        // (the real CMSG_CAST_SPELL path, and its own queued replay) sets this. Deliberately NOT
+        // derived from m_isClientStarted/m_IsTriggeredSpell/m_CastItem alone: those are also true
+        // for, e.g., trainer spell-learning (NPCHandler.cpp) or trade-window spell casts
+        // (TradeHandler.cpp), which have their own result-dependent side effects (charging gold,
+        // etc.) tied to a synchronous SPELL_CAST_OK check done right after prepare() returns -
+        // queueing one of those would let that side effect get skipped while the spell still
+        // fires for free once the queue replays it.
+        bool m_allowSpellQueue = false;
         bool IsTriggered() const       { return m_IsTriggeredSpell; }
         bool IsTriggeredByAura() const { return m_triggeredByAuraSpell; }
         bool IsTriggeredByProc() const;

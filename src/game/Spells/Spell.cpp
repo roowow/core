@@ -3388,6 +3388,50 @@ SpellCastResult Spell::prepare(Aura* triggeredByAura, uint32 chance)
             {
                 if (!IsAutoRepeat() || !IsAcceptableAutorepeatError(result))
                 {
+                    // Spell queue (see SpellQueue.md): a press that arrives in the last stretch
+                    // of GCD isn't a wasted attempt - buffer it and replay it the instant GCD
+                    // actually clears, instead of rejecting outright. Deliberately narrow:
+                    // - only SPELL_FAILED_NOT_READY specifically (not SPELL_FAILED_DONT_REPORT,
+                    //   and SPELL_FAILED_SPELL_IN_PROGRESS is handled earlier in this function
+                    //   and never reaches here - "queueing while already casting" is a separate,
+                    //   harder problem this doesn't attempt, see SpellQueue.md);
+                    // - only for a real player's own non-triggered cast attempt;
+                    // - only when m_allowSpellQueue is set (see its declaration in Spell.h) -
+                    //   i.e. only for a genuine CMSG_CAST_SPELL-originated cast (or its own
+                    //   queued replay), never trainer spell-learning, trade-window spell casts,
+                    //   item-use casts, etc., all of which also reach Spell::prepare() with a
+                    //   non-triggered Player caster but have their own result-dependent side
+                    //   effects (charging gold, consuming item charges, ...) that a silent
+                    //   "queue it and fire later" would let the player dodge while the spell
+                    //   still goes off for free;
+                    // - only if GCD has more than a few hundred ms left is this NOT queued -
+                    //   otherwise a single early button-mash early in a long GCD would get
+                    //   silently remembered and fire much later, which is not the feature;
+                    // - opt-in only: player must have run ".spellqueue on" (default off, no
+                    //   server-wide switch - see IsSpellQueueEnabled()'s declaration in Player.h).
+                    // No SendCastResult() here on purpose - the player shouldn't see a "failed"
+                    // flash for an input that's actually going to fire a moment later.
+                    if (result == SPELL_FAILED_NOT_READY && !m_IsTriggeredSpell && m_allowSpellQueue)
+                    {
+                        if (Player* pPlayer = m_caster->ToPlayer())
+                        {
+                            if (pPlayer->IsSpellQueueEnabled())
+                            {
+                                uint32 const remaining = m_caster->GetGCDRemaining(m_spellInfo);
+                                uint32 const window = std::min<uint32>(500, 100 + pPlayer->GetSession()->GetLatency());
+                                if (remaining && remaining <= window)
+                                {
+                                    // TEMP DEBUG (SpellQueue testing, remove once confirmed working)
+                                    sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[SpellQueue] queued spell %u for %s: %ums GCD remaining, %ums window",
+                                        m_spellInfo->Id, pPlayer->GetName(), remaining, window);
+                                    pPlayer->QueueSpellCast(m_spellInfo->Id, m_targets);
+                                    finish(false);
+                                    return SPELL_FAILED_DONT_REPORT;
+                                }
+                            }
+                        }
+                    }
+
                     DEBUG_FILTER_LOG(LOG_FILTER_SPELL_CAST, "Spell %u failed for reason 0x%x (target %u)", m_spellInfo->Id, result, pTarget ? pTarget->GetGUIDLow() : 0);
                     SendCastResult(result);
                     //SendInterrupted(0);

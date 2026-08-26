@@ -1174,6 +1174,77 @@ AutoAttackCheckResult Player::CanAutoAttackTarget(Unit const* pVictim) const
     return Unit::CanAutoAttackTarget(pVictim);
 }
 
+// Spell queue (see src/game/0-Design/SpellQueue.md). Deliberately just spell id + a copy of the
+// already-`PrepareForSpellSystem()`-processed targets + an enqueue timestamp - not a `Spell*`,
+// since a rejected cast attempt's `Spell` object is destroyed via `finish(false)` the moment it's
+// queued (see `Spell::prepare()`'s SPELL_FAILED_NOT_READY branch). `SpellCastTargets` is safe to
+// hold onto across the queue window even though it caches raw pointers resolved from GUIDs
+// (target unit/GO/item) - `Spell::cast()` already calls `UpdatePointers()`/`m_targets.Update()`
+// to re-resolve those from the GUIDs before ever using them (see its own comment: "prevent access
+// to already nonexistent object"), so replaying this through `CastPreparedSpell()` -> `new Spell`
+// -> `prepare()` -> (later) `cast()` re-validates staleness for free, the same way a fresh
+// CMSG_CAST_SPELL already has to.
+struct PendingSpellCast
+{
+    uint32 spellId = 0;
+    SpellCastTargets targets;
+    TimePoint queuedAt;
+};
+
+void Player::QueueSpellCast(uint32 spellId, SpellCastTargets const& targets)
+{
+    m_pendingSpellCast = std::make_unique<PendingSpellCast>();
+    m_pendingSpellCast->spellId = spellId;
+    m_pendingSpellCast->targets = targets;
+    m_pendingSpellCast->queuedAt = sWorld.GetCurrentClockTime();
+}
+
+void Player::UpdateQueuedSpellCast()
+{
+    if (!m_pendingSpellCast)
+        return;
+
+    // Safety backstop only - the actual "is this still worth firing" decision already happened
+    // once, at queue time (Spell::prepare()'s narrow GCD-remaining window). This just guarantees
+    // a pending cast can never sit around indefinitely if something left it un-fired (e.g. this
+    // GCD category somehow never expiring), long after any queueing feel would still make sense.
+    if (sWorld.GetCurrentClockTime() - m_pendingSpellCast->queuedAt > std::chrono::seconds(2))
+    {
+        m_pendingSpellCast.reset();
+        return;
+    }
+
+    SpellEntry const* spellInfo = sSpellMgr.GetSpellEntry(m_pendingSpellCast->spellId);
+    if (!spellInfo)
+    {
+        m_pendingSpellCast.reset();
+        return;
+    }
+
+    if (HasGCD(spellInfo))
+        return; // still waiting
+
+    PendingSpellCast pending = std::move(*m_pendingSpellCast);
+    m_pendingSpellCast.reset();
+
+    // Re-validate against current state, same as a fresh CMSG_CAST_SPELL would - the spell could
+    // have left this player's spellbook (or become passive, though that shouldn't itself change)
+    // in the time spent waiting on GCD. Silently drop rather than error: from the player's
+    // perspective nothing was ever visibly "queued" to begin with (see Spell::prepare() - no
+    // SendCastResult() when this was buffered), so silently not firing is the correct symmetric
+    // behavior, not a bug to report.
+    if (!HasActiveSpell(pending.spellId) || spellInfo->IsPassiveSpell())
+    {
+        // TEMP DEBUG (SpellQueue testing, remove once confirmed working)
+        sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[SpellQueue] dropped queued spell %u for %s: no longer active/became passive", pending.spellId, GetName());
+        return;
+    }
+
+    // TEMP DEBUG (SpellQueue testing, remove once confirmed working)
+    sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[SpellQueue] firing queued spell %u for %s", pending.spellId, GetName());
+    GetSession()->CastPreparedSpell(spellInfo, std::move(pending.targets));
+}
+
 void Player::Update(uint32 update_diff, uint32 p_time)
 {
     if (!IsInWorld())
@@ -1187,6 +1258,10 @@ void Player::Update(uint32 update_diff, uint32 p_time)
     if (m_AI)
         m_AI->UpdateAI(p_time);
     SetCanDelayTeleport(false);
+
+    // After Unit::Update() (which just ran UpdateCooldowns(), clearing any GCD categories that
+    // expired this tick) so this sees an up-to-date GCD state, not last tick's.
+    UpdateQueuedSpellCast();
 
     sCustomTaxiMgr.UpdateRecorder(this, update_diff);
 

@@ -56,6 +56,7 @@ class Creature;
 class PlayerMenu;
 class UpdateMask;
 class SpellCastTargets;
+struct PendingSpellCast;
 class PlayerSocial;
 class TradeData;
 class DungeonPersistentState;
@@ -1414,6 +1415,14 @@ class Player final: public Unit
         void CastItemCombatSpell(Unit* Target, WeaponAttackType attType);
         void CastItemUseSpell(Item* item, SpellCastTargets const& targets);
 
+        // Spell queue (see SpellQueue.md): buffers a cast attempt that was only rejected because
+        // GCD hadn't quite cleared yet, and replays it the instant GCD does. Called from
+        // Spell::prepare()'s SPELL_FAILED_NOT_READY branch - see there for the decision of
+        // whether a given rejection qualifies (window size, opt-in flag, etc.); by the time this
+        // is called that decision has already been made.
+        void QueueSpellCast(uint32 spellId, SpellCastTargets const& targets);
+        void UpdateQueuedSpellCast(); // called every tick from Player::Update()
+
         ItemSetEffect* GetItemSetEffect(uint32 setId);
         ItemSetEffect* AddItemSetEffect(uint32 setId);
         void RemoveItemSetEffect(uint32 setId);
@@ -2208,6 +2217,11 @@ class Player final: public Unit
         bool IsEnabledWhisperRestriction() const { return m_ExtraFlags & PLAYER_EXTRA_WHISP_RESTRICTION; }
         void SetWhisperRestriction(bool on) { if (on) m_ExtraFlags |= PLAYER_EXTRA_WHISP_RESTRICTION; else m_ExtraFlags &= ~PLAYER_EXTRA_WHISP_RESTRICTION; }
 
+        // Spell queue (see SpellQueue.md): opt-in, default off - player has to explicitly run
+        // ".spellqueue on" before a GCD-not-ready cast can ever be buffered/replayed for them.
+        bool IsSpellQueueEnabled() const { return m_ExtraFlags & PLAYER_EXTRA_SPELL_QUEUE_ENABLED; }
+        void SetSpellQueueEnabled(bool enabled) { if (enabled) m_ExtraFlags |= PLAYER_EXTRA_SPELL_QUEUE_ENABLED; else m_ExtraFlags &= ~PLAYER_EXTRA_SPELL_QUEUE_ENABLED; }
+
         bool IsAcceptWhispers() const { return m_ExtraFlags & PLAYER_EXTRA_ACCEPT_WHISPERS; }
         void SetAcceptWhispers(bool on) { if (on) m_ExtraFlags |= PLAYER_EXTRA_ACCEPT_WHISPERS; else m_ExtraFlags &= ~PLAYER_EXTRA_ACCEPT_WHISPERS; }
         uint32 GetExtraFlags() const { return m_ExtraFlags; }
@@ -2287,6 +2301,10 @@ class Player final: public Unit
 
         // todo: -maybe move UpdateDuelFlag+DuelComplete to independent DuelHandler.
         DuelInfo* m_duel;
+
+        // Spell queue (see SpellQueue.md / QueueSpellCast()) - at most one buffered cast attempt
+        // at a time; a newer queued press simply replaces whatever was pending before it.
+        std::unique_ptr<PendingSpellCast> m_pendingSpellCast;
         bool IsInDuelWith(Player const* player) const { return m_duel && m_duel->opponent == player && m_duel->startTime != 0; }
         void UpdateDuelFlag(time_t currTime);
         void CheckDuelDistance(time_t currTime);

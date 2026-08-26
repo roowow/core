@@ -242,6 +242,7 @@ class ChatHandler
         bool HandleSpamerUnmute(char* args);
         bool HandleSpamerList(char* args);
         bool HandleWhisperRestrictionCommand(char* args);
+        bool HandleSpellQueueCommand(char* args);
         bool HandleUnstuckCommand(char* args);
         bool HandleGoldRemoval(char* args);
         bool HandleAntiSpamAdd(char* args);

@@ -2173,6 +2173,22 @@ bool SpellCaster::HasGCD(SpellEntry const* spellEntry) const
     return !m_GCDCatMap.empty();
 }
 
+uint32 SpellCaster::GetGCDRemaining(SpellEntry const* spellEntry) const
+{
+    if (!spellEntry)
+        return 0;
+
+    auto gcdItr = m_GCDCatMap.find(spellEntry->StartRecoveryCategory);
+    if (gcdItr == m_GCDCatMap.end())
+        return 0;
+
+    TimePoint const now = sWorld.GetCurrentClockTime();
+    if (gcdItr->second <= now)
+        return 0;
+
+    return uint32(std::chrono::duration_cast<std::chrono::milliseconds>(gcdItr->second - now).count());
+}
+
 void SpellCaster::AddCooldown(SpellEntry const* spellEntry, ItemPrototype const* /*itemProto = nullptr*/, bool /*permanent = false*/, uint32 forcedDuration /*= 0*/)
 {
     uint32 recTimeDuration = forcedDuration ? forcedDuration : spellEntry->RecoveryTime;

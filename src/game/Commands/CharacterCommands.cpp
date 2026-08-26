@@ -1279,6 +1279,30 @@ bool ChatHandler::HandleWhisperRestrictionCommand(char* args)
     return false;
 }
 
+// Spell queue (see src/game/0-Design/SpellQueue.md) - a cast pressed slightly early, in the last
+// stretch of GCD, gets buffered and replayed the instant GCD clears instead of being rejected.
+// Opt-in, default off; ".spellqueue on" turns it on for this character.
+bool ChatHandler::HandleSpellQueueCommand(char* args)
+{
+    if (!*args)
+    {
+        PSendSysMessage("Spell queue is %s", GetSession()->GetPlayer()->IsSpellQueueEnabled() ? "ON" : "OFF");
+        return true;
+    }
+
+    bool value;
+    if (!ExtractOnOff(&args, value))
+    {
+        SendSysMessage(LANG_USE_BOL);
+        SetSentErrorMessage(true);
+        return false;
+    }
+
+    GetSession()->GetPlayer()->SetSpellQueueEnabled(value);
+    PSendSysMessage("Spell queue is %s", value ? "ON" : "OFF");
+    return false;
+}
+
 //Enable\Disable accept whispers (for GM)
 bool ChatHandler::HandleWhispersCommand(char* args)
 {

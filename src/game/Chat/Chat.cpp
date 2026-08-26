@@ -1347,6 +1347,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "setskill",       SEC_ADMINISTRATOR,     false, &ChatHandler::HandleSetSkillCommand,            "", nullptr },
         { "whispers",       SEC_DEVELOPER,      false, &ChatHandler::HandleWhispersCommand,            "", nullptr },
         { "wr",             SEC_PLAYER,         false, &ChatHandler::HandleWhisperRestrictionCommand,  "", nullptr },
+        { "spellqueue",     SEC_PLAYER,         false, &ChatHandler::HandleSpellQueueCommand,          "", nullptr },
         { "pinfo",          SEC_DEVELOPER,   false, &ChatHandler::HandlePInfoCommand,               "", nullptr },
         { "groupinfo",      SEC_DEVELOPER,   true,  &ChatHandler::HandleGroupInfoCommand,           "", nullptr },
         { "pbcast",         SEC_ADMINISTRATOR,  true,  &ChatHandler::HandlePBCastStatsCommand,         "", pbcastCommandTable },

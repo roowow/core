@@ -22,6 +22,7 @@ enum PlayerExtraFlags
     PLAYER_EXTRA_PVP_DEATH          = 0x0100,               // store PvP death status until corpse creating.
     PLAYER_EXTRA_WHISP_RESTRICTION  = 0x0200,
     PLAYER_EXTRA_CITY_PROTECTOR     = 0x0400,
+    PLAYER_EXTRA_SPELL_QUEUE_ENABLED = 0x0800,               // set = player used .spellqueue on; unset (default) = feature off
 
     /// Hardcore
     PLAYER_EXTRA_HARDCORE_ON        = 0x1000,

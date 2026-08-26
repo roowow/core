@@ -757,10 +757,15 @@ void WorldSession::HandleCastSpellOpcode(WorldPackets::Spell::CastSpell const& p
 
     // client provided targets
     const_cast<SpellCastTargets&>(packet.targets).PrepareForSpellSystem(_player);
+    CastPreparedSpell(spellInfo, const_cast<SpellCastTargets&>(packet.targets));
+}
+
+void WorldSession::CastPreparedSpell(SpellEntry const* spellInfo, SpellCastTargets targets)
+{
     SpellEntry const* originalSpellInfo = spellInfo;
 
     // auto-selection buff level base at target level (in spellInfo)
-    if (Unit* target = packet.targets.getUnitTarget())
+    if (Unit* target = targets.getUnitTarget())
     {
         // Cannot cast negative spells on yourself. Handle it here since casting negative
         // spells on yourself is frequently used within the core itself for certain mechanics.
@@ -786,7 +791,7 @@ void WorldSession::HandleCastSpellOpcode(WorldPackets::Spell::CastSpell const& p
             DoLootRelease(lootGuid);
     }
 
-    Spell* spell = new Spell(_player, spellInfo, false, ObjectGuid(), nullptr, packet.targets.getUnitTarget());
+    Spell* spell = new Spell(_player, spellInfo, false, ObjectGuid(), nullptr, targets.getUnitTarget());
 
     // Spell has been down-ranked, remember what client wanted to cast.
     if (spellInfo != originalSpellInfo)
@@ -794,7 +799,11 @@ void WorldSession::HandleCastSpellOpcode(WorldPackets::Spell::CastSpell const& p
 
     // Nostalrius : Ivina
     spell->SetClientStarted(true);
-    spell->prepare(std::move(const_cast<SpellCastTargets&>(packet.targets)));
+    // Only the real CMSG_CAST_SPELL path (this function, live or replayed via the spell queue -
+    // see SpellQueue.md) is eligible to have a GCD-not-ready rejection buffered and replayed;
+    // see m_allowSpellQueue's declaration in Spell.h for why this isn't just "any player cast".
+    spell->m_allowSpellQueue = true;
+    spell->prepare(std::move(targets));
 }
 
 void WorldSession::HandleCancelCastOpcode(WorldPackets::Spell::CancelCast const& packet)
