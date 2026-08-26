@@ -1039,80 +1039,94 @@ GameObjectAI* GetAIgo_egg_raz(GameObject* pGo)
 
 struct go_ai_suppression : public GameObjectAI
 {
-    go_ai_suppression(GameObject* go) : GameObjectAI(go),
-        m_uiFumeTimer(urand(0, 5 * IN_MILLISECONDS)),
-        m_disabledUntil(0) {}
+    go_ai_suppression(GameObject* go) : GameObjectAI(go), m_uiFumeTimer(urand(0, 5 * IN_MILLISECONDS)) {}
 
     uint32 m_uiFumeTimer;
-    time_t m_disabledUntil;
 
-    void OnLootStateChange() override
+    // 2026-08-26 merge note (see release notes / conversation for full analysis): the previous
+    // OnLootStateChange()-based rewrite of this struct never actually fired for GAMEOBJECT_TYPE_TRAP -
+    // neither the proximity auto-trigger path (GameObject::Update(), GO_READY case) nor the
+    // Use()-triggered path ever calls SetLootState(GO_ACTIVATED) for a trap, only AI()->OnUse().
+    // Upstream's "Fix BWL Suppression Devices" (vmangos/core#3532, commit 19a77eb11) fixed exactly
+    // this by rewriting around OnUse()/GO_FLAG_IN_USE instead, and removed the OnLootStateChange
+    // hook from GameObjectAI.h/GameObject::SetLootState() entirely (that part merged in cleanly,
+    // no conflict) - so the OnLootStateChange body this replaced was both dead code all along and,
+    // after the merge, ill-formed (an override of a virtual that no longer exists). This version
+    // keeps upstream's state machine (the part that's actually proven to run) but keeps our fix's
+    // actual point - only players and their pets are hit, not every creature in radius - instead
+    // of upstream's `me->CastSpell(nullptr, ..., true)` (unscoped AoE cast, which does not
+    // distinguish players from creatures).
+    bool OnUse(Unit* /*user*/) override
     {
-        LootState state = me->getLootState();
-        if (state != GO_ACTIVATED && state != GO_JUST_DEACTIVATED)
-            return;
-
         ScriptedInstance* pInstance = (ScriptedInstance*)me->GetMap()->GetInstanceData();
-        bool lashlayerDone = pInstance && pInstance->GetData(TYPE_LASHLAYER) == DONE;
-        m_disabledUntil = lashlayerDone
-            ? time(nullptr) + 7 * 24 * 3600
-            : time(nullptr) + urand(30, 2 * MINUTE);
+        if (!pInstance)
+            return false;
 
-        me->SetGoState(GO_STATE_ACTIVE);
-
-        float radius = float(me->GetGOInfo()->trap.radius);
-        if (radius < 1.0f) radius = 30.0f;
-
-        // Remove aura from players (and their pets) in range; other active devices keep suppressing their own area
-        std::list<Player*> players;
-        me->GetAlivePlayerListInRange(me, players, radius);
-        for (Player* pPlayer : players)
+        // As long as Broodlord Lashlayer is alive, the GO will rearm on a random timer from 30 sec to 2 min
+        // It will not rearm for the instance lifetime after Broodlord Lashlayer death
+        if (me->GetGoState() == GO_STATE_READY)
         {
-            pPlayer->RemoveAurasDueToSpell(SPELL_SUPPRESSION_AURA);
-            if (Pet* pet = pPlayer->GetPet())
-                pet->RemoveAurasDueToSpell(SPELL_SUPPRESSION_AURA);
+            if (pInstance->GetData(TYPE_LASHLAYER) != DONE)
+                m_uiFumeTimer = urand(30, 2 * MINUTE) * IN_MILLISECONDS;
+            else
+                m_uiFumeTimer = WEEK * IN_MILLISECONDS;
+
+            me->SetFlag(GAMEOBJECT_FLAGS, GO_FLAG_IN_USE);
+            me->SetGoState(GO_STATE_ACTIVE);
+            me->SetLootState(GO_READY);
+
+            // Courtesy cleanup: clear the debuff from players/pets in range now that this device
+            // has gone quiet, instead of waiting out its remaining duration.
+            float radius = float(me->GetGOInfo()->trap.radius);
+            if (radius < 1.0f) radius = 30.0f;
+            std::list<Player*> players;
+            me->GetAlivePlayerListInRange(me, players, radius);
+            for (Player* pPlayer : players)
+            {
+                pPlayer->RemoveAurasDueToSpell(SPELL_SUPPRESSION_AURA);
+                if (Pet* pet = pPlayer->GetPet())
+                    pet->RemoveAurasDueToSpell(SPELL_SUPPRESSION_AURA);
+            }
         }
+
+        return true;
     }
 
     // Visual effects for each GO is played on a 5 seconds timer. Sniff show that the GO should also be used (trap spell is cast).
     void UpdateAI(const uint32 uiDiff) override
     {
-        if (m_uiFumeTimer <= uiDiff)
+        if (m_uiFumeTimer)
         {
-            float radius = float(me->GetGOInfo()->trap.radius);
-            if (radius < 1.0f) radius = 30.0f;
-
-            if (me->getLootState() == GO_READY && time(nullptr) >= m_disabledUntil)
+            if (m_uiFumeTimer <= uiDiff)
             {
-                if (me->GetGoState() != GO_STATE_READY)
+                if (me->GetGoState() == GO_STATE_READY)
+                {
+                    me->SendGameObjectCustomAnim();
+                    // Cast only on players (and their pets) - creatures must not be slowed by
+                    // suppression devices.
+                    uint32 spellId = me->GetGOInfo()->trap.spellId;
+                    float radius = float(me->GetGOInfo()->trap.radius);
+                    if (radius < 1.0f) radius = 30.0f;
+                    std::list<Player*> players;
+                    me->GetAlivePlayerListInRange(me, players, radius);
+                    for (Player* pPlayer : players)
+                    {
+                        pPlayer->AddAura(spellId);
+                        if (Pet* pet = pPlayer->GetPet())
+                            pet->AddAura(spellId);
+                    }
+                }
+                else
+                {
+                    me->RemoveFlag(GAMEOBJECT_FLAGS, GO_FLAG_IN_USE);
                     me->SetGoState(GO_STATE_READY);
+                }
 
-                me->SendGameObjectCustomAnim();
-                uint32 spellId = me->GetGOInfo()->trap.spellId;
-                std::list<Player*> players;
-                me->GetAlivePlayerListInRange(me, players, radius);
-                for (Player* pPlayer : players)
-                {
-                    pPlayer->AddAura(spellId);
-                    if (Pet* pet = pPlayer->GetPet())
-                        pet->AddAura(spellId);
-                }
+                m_uiFumeTimer = 5 * IN_MILLISECONDS;
             }
-            else if (m_disabledUntil > 0 && time(nullptr) < m_disabledUntil)
-            {
-                std::list<Player*> players;
-                me->GetAlivePlayerListInRange(me, players, radius);
-                for (Player* pPlayer : players)
-                {
-                    pPlayer->RemoveAurasDueToSpell(SPELL_SUPPRESSION_AURA);
-                    if (Pet* pet = pPlayer->GetPet())
-                        pet->RemoveAurasDueToSpell(SPELL_SUPPRESSION_AURA);
-                }
-            }
-            m_uiFumeTimer = 5 * IN_MILLISECONDS;
+            else
+                m_uiFumeTimer -= uiDiff;
         }
-        else
-            m_uiFumeTimer -= uiDiff;
     }
 };
 
