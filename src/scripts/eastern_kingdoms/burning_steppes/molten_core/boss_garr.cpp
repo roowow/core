@@ -290,6 +290,32 @@ struct mob_fireswornAI : ScriptedAI
         ScheduleCombatEvents();
     }
 
+    // A Firesworn must not be allowed to evade home while Garr is being actively fought
+    // (IN_PROGRESS) or already dead (DONE) - only while Garr hasn't been engaged yet, or has
+    // fully reset himself after a wipe (NOT_STARTED), is it acceptable for a stuck add to reset
+    // too. Otherwise players could use terrain/LOS to keep an add permanently out of reach mid-
+    // fight (not just after Garr dies) and let the engine's own 24s "target unreachable" timer
+    // (Creature::Update(), independent of Garr's state) quietly remove it from the fight instead
+    // of having to kill it. This intercepts every evade trigger unconditionally (stuck timer,
+    // leash distance, empty threat list from SelectHostileTarget), not just the stuck-timer case,
+    // since the intent is "never let it leave combat while Garr is engaged or dead", not one
+    // specific cause. Checking TYPE_GARR (already used elsewhere in this file for the same
+    // purpose) instead of querying Garr's Creature object directly also means a genuine wipe
+    // resolves itself correctly: once Garr has no reachable/alive targets left he evades too,
+    // boss_garrAI::Reset() sets TYPE_GARR back to NOT_STARTED, and stuck adds are then allowed to
+    // reset right along with him. Harmless if this fires during map/grid teardown (Map::UnloadAll
+    // etc.) - the creature object is being destroyed either way, this only skips clearing
+    // gameplay state nobody will observe.
+    void EnterEvadeMode() override
+    {
+        if (m_pInstance && m_pInstance->GetData(TYPE_GARR) != NOT_STARTED)
+        {
+            return;
+        }
+
+        ScriptedAI::EnterEvadeMode();
+    }
+
     void JustDied(Unit*) override
     {
         if (!m_pInstance)
