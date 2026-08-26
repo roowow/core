@@ -1175,6 +1175,8 @@ void Group::CountSingleLooterRoll(Roll* roll)
                         player->GetGUIDLow(), player->GetName(), item->itemid, newItem->GetGUIDLow(), item->count, roll->lootedTargetGUID.GetCounter(), player->GetZoneId(), player->GetMapId(), player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), player->GetSession()->GetRemoteAddress().c_str());
                     sCharactersOutbox.Enqueue(sql);
                 }
+                if (roll->getLoot()->isLooted())
+                    player->GetSession()->DoLootRelease(roll->getLoot()->GetLootTarget()->GetObjectGuid());
             }
         }
         else
@@ -1255,6 +1257,8 @@ void Group::CountTheRoll(Rolls::iterator& rollI)
                                 player->GetGUIDLow(), player->GetName(), item->itemid, newItem->GetGUIDLow(), item->count, roll->lootedTargetGUID.GetCounter(), player->GetZoneId(), player->GetMapId(), player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(), player->GetSession()->GetRemoteAddress().c_str());
                             sCharactersOutbox.Enqueue(sql);
                         }
+                        if (roll->getLoot()->isLooted())
+                            player->GetSession()->DoLootRelease(roll->getLoot()->GetLootTarget()->GetObjectGuid());
                     }
                 }
                 else
@@ -1313,6 +1317,8 @@ void Group::CountTheRoll(Rolls::iterator& rollI)
                     }
                     if (Item* newItem = player->StoreNewItem(dest, roll->itemid, true, item->randomPropertyId))
                         player->OnReceivedItem(newItem);
+                    if (roll->getLoot()->isLooted())
+                        player->GetSession()->DoLootRelease(roll->getLoot()->GetLootTarget()->GetObjectGuid());
                 }
                 else
                 {
