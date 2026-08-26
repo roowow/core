@@ -176,19 +176,23 @@ bool MySQLConnection::HandleMySQLError(uint32 errNo)
         case ER_DUP_ENTRY:
             return false;
 
-        // Outdated table or database structure - terminate core
+        // Outdated table or database structure - terminate core (unless this connection has
+        // opted out via SetTolerateQueryErrors() - see its declaration in DatabaseMysql.h)
         case ER_BAD_FIELD_ERROR:
         case ER_NO_SUCH_TABLE:
             sLog.Out(LOG_DBERROR, LOG_LVL_MINIMAL, "Your database structure is not up to date. Please make sure you have executed all the queries in the sql/updates folders.");
-            ASSERT(false);
+            if (!m_tolerateQueryErrors)
+                ASSERT(false);
             return false;
         case ER_PARSE_ERROR:
             sLog.Out(LOG_DBERROR, LOG_LVL_MINIMAL, "Error while parsing SQL. Core fix required.");
-            ASSERT(false);
+            if (!m_tolerateQueryErrors)
+                ASSERT(false);
             return false;
         default:
             sLog.Out(LOG_DBERROR, LOG_LVL_MINIMAL, "Unhandled MySQL errno %u. Unexpected behaviour possible.", errNo);
-            ASSERT(false);
+            if (!m_tolerateQueryErrors)
+                ASSERT(false);
             return false;
     }
 }

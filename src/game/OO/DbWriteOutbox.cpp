@@ -327,6 +327,10 @@ bool DbWriteOutbox::EnsureFlusherMysqlConnected()
     // Deliberately a brand-new, independent connection - never targetDb's shared m_pAsyncConn.
     // See the class comment / HPHA.md for why (Database::m_currentTransaction thread-safety).
     auto conn = std::make_unique<MySQLConnection>(*m_targetDb);
+    // See SetTolerateQueryErrors()'s declaration in DatabaseMysql.h: without this, a malformed
+    // enqueued statement (bad SQL, stale schema, ...) would ASSERT(false) and take the whole
+    // server down instead of letting ExecuteAndAck()'s own retry-then-drop logic handle it.
+    conn->SetTolerateQueryErrors(true);
     if (!conn->Initialize(m_dbConnectionInfo))
     {
         m_flusherMysqlLastFailTime = time(nullptr);

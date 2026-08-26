@@ -106,6 +106,19 @@ class MySQLConnection : public SqlConnection
         // Execute()'s bool.
         bool Ping() { return mMysql && mysql_ping(mMysql) == 0; }
 
+        // Opt-in only, off by default. HandleMySQLError() normally ASSERT(false)s on a query-level
+        // error it doesn't know how to recover from (bad SQL, missing table/column, unrecognized
+        // errno) - correct for regular gameplay code, where a malformed query is always a core bug
+        // that must fail loudly rather than silently corrupt/lose data. DbWriteOutbox's Flusher
+        // connection is the one legitimate exception: it already has its own retry-then-log-and-
+        // drop handling for exactly this class of error (see ExecuteAndAck() in DbWriteOutbox.cpp,
+        // "a bad SQL statement... will never succeed no matter how many times it's retried") and
+        // needs Execute() to actually return false so that logic can run, instead of the process
+        // dying on the first occurrence - one malformed enqueued write should not be able to take
+        // the whole server down, repeatedly, on every restart, until someone manually drains the
+        // poisoned entry out of Redis. Set only on that dedicated connection.
+        void SetTolerateQueryErrors(bool tolerate) { m_tolerateQueryErrors = tolerate; }
+
     protected:
         SqlPreparedStatement* CreateStatement(std::string const& fmt) override;
         void OnPreparedStatementFailure() override;
@@ -115,6 +128,7 @@ class MySQLConnection : public SqlConnection
         bool _Query(std::string const& sql, MYSQL_RES** pResult, MYSQL_FIELD** pFields, uint64* pRowCount, uint32* pFieldCount);
 
         MYSQL* mMysql;
+        bool m_tolerateQueryErrors = false;
 };
 
 class DatabaseMysql : public Database
