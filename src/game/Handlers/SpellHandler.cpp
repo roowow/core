@@ -742,6 +742,13 @@ void WorldSession::HandleGameObjectUseOpcode(WorldPackets::Misc::GameObjectUse c
 
 void WorldSession::HandleCastSpellOpcode(WorldPackets::Spell::CastSpell const& packet)
 {
+    // TEMP DEBUG (SpellQueue testing, remove once confirmed working) - unconditional, fires for
+    // every single CMSG_CAST_SPELL this session receives. Confirms whether the packet is even
+    // reaching the server at all, before any of the [SpellQueue] diagnostics further down (which
+    // all live inside Spell::prepare() and can't fire if this function is never entered).
+    sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[SpellQueue][DIAG-PACKET] HandleCastSpellOpcode: spell %u for %s",
+        packet.spellId, _player ? _player->GetName() : "<no player>");
+
     SpellEntry const* spellInfo = sSpellMgr.GetSpellEntry(packet.spellId);
 
     if (!spellInfo)
