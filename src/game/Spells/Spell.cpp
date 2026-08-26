@@ -3421,8 +3421,9 @@ SpellCastResult Spell::prepare(Aura* triggeredByAura, uint32 chance)
                                 uint32 const window = std::min<uint32>(500, 100 + pPlayer->GetSession()->GetLatency());
                                 if (remaining && remaining <= window)
                                 {
-                                    // TEMP DEBUG (SpellQueue testing, remove once confirmed working)
-                                    sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[SpellQueue] queued spell %u for %s: %ums GCD remaining, %ums window",
+                                    // TEMP DEBUG (SpellQueue testing, remove once confirmed working) -
+                                    // LOG_LVL_ERROR so it shows regardless of LogLevel.Console
+                                    sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[SpellQueue] queued spell %u for %s: %ums GCD remaining, %ums window",
                                         m_spellInfo->Id, pPlayer->GetName(), remaining, window);
                                     pPlayer->QueueSpellCast(m_spellInfo->Id, m_targets);
                                     finish(false);

@@ -1235,13 +1235,15 @@ void Player::UpdateQueuedSpellCast()
     // behavior, not a bug to report.
     if (!HasActiveSpell(pending.spellId) || spellInfo->IsPassiveSpell())
     {
-        // TEMP DEBUG (SpellQueue testing, remove once confirmed working)
-        sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[SpellQueue] dropped queued spell %u for %s: no longer active/became passive", pending.spellId, GetName());
+        // TEMP DEBUG (SpellQueue testing, remove once confirmed working) - LOG_LVL_ERROR so it
+        // shows regardless of LogLevel.Console
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[SpellQueue] dropped queued spell %u for %s: no longer active/became passive", pending.spellId, GetName());
         return;
     }
 
-    // TEMP DEBUG (SpellQueue testing, remove once confirmed working)
-    sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "[SpellQueue] firing queued spell %u for %s", pending.spellId, GetName());
+    // TEMP DEBUG (SpellQueue testing, remove once confirmed working) - LOG_LVL_ERROR so it shows
+    // regardless of LogLevel.Console
+    sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[SpellQueue] firing queued spell %u for %s", pending.spellId, GetName());
     GetSession()->CastPreparedSpell(spellInfo, std::move(pending.targets));
 }
 
