@@ -3433,7 +3433,12 @@ SpellCastResult Spell::prepare(Aura* triggeredByAura, uint32 chance)
                             if (pPlayer->IsSpellQueueEnabled())
                             {
                                 uint32 const remaining = m_caster->GetGCDRemaining(m_spellInfo);
-                                uint32 const window = std::min<uint32>(500, 100 + pPlayer->GetSession()->GetLatency());
+                                // 400ms base (not 100ms) - matches retail's queueing feel, and
+                                // human reaction/reflexes can't reliably land inside anything much
+                                // tighter (confirmed empirically: a 194ms-early real test press
+                                // missed a 100ms-base window even from a near-zero-latency client -
+                                // see SpellQueue.md's 测试步骤/窗口调整 notes).
+                                uint32 const window = std::min<uint32>(900, 400 + pPlayer->GetSession()->GetLatency());
                                 if (remaining && remaining <= window)
                                 {
                                     // TEMP DEBUG (SpellQueue testing, remove once confirmed working) -
