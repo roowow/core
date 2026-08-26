@@ -767,7 +767,7 @@ void WorldSession::HandleCastSpellOpcode(WorldPackets::Spell::CastSpell const& p
     CastPreparedSpell(spellInfo, const_cast<SpellCastTargets&>(packet.targets));
 }
 
-void WorldSession::CastPreparedSpell(SpellEntry const* spellInfo, SpellCastTargets targets)
+SpellCastResult WorldSession::CastPreparedSpell(SpellEntry const* spellInfo, SpellCastTargets targets)
 {
     SpellEntry const* originalSpellInfo = spellInfo;
 
@@ -783,7 +783,7 @@ void WorldSession::CastPreparedSpell(SpellEntry const* spellInfo, SpellCastTarge
             castPacket->result = static_cast<uint8>(SPELL_RESULT_STATUS_FAIL);
             castPacket->failureReason = static_cast<uint8>(SPELL_FAILED_BAD_TARGETS);
             SendPacket(std::move(castPacket));
-            return;
+            return SPELL_FAILED_BAD_TARGETS;
         }
 
         // if rank not found then function return nullptr but in explicit cast case original spell can be casted and later failed with appropriate error message
@@ -810,7 +810,7 @@ void WorldSession::CastPreparedSpell(SpellEntry const* spellInfo, SpellCastTarge
     // see SpellQueue.md) is eligible to have a GCD-not-ready rejection buffered and replayed;
     // see m_allowSpellQueue's declaration in Spell.h for why this isn't just "any player cast".
     spell->m_allowSpellQueue = true;
-    spell->prepare(std::move(targets));
+    return spell->prepare(std::move(targets));
 }
 
 void WorldSession::HandleCancelCastOpcode(WorldPackets::Spell::CancelCast const& packet)

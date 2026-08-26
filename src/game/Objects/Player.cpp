@@ -1244,7 +1244,14 @@ void Player::UpdateQueuedSpellCast()
     // TEMP DEBUG (SpellQueue testing, remove once confirmed working) - LOG_LVL_ERROR so it shows
     // regardless of LogLevel.Console
     sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[SpellQueue] firing queued spell %u for %s", pending.spellId, GetName());
-    GetSession()->CastPreparedSpell(spellInfo, std::move(pending.targets));
+    SpellCastResult replayResult = GetSession()->CastPreparedSpell(spellInfo, std::move(pending.targets));
+    // TEMP DEBUG (SpellQueue testing, remove once confirmed working) - the "firing" line above
+    // only means CastPreparedSpell() was *called*, not that the replayed cast actually succeeded;
+    // Spell::prepare() re-runs the full CheckCast() on this fresh Spell object, and could still
+    // reject it for a reason unrelated to GCD (target moved out of range/died/lost LOS in the
+    // meantime, mana changed, etc.) - this line is the only place that actually shows the outcome.
+    sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[SpellQueue] replay result for spell %u (%s): %s (code %u)",
+        pending.spellId, GetName(), replayResult == SPELL_CAST_OK ? "SUCCESS" : "FAILED", uint32(replayResult));
 }
 
 void Player::Update(uint32 update_diff, uint32 p_time)

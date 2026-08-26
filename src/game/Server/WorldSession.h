@@ -730,7 +730,7 @@ class WorldSession
         // SpellQueue.md) can replay a buffered cast through the exact same path a fresh
         // CMSG_CAST_SPELL would take - same rank auto-selection, same loot-interrupt, same
         // Spell construction. Caller must have already called targets.PrepareForSpellSystem().
-        void CastPreparedSpell(SpellEntry const* spellInfo, SpellCastTargets targets);
+        SpellCastResult CastPreparedSpell(SpellEntry const* spellInfo, SpellCastTargets targets);
         void HandleCancelCastOpcode(WorldPackets::Spell::CancelCast const& packet);
         void HandleCancelAuraOpcode(WorldPackets::Spell::CancelAura const& packet);
         void HandleCancelGrowthAuraOpcode(NullClientPacket const& packet);
