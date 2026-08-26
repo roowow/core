@@ -17143,7 +17143,11 @@ bool Player::_LoadHomeBind(std::unique_ptr<QueryResult> result)
         // `ON DUPLICATE KEY UPDATE` makes a replay a safe no-op instead, same pattern as
         // character_hardcore's enable-INSERT in the second batch.
         {
-            char sql[256];
+            // 256 was too small - the literal ON DUPLICATE KEY UPDATE clause alone (each column
+            // repeated as both an assignment target and inside VALUES(...)) plus six formatted
+            // values pushes this past 350 bytes, which snprintf was silently truncating mid-clause
+            // into invalid SQL (crashed the server via HandleMySQLError's fatal assert).
+            char sql[512];
             snprintf(sql, sizeof(sql), "INSERT INTO `character_homebind` (`guid`, `map`, `zone`, `position_x`, `position_y`, `position_z`) VALUES ('%u', '%u', '%u', '%f', '%f', '%f') "
                 "ON DUPLICATE KEY UPDATE `map` = VALUES(`map`), `zone` = VALUES(`zone`), `position_x` = VALUES(`position_x`), `position_y` = VALUES(`position_y`), `position_z` = VALUES(`position_z`)",
                 GetGUIDLow(), m_homebind.mapId, (uint32)m_homebindAreaId, m_homebind.x, m_homebind.y, m_homebind.z);
