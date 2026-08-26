@@ -37,6 +37,9 @@ fi
 BUILD_TIME=$(date '+%Y-%m-%d %H:%M')
 sed -i "s#^Motd = .*#Motd = \"欢迎进入开发测试服！ | 版本：$BUILD_TIME\"#" /home/rogical/vmangos-dev/etc/mangosd.conf
 
+echo "Clearing old logs..."
+rm -f /home/rogical/vmangos-dev/logs/*
+
 ./wowadmin.sh wrestart
 
 sleep 20
