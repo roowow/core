@@ -3384,6 +3384,21 @@ SpellCastResult Spell::prepare(Aura* triggeredByAura, uint32 chance)
         {
             SpellCastResult result = CheckCast(true);
             Unit* pTarget = m_targets.getUnitTarget();
+
+            // TEMP DEBUG (SpellQueue testing, remove once confirmed working) - dumps every gate
+            // the queueing branch below checks, so we can see exactly which one is blocking it
+            // instead of guessing. LOG_LVL_ERROR so it shows regardless of LogLevel.Console.
+            if (result != SPELL_CAST_OK && !m_IsTriggeredSpell)
+            {
+                if (Player* pDebugPlayer = m_caster->ToPlayer())
+                {
+                    sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                        "[SpellQueue][DIAG] spell %u rejected: result=%u isNotReady=%d allowQueue=%d queueEnabled=%d gcdRemaining=%u",
+                        m_spellInfo->Id, uint32(result), result == SPELL_FAILED_NOT_READY, m_allowSpellQueue,
+                        pDebugPlayer->IsSpellQueueEnabled(), m_caster->GetGCDRemaining(m_spellInfo));
+                }
+            }
+
             if (result != SPELL_CAST_OK || (IsAutoRepeat() && m_caster == pTarget))
             {
                 if (!IsAutoRepeat() || !IsAcceptableAutorepeatError(result))
