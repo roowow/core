@@ -47,6 +47,15 @@ using namespace Spells;
 
 void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packet)
 {
+    // TEMP DEBUG (SpellQueue-adjacent investigation, remove once confirmed working) -
+    // unconditional, fires for every CMSG_USE_ITEM this session receives. /use lives on a
+    // completely different opcode than /cast (HandleCastSpellOpcode's [SpellQueue][DIAG-PACKET]
+    // logging doesn't cover it at all) - this confirms whether the potion-use request in a
+    // combined /use+/cast macro even reaches the server, before guessing at anything further
+    // down the line (item lookup, spell checks, etc.).
+    sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[ItemUse][DIAG-PACKET] HandleUseItemOpcode: bag=%u slot=%u spellSlot=%u for %s",
+        packet.bagIndex, packet.slot, packet.spellSlot, _player ? _player->GetName() : "<no player>");
+
     Player* pUser = _player;
 
     // ignore for remote control state
