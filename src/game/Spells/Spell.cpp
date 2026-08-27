@@ -3359,7 +3359,18 @@ SpellCastResult Spell::prepare(Aura* triggeredByAura, uint32 chance)
         //Prevent casting at cast another spell (ServerSide check)
         if (!m_IsTriggeredSpell && m_caster->IsNonMeleeSpellCasted(false, true, true))
         {
-            if (!m_originalCasterGUID.IsGameObject())
+            // m_bypassCastInProgress (see its declaration in Spell.h) only gets to skip this
+            // rejection when what's actually blocking is an instant spell that's already
+            // effectively resolved and just hasn't ticked over to SPELL_STATE_FINISHED yet
+            // (GetCastedTime()==0, i.e. no cast bar time left) - a genuine multi-second cast
+            // still in progress must keep blocking outright, same as before. This matches real
+            // WoW behavior for potions: using one while genuinely casting is disallowed, but it
+            // doesn't cancel your cast either - both properties matter here, not just "let it
+            // through" (confirmed by hand 2026-08-27: earlier version of this bypass had no such
+            // check and would have let a potion through unconditionally).
+            Spell* pBlocking = m_caster->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+            bool const bypass = m_bypassCastInProgress && pBlocking && pBlocking->GetCastedTime() == 0;
+            if (!bypass && !m_originalCasterGUID.IsGameObject())
             {
                 // TEMP DEBUG (SpellQueue testing, remove once confirmed working) - this early
                 // return happens BEFORE the queueing branch further down ever runs, so if THIS is
@@ -3576,7 +3587,17 @@ SpellCastResult Spell::prepare(Aura* triggeredByAura, uint32 chance)
             static_cast<Creature*>(m_caster)->SetCastingTarget(m_targets.getUnitTarget());
 
         // add non-triggered (with cast time and without)
-        if (!m_IsTriggeredSpell || channeled)
+        // m_bypassCastInProgress spells (potions let through the race-condition bypass above)
+        // deliberately never claim the CURRENT_GENERIC_SPELL slot: SetCurrentCastedSpell()
+        // interrupts whatever's already occupying it first (SpellCaster.cpp's
+        // InterruptSpell(CSpellType, false)) - if a potion claimed the slot while an instant
+        // spell is still sitting there waiting for its own deferred SpellEvent tick to actually
+        // apply its effect, claiming the slot would interrupt (and thus cancel) that not-yet-
+        // applied effect. Potions are instant and have no cast bar of their own, so skipping
+        // this is harmless for them - Spell::finish()/m_selfContainer already tolerate a Spell
+        // that was never registered here (m_selfContainer defaults to nullptr and every use of
+        // it is null-checked).
+        if ((!m_IsTriggeredSpell || channeled) && !m_bypassCastInProgress)
             m_caster->SetCurrentCastedSpell(this);
 
         if (m_spellScript)

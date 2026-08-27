@@ -8158,6 +8158,21 @@ void Player::CastItemUseSpell(Item* item, SpellCastTargets const& targets)
         Spell* spell = new Spell(this, spellInfo, (count > 0));
         spell->SetClientStarted(!IsBot());
         spell->SetCastItem(item);
+        // See m_bypassCastInProgress's declaration in Spell.h. Scoped to the whole consumable
+        // class, not just potions - pre-BC item data has no finer subclass breakdown to key off
+        // (ItemSubclassConsumable only defines ITEM_SUBCLASS_CONSUMABLE=0; Potion/Elixir/Flask/
+        // Food/Bandage/etc are commented out in ItemPrototype.h as "not used in pre-bc", and
+        // confirmed empirically 2026-08-27: potions, healthstones, and mana gems in this server's
+        // item_template all have subclass=0/food_type=0 alike - there's no item-level signal left
+        // to narrow this down further). Safe to scope this broadly regardless: the actual safety
+        // guarantee against interrupting a genuine multi-second cast comes from prepare()'s
+        // GetCastedTime()==0 check on whatever's blocking, not from which item this is - no cast
+        // bar of their own, canonically shouldn't get caught by a same-tick instant spell that's
+        // already effectively resolved but hasn't ticked over to SPELL_STATE_FINISHED yet (a
+        // macro combining an instant spell + item use in one click can otherwise spuriously fail
+        // with SPELL_FAILED_SPELL_IN_PROGRESS).
+        if (proto->Class == ITEM_CLASS_CONSUMABLE)
+            spell->m_bypassCastInProgress = true;
         spell->prepare(targets);
 
         ++count;

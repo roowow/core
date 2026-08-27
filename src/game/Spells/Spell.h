@@ -343,6 +343,31 @@ class Spell
         // queueing one of those would let that side effect get skipped while the spell still
         // fires for free once the queue replays it.
         bool m_allowSpellQueue = false;
+        // Skips prepare()'s "already casting something else" gate (IsNonMeleeSpellCasted() -
+        // SPELL_FAILED_SPELL_IN_PROGRESS) for this one Spell object. Off by default - that gate
+        // is load-bearing for most callers and not something to weaken globally. Set narrowly by
+        // Player::CastItemUseSpell() for ITEM_CLASS_CONSUMABLE item uses (not just potions -
+        // pre-BC item data has no finer subclass breakdown, see the call site's comment): an
+        // instant spell doesn't actually finish "casting" (m_currentSpells[CURRENT_GENERIC_SPELL]
+        // cleared, SPELL_STATE_FINISHED) until its SpellEvent runs on the next tick (see
+        // prepare()'s CalculateTime(1)), so a macro that fires an instant spell cast immediately
+        // followed by /use on a consumable in the same click can have the item-use packet
+        // processed inside that one-tick gap and get spuriously rejected as "still casting" even
+        // though the instant spell is effectively already done - a genuine engine quirk (reported
+        // 2026-08-27, repro: /cast instant form spell + /use potion in one macro), not something
+        // real WoW servers apparently hit. Consumables specifically because they have no cast bar
+        // of their own and canonically aren't expected to be blocked by an already-resolving
+        // instant cast; broadening this to spells in general would mean reconsidering
+        // IsNonMeleeSpellCasted() itself, a much bigger and riskier change many other systems
+        // depend on - see SpellQueue.md's 已知限制 for why this was deliberately scoped down to
+        // just item uses for now, not shipped as a blanket fix.
+        // Setting this alone isn't enough to actually bypass anything - prepare()'s gate only
+        // honors it when what's blocking is itself an instant cast with no cast-bar time left
+        // (GetCastedTime()==0); a genuine multi-second cast still blocks outright, matching real
+        // WoW (using a potion while casting is disallowed, but doesn't cancel your cast either).
+        // prepare() also skips SetCurrentCastedSpell() entirely for a spell with this set, so it
+        // can never itself interrupt whatever it was let through past.
+        bool m_bypassCastInProgress = false;
         bool IsTriggered() const       { return m_IsTriggeredSpell; }
         bool IsTriggeredByAura() const { return m_triggeredByAuraSpell; }
         bool IsTriggeredByProc() const;
