@@ -789,15 +789,15 @@ void MapPersistentStateManager::DeleteInstanceFromDB(uint32 mapId, uint32 instan
         // reset path (DungeonResetScheduler::Update() -> _ResetInstance()) and from player/group-
         // triggered instance resets (Group::ResetInstances()/Player::ResetInstances()), so this
         // is a real runtime path, not just server maintenance.
-        char sql1[64];
+        char sql1[192];
         snprintf(sql1, sizeof(sql1), "DELETE FROM `instance` WHERE `id` = '%u'", instanceId);
-        char sql2[64];
+        char sql2[192];
         snprintf(sql2, sizeof(sql2), "DELETE FROM `character_instance` WHERE `instance` = '%u'", instanceId);
-        char sql3[64];
+        char sql3[192];
         snprintf(sql3, sizeof(sql3), "DELETE FROM `group_instance` WHERE `instance` = '%u'", instanceId);
-        char sql4[64];
+        char sql4[192];
         snprintf(sql4, sizeof(sql4), "DELETE FROM `creature_respawn` WHERE `instance` = '%u'", instanceId);
-        char sql5[64];
+        char sql5[192];
         snprintf(sql5, sizeof(sql5), "DELETE FROM `gameobject_respawn` WHERE `instance` = '%u'", instanceId);
         sCharactersOutbox.Enqueue(std::vector<std::string>{sql1, sql2, sql3, sql4, sql5});
 

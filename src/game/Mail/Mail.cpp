@@ -355,7 +355,7 @@ void MailDraft::SendMailTo(MailReceiver const& receiver, MailSender const& sende
     for (const auto& itr : m_items)
     {
         Item* item = itr.second;
-        char sql[128];
+        char sql[320];
         snprintf(sql, sizeof(sql), "INSERT INTO `mail_items` (`mail_id`, `item_guid`, `item_id`, `receiver_guid`) VALUES ('%u', '%u', '%u','%u')",
                  mailId, item->GetGUIDLow(), item->GetEntry(), receiver.GetPlayerGuid().GetCounter());
         sqls.push_back(sql);

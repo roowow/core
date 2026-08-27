@@ -227,7 +227,7 @@ void GuildMgr::LoadPetitions()
                 // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK
                 // filter, safe to replay.
                 {
-                    char sql[64];
+                    char sql[192];
                     snprintf(sql, sizeof(sql), "DELETE FROM `petition_sign` WHERE `petition_guid` = '%u'", petitionId);
                     sCharactersOutbox.Enqueue(sql);
                 }
@@ -363,9 +363,9 @@ void Petition::Delete()
     // group instead of Begin/CommitTransaction().
     if (m_id)
     {
-        char sql1[64];
+        char sql1[192];
         snprintf(sql1, sizeof(sql1), "DELETE FROM `petition` WHERE `petition_guid` = '%u'", m_id);
-        char sql2[64];
+        char sql2[192];
         snprintf(sql2, sizeof(sql2), "DELETE FROM `petition_sign` WHERE `petition_guid` = '%u'", m_id);
         sCharactersOutbox.Enqueue(std::vector<std::string>{sql1, sql2});
     }

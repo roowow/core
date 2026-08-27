@@ -449,11 +449,11 @@ void ReputationMgr::SaveToDB()
         FactionState& faction = itr.second;
         if (faction.needSave)
         {
-            char sql[64];
+            char sql[192];
             snprintf(sql, sizeof(sql), "DELETE FROM character_reputation WHERE guid = %u AND faction=%u", m_player->GetGUIDLow(), faction.ID);
             sCharactersOutbox.Enqueue(sql);
 
-            char sql2[192];
+            char sql2[384];
             snprintf(sql2, sizeof(sql2), "INSERT INTO character_reputation (guid,faction,standing,flags) VALUES (%u, %u, %d, %u) "
                 "ON DUPLICATE KEY UPDATE `standing`=VALUES(`standing`), `flags`=VALUES(`flags`)",
                 m_player->GetGUIDLow(), faction.ID, faction.Standing, faction.Flags);

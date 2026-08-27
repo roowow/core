@@ -802,7 +802,7 @@ void GameEventMgr::ApplyNewEvent(uint16 event_id, bool resume)
     m_ActiveEvents.insert(event_id);
     // Phase3 (see HPHA.md) - routed through sCharactersOutbox. `INSERT IGNORE` is idempotent.
     {
-        char sql[64];
+        char sql[192];
         snprintf(sql, sizeof(sql), "INSERT IGNORE INTO game_event_status (event) VALUES (%u)", event_id);
         sCharactersOutbox.Enqueue(sql);
     }

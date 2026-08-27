@@ -17936,7 +17936,36 @@ void Player::_SaveInventory()
         {
             case ITEM_NEW:
             {
-                SqlStatement stmt = CharacterDatabase.CreateStatement(insertInventory, "INSERT INTO `character_inventory` (`guid`, `bag`, `slot`, `item_guid`, `item_id`) VALUES (?, ?, ?, ?, ?)");
+                // ON DUPLICATE KEY UPDATE, not a plain INSERT (2026-08-27 production fix): a
+                // plain INSERT colliding on the `item_guid` PRIMARY KEY used to fail outright
+                // (logged as "SQL: cannot execute ... / SQL ERROR: Duplicate entry ... for key
+                // 'PRIMARY'") - and because Item::SaveToDB() unconditionally calls
+                // SetState(ITEM_UNCHANGED) at the end regardless of whether this INSERT actually
+                // succeeded, the item's in-memory state got marked "saved" anyway. Its
+                // character_inventory row - the one that says which character/bag/slot the item
+                // lives in - then never existed, so the item silently vanished from that
+                // character's bags on their next login (item_instance still had the item's own
+                // data, just orphaned - nothing pointed to it). Root cause of the duplicate
+                // key wasn't fully pinned down (a strong lead: HandleMailTakeItem, matches player
+                // reports of items returned from expired/cancelled auctions disappearing after
+                // being taken from mail), but this makes the failure mode itself harmless
+                // regardless of what's still triggering the collision - a retried/duplicated
+                // save becomes a no-op overwrite instead of a silent, permanent data loss.
+                // Temporary trace (remove once the ON DUPLICATE KEY UPDATE fix above has been
+                // running in production for a while with no more `character_inventory` PRIMARY
+                // KEY collisions turning up in DBErrors.log): the ON DUPLICATE KEY UPDATE clause
+                // means a real item_guid collision no longer errors, so this is now the only
+                // remaining signal that one happened - grep `[ItemSave]` and cross-reference
+                // item_guid against other characters' saves around the same timestamp.
+                // LOG_LVL_MINIMAL (not DEBUG_FILTER_LOG) on purpose: prints unconditionally at
+                // whatever LogLevel.Console/File this server already runs at (MINIMAL is the
+                // lowest non-error level), no config change or restart needed to observe it.
+                sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[ItemSave] owner=%u item_guid=%u item_id=%u bag=%u slot=%u",
+                    GetGUIDLow(), item->GetGUIDLow(), item->GetEntry(), bagGuid, item->GetSlot());
+
+                SqlStatement stmt = CharacterDatabase.CreateStatement(insertInventory,
+                    "INSERT INTO `character_inventory` (`guid`, `bag`, `slot`, `item_guid`, `item_id`) VALUES (?, ?, ?, ?, ?) "
+                    "ON DUPLICATE KEY UPDATE `guid` = VALUES(`guid`), `bag` = VALUES(`bag`), `slot` = VALUES(`slot`), `item_id` = VALUES(`item_id`)");
                 stmt.addUInt32(GetGUIDLow());
                 stmt.addUInt32(bagGuid);
                 stmt.addUInt8(item->GetSlot());
@@ -17997,7 +18026,7 @@ void Player::_SaveQuestStatus()
         // Nostalrius
         if (i->second.uState == QUEST_DELETED)
         {
-            char sql[64];
+            char sql[256];
             snprintf(sql, sizeof(sql), "DELETE FROM `character_queststatus` WHERE `guid` = %u AND `quest` = %u", GetGUIDLow(), i->first);
             sCharactersOutbox.Enqueue(sql);
             i = mQuestStatus.erase(i);
@@ -18069,7 +18098,7 @@ void Player::_SaveSkills()
 
         if (itr->second.uState == SKILL_DELETED)
         {
-            char sql[64];
+            char sql[256];
             snprintf(sql, sizeof(sql), "DELETE FROM `character_skills` WHERE `guid` = %u AND `skill` = %u", GetGUIDLow(), itr->first);
             sCharactersOutbox.Enqueue(sql);
             m_skillStatusMap.erase(itr++);
@@ -18145,7 +18174,7 @@ void Player::_SaveSpells()
     {
         if (itr->second.state == PLAYERSPELL_REMOVED || itr->second.state == PLAYERSPELL_CHANGED)
         {
-            char sql[64];
+            char sql[256];
             snprintf(sql, sizeof(sql), "DELETE FROM `character_spell` WHERE `guid` = %u and `spell` = %u", GetGUIDLow(), itr->first);
             sCharactersOutbox.Enqueue(sql);
         }
