@@ -3372,13 +3372,6 @@ SpellCastResult Spell::prepare(Aura* triggeredByAura, uint32 chance)
             bool const bypass = m_bypassCastInProgress && pBlocking && pBlocking->GetCastedTime() == 0;
             if (!bypass && !m_originalCasterGUID.IsGameObject())
             {
-                // TEMP DEBUG (SpellQueue testing, remove once confirmed working) - this early
-                // return happens BEFORE the queueing branch further down ever runs, so if THIS is
-                // what's rejecting a press, no [SpellQueue] log of any kind will ever appear for
-                // it, even though the player experiences the same "my press did nothing" feel.
-                if (Player* pDebugPlayer = m_caster->ToPlayer())
-                    sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[SpellQueue][DIAG-EARLY] spell %u rejected: SPELL_FAILED_SPELL_IN_PROGRESS (IsNonMeleeSpellCasted) for %s",
-                        m_spellInfo->Id, pDebugPlayer->GetName());
                 SendCastResult(SPELL_FAILED_SPELL_IN_PROGRESS);
                 finish(false);
                 return SPELL_FAILED_SPELL_IN_PROGRESS;
@@ -3402,20 +3395,6 @@ SpellCastResult Spell::prepare(Aura* triggeredByAura, uint32 chance)
         {
             SpellCastResult result = CheckCast(true);
             Unit* pTarget = m_targets.getUnitTarget();
-
-            // TEMP DEBUG (SpellQueue testing, remove once confirmed working) - dumps every gate
-            // the queueing branch below checks, so we can see exactly which one is blocking it
-            // instead of guessing. LOG_LVL_ERROR so it shows regardless of LogLevel.Console.
-            if (result != SPELL_CAST_OK && !m_IsTriggeredSpell)
-            {
-                if (Player* pDebugPlayer = m_caster->ToPlayer())
-                {
-                    sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-                        "[SpellQueue][DIAG] spell %u rejected: result=%u isNotReady=%d allowQueue=%d queueEnabled=%d gcdRemaining=%u",
-                        m_spellInfo->Id, uint32(result), result == SPELL_FAILED_NOT_READY, m_allowSpellQueue,
-                        pDebugPlayer->IsSpellQueueEnabled(), m_caster->GetGCDRemaining(m_spellInfo));
-                }
-            }
 
             if (result != SPELL_CAST_OK || (IsAutoRepeat() && m_caster == pTarget))
             {
@@ -3461,10 +3440,6 @@ SpellCastResult Spell::prepare(Aura* triggeredByAura, uint32 chance)
                                 uint32 const window = std::min<uint32>(900, 400 + pPlayer->GetSession()->GetLatency());
                                 if (remaining && remaining <= window)
                                 {
-                                    // TEMP DEBUG (SpellQueue testing, remove once confirmed working) -
-                                    // LOG_LVL_ERROR so it shows regardless of LogLevel.Console
-                                    sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[SpellQueue] queued spell %u for %s: %ums GCD remaining, %ums window",
-                                        m_spellInfo->Id, pPlayer->GetName(), remaining, window);
                                     pPlayer->QueueSpellCast(m_spellInfo->Id, m_targets);
                                     // See the comment above the whole branch (used to say "no
                                     // SendCastResult() on purpose") - turns out skipping this

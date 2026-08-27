@@ -47,15 +47,6 @@ using namespace Spells;
 
 void WorldSession::HandleUseItemOpcode(WorldPackets::Spell::UseItem const& packet)
 {
-    // TEMP DEBUG (SpellQueue-adjacent investigation, remove once confirmed working) -
-    // unconditional, fires for every CMSG_USE_ITEM this session receives. /use lives on a
-    // completely different opcode than /cast (HandleCastSpellOpcode's [SpellQueue][DIAG-PACKET]
-    // logging doesn't cover it at all) - this confirms whether the potion-use request in a
-    // combined /use+/cast macro even reaches the server, before guessing at anything further
-    // down the line (item lookup, spell checks, etc.).
-    sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[ItemUse][DIAG-PACKET] HandleUseItemOpcode: bag=%u slot=%u spellSlot=%u for %s",
-        packet.bagIndex, packet.slot, packet.spellSlot, _player ? _player->GetName() : "<no player>");
-
     Player* pUser = _player;
 
     // ignore for remote control state
@@ -751,13 +742,6 @@ void WorldSession::HandleGameObjectUseOpcode(WorldPackets::Misc::GameObjectUse c
 
 void WorldSession::HandleCastSpellOpcode(WorldPackets::Spell::CastSpell const& packet)
 {
-    // TEMP DEBUG (SpellQueue testing, remove once confirmed working) - unconditional, fires for
-    // every single CMSG_CAST_SPELL this session receives. Confirms whether the packet is even
-    // reaching the server at all, before any of the [SpellQueue] diagnostics further down (which
-    // all live inside Spell::prepare() and can't fire if this function is never entered).
-    sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[SpellQueue][DIAG-PACKET] HandleCastSpellOpcode: spell %u for %s",
-        packet.spellId, _player ? _player->GetName() : "<no player>");
-
     SpellEntry const* spellInfo = sSpellMgr.GetSpellEntry(packet.spellId);
 
     if (!spellInfo)

@@ -1229,29 +1229,14 @@ void Player::UpdateQueuedSpellCast()
 
     // Re-validate against current state, same as a fresh CMSG_CAST_SPELL would - the spell could
     // have left this player's spellbook (or become passive, though that shouldn't itself change)
-    // in the time spent waiting on GCD. Silently drop rather than error: from the player's
-    // perspective nothing was ever visibly "queued" to begin with (see Spell::prepare() - no
-    // SendCastResult() when this was buffered), so silently not firing is the correct symmetric
-    // behavior, not a bug to report.
+    // in the time spent waiting on GCD. Silently drop rather than error: the player never saw an
+    // error for this attempt at queue time either (Spell::prepare() sends
+    // SPELL_FAILED_DONT_REPORT, which the client treats as silent), so silently not firing here
+    // is the correct symmetric behavior, not a bug to report.
     if (!HasActiveSpell(pending.spellId) || spellInfo->IsPassiveSpell())
-    {
-        // TEMP DEBUG (SpellQueue testing, remove once confirmed working) - LOG_LVL_ERROR so it
-        // shows regardless of LogLevel.Console
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[SpellQueue] dropped queued spell %u for %s: no longer active/became passive", pending.spellId, GetName());
         return;
-    }
 
-    // TEMP DEBUG (SpellQueue testing, remove once confirmed working) - LOG_LVL_ERROR so it shows
-    // regardless of LogLevel.Console
-    sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[SpellQueue] firing queued spell %u for %s", pending.spellId, GetName());
-    SpellCastResult replayResult = GetSession()->CastPreparedSpell(spellInfo, std::move(pending.targets));
-    // TEMP DEBUG (SpellQueue testing, remove once confirmed working) - the "firing" line above
-    // only means CastPreparedSpell() was *called*, not that the replayed cast actually succeeded;
-    // Spell::prepare() re-runs the full CheckCast() on this fresh Spell object, and could still
-    // reject it for a reason unrelated to GCD (target moved out of range/died/lost LOS in the
-    // meantime, mana changed, etc.) - this line is the only place that actually shows the outcome.
-    sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[SpellQueue] replay result for spell %u (%s): %s (code %u)",
-        pending.spellId, GetName(), replayResult == SPELL_CAST_OK ? "SUCCESS" : "FAILED", uint32(replayResult));
+    GetSession()->CastPreparedSpell(spellInfo, std::move(pending.targets));
 }
 
 void Player::Update(uint32 update_diff, uint32 p_time)
