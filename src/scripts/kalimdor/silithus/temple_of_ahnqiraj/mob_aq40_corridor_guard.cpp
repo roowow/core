@@ -54,17 +54,36 @@ namespace
         { -8604.4727f, 1916.9061f, 104.3279f }, { -8611.4971f, 1915.3743f, 107.9103f },
     };
 
-    // guid -> recorded corridor path. Any spawn of entry 15311/15312 not listed here
-    // gets no override at all (falls through to plain CreatureEventAI behavior).
-    std::unordered_map<uint32, std::vector<CorridorPoint> const*> const s_pilotGuards =
+    // guid -> corridor config. Any spawn of entry 15311/15312 not listed here gets no
+    // override at all (falls through to plain CreatureEventAI behavior).
+    struct GuardConfig
     {
-        { 88064, &s_path_88064 },
+        std::vector<CorridorPoint> const* path;
+        // Only the "main" guard (88064) sweeps nearby players for mounts (see UpdateAI()) -
+        // 88029/88025 are the two Obsidian Nullifiers standing right next to it guarding the
+        // same stretch of corridor, so 88064's own sweep already catches anyone near them too;
+        // three guards all running the identical radius search on the same nearby-player set
+        // every tick would just be redundant work, not extra protection.
+        bool stripMounts;
+    };
+
+    // 88029/88025: Obsidian Nullifiers (entry 15312) stationed beside 88064, no path recorded
+    // separately for them yet - sharing 88064's path is the pragmatic starting point since they
+    // guard the same passage; split them onto their own recorded path later if their actual
+    // patrol area turns out to diverge enough that this stops being accurate.
+    std::unordered_map<uint32, GuardConfig> const s_pilotGuards =
+    {
+        { 88064, { &s_path_88064, true } },
+        { 88029, { &s_path_88064, false } },
+        { 88025, { &s_path_88064, false } },
     };
 
     float const CORRIDOR_TOLERANCE = 15.0f;   // yards; needs field-testing
     float const LEASH_ON_PATH = 999.0f;       // effectively "don't leash" while target tracks the corridor
     float const LEASH_DEFAULT = 120.0f;       // matches creature_template.leash_range (see Fix.sql)
     float const CHAIN_ATTACK_RADIUS = 40.0f;  // yards; needs field-testing
+    float const MOUNT_STRIP_RADIUS = 40.0f;   // yards; needs field-testing - groups ride through
+                                               // together, not just whoever's tanking the guard
 
     float DistanceToSegment(float px, float py, float pz, float ax, float ay, float az, float bx, float by, float bz)
     {
@@ -94,11 +113,13 @@ namespace
 struct aq40_corridor_guardAI : public CreatureEventAI
 {
     std::vector<CorridorPoint> const* m_pPath;
+    bool m_bStripMounts;
 
     explicit aq40_corridor_guardAI(Creature* c) : CreatureEventAI(c)
     {
         auto itr = s_pilotGuards.find(c->GetGUIDLow());
-        m_pPath = itr != s_pilotGuards.end() ? itr->second : nullptr;
+        m_pPath = itr != s_pilotGuards.end() ? itr->second.path : nullptr;
+        m_bStripMounts = itr != s_pilotGuards.end() && itr->second.stripMounts;
     }
 
     void UpdateAI(uint32 const diff) override
@@ -112,6 +133,28 @@ struct aq40_corridor_guardAI : public CreatureEventAI
         {
             float dist = DistanceToPath(*m_pPath, pVictim->GetPositionX(), pVictim->GetPositionY(), pVictim->GetPositionZ());
             m_creature->SetLeashDistance(dist <= CORRIDOR_TOLERANCE ? LEASH_ON_PATH : LEASH_DEFAULT);
+
+            if (!m_bStripMounts)
+                return;
+
+            // Mounted players just outrun this guard's normal run speed - the leash override
+            // above never even trips (they can stay perfectly on the recorded path the whole
+            // time), but the guard can never land a hit either, so the "chase forces a fight"
+            // premise this whole script exists for is defeated regardless of how leash/evade is
+            // tuned. A group rides through together, not just whoever the guard happens to be
+            // fighting - only stripping GetVictim() would leave everyone riding alongside free
+            // to sail past untouched, so this hits every mounted player in range, not just the
+            // current combat target. RemoveSpellsCausingAura(), not Unit::Unmount() directly -
+            // Unmount() only clears the display id/creature move speed, the mount aura's own
+            // speed bonus stays active unless the aura itself is removed (see
+            // Aura::HandleAuraMounted's apply=false branch, which is what actually calls
+            // Unmount() - this is the same idiom used everywhere else in the codebase, e.g.
+            // MovementHandler.cpp/CustomTaxiMgr.cpp).
+            std::list<Player*> nearbyPlayers;
+            m_creature->GetAlivePlayerListInRange(m_creature, nearbyPlayers, MOUNT_STRIP_RADIUS);
+            for (Player* pNearby : nearbyPlayers)
+                if (pNearby->IsMounted())
+                    pNearby->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
         }
     }
 
