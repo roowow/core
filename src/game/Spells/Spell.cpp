@@ -3431,8 +3431,10 @@ SpellCastResult Spell::prepare(Aura* triggeredByAura, uint32 chance)
                     //   silently remembered and fire much later, which is not the feature;
                     // - opt-in only: player must have run ".spellqueue on" (default off, no
                     //   server-wide switch - see IsSpellQueueEnabled()'s declaration in Player.h).
-                    // No SendCastResult() here on purpose - the player shouldn't see a "failed"
-                    // flash for an input that's actually going to fire a moment later.
+                    // Does call SendCastResult(SPELL_FAILED_DONT_REPORT) once queued (see below,
+                    // right before finish()) - NOT SendCastResult(result)/no packet at all. See
+                    // that call site's comment for why skipping the packet entirely (the original
+                    // design here) turned out to be a bug, not a UX nicety.
                     if (result == SPELL_FAILED_NOT_READY && !m_IsTriggeredSpell && m_allowSpellQueue)
                     {
                         if (Player* pPlayer = m_caster->ToPlayer())
@@ -3453,6 +3455,22 @@ SpellCastResult Spell::prepare(Aura* triggeredByAura, uint32 chance)
                                     sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "[SpellQueue] queued spell %u for %s: %ums GCD remaining, %ums window",
                                         m_spellInfo->Id, pPlayer->GetName(), remaining, window);
                                     pPlayer->QueueSpellCast(m_spellInfo->Id, m_targets);
+                                    // See the comment above the whole branch (used to say "no
+                                    // SendCastResult() on purpose") - turns out skipping this
+                                    // entirely was the bug, not a UX nicety: with literally no
+                                    // packet at all, the client has nothing to resolve whatever
+                                    // "waiting for a response to this cast" state it set the
+                                    // instant it sent CMSG_CAST_SPELL, and repeated queued presses
+                                    // pile that up until the ability visibly gets stuck highlighted
+                                    // (reported 2026-08-27, repro: mash a spell enough times while
+                                    // queueing keeps re-queueing/overwriting it). SPELL_FAILED_DONT_REPORT
+                                    // is exactly the value SendCastResult()'s own packet-building
+                                    // code (below, and its own switch further down) already treats
+                                    // as "send the fail status packet, but tell the client not to
+                                    // surface an error message for it" - sending it resolves the
+                                    // client's pending state without the red flash we were trying
+                                    // to avoid in the first place.
+                                    SendCastResult(SPELL_FAILED_DONT_REPORT);
                                     finish(false);
                                     return SPELL_FAILED_DONT_REPORT;
                                 }
