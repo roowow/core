@@ -1918,6 +1918,37 @@ bool BattleBotAI::DrinkAndEat()
     return needToEat || needToDrink;
 }
 
+// True once the enemy team has more than 10 REAL (non-bot) players in this AV instance.
+// At that kind of headcount advantage they can push straight through and snipe our final
+// boss, so every bot on our side stops being passive/travel-avoidant from here on.
+bool BattleBotAI::IsAVEnemyOverwhelming() const
+{
+    BattleGround* bg = me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
+        return false;
+
+    Team const enemyTeam = (me->GetTeam() == ALLIANCE) ? HORDE : ALLIANCE;
+    uint32 const enemyTotal = bg->GetPlayersCountByTeam(enemyTeam);
+    uint32 const enemyBots = bg->GetBotPlayersCountByTeam(enemyTeam);
+    uint32 const enemyReal = (enemyTotal > enemyBots) ? (enemyTotal - enemyBots) : 0;
+    return enemyReal > 10;
+}
+
+// True when the enemy is overwhelming (see above) AND our own boss (Vanndar/Drek'Thar) is
+// actually in combat right now. Combining the two is a precise "the enemy broke through and
+// is killing our boss this instant" signal — proximity alone would also fire on a lone
+// scout wandering near the boss room with no real attack happening.
+bool BattleBotAI::IsAVOwnBossUnderAttack() const
+{
+    if (!IsAVEnemyOverwhelming())
+        return false;
+
+    BattleGround* bg = me->GetBattleGround();
+    uint32 const ownBossType = (me->GetTeam() == HORDE) ? BG_AV_BOSS_H : BG_AV_BOSS_A;
+    Creature* pBoss = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(ownBossType, 0));
+    return pBoss && pBoss->IsAlive() && pBoss->IsInCombat();
+}
+
 float BattleBotAI::GetMaxAggroDistanceForMap() const
 {
     BattleGround* bg = me->GetBattleGround();
@@ -1926,6 +1957,11 @@ float BattleBotAI::GetMaxAggroDistanceForMap() const
 
     // Guard bots and bots holding a capture keep full aggro range.
     if (m_avAssignedGY != 0 || BattleBotIsInAVGyCaptureHold(this))
+        return 50.0f;
+
+    // Enemy team is fielding more than 10 real players: fight on sight everywhere,
+    // passive travel mode no longer applies.
+    if (IsAVEnemyOverwhelming())
         return 50.0f;
 
     // Non-aggressive travel: no new combat initiation outside objective radius.
@@ -1947,6 +1983,10 @@ bool BattleBotAI::ShouldUseAVOpeningPassiveCombat() const
         BattleBotIsNearAVFlag(this, 10.0f) ||
         BattleBotIsNearAVGeneral(this, 40.0f) ||
         BattleBotIsInAVGyCaptureHold(this))
+        return false;
+
+    // Enemy team is fielding more than 10 real players: never stay passive, engage on sight.
+    if (IsAVEnemyOverwhelming())
         return false;
 
     // Mode with no passive opening (e.g. Native) never restricts target selection here.

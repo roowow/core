@@ -2235,16 +2235,23 @@ static bool FindAVGYToGuard(BattleBotAI* pAI, uint32& outNode)
         }
     }
 
-    // Priority 3: Own native GYs after 5 minutes — 2 guards each, GUID-spread
+    // Priority 3: Own native GYs after 5 minutes — 2 guards each, GUID-spread.
+    // If the enemy is fielding more than 10 real players, double the guard count at our
+    // own rearmost/home GY (the one that guards the approach to our final boss) since
+    // that's the graveyard a boss-rush push has to go through.
     if (bg->GetStartTime() < 5 * 60 * 1000u)
         return false;
+
+    uint32 const homeGY = (team == HORDE) ? BG_AV_FROSTWOLF_GY : BG_AV_STORMPIKE_GY;
+    bool const enemyOverwhelming = pAI->IsAVEnemyOverwhelming();
 
     uint32 const guidBase = pAI->me->GetObjectGuid().GetCounter();
     for (uint32 attempt = 0; attempt < 3; ++attempt)
     {
         uint32 const node = ownNative[(guidBase + attempt) % 3];
+        uint32 const cap = (enemyOverwhelming && node == homeGY) ? 4 : 2;
         if (bg->IsActiveEvent(node, ownControlled) &&
-            CountAVBotsAssignedToGY(map, team, node) < 2)
+            CountAVBotsAssignedToGY(map, team, node) < cap)
         {
             outNode = node;
             return true;
@@ -2303,6 +2310,11 @@ static bool ShouldBeAVMineBot(BattleBotAI const* pAI)
 {
     uint32 const MINE_MISSION_COUNT = pAI->m_avMineMissionCount;
     if (MINE_MISSION_COUNT == 0)
+        return false;
+
+    // Enemy is fielding more than 10 real players: every spare body is needed for defense,
+    // stop sending bots off to babysit the mine.
+    if (pAI->IsAVEnemyOverwhelming())
         return false;
     Team const team = pAI->me->GetTeam();
     Map* map = pAI->me->GetMap();
@@ -2606,7 +2618,28 @@ bool BattleBotAI::StartNewPathToObjective()
             return BattleBotSelectABObjective(this);
         case BATTLEGROUND_AV:
         {
-            // Guard assignment takes priority over everything.
+            // Own boss is actually being attacked by an enemy fielding more than 10 real
+            // players — a break-in is happening right now, not just a nearby scout. This is
+            // the single highest priority: pulls fixed GY guards, mine bots, and idle bots
+            // alike off whatever they were doing to rally at the boss room. Deliberately
+            // checked before the guard/mine assignment below, not after, so it overrides
+            // them instead of only catching bots that fall through unassigned. Assignment
+            // flags (m_avAssignedGY, m_avIsMineBot, ...) are left untouched — once the boss
+            // drops out of combat, bots resume their prior duty on their own.
+            if (IsAVOwnBossUnderAttack())
+            {
+                uint32 const ownBossType = (me->GetTeam() == HORDE) ? BG_AV_BOSS_H : BG_AV_BOSS_A;
+                if (Creature* pOwnBoss = me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(ownBossType, 0)))
+                {
+                    if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                            "[AV_BOSS_DEFENSE] rallying bot %s guid %u bg %u team %u to defend boss under attack",
+                            me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(), uint32(me->GetTeam()));
+                    return StartNewPathToPosition(pOwnBoss->GetPosition(), vPaths_AV);
+                }
+            }
+
+            // Guard assignment takes priority over everything else.
             if (m_avAssignedGY != 0)
                 return BattleBotSelectAVGuardObjective(this);
 
@@ -2653,7 +2686,11 @@ bool BattleBotAI::StartNewPathToObjective()
                     ? (bg->IsActiveEvent(BG_AV_STONEHEARTH_GY, HORDE_ASSAULTED) || bg->IsActiveEvent(BG_AV_STONEHEARTH_GY, HORDE_CONTROLLED))
                     : (bg->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED) || bg->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_CONTROLLED));
 
-                if (!ownKeyGyLost)
+                // Release if the enemy is fielding more than 10 real players — pull mine
+                // bots back to help defend instead of babysitting resource gathering.
+                bool const enemyOverwhelming = IsAVEnemyOverwhelming();
+
+                if (!ownKeyGyLost && !enemyOverwhelming)
                 {
                     uint8 const mineIdx = (myTeam == ALLIANCE) ? BG_AV_NORTH_MINE : BG_AV_SOUTH_MINE;
 
@@ -2715,11 +2752,12 @@ bool BattleBotAI::StartNewPathToObjective()
                     return true;
                 }
 
-                // Own key GY lost: release back to normal routing.
+                // Own key GY lost, or enemy is overwhelming: release back to normal routing.
                 if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
                     sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                        "[AV_MINE] released bot %s guid %u bg %u team %u reason ownKeyGyLost",
-                        me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(), uint32(me->GetTeam()));
+                        "[AV_MINE] released bot %s guid %u bg %u team %u reason %s",
+                        me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(), uint32(me->GetTeam()),
+                        ownKeyGyLost ? "ownKeyGyLost" : "enemyOverwhelming");
                 m_avIsMineBot = false;
                 m_avMineState = AV_MINE_NONE;
             }
