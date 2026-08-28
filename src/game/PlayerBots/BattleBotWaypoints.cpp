@@ -2236,14 +2236,16 @@ static bool FindAVGYToGuard(BattleBotAI* pAI, uint32& outNode)
     }
 
     // Priority 3: Own native GYs after 5 minutes — 2 guards each, GUID-spread.
-    // If the enemy is fielding more than 10 real players, double the guard count at our
-    // own rearmost/home GY (the one that guards the approach to our final boss) since
-    // that's the graveyard a boss-rush push has to go through.
-    if (bg->GetStartTime() < 5 * 60 * 1000u)
+    // If the enemy is fielding more than 10 real players, that delay is skipped entirely
+    // (guards go up immediately, even at battleground start) and the own rearmost/home GY
+    // (the one that guards the approach to our final boss) gets double the guard count,
+    // since that's the graveyard a boss-rush push has to go through.
+    bool const enemyOverwhelming = pAI->IsAVEnemyOverwhelming();
+
+    if (bg->GetStartTime() < 5 * 60 * 1000u && !enemyOverwhelming)
         return false;
 
     uint32 const homeGY = (team == HORDE) ? BG_AV_FROSTWOLF_GY : BG_AV_STORMPIKE_GY;
-    bool const enemyOverwhelming = pAI->IsAVEnemyOverwhelming();
 
     uint32 const guidBase = pAI->me->GetObjectGuid().GetCounter();
     for (uint32 attempt = 0; attempt < 3; ++attempt)
@@ -2643,7 +2645,7 @@ bool BattleBotAI::StartNewPathToObjective()
             if (m_avAssignedGY != 0)
                 return BattleBotSelectAVGuardObjective(this);
 
-            if (m_avGuardGraveyards)
+            if (ShouldAVGuardGraveyards())
             {
                 uint32 guardGY = 0;
                 if (FindAVGYToGuard(this, guardGY))

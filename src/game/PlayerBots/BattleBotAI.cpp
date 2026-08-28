@@ -1949,6 +1949,17 @@ bool BattleBotAI::IsAVOwnBossUnderAttack() const
     return pBoss && pBoss->IsAlive() && pBoss->IsInCombat();
 }
 
+// Effective "should this bot take up GY guard duty" flag. Normally just the per-mode/
+// per-instance m_avGuardGraveyards setting decided once at battleground init (Native mode:
+// always false; Push: always true; Random: per-team stable roll). When the enemy is fielding
+// more than 10 real players, guards are wanted regardless of what the mode rolled — this is
+// evaluated live rather than overwriting m_avGuardGraveyards itself, so it tracks the enemy
+// count as it changes instead of latching a one-time decision.
+bool BattleBotAI::ShouldAVGuardGraveyards() const
+{
+    return m_avGuardGraveyards || IsAVEnemyOverwhelming();
+}
+
 float BattleBotAI::GetMaxAggroDistanceForMap() const
 {
     BattleGround* bg = me->GetBattleGround();
@@ -2886,8 +2897,9 @@ void BattleBotAI::OnJustRevived()
         return;
     }
 
-    // Behavior 3: randomly become guard of nearest non-home owned GY on respawn (only if mode enables guards)
-    if (m_avGuardGraveyards)
+    // Behavior 3: randomly become guard of nearest non-home owned GY on respawn (only if mode
+    // enables guards, or the enemy is overwhelming and guards are wanted regardless of mode)
+    if (ShouldAVGuardGraveyards())
         TryAssignAVRespawnGuard(this);
     if (m_avAssignedGY != 0)
     {
