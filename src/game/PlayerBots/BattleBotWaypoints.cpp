@@ -32,6 +32,7 @@
 #include "Utilities/Random.h"
 #include "Log.h"
 #include "World.h"
+#include <map>
 
 using namespace Geometry;
 
@@ -2252,6 +2253,49 @@ static bool FindAVGYToGuard(BattleBotAI* pAI, uint32& outNode)
     return false;
 }
 
+// Diagnostic for the "mine area has more bots than mineMissionCount allows" report: logs,
+// once a minute per team per AV instance, how many same-team bots actually carry
+// m_avIsMineBot=true (the real assignment count) versus how many bots of any kind are
+// physically within 150 yards of the mine's deepest waypoint. If flagged stays <= the cap
+// but nearby is higher, the extra bots aren't mine bots at all — they're likely fighting
+// over Tower Point / the nearby graveyard, whose approach overlaps the mine path's outdoor
+// leg. If flagged itself exceeds the cap, the assignment logic has a real bug.
+static void LogAVMineBotCensus(BattleGround* bg, Team team, BattleBotPath const* pMinePath, uint32 mineMissionCount, Map* map)
+{
+    if (!sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG) || !map || pMinePath->empty())
+        return;
+
+    static std::map<uint32, uint32> s_lastLogTime; // key: instanceId*2 + (team==HORDE)
+    uint32 const key = bg->GetInstanceID() * 2 + (team == HORDE ? 1u : 0u);
+    uint32 const now = WorldTimer::getMSTime();
+    uint32& lastLog = s_lastLogTime[key];
+    if (lastLog != 0 && now - lastLog < 60000)
+        return;
+    lastLog = now;
+
+    BattleBotWaypoint const& mineCore = pMinePath->back();
+
+    uint32 flaggedCount = 0;
+    uint32 nearbyCount = 0;
+    for (auto itr = map->GetPlayers().getFirst(); itr != nullptr; itr = itr->next())
+    {
+        Player* player = itr->getSource();
+        if (!player || player->GetTeam() != team || !player->IsBot() || !player->IsAlive())
+            continue;
+        BattleBotAI const* pBotAI = dynamic_cast<BattleBotAI const*>(player->AI());
+        if (!pBotAI)
+            continue;
+        if (pBotAI->m_avIsMineBot)
+            ++flaggedCount;
+        if (player->GetDistance(mineCore.x, mineCore.y, mineCore.z) < 150.0f)
+            ++nearbyCount;
+    }
+
+    sLog.Out(LOG_BG, LOG_LVL_BASIC,
+        "[AV_MINE] census bg %u team %u mineMissionCount=%u flagged=%u physicallyNear150y=%u",
+        bg->GetInstanceID(), uint32(team), mineMissionCount, flaggedCount, nearbyCount);
+}
+
 // Stable GUID-based selection: returns true if this bot should be a mine bot for its team.
 // Called once per bot after the 5-minute delay. The lowest m_avMineMissionCount GUIDs among
 // eligible DPS bots (non-healer, no fixed GY guard, not in temp GY hold) become mine bots.
@@ -2588,6 +2632,11 @@ bool BattleBotAI::StartNewPathToObjective()
                     m_avMineBotDecided = true;
                     m_avMineBotBgInstance = bg->GetInstanceID();
                     m_avIsMineBot = ShouldBeAVMineBot(this);
+
+                    if (m_avIsMineBot && sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                            "[AV_MINE] assigned bot %s guid %u bg %u team %u mineMissionCount %u",
+                            me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(), uint32(me->GetTeam()), m_avMineMissionCount);
                 }
             }
 
@@ -2618,6 +2667,8 @@ bool BattleBotAI::StartNewPathToObjective()
                         ? &vPath_AV_Stormpike_to_Irondeep_Morloch
                         : &vPath_AV_TowerPoint_to_Coldtooth_Snivvle;
 
+                    LogAVMineBotCensus(bg, myTeam, pMinePath, m_avMineMissionCount, me->GetMap());
+
                     // Already traveling — movement driven by MovementInform callbacks.
                     if (m_currentPath == pMinePath)
                         return true;
@@ -2636,16 +2687,39 @@ bool BattleBotAI::StartNewPathToObjective()
                     }
                     else
                     {
-                        // First entry or resumed after revival/combat far from boss.
+                        // Combat (or a revive) cleared our path somewhere along the
+                        // outdoor leg or the interior loop. Resuming from index 0
+                        // unconditionally sent mine bots all the way back outside to
+                        // walk the full base-to-mine leg again even when they were
+                        // already deep inside — visibly "going to the mine and back"
+                        // every time they fought something. Resume from whichever
+                        // waypoint on this path is actually closest instead.
+                        uint32 closestPoint = 0;
+                        float closestDistance = FLT_MAX;
+                        for (uint32 i = 0; i < pMinePath->size(); ++i)
+                        {
+                            BattleBotWaypoint const& wp = (*pMinePath)[i];
+                            float const dist = me->GetDistance(wp.x, wp.y, wp.z);
+                            if (dist < closestDistance)
+                            {
+                                closestDistance = dist;
+                                closestPoint = i;
+                            }
+                        }
+
                         m_currentPath = pMinePath;
                         m_movingInReverse = false;
-                        m_currentPoint = static_cast<uint32>(-1);
+                        m_currentPoint = (closestPoint > 0) ? closestPoint - 1 : static_cast<uint32>(-1);
                         MoveToNextPoint();
                     }
                     return true;
                 }
 
                 // Own key GY lost: release back to normal routing.
+                if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                    sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                        "[AV_MINE] released bot %s guid %u bg %u team %u reason ownKeyGyLost",
+                        me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(), uint32(me->GetTeam()));
                 m_avIsMineBot = false;
                 m_avMineState = AV_MINE_NONE;
             }

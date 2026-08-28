@@ -671,7 +671,12 @@ void SpellCaster::SendSpellMiss(Unit const* target, uint32 spellId, SpellMissInf
     entry.targetGuid = target->GetObjectGuid();
     entry.missInfo = missInfo;
     packet->missEntries.push_back(entry);
-    SendObjectMessageToSet(std::move(packet), true);
+    // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md): this opcode was already on the
+    // "可自由砍" (freely droppable, no stats precision requirement) whitelist but never actually
+    // got wired into the queue when 序3+4 shipped - see the other functions below for the same fix.
+    WorldPacket binaryPacket(packet->GetOpcode());
+    packet->AppendBodyTo(binaryPacket);
+    SendCombatLogMessageToSet(binaryPacket, target);
 }
 
 void SpellCaster::SendSpellDamageResist(Unit const* target, uint32 spellId) const
@@ -681,7 +686,10 @@ void SpellCaster::SendSpellDamageResist(Unit const* target, uint32 spellId) cons
     packet->targetGuid = target->GetObjectGuid();
     packet->spellId = spellId;
     packet->logFormat = 0; // 0=default, 1=debug
-    SendMessageToSet(std::move(packet), true);
+    // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md) - see SendSpellMiss() above.
+    WorldPacket binaryPacket(packet->GetOpcode());
+    packet->AppendBodyTo(binaryPacket);
+    SendCombatLogMessageToSet(binaryPacket, target);
 }
 
 void SpellCaster::SendSpellOrDamageImmune(Unit const* target, uint32 spellId) const
@@ -690,7 +698,10 @@ void SpellCaster::SendSpellOrDamageImmune(Unit const* target, uint32 spellId) co
     packet->casterGuid = GetObjectGuid();
     packet->targetGuid = target->GetObjectGuid();
     packet->spellId = spellId;
-    SendMessageToSet(std::move(packet), true);
+    // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md) - see SendSpellMiss() above.
+    WorldPacket binaryPacket(packet->GetOpcode());
+    packet->AppendBodyTo(binaryPacket);
+    SendCombatLogMessageToSet(binaryPacket, target);
 }
 
 uint32 SpellCaster::SpellCriticalDamageBonus(SpellEntry const* spellProto, uint32 damage, Unit const* pVictim, Spell* spell)
@@ -830,7 +841,10 @@ void SpellCaster::SendEnergizeSpellLog(Unit const* pTarget, uint32 spellId, uint
     packet->spellId = spellId;
     packet->powerType = static_cast<uint32>(powertype);
     packet->amount = amount;
-    SendMessageToSet(std::move(packet), true);
+    // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md) - see SendSpellMiss() above.
+    WorldPacket binaryPacket(packet->GetOpcode());
+    packet->AppendBodyTo(binaryPacket);
+    SendCombatLogMessageToSet(binaryPacket, pTarget);
 #endif
 }
 

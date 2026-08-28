@@ -1866,7 +1866,13 @@ void Unit::TriggerDamageShields(Unit* pVictim)
             spellDamageShieldPacket->attackerGuid = GetObjectGuid();
             spellDamageShieldPacket->damage = damage;
             spellDamageShieldPacket->school = pSpellProto->School;
-            pVictim->SendObjectMessageToSet(std::move(spellDamageShieldPacket), true);
+            // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md) - see SpellCaster::
+            // SendSpellMiss() for the same fix on the other "可自由砍" whitelist opcodes.
+            {
+                WorldPacket binaryPacket(spellDamageShieldPacket->GetOpcode());
+                spellDamageShieldPacket->AppendBodyTo(binaryPacket);
+                pVictim->SendCombatLogMessageToSet(binaryPacket, this);
+            }
 
             pVictim->DealDamage(this, damage, nullptr, SPELL_DIRECT_DAMAGE, pSpellProto->GetSpellSchoolMask(), pSpellProto, true);
 
@@ -5580,7 +5586,13 @@ void Unit::SendEnvironmentalDamageLog(uint8 type, uint32 damage, uint32 absorb, 
     packet->absorb = absorb;
     packet->resist = resist;
 #endif
-    SendMessageToSet(std::move(packet), true);
+    // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md) - see SpellCaster::SendSpellMiss()
+    // for the same fix on the other "可自由砍" whitelist opcodes. No separate target here (this
+    // is self-inflicted damage, `this` is both attacker and victim), matches the nullptr target
+    // convention already used by Unit::SendPeriodicAuraLog() for the same reason.
+    WorldPacket binaryPacket(packet->GetOpcode());
+    packet->AppendBodyTo(binaryPacket);
+    SendCombatLogMessageToSet(binaryPacket, nullptr);
 }
 
 uint32 Unit::GetSpellRank(SpellEntry const* spellInfo) const

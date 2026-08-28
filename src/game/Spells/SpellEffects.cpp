@@ -276,7 +276,9 @@ void Spell::EffectInstaKill(SpellEffectIndex /*effIdx*/)
     WorldPacket data(SMSG_SPELLINSTAKILLLOG, (8 + 4));
     data << unitTarget->GetObjectGuid();                    // Victim GUID
     data << uint32(m_spellInfo->Id);
-    m_caster->SendMessageToSet(&data, true);
+    // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md) - see SpellCaster::SendSpellMiss()
+    // for the same fix on the other "可自由砍" whitelist opcodes.
+    m_caster->SendCombatLogMessageToSet(data, unitTarget);
 #endif
 
     m_caster->DealDamage(unitTarget, unitTarget->GetHealth(), nullptr, DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, m_spellInfo, false, this);
@@ -2575,7 +2577,10 @@ void Spell::EffectDispel(SpellEffectIndex effIdx)
             data << unitTarget->GetObjectGuid();            // Victim GUID
             for (const auto& j : failList)
                 data << uint32(j);                         // Spell Id
-            m_caster->SendMessageToSet(&data, true);
+            // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md): sibling packet to the
+            // successful-dispel log a few lines above, which was already routed through
+            // SendCombatLogMessageToSet() - the failure case was missed at the time.
+            m_caster->SendCombatLogMessageToSet(data, unitTarget);
         }
     }
 

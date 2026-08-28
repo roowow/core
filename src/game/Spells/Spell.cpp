@@ -4923,7 +4923,12 @@ void Spell::SendLogExecute()
         }
     }
 
-    m_caster->SendMessageToSet(&data, true);
+    // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md): SMSG_SPELLLOGEXECUTE is the
+    // "SPELLLOGEXECUTE" entry from the original "可自由砍" whitelist - never got wired in at the
+    // time (missed, not deliberately skipped; found on a later completeness sweep). nullptr
+    // target for the same reason as SendAllTargetsMiss()/SendLogExecute is inherently
+    // multi-effect/multi-target (m_executeLogInfo), no single target to resolve for channel A.
+    m_caster->SendCombatLogMessageToSet(data, nullptr);
 }
 
 void Spell::SendInterrupted(uint8 result)
@@ -4963,7 +4968,16 @@ void Spell::SendAllTargetsMiss()
         entry.missInfo = target.missCondition;
         packet->missEntries.push_back(entry);
     }
-    m_caster->SendObjectMessageToSet(std::move(packet), true);
+    // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md) - see SpellCaster::SendSpellMiss()
+    // for the same fix on the other "可自由砍" whitelist opcodes. Passing nullptr for target
+    // (not one of the possibly-many m_UniqueTargetInfo entries): SendCombatLogMessageToSet()'s
+    // channel-A only resolves a single target, and this path is multi-target by definition (it
+    // only fires when every target of an AOE missed) - one of them getting the instant channel
+    // while the rest queue would be an arbitrary pick, not a meaningful fix, for a case that's
+    // rare to begin with (a whole AOE cast whiffing on every target at once).
+    WorldPacket binaryPacket(packet->GetOpcode());
+    packet->AppendBodyTo(binaryPacket);
+    m_caster->SendCombatLogMessageToSet(binaryPacket, nullptr);
 }
 
 void Spell::SendChannelUpdate(uint32 time, bool interrupted)
@@ -5244,7 +5258,13 @@ void Spell::SendMeleeAttackingStateUpdate(TargetInfo const* target, SpellNonMele
     packet->victimState = SpellMissInfoToVictimState(target->missCondition);
     packet->attackerState = packet->victimState == VICTIMSTATE_NORMAL ? 1000 : 0;
     packet->meleeSpellId = m_spellInfo->Id;
-    m_casterUnit->SendMessageToSet(std::move(packet), true);
+    // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md): same MeleeAttackingStateUpdate
+    // opcode as Unit::SendAttackStateUpdate(CalcDamageInfo const*), which was already routed
+    // through SendCombatLogMessageToSet() - this on-next-swing-melee-spell path (Heroic Strike
+    // etc.) was missed at the time and was still using the old unqueued SendMessageToSet().
+    WorldPacket binaryPacket(packet->GetOpcode());
+    packet->AppendBodyTo(binaryPacket);
+    m_casterUnit->SendCombatLogMessageToSet(binaryPacket, m_casterUnit->GetVictim());
 }
 
 void Spell::TakeCastItem()
