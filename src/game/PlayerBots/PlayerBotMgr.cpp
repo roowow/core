@@ -1294,17 +1294,22 @@ void PlayerBotMgr::BalanceOverflowAVInstances()
             continue;
         }
 
+        // Reserve 1 slot on the topped-up side for a real player instead of handing the
+        // whole gap to bots in one shot - otherwise this overflow instance (meant to stay
+        // open for queued real players once the primary AV is full) gets bot-flooded to
+        // full capacity and locked within minutes of just one side filling up naturally,
+        // leaving nowhere for later queuers to go until a running match ends.
         Team teamToFill = TEAM_NONE;
         uint32 slotsToFill = 0;
-        if (allianceFree == 0 && hordeFree > 0)
+        if (allianceFree == 0 && hordeFree > 1)
         {
             teamToFill = HORDE;
-            slotsToFill = hordeFree;
+            slotsToFill = hordeFree - 1;
         }
-        else if (hordeFree == 0 && allianceFree > 0)
+        else if (hordeFree == 0 && allianceFree > 1)
         {
             teamToFill = ALLIANCE;
-            slotsToFill = allianceFree;
+            slotsToFill = allianceFree - 1;
         }
 
         if (teamToFill == TEAM_NONE)
