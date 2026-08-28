@@ -433,9 +433,23 @@ void ReputationMgr::SaveToDB()
 {
     // Phase3 continuation (see HPHA.md "Phase 3 续") - routed through sCharactersOutbox, each
     // faction an independent statement (no grouping needed, matches _SaveQuestStatus()/
-    // _SaveSpells()'s same per-row delta shape). DELETE is already idempotent; the INSERT needs
-    // `ON DUPLICATE KEY UPDATE` to survive an at-least-once replay without colliding on the
-    // `(guid,faction)` PRIMARY KEY.
+    // _SaveSpells()'s same per-row delta shape).
+    //
+    // 2026-08-28 production incident: this used to also enqueue a separate `DELETE FROM
+    // character_reputation WHERE guid=? AND faction=?` right before the INSERT below (removed
+    // here). That DELETE was never actually necessary - `(guid,faction)` is the PRIMARY KEY and
+    // the INSERT's `ON DUPLICATE KEY UPDATE` already covers both the insert and the update case
+    // on its own - but it ran anyway for a long time as harmless dead weight, because its buffer
+    // (`char sql[64]`) was too small and every single execution failed with a MariaDB syntax
+    // error before ever reaching the database (see the buffer-size fixes elsewhere in this
+    // commit). Once that buffer bug was fixed, the DELETE started actually executing for the
+    // first time - and because it and the INSERT below are two independent, separately-enqueued
+    // async outbox entries (not one atomic statement), a player's reputation could end up
+    // deleted with the follow-up INSERT never landing, permanently losing that faction's
+    // standing. A player reported exactly this (most factions reset to 0) right after the
+    // restart that shipped the buffer fix. Root-caused to a `DELETE` that had no reason to exist
+    // in the first place; removing it removes the whole failure mode rather than chasing exactly
+    // which gap in the outbox let the two halves get separated.
     // was:
     // static SqlStatementID delRep;
     // static SqlStatementID insRep;
@@ -449,15 +463,11 @@ void ReputationMgr::SaveToDB()
         FactionState& faction = itr.second;
         if (faction.needSave)
         {
-            char sql[192];
-            snprintf(sql, sizeof(sql), "DELETE FROM character_reputation WHERE guid = %u AND faction=%u", m_player->GetGUIDLow(), faction.ID);
-            sCharactersOutbox.Enqueue(sql);
-
-            char sql2[384];
-            snprintf(sql2, sizeof(sql2), "INSERT INTO character_reputation (guid,faction,standing,flags) VALUES (%u, %u, %d, %u) "
+            char sql[384];
+            snprintf(sql, sizeof(sql), "INSERT INTO character_reputation (guid,faction,standing,flags) VALUES (%u, %u, %d, %u) "
                 "ON DUPLICATE KEY UPDATE `standing`=VALUES(`standing`), `flags`=VALUES(`flags`)",
                 m_player->GetGUIDLow(), faction.ID, faction.Standing, faction.Flags);
-            sCharactersOutbox.Enqueue(sql2);
+            sCharactersOutbox.Enqueue(sql);
 
             faction.needSave = false;
         }

@@ -17128,14 +17128,14 @@ bool Player::_LoadHomeBind(std::unique_ptr<QueryResult> result)
         if (MapManager::IsValidMapCoord(m_homebind.mapId, m_homebind.x, m_homebind.y, m_homebind.z) &&
             !bindMapEntry->Instanceable())
             ok = true;
-        else
-        {
-            // Phase3 (see HPHA.md) - routed through sCharactersOutbox. DELETE by non-PK filter,
-            // safe to replay.
-            char sql[128];
-            snprintf(sql, sizeof(sql), "DELETE FROM `character_homebind` WHERE `guid` = '%u'", GetGUIDLow());
-            sCharactersOutbox.Enqueue(sql);
-        }
+        // else: row is invalid, leave `ok` false. Used to also enqueue a separate DELETE here
+        // (removed 2026-08-28, same reasoning as the character_reputation incident this same
+        // day): `guid` is the PRIMARY KEY and the `ok`-false branch below already does an
+        // INSERT ... ON DUPLICATE KEY UPDATE that overwrites this exact row with valid default
+        // values, so the DELETE never did anything the INSERT wasn't already going to do -
+        // except, being a second independent async outbox message, create a window where it
+        // could land without the INSERT following it (e.g. a restart between the two), leaving
+        // the row (and this player's homebind) gone instead of merely reset to their start city.
     }
 
     if (!ok)
