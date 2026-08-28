@@ -10491,7 +10491,10 @@ void Unit::CleanupDeletedAuras()
             // - Pet::AddObjectToRemoveList
             // Seen happening with spells like [Health Funnel], [Tainted Blood]
             sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[Crash/Auras] Deleting aura holder %u in use (%s)", iter->GetId(), GetObjectGuid().GetString().c_str());
-            MaNGOS::Errors::PrintStacktrace();
+            // Async: this is a recoverable safety check hit during normal map/player update,
+            // not an actual crash - PrintStacktrace()'s DWARF symbol resolution can take
+            // multiple seconds on a debug-symbol build and must never stall the game tick.
+            MaNGOS::Errors::PrintStacktraceAsync();
         }
         else
             delete iter;
@@ -10504,7 +10507,8 @@ void Unit::CleanupDeletedAuras()
         if (iter->IsInUse())
         {
             sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[Crash/Auras] Deleting aura %u in use (%s)", iter->GetId(), GetObjectGuid().GetString().c_str());
-            MaNGOS::Errors::PrintStacktrace();
+            // Async: see comment on the aura holder case above.
+            MaNGOS::Errors::PrintStacktraceAsync();
         }
         else
             delete iter;

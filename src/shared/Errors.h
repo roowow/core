@@ -33,6 +33,15 @@ namespace MaNGOS { namespace Errors
 
     /// Prints a stack trace to `sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, ...)`
     void PrintStacktrace(int skipFrames, int maxFrames);
+
+    /// Same as PrintStacktrace(), but for use on hot paths that must never block (e.g. a
+    /// recoverable in-game safety check, not an actual crash): only the cheap raw frame
+    /// addresses are captured synchronously, the expensive DWARF symbol resolution and
+    /// logging happen on a detached background thread so the caller returns immediately.
+    /// Do NOT use this in a signal handler or right before process termination - the
+    /// trace may not finish printing before the process exits.
+    void PrintStacktraceAsync();
+    void PrintStacktraceAsync(int skipFrames, int maxFrames);
 }} // namespace MaNGOS::Errors
 
 /// Just a macro that converse a raw string to a quoted "string"
