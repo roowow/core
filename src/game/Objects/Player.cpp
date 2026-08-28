@@ -169,6 +169,7 @@ Player::Player(WorldSession* session) : Unit(),
     SetGroupInvite(nullptr);
     m_groupUpdateMask = 0;
     m_auraUpdateMask = 0;
+    m_lastPositionOnlyFlushTime = 0;
     m_LFGAreaId = 0;
 
     m_duel = nullptr;
@@ -20848,6 +20849,20 @@ void Player::SendUpdateToOutOfRangeGroupMembers()
 {
     if (m_groupUpdateMask == GROUP_UPDATE_FLAG_NONE)
         return;
+
+    // Phase "网络带宽优化" 序7 (see HPHA.md): a position-only update (no other flag pending,
+    // e.g. HP/aura change) is throttled to at most once per POSITION_ONLY_FLUSH_INTERVAL_MS -
+    // deferred to a later tick, not dropped (the mask is left set, so this same check runs again
+    // next tick until it's allowed through). Any other pending flag always flushes immediately as
+    // before, carrying the position along with it - never split into two packets.
+    if (m_groupUpdateMask == GROUP_UPDATE_FLAG_POSITION)
+    {
+        static uint32 const POSITION_ONLY_FLUSH_INTERVAL_MS = 1000;
+        if (m_lastPositionOnlyFlushTime && WorldTimer::getMSTimeDiffToNow(m_lastPositionOnlyFlushTime) < POSITION_ONLY_FLUSH_INTERVAL_MS)
+            return;
+        m_lastPositionOnlyFlushTime = WorldTimer::getMSTime();
+    }
+
     if (Group* group = GetGroup())
         group->UpdatePlayerOutOfRange(this);
 

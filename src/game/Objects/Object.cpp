@@ -2338,11 +2338,16 @@ void WorldObject::SendCombatLogMessageToSet(WorldPacket& data, WorldObject const
     if (!IsInWorld())
         return;
 
-    // 序3+4: only battleground maps route through the queue for now. Raid (序5) still falls
-    // through to the synchronous branch below, unchanged from today's behavior, until the
-    // forceNoDrop path has been separately validated (see HPHA.md).
-    bool const useQueue = sWorld.GetBroadcaster()->IsEnabled() && GetMap()->IsBattleGround();
-    bool const allowDrop = true; // only reachable when useQueue is true, i.e. battleground today
+    // 序3+4/序5 (see HPHA.md): battleground and raid both route through the queue - battleground
+    // is pure "shave the peak, drop is fine" (allowDrop=true), raid is stats telemetry that must
+    // never lose an entry (allowDrop=false; PlayerBroadcaster::QueueSelfOnlyPacket() already
+    // grows the queue past its soft cap instead of evicting when allowDrop is false, see the
+    // comment there). Open world/instance/anything else still falls through to the synchronous
+    // branch below, unchanged.
+    bool const isBattleGround = GetMap()->IsBattleGround();
+    bool const isRaid = GetMap()->IsRaid();
+    bool const useQueue = sWorld.GetBroadcaster()->IsEnabled() && (isBattleGround || isRaid);
+    bool const allowDrop = isBattleGround; // raid (isRaid) must never drop a combat log entry
 
     // this/target/their resolved owners are all excluded here regardless of useQueue - they were
     // already handled above (directly, or via their owner), and (unlike ObjectMessageDeliverer)

@@ -2530,6 +2530,10 @@ class Player final: public Unit
         Group* m_groupInvite;
         uint32 m_groupUpdateMask;
         uint64 m_auraUpdateMask;
+        // Phase "网络带宽优化" 序7 (see HPHA.md): last time a position-only (no other pending
+        // flag) out-of-range group update actually flushed. 0 = never sent one yet, always
+        // allowed through on the first check.
+        uint32 m_lastPositionOnlyFlushTime;
         uint32 m_LFGAreaId;
     public:
         Group* GetGroupInvite() const { return m_groupInvite; }
