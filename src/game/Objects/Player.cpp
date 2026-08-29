@@ -4711,7 +4711,12 @@ void Player::_SaveSpellCooldowns() const
             uint64 spellExpireTime = uint64(Clock::to_time_t(sTime));
             uint64 catExpireTime = uint64(Clock::to_time_t(cTime));
 
-            char sql[192];
+            // 2026-08-29: was char sql[192] - two UI64FMTD (uint64) fields push the worst case to
+            // 224 bytes; realistic values (10-digit unix timestamps, etc.) already only had ~7
+            // bytes of margin left. Found via a second buffer-size audit pass after the
+            // character_queststatus incident this same day, whose UI64FMTD placeholder the first
+            // audit script didn't recognize as a conversion specifier and undercounted.
+            char sql[320];
             snprintf(sql, sizeof(sql), "INSERT INTO `character_spell_cooldown` (`guid`, `spell`, `spell_expire_time`, `category`, `category_expire_time`, `item_id`) VALUES(%u, %u, " UI64FMTD ", %u, " UI64FMTD ", %u)",
                 GetGUIDLow(), cdData->GetSpellEntry()->Id, spellExpireTime, cdData->GetCategory(), catExpireTime, cdData->GetItemId());
             sqls.push_back(sql);
@@ -18038,7 +18043,18 @@ void Player::_SaveQuestStatus()
             case QUEST_NEW :
             {
                 uint64 timer = uint64(i->second.m_timer / IN_MILLISECONDS + sWorld.GetGameTime());
-                char sql[768];
+                // 2026-08-29 production fix: was char sql[768], too small - the earlier
+                // buffer-size audit this session missed this one because it uses UI64FMTD (a
+                // macro-expanded %llu placeholder concatenated into the literal), which the
+                // audit script's literal-only scanner didn't recognize as a conversion
+                // specifier, so it undercounted the worst-case length and this looked safe.
+                // Worst case (all uint32 fields at UINT32_MAX, timer at UINT64_MAX) needs 894
+                // bytes; a real production INSERT with entirely ordinary values (reward_choice
+                // just being a 6-digit item entry) already needed 770, past the 768 cap, and was
+                // silently truncated mid `ON DUPLICATE KEY UPDATE` clause into invalid SQL -
+                // DbWriteOutbox logged "cannot execute" 5 times then dropped the quest status
+                // save entirely.
+                char sql[1024];
                 snprintf(sql, sizeof(sql), "INSERT INTO `character_queststatus` (`guid`, `quest`, `status`, `rewarded`, `explored`, `timer`, `mob_count1`, `mob_count2`, `mob_count3`, `mob_count4`, `item_count1`, `item_count2`, `item_count3`, `item_count4`, `reward_choice`) "
                     "VALUES (%u, %u, %u, %u, %u, " UI64FMTD ", %u, %u, %u, %u, %u, %u, %u, %u, %u) "
                     "ON DUPLICATE KEY UPDATE `status`=VALUES(`status`), `rewarded`=VALUES(`rewarded`), `explored`=VALUES(`explored`), `timer`=VALUES(`timer`), "
