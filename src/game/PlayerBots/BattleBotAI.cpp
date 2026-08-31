@@ -2819,6 +2819,9 @@ void BattleBotAI::UpdateWaypointMovement()
     if (StartNewPathFromBeginning())
         return;
 
+    if (TryRetraceFromAVBossDeadEnd())
+        return;
+
     if ((m_isBattleRoyaleBot ? sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG) : sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG)))
     {
         BattleGround* dbgBg = me->GetBattleGround();

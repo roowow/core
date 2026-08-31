@@ -1525,6 +1525,22 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
     &vPath_AV_TowerPoint_to_Coldtooth_Snivvle,
 };
 
+// The three boss-room approach paths above are one-way dead ends (see the
+// vPaths_NoReverseAllowed comment history: reversing them was disabled to fix an unrelated
+// oscillation at their crossroad junction). That leaves no automatic way back out once a bot
+// reaches the end of one of them and has nothing left to do there — StartNewPathToPosition and
+// StartNewPathFromBeginning both correctly refuse to pick them in reverse, and
+// StartNewPathFromAnywhere is forward-only, so the bot just hops in place at the dead end
+// forever. Used by the stranded-bot check in StartNewPathToObjective() to retrace the exact
+// path backward manually (bypassing vPaths_NoReverseAllowed on purpose, since that list is
+// only consulted by the shared selection functions, not by setting the path fields directly).
+std::vector<BattleBotPath*> const vPaths_AV_BossDeadEnds =
+{
+    &vPath_AV_Alliance_Base_Bunker_Third_Crossroad_to_Alliance_Base_Vanndar_Stormpike,
+    &vPath_AV_Horde_Base_Second_Crossroads_to_Horde_Base_DrekThar1,
+    &vPath_AV_Horde_Base_Second_Crossroads_to_Horde_Base_DrekThar2,
+};
+
 // Paths excluded from StartNewPathToPosition objective routing.
 // StartNewPathFromBeginning / StartNewPathFromAnywhere still use them.
 //
@@ -1867,6 +1883,63 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
     return true;
 }
 
+// Rescue for a bot standing at the dead end of one of the AV boss-room approach paths
+// (vPaths_AV_BossDeadEnds) with nothing left to do there — happens after the boss-defense
+// rally (IsAVOwnBossUnderAttack() in StartNewPathToObjective()) once the fight is over, and
+// could in principle also happen to the pre-existing "attack the enemy boss" logic if that
+// push stalls. Those paths are deliberately one-way (vPaths_NoReverseAllowed), so
+// StartNewPathToPosition/StartNewPathFromBeginning both correctly refuse to pick them in
+// reverse, and StartNewPathFromAnywhere is forward-only — none of them can route a way back
+// out, leaving the bot hopping in place at the dead end forever. Called from
+// UpdateWaypointMovement() as a last resort, after the normal StartNewPathToObjective()/
+// StartNewPathFromBeginning() chain has already had a chance to make a real decision (so a
+// guard/mine bot whose actual post happens to be reachable from here is routed there
+// instead, not yanked out by this). Retraces the exact path backward manually, bypassing
+// vPaths_NoReverseAllowed on purpose since it's only consulted by the shared selection
+// functions, not by setting the path fields directly.
+bool BattleBotAI::TryRetraceFromAVBossDeadEnd()
+{
+    BattleGround* bg = me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
+        return false;
+
+    for (BattleBotPath* pDeadEndPath : vPaths_AV_BossDeadEnds)
+    {
+        BattleBotWaypoint const& lastWP = pDeadEndPath->back();
+        if (me->GetDistance(lastWP.x, lastWP.y, lastWP.z) < 50.0f)
+        {
+            if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                    "[AV_BOSS_DEFENSE] bot %s guid %u bg %u team %u stranded at boss dead end, retracing out",
+                    me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(), uint32(me->GetTeam()));
+
+            // Resume from whichever waypoint on this path is actually closest instead of
+            // always restarting at the very end — if combat repeatedly interrupts the retrace
+            // near the trigger radius, restarting at the end every time would walk the bot
+            // back toward the boss first before turning around again on each retry.
+            uint32 closestPoint = 0;
+            float closestDistance = FLT_MAX;
+            for (uint32 i = 0; i < pDeadEndPath->size(); ++i)
+            {
+                BattleBotWaypoint const& wp = (*pDeadEndPath)[i];
+                float const dist = me->GetDistance(wp.x, wp.y, wp.z);
+                if (dist < closestDistance)
+                {
+                    closestDistance = dist;
+                    closestPoint = i;
+                }
+            }
+
+            m_currentPath = pDeadEndPath;
+            m_movingInReverse = true;
+            m_currentPoint = closestPoint + 1;
+            MoveToNextPoint();
+            return true;
+        }
+    }
+    return false;
+}
+
 static uint32 AV_KeyDefenseObjectives[] =
 {
     BG_AV_STORMPIKE_AID_STATION_GY,
@@ -2198,6 +2271,8 @@ static bool GetAVGYPosition(BattleGround* bg, Map* map, Team team, uint32 node, 
     return GetAVNativeGraveyardFallbackPosition(node, outPos);
 }
 
+static constexpr uint32 AV_NATIVE_GY_RECAPTURE_CAP = 5;
+
 static bool FindAVGYToGuard(BattleBotAI* pAI, uint32& outNode)
 {
     BattleGround* bg = pAI->me->GetBattleGround();
@@ -2211,7 +2286,27 @@ static bool FindAVGYToGuard(BattleBotAI* pAI, uint32& outNode)
     uint32 const* enemyNative  = (team == HORDE) ? AV_AllianceNativeGYs : AV_HordeNativeGYs;
     uint32 const* ownNative    = (team == HORDE) ? AV_HordeNativeGYs    : AV_AllianceNativeGYs;
 
-    // Priority 1: We are actively capturing an enemy GY — up to 5 bots converge as guards.
+    // Priority 1: One of our own native GYs is being assaulted or has already been fully
+    // captured by the enemy — converge up to AV_NATIVE_GY_RECAPTURE_CAP bots to retake it.
+    // Without this, only whichever bot(s) happened to already be guarding it before it fell
+    // keep trying: that assignment is sticky (BattleBotSelectAVGuardObjective's "Native GY
+    // lost — keep assignment and go recapture" branch, which survives death/revival), but a
+    // lone guard (or the usual 2-guard steady-state count) can't out-fight a determined enemy
+    // push on its own — it just keeps dying and respawning without ever winning the ground
+    // back. This actively routes OTHER free bots there as reinforcements instead of leaving
+    // recapture entirely to that one sticky assignment plus whatever the (weaker,
+    // distance-competing) attack-objective loop further down happens to send.
+    for (uint32 i = 0; i < 3; ++i)
+    {
+        if (!bg->IsActiveEvent(ownNative[i], ownControlled) &&
+            CountAVBotsAssignedToGY(map, team, ownNative[i]) < AV_NATIVE_GY_RECAPTURE_CAP)
+        {
+            outNode = ownNative[i];
+            return true;
+        }
+    }
+
+    // Priority 2: We are actively capturing an enemy GY — up to 5 bots converge as guards.
     // Capped to prevent all bots being permanently assigned here while the GY is assaulting;
     // holdCaptureUntilControlled handles the "everyone waits" behaviour for the rest.
     for (uint32 i = 0; i < 3; ++i)
@@ -2224,7 +2319,7 @@ static bool FindAVGYToGuard(BattleBotAI* pAI, uint32& outNode)
         }
     }
 
-    // Priority 2: We fully control a captured GY — keep 3 guards
+    // Priority 3: We fully control a captured GY — keep 3 guards
     for (uint32 i = 0; i < 3; ++i)
     {
         if (bg->IsActiveEvent(enemyNative[i], ownControlled) &&
@@ -2235,7 +2330,7 @@ static bool FindAVGYToGuard(BattleBotAI* pAI, uint32& outNode)
         }
     }
 
-    // Priority 3: Own native GYs after 5 minutes — 2 guards each, GUID-spread.
+    // Priority 4: Own native GYs after 5 minutes — 2 guards each, GUID-spread.
     // If the enemy is fielding more than 10 real players, that delay is skipped entirely
     // (guards go up immediately, even at battleground start) and the own rearmost/home GY
     // (the one that guards the approach to our final boss) gets double the guard count,
@@ -2512,6 +2607,7 @@ static std::pair<uint32, uint32> AV_HordeAttackObjectives[] =
     { BG_AV_DUN_BALDAR_NORTH_BUNKER, ALLIANCE_CONTROLLED },
     { BG_AV_STORMPIKE_AID_STATION_GY, ALLIANCE_CONTROLLED },
     { BG_AV_ICEBLOOD_GY, ALLIANCE_CONTROLLED },      // retake if Alliance captured it (lowest priority)
+    { BG_AV_FROSTWOLF_RELIEF_HUT_GY, ALLIANCE_CONTROLLED }, // retake if Alliance captured it (lowest priority)
 };
 
 static std::pair<uint32, uint32> AV_HordeDefendObjectives[] =
@@ -2519,6 +2615,7 @@ static std::pair<uint32, uint32> AV_HordeDefendObjectives[] =
     // Defend
     { BG_AV_ICEBLOOD_GY, ALLIANCE_ASSAULTED },    // closest Horde GY to frontline
     { BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED },
+    { BG_AV_FROSTWOLF_RELIEF_HUT_GY, ALLIANCE_ASSAULTED },
     { BG_AV_EAST_FROSTWOLF_TOWER, ALLIANCE_ASSAULTED },
     { BG_AV_WEST_FROSTWOLF_TOWER, ALLIANCE_ASSAULTED },
     { BG_AV_TOWER_POINT_TOWER, ALLIANCE_ASSAULTED },
@@ -2536,11 +2633,15 @@ static std::pair<uint32, uint32> AV_AllianceAttackObjectives[] =
     { BG_AV_EAST_FROSTWOLF_TOWER, HORDE_CONTROLLED },
     { BG_AV_WEST_FROSTWOLF_TOWER, HORDE_CONTROLLED },
     { BG_AV_FROSTWOLF_RELIEF_HUT_GY, HORDE_CONTROLLED },
+    { BG_AV_STORMPIKE_AID_STATION_GY, HORDE_CONTROLLED }, // retake if Horde captured it (lowest priority)
 };
 
 static std::pair<uint32, uint32> AV_AllianceDefendObjectives[] =
 {
-    // Defend
+    // Defend. Stormpike Aid Station goes first: it's the last native GY standing between
+    // the frontline and the home graveyard right next to Vanndar, so it gets first pick of
+    // this (first-match-wins, not distance-based) list whenever it's actively being assaulted.
+    { BG_AV_STORMPIKE_AID_STATION_GY, HORDE_ASSAULTED },
     { BG_AV_STONEHEARTH_GY, HORDE_ASSAULTED },
     { BG_AV_STORMPIKE_GY, HORDE_ASSAULTED },
     { BG_AV_DUN_BALDAR_SOUTH_BUNKER, HORDE_ASSAULTED },
@@ -2548,6 +2649,14 @@ static std::pair<uint32, uint32> AV_AllianceDefendObjectives[] =
     { BG_AV_ICEWING_BUNKER, HORDE_ASSAULTED },
     { BG_AV_STONEHEARTH_BUNKER, HORDE_ASSAULTED },
 };
+
+// Applied as a multiplier to the measured distance when Stormpike Aid Station competes
+// against other attack candidates (Galvangar, any still-Horde-held node) in the
+// closest-objective contest below. It's the last native GY standing before the home
+// graveyard next to Vanndar, so it's worth walking noticeably further for than an
+// equal-priority target elsewhere on the map — 0.5 means it only needs to be within 2x the
+// distance of the current best candidate to win, instead of needing to be strictly closer.
+constexpr float AV_HOME_TIER_GY_ATTACK_WEIGHT = 0.5f;
 
 // Dedicated cavalry hunter selection (GUID-stable, 2 per faction from DPS pool).
 // Excludes healers, fixed GY guards, mine bots, and bots already in GY capture hold.
@@ -2967,6 +3076,19 @@ bool BattleBotAI::StartNewPathToObjective()
                     }
                 }
 
+                // Diagnostic for the "Stormpike Aid Station never gets retaken" report: even
+                // though it's now a valid candidate in AV_AllianceAttackObjectives, this loop
+                // picks whichever candidate is CLOSEST, and Galvangar is pre-seeded above as a
+                // standing candidate whenever he's alive. If he (or some other simultaneously-
+                // active Horde-held node) is consistently closer to bots than Aid Station, it
+                // can keep losing that distance contest indefinitely without anything being
+                // broken. Logs, once per ~20s per instance, whenever Aid Station is actually
+                // lost/contested: its own distance vs whatever ended up winning.
+                bool const aidStationGalvangarPreseeded = (pAttackObjectiveObject != nullptr);
+                GameObject* pAidStationGO = nullptr;
+                float aidStationDistance = -1.0f;
+                uint8 aidStationMatchedState = 0xFF;
+
                 for (const auto& objective : AV_AllianceAttackObjectives)
                 {
                     // Same fix as the Horde loop above: resolve which of the three states
@@ -2986,19 +3108,50 @@ bool BattleBotAI::StartNewPathToObjective()
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, matchedState)))
                         {
                             float const distance = me->GetDistance(pGO);
-                            if (attackObjectiveDistance > distance)
+
+                            if (objective.first == BG_AV_STORMPIKE_AID_STATION_GY)
+                            {
+                                pAidStationGO = pGO;
+                                aidStationDistance = distance;
+                                aidStationMatchedState = matchedState;
+                            }
+
+                            // Weighted for the priority comparison only — the actual
+                            // movement target below still uses pGO's real position.
+                            float const comparisonDistance = (objective.first == BG_AV_STORMPIKE_AID_STATION_GY)
+                                ? distance * AV_HOME_TIER_GY_ATTACK_WEIGHT : distance;
+
+                            if (attackObjectiveDistance > comparisonDistance)
                             {
                                 pSecondObjective = pAttackObjectiveObject;
                                 secondObjectiveDistance = attackObjectiveDistance;
                                 pAttackObjectiveObject = pGO;
-                                attackObjectiveDistance = distance;
+                                attackObjectiveDistance = comparisonDistance;
                             }
-                            else if (secondObjectiveDistance > distance)
+                            else if (secondObjectiveDistance > comparisonDistance)
                             {
                                 pSecondObjective = pGO;
-                                secondObjectiveDistance = distance;
+                                secondObjectiveDistance = comparisonDistance;
                             }
                         }
+                    }
+                }
+
+                if (aidStationMatchedState != 0xFF && sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                {
+                    static std::map<uint32, uint32> s_lastAidStationDebugLog;
+                    uint32 const now = WorldTimer::getMSTime();
+                    uint32& lastLog = s_lastAidStationDebugLog[bg->GetInstanceID()];
+                    if (lastLog == 0 || now - lastLog >= 20000)
+                    {
+                        lastLog = now;
+                        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                            "[AV_RETAKE_DEBUG] bot %s guid %u bg %u aidStationState=%u aidStationDist=%.1f "
+                            "chosenDist=%.1f chosenIsAidStation=%d galvangarPreseeded=%d",
+                            me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(), aidStationMatchedState,
+                            aidStationDistance, attackObjectiveDistance,
+                            pAttackObjectiveObject == static_cast<WorldObject*>(pAidStationGO),
+                            aidStationGalvangarPreseeded);
                     }
                 }
 
