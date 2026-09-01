@@ -114,6 +114,14 @@ struct aq40_corridor_guardAI : public CreatureEventAI
 {
     std::vector<CorridorPoint> const* m_pPath;
     bool m_bStripMounts;
+    // Temporary diagnostic (remove once the "group rushes through together, leash still trips"
+    // report is understood - see chat log 2026-09-01): last computed distance-to-path, so
+    // EnterEvadeMode() can log it at the moment leash actually lets go. Tells us whether the
+    // leash-triggered evade is happening right at the tolerance edge (real players spread wider
+    // than the recorded centerline allows - a data/tuning problem, widen CORRIDOR_TOLERANCE or
+    // re-record a wider path) or genuinely far off path (a deliberate pet/kite drag - a
+    // different problem, this distance won't help diagnose that one).
+    float m_lastDistToPath = -1.0f;
 
     explicit aq40_corridor_guardAI(Creature* c) : CreatureEventAI(c)
     {
@@ -132,6 +140,7 @@ struct aq40_corridor_guardAI : public CreatureEventAI
         if (Unit* pVictim = m_creature->GetVictim())
         {
             float dist = DistanceToPath(*m_pPath, pVictim->GetPositionX(), pVictim->GetPositionY(), pVictim->GetPositionZ());
+            m_lastDistToPath = dist;
             m_creature->SetLeashDistance(dist <= CORRIDOR_TOLERANCE ? LEASH_ON_PATH : LEASH_DEFAULT);
 
             if (!m_bStripMounts)
@@ -176,6 +185,28 @@ struct aq40_corridor_guardAI : public CreatureEventAI
                 AttackStart(pNext);
                 return;
             }
+        }
+
+        // Temporary diagnostic (see m_lastDistToPath's comment above) - only fires for the
+        // leash-triggered evade (still had a living victim, m_pPath non-null so leash was
+        // actually being managed here). LOG_LVL_MINIMAL, unconditional, no config change needed.
+        if (m_pPath && m_creature->GetVictim())
+        {
+            // distToPath explains why SetLeashDistance() dropped the threshold to
+            // LEASH_DEFAULT; combatStartDist is the number the engine actually compares against
+            // that threshold (Creature.cpp:993, IsWithinDist3d against m_combatStartX/Y/Z) - the
+            // real trigger. Logging both: a small overshoot (combatStartDist just over
+            // LEASH_DEFAULT) means this is a clean, expected leash trip; a big one suggests the
+            // guard lagged behind (pathing/LOS stall) rather than the victim outrunning it.
+            float startX, startY, startZ;
+            m_creature->GetCombatStartPosition(startX, startY, startZ);
+            float combatStartDist = m_creature->GetDistance(startX, startY, startZ);
+
+            std::list<Player*> nearby;
+            m_creature->GetAlivePlayerListInRange(m_creature, nearby, 100.0f);
+            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL,
+                     "[CorridorGuard] guid=%u leash-evade distToPath=%.1f combatStartDist=%.1f nearbyPlayers(100yd)=%zu",
+                     m_creature->GetGUIDLow(), m_lastDistToPath, combatStartDist, nearby.size());
         }
 
         CreatureEventAI::EnterEvadeMode();

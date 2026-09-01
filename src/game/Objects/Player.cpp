@@ -17957,18 +17957,6 @@ void Player::_SaveInventory()
                 // being taken from mail), but this makes the failure mode itself harmless
                 // regardless of what's still triggering the collision - a retried/duplicated
                 // save becomes a no-op overwrite instead of a silent, permanent data loss.
-                // Temporary trace (remove once the ON DUPLICATE KEY UPDATE fix above has been
-                // running in production for a while with no more `character_inventory` PRIMARY
-                // KEY collisions turning up in DBErrors.log): the ON DUPLICATE KEY UPDATE clause
-                // means a real item_guid collision no longer errors, so this is now the only
-                // remaining signal that one happened - grep `[ItemSave]` and cross-reference
-                // item_guid against other characters' saves around the same timestamp.
-                // LOG_LVL_MINIMAL (not DEBUG_FILTER_LOG) on purpose: prints unconditionally at
-                // whatever LogLevel.Console/File this server already runs at (MINIMAL is the
-                // lowest non-error level), no config change or restart needed to observe it.
-                sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[ItemSave] owner=%u item_guid=%u item_id=%u bag=%u slot=%u",
-                    GetGUIDLow(), item->GetGUIDLow(), item->GetEntry(), bagGuid, item->GetSlot());
-
                 SqlStatement stmt = CharacterDatabase.CreateStatement(insertInventory,
                     "INSERT INTO `character_inventory` (`guid`, `bag`, `slot`, `item_guid`, `item_id`) VALUES (?, ?, ?, ?, ?) "
                     "ON DUPLICATE KEY UPDATE `guid` = VALUES(`guid`), `bag` = VALUES(`bag`), `slot` = VALUES(`slot`), `item_id` = VALUES(`item_id`)");

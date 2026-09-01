@@ -333,6 +333,17 @@ bool DbWriteOutbox::EnsureFlusherMysqlConnected()
     conn->SetTolerateQueryErrors(true);
     if (!conn->Initialize(m_dbConnectionInfo))
     {
+        // MySQLConnection::OpenConnection() already logs the actual mysql_error() detail to
+        // Server.log at ERROR level, but that line has no idea which of the several
+        // DbWriteOutbox instances (or the game's own shared connections) it belongs to. This
+        // line exists purely to disambiguate "this outbox's dedicated connection just failed" -
+        // grep DbOutbox.log for m_streamKey the next time a heartbeat unexpectedly reads down -
+        // from "this outbox has simply never had anything to flush yet" (the common case: the
+        // flag defaults to false and this function is only reached from ExecuteAndAck(), i.e.
+        // only once the Stream actually has an entry to apply).
+        sLog.Out(LOG_DB_OUTBOX, LOG_LVL_MINIMAL,
+                 "DbWriteOutbox[%s]: Flusher MySQL connection attempt failed, retrying in %us.",
+                 m_streamKey.c_str(), RECONNECT_COOLDOWN_SEC);
         m_flusherMysqlLastFailTime = time(nullptr);
         return false;
     }
