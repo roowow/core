@@ -1,6 +1,7 @@
 #include "scriptPCH.h"
 #include "molten_core.h"
 #include "Utilities/EventMap.h"
+#include <unordered_map>
 
 enum Garr : uint32
 {
@@ -277,10 +278,26 @@ struct mob_fireswornAI : ScriptedAI
 
     bool m_bForceExplosion;
 
+    // Anti-kite state, mirrors mob_razorgore_add_antikiteAI (boss_razorgore.cpp) - see
+    // UpdateAI() below for why this is needed on top of the EnterEvadeMode() override above.
+    uint32 m_uiUnreachableTimer = 0;
+    bool m_bPurging = false;
+    // Guid -> ms remaining before this player can be picked as a target again. A pure
+    // "remove from threat table" purge is not enough on its own: a healer who keeps casting
+    // can regenerate threat on this add (healing threat is shared across a healed target's
+    // attackers) faster than a single purge cycle clears them, causing an endless
+    // "purge -> healed back to top -> purge" loop that never actually settles on a reachable
+    // target. The cooldown keeps a just-purged player ineligible for a while regardless of how
+    // fast their threat climbs back.
+    std::unordered_map<ObjectGuid, uint32> m_blacklist;
+
     void Reset() override
     {
         m_bForceExplosion = false;
         m_CombatEvents.Reset();
+        m_uiUnreachableTimer = 0;
+        m_bPurging = false;
+        m_blacklist.clear();
     }
 
     void Aggro(Unit* /*pWho*/) override
@@ -354,9 +371,69 @@ struct mob_fireswornAI : ScriptedAI
 
     void UpdateAI(uint32 const diff) override
     {
+        // Neutralize the engine's own "stuck too long" watchdog (Creature.cpp): once
+        // m_targetNotReachableTimer exceeds 3s, Creature::Update() stops calling UpdateAI()
+        // entirely (IsEvadeBecauseTargetNotReachable()) - and since EnterEvadeMode() above is
+        // deliberately a no-op while Garr is engaged/dead, that freeze would otherwise be
+        // permanent (nothing else ever resolves it), silently killing this add's own combat
+        // logic - EVENT_THREAT_CHECK included - for as long as a player keeps it wedged behind
+        // terrain. Reset unconditionally, before the early-return below, so it always runs
+        // while this add is ever ticked at all.
+        m_creature->m_targetNotReachableTimer = 0;
+
+        for (auto it = m_blacklist.begin(); it != m_blacklist.end(); )
+        {
+            if (diff >= it->second)
+                it = m_blacklist.erase(it);
+            else
+            {
+                it->second -= diff;
+                ++it;
+            }
+        }
+
         if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
         {
             return;
+        }
+
+        // Still-blacklisted player wormed back onto the threat table via fresh threat (e.g.
+        // rapid healing) before their cooldown expired - kick them again immediately, no need
+        // to re-confirm CantPathToVictim() first.
+        if (Unit* pVictim = m_creature->GetVictim())
+        {
+            if (m_blacklist.count(pVictim->GetObjectGuid()))
+            {
+                m_creature->GetThreatManager().modifyThreatPercent(pVictim, -101);
+                return;
+            }
+        }
+
+        // Players can use LOS/terrain to keep this specific Firesworn's current top-threat
+        // target permanently out of reach while it's still winning the threat race (e.g.
+        // tanking from atop a rock it can't climb) - CantPathToVictim() catches that even
+        // though EVENT_THREAT_CHECK above only helps players who aren't on the threat list
+        // yet. First strike waits 1s so a brief, normal pathing hiccup doesn't strip real
+        // threat; once confirmed stuck, keep purging every tick without re-arming the wait, so
+        // SelectHostileTarget() gets to cycle through the rest of the threat table quickly.
+        if (m_creature->CantPathToVictim())
+        {
+            m_uiUnreachableTimer += diff;
+            if (m_uiUnreachableTimer > (m_bPurging ? 0u : 1000u))
+            {
+                if (Unit* pVictim = m_creature->GetVictim())
+                {
+                    m_creature->GetThreatManager().modifyThreatPercent(pVictim, -101);
+                    m_blacklist[pVictim->GetObjectGuid()] = 8000;   // tunable
+                }
+                m_bPurging = true;
+                m_uiUnreachableTimer = 0;
+            }
+        }
+        else
+        {
+            m_uiUnreachableTimer = 0;
+            m_bPurging = false;
         }
 
         m_CombatEvents.Update(diff);

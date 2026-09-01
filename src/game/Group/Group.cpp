@@ -419,8 +419,17 @@ bool Group::AddMember(ObjectGuid guid, char const* name, uint8 joinMethod)
                     if (member->IsInVisibleList(player))
                     {
                         UpdateMask updateMask;
-                        updateMask.SetCount(member->GetValuesCount());
-                        member->MarkUpdateFieldsWithFlagForUpdate(updateMask, UF_FLAG_GROUP_ONLY);
+                        // Bugfix (2026-09-01): mask was being built from member's own field
+                        // values but then used to serialize player's data below - the two
+                        // objects' UF_FLAG_GROUP_ONLY fields (PLAYER_QUEST_LOG_*_1, see
+                        // MarkUpdateFieldsWithFlagForUpdate()) aren't zero/non-zero in the same
+                        // pattern, so a quest slot that's set on player but happens to be empty
+                        // on member would silently never get included in the mask and never
+                        // reach member. Original (kept for reference, do not restore):
+                        //   updateMask.SetCount(member->GetValuesCount());
+                        //   member->MarkUpdateFieldsWithFlagForUpdate(updateMask, UF_FLAG_GROUP_ONLY);
+                        updateMask.SetCount(player->GetValuesCount());
+                        player->MarkUpdateFieldsWithFlagForUpdate(updateMask, UF_FLAG_GROUP_ONLY);
                         if (updateMask.HasData())
                         {
                             UpdateData newData;

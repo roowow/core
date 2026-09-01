@@ -143,6 +143,13 @@ public:
     uint8 m_brZoneEscapeFailTicks = 0;
     uint8 m_brSafeRecoveryFailTicks = 0;
     time_t m_brLastRemoveCurseTime = 0;
+    // Throttles the "is there a dropped WSG flag anywhere on the map" 500yd scan in
+    // UpdateBattleGroundAI() - every eligible bot (out of combat, not carrying a flag, not a
+    // home guard) was independently re-scanning up to twice per decision tick for what is, at
+    // any given instant, the same answer for every bot on the same match. Doesn't affect actual
+    // pickup - TryUseBattleGroundFlag()'s short-range interaction check above it in the same
+    // function is unthrottled and still runs every tick.
+    time_t m_lastDroppedFlagScanTime = 0;
     ShortTimeTracker m_updateTimer;
     uint8 m_race = 0;
     uint8 m_class = 0;

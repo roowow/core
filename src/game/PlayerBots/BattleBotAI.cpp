@@ -51,6 +51,7 @@
 #include <cmath>
 #include <limits>
 #include <list>
+#include <unordered_map>
 
 enum BattleBotSpells
 {
@@ -392,10 +393,38 @@ static bool BattleBotCanUseCrowdControl(BattleBotAI const* pAI, SpellEntry const
     return true;
 }
 
+// Memoizes SpellName[0].find(needle) per spellId - these two checks run once per candidate
+// target per bot decision tick (see BattleBotIsHardControlled and its many call sites below),
+// and the underlying string search is pure overhead: the same handful of spellIds (one per
+// rank/proc variant sharing that display name) get re-checked over and over for the life of the
+// process. Caching the bool result by spellId turns repeat lookups into an O(1) hash lookup
+// instead of a fresh substring search every time, without changing what counts as a match (still
+// driven by the exact same SpellName[0].find() check, just evaluated once per spellId instead of
+// once per call). thread_local, not a plain static: different BattleGround map instances can be
+// updated concurrently on different threads in the map-update thread pool, and an unordered_map
+// isn't safe to write from multiple threads without a lock - thread_local sidesteps that
+// entirely (each thread builds its own tiny cache; convergence is near-instant since there are
+// only a handful of distinct spellIds ever encountered here).
+static bool SpellNameContainsCached(SpellEntry const* spellInfo, char const* needle, std::unordered_map<uint32, bool>& cache)
+{
+    if (!spellInfo)
+        return false;
+
+    auto itr = cache.find(spellInfo->Id);
+    if (itr != cache.end())
+        return itr->second;
+
+    bool const matches = spellInfo->SpellName[0].find(needle) != std::string::npos;
+    cache.emplace(spellInfo->Id, matches);
+    return matches;
+}
+
 static bool BattleBotHasEntanglingRoots(Unit const* pTarget)
 {
     if (!pTarget)
         return false;
+
+    static thread_local std::unordered_map<uint32, bool> s_cache;
 
     Unit::AuraList const& rootAuras = pTarget->GetAurasByType(SPELL_AURA_MOD_ROOT);
     for (Aura const* aura : rootAuras)
@@ -403,8 +432,7 @@ static bool BattleBotHasEntanglingRoots(Unit const* pTarget)
         if (!aura)
             continue;
 
-        SpellEntry const* spellInfo = aura->GetSpellProto();
-        if (spellInfo && spellInfo->SpellName[0].find("Entangling Roots") != std::string::npos)
+        if (SpellNameContainsCached(aura->GetSpellProto(), "Entangling Roots", s_cache))
             return true;
     }
 
@@ -416,14 +444,15 @@ static bool BattleBotHasBlind(Unit const* pTarget)
     if (!pTarget)
         return false;
 
+    static thread_local std::unordered_map<uint32, bool> s_cache;
+
     Unit::AuraList const& confuseAuras = pTarget->GetAurasByType(SPELL_AURA_MOD_CONFUSE);
     for (Aura const* aura : confuseAuras)
     {
         if (!aura)
             continue;
 
-        SpellEntry const* spellInfo = aura->GetSpellProto();
-        if (spellInfo && spellInfo->SpellName[0].find("Blind") != std::string::npos)
+        if (SpellNameContainsCached(aura->GetSpellProto(), "Blind", s_cache))
             return true;
     }
 
@@ -4067,10 +4096,25 @@ bool BattleBotAI::UpdateBattleGroundAI()
             // non-home-guard bots immediately navigate toward it rather than continuing
             // their base-flag run. Home guards handle recovery within their own patrol
             // radius via the waypoint system.
-            if (!BattleBotHasBattlegroundFlag(me) &&
+            // Throttled to once per WSG_DROPPED_FLAG_SCAN_INTERVAL_SEC per bot: every eligible
+            // bot was independently doing up to two 500yd grid scans per decision tick (~1s) for
+            // what is, at any instant, the same answer for every bot on this match. A couple of
+            // seconds' extra reaction time to notice a dropped flag is an acceptable trade for
+            // cutting that scan frequency - actual pickup (TryUseBattleGroundFlag() above) is
+            // unthrottled short-range interaction and unaffected by this.
+            // Time check listed first (cheapest, and all four conditions are side-effect-free
+            // reads so reordering doesn't change the result) so a throttled tick short-circuits
+            // before reaching BattleBotIsWSGHomeGuardCandidate() below, which is itself a full
+            // map->GetPlayers() scan - otherwise the throttle would only skip the 500yd GO scan
+            // while leaving this other expensive check running unthrottled every tick anyway.
+            static uint32 const WSG_DROPPED_FLAG_SCAN_INTERVAL_SEC = 2;
+            if (sWorld.GetGameTime() >= m_lastDroppedFlagScanTime + WSG_DROPPED_FLAG_SCAN_INTERVAL_SEC &&
+                !BattleBotHasBattlegroundFlag(me) &&
                 !me->IsInCombat() &&
                 !BattleBotIsWSGHomeGuardCandidate(this))
             {
+                m_lastDroppedFlagScanTime = sWorld.GetGameTime();
+
                 GameObject* pDropped = me->FindNearestGameObject(GO_WSG_DROPPED_SILVERWING_FLAG, 500.0f);
                 if (!pDropped)
                     pDropped = me->FindNearestGameObject(GO_WSG_DROPPED_WARSONG_FLAG, 500.0f);
