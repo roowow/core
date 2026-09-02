@@ -1555,9 +1555,9 @@ void Group::UpdateOfflineLeader(time_t time, uint32 delay)
         return;
 
     // TODO: Maybe cache the world session for the leader, and only fetch if we hit a cache miss?
-    // Get the leader and leader session
-    uint32 leaderAcc = sObjectMgr.GetPlayerAccountIdByGUID(m_leaderGuid);
-    WorldSession* session = sWorld.FindSession(leaderAcc);
+    // Get the leader first - leaderAcc/session are only needed below once we already know the
+    // leader isn't online, so skip both lookups in the overwhelmingly common case (leader
+    // present) instead of always doing all three unconditionally.
     Player* leader = sObjectMgr.GetPlayer(m_leaderGuid);
 
     // Check for delay, leader presence or if the leader is loading
@@ -1567,6 +1567,9 @@ void Group::UpdateOfflineLeader(time_t time, uint32 delay)
         m_leaderLastOnline = time;
         return;
     }
+
+    uint32 leaderAcc = sObjectMgr.GetPlayerAccountIdByGUID(m_leaderGuid);
+    WorldSession* session = sWorld.FindSession(leaderAcc);
 
     if ((time - m_leaderLastOnline) < delay || (session && session->PlayerLoading()))
         return;

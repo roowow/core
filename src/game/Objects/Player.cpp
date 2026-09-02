@@ -14745,6 +14745,14 @@ void Player::GroupEventFailHappens(uint32 questId)
 
 void Player::ItemAddedQuestCheck(uint32 entry, uint32 count)
 {
+    // UpdateForQuestWorldObjects() below takes m_visibleGUIDs_lock and re-evaluates every
+    // visible GameObject's quest-giver sparkle for this player - not free, and this function
+    // runs on essentially every inventory mutation (loot, buy, mail take, split, ...) for every
+    // player and bot. The overwhelming majority of items picked up aren't a quest objective for
+    // anything currently in this player's log, so only pay for the refresh when this item entry
+    // actually matched a quest's ReqItemId slot below (regardless of whether the count/complete
+    // state changed) - not on every call unconditionally.
+    bool changed = false;
     for (int i = 0; i < MAX_QUEST_LOG_SIZE; ++i)
     {
         uint32 questid = GetQuestSlotQuestId(i);
@@ -14765,6 +14773,7 @@ void Player::ItemAddedQuestCheck(uint32 entry, uint32 count)
             uint32 reqitem = qInfo->ReqItemId[j];
             if (reqitem == entry)
             {
+                changed = true;
                 uint32 reqItemCount = qInfo->ReqItemCount[j];
                 uint32 curItemCount = q_status.m_itemcount[j];
                 if (curItemCount < reqItemCount)
@@ -14784,11 +14793,14 @@ void Player::ItemAddedQuestCheck(uint32 entry, uint32 count)
             }
         }
     }
-    UpdateForQuestWorldObjects();
+    if (changed)
+        UpdateForQuestWorldObjects();
 }
 
 void Player::ItemRemovedQuestCheck(uint32 entry, uint32 count)
 {
+    // See ItemAddedQuestCheck() above for why this is guarded - same reasoning, mirrored here.
+    bool changed = false;
     for (int i = 0; i < MAX_QUEST_LOG_SIZE; ++i)
     {
         uint32 questid = GetQuestSlotQuestId(i);
@@ -14806,6 +14818,7 @@ void Player::ItemRemovedQuestCheck(uint32 entry, uint32 count)
             uint32 reqitem = qInfo->ReqItemId[j];
             if (reqitem == entry)
             {
+                changed = true;
                 QuestStatusData& q_status = mQuestStatus[questid];
 
                 uint32 reqItemCount = qInfo->ReqItemCount[j];
@@ -14829,7 +14842,8 @@ void Player::ItemRemovedQuestCheck(uint32 entry, uint32 count)
             }
         }
     }
-    UpdateForQuestWorldObjects();
+    if (changed)
+        UpdateForQuestWorldObjects();
 }
 
 void Player::KilledMonster(CreatureInfo const* cInfo, ObjectGuid guid)

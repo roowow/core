@@ -242,6 +242,24 @@ void HonorMaintenancer::FlushRankPoints()
     // periods)
     CharacterDatabase.DirectExecute("UPDATE `characters` SET `honor_standing` = 0 WHERE `honor_standing` > 0");
 
+    // Diagnostics added 2026-09-02 after a production incident: this loop appeared to run fully
+    // (multi-second runtime, correct in-memory calculation, saved_variables/HCR report both
+    // correct) but the per-character DirectPExecute() below silently failed to persist for
+    // roughly 5% of characters - no MySQL error was ever logged by MySQLConnection::Execute(),
+    // so the failure was invisible until players reported stale honor panels two weekly cycles
+    // later. Root cause was never pinned down through log/DB archaeology alone. Two checks
+    // below so a recurrence is visible in Server.log the same night:
+    //   1) DirectPExecute()'s own return value, in case it starts actually erroring.
+    //   2) A single batched read-back confirming honor_rank_points actually landed as intended -
+    //      this is the one that would have caught the real incident, since (1) alone reported no
+    //      failure that time.
+    // Deliberately logged via LOG_BASIC/LOG_LVL_ERROR, not LOG_HONOR - LogFile.Honor is empty in
+    // production (disabled), which is exactly why the original incident went unnoticed; routing
+    // this through the same channel would repeat that mistake.
+    uint32 writeFailures = 0;
+    std::ostringstream verifyIds;
+    bool firstId = true;
+
     for (auto& pair : m_weeklyScores)
     {
         auto weeklyScore = pair.second;
@@ -255,12 +273,70 @@ void HonorMaintenancer::FlushRankPoints()
         if (currentRank.visualRank > 0 && (currentRank.visualRank > highestRank.visualRank))
             highestRank = currentRank;
 
-        CharacterDatabase.DirectPExecute("UPDATE `characters` SET `honor_highest_rank` = %u, `honor_rank_points` = %.1f, `honor_standing` = %u, "
+        bool ok = CharacterDatabase.DirectPExecute("UPDATE `characters` SET `honor_highest_rank` = %u, `honor_rank_points` = %.1f, `honor_standing` = %u, "
             "`honor_last_week_hk` = %u, `honor_stored_hk` = (`honor_stored_hk` + %u), `honor_stored_dk` = (`honor_stored_dk` + %u), `honor_last_week_cp` = %.1f WHERE `guid` = %u",
             highestRank.rank,
             finiteAlways(weeklyScore.newRp), weeklyScore.standing,
             weeklyScore.hk, weeklyScore.hk, weeklyScore.dk,
             finiteAlways(weeklyScore.cp), pair.first);
+
+        if (!ok)
+        {
+            ++writeFailures;
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "HonorMaintenancer::FlushRankPoints: DirectPExecute reported failure for guid=%u", pair.first);
+        }
+
+        if (!firstId)
+            verifyIds << ',';
+        verifyIds << pair.first;
+        firstId = false;
+    }
+
+    if (writeFailures > 0)
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "HonorMaintenancer::FlushRankPoints: %u DirectPExecute call(s) reported failure out of %u characters.",
+            writeFailures, uint32(m_weeklyScores.size()));
+
+    // Batched read-back: did honor_rank_points actually land as intended for everyone? One
+    // query instead of one-per-character (which m_weeklyScores.size() individual queries would
+    // cost) - this only checks rank_points as a proxy for the whole row, since all seven columns
+    // above are set by the same single-row UPDATE and MySQL applies a row's column assignments
+    // atomically (all or nothing), so if rank_points landed, the rest did too.
+    if (!m_weeklyScores.empty())
+    {
+        std::ostringstream verifyQuery;
+        verifyQuery << "SELECT `guid`, `honor_rank_points` FROM `characters` WHERE `guid` IN (" << verifyIds.str() << ")";
+        if (std::unique_ptr<QueryResult> result = CharacterDatabase.Query(verifyQuery.str().c_str()))
+        {
+            uint32 mismatches = 0;
+            do
+            {
+                Field* fields = result->Fetch();
+                uint32 guid = fields[0].GetUInt32();
+                float actualRp = fields[1].GetFloat();
+
+                auto itr = m_weeklyScores.find(guid);
+                if (itr == m_weeklyScores.end())
+                    continue;
+
+                float expectedRp = finiteAlways(itr->second.newRp);
+                float diff = actualRp > expectedRp ? actualRp - expectedRp : expectedRp - actualRp;
+                if (diff > 0.06f)
+                {
+                    ++mismatches;
+                    sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                        "HonorMaintenancer::FlushRankPoints verify: guid=%u honor_rank_points did not persist - expected %.1f, database has %.1f",
+                        guid, expectedRp, actualRp);
+                }
+            }
+            while (result->NextRow());
+
+            if (mismatches > 0)
+                sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                    "HonorMaintenancer::FlushRankPoints: %u of %u characters' honor data did not persist correctly - see the guid list just above, needs manual recovery.",
+                    mismatches, uint32(m_weeklyScores.size()));
+        }
+        else
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "HonorMaintenancer::FlushRankPoints: verification read-back query failed - could not confirm honor data was saved.");
     }
 
     // Not includes weekend day, for correct view in honor tab for group "Yesterday"

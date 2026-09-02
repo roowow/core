@@ -69,19 +69,64 @@ ByteBuffer& UpdateData::AddUpdateBlockAndGetBuffer()
 
 void PacketCompressor::Compress(void* dst, uint32* dst_size, void* src, int src_size)
 {
-    z_stream c_stream;
-
-    c_stream.zalloc = (alloc_func)0;
-    c_stream.zfree = (free_func)0;
-    c_stream.opaque = (voidpf)0;
+    // Reused per-thread z_stream instead of a fresh deflateInit()/deflateEnd() every call:
+    // deflateInit() allocates and initializes ~256KB of internal zlib state at default
+    // windowBits/memLevel, and this runs once per compressed update packet - in a crowded
+    // battleground that's essentially every per-player SMSG_UPDATE_OBJECT.
+    // Map::SendObjectUpdates() (Map.cpp) genuinely runs this concurrently across a thread pool,
+    // so the stream has to be thread_local rather than a plain static (a shared z_stream written
+    // from multiple threads at once would corrupt compression state, not just be slow) - each
+    // thread keeps its own persistent buffer for its lifetime, reused via deflateReset() (cheap,
+    // keeps the already-allocated internal state) instead of alloc/init/free every call.
+    static thread_local z_stream c_stream{};
+    static thread_local bool s_initialized = false;
+    static thread_local int s_currentLevel = -1;
 
     // default Z_BEST_SPEED (1)
-    int z_res = deflateInit(&c_stream, sWorld.getConfig(CONFIG_UINT32_COMPRESSION_LEVEL));
-    if (z_res != Z_OK)
+    int const level = sWorld.getConfig(CONFIG_UINT32_COMPRESSION_LEVEL);
+
+    if (!s_initialized)
     {
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Can't compress update packet (zlib: deflateInit) Error code: %i (%s)", z_res, zError(z_res));
-        *dst_size = 0;
-        return;
+        c_stream.zalloc = (alloc_func)0;
+        c_stream.zfree = (free_func)0;
+        c_stream.opaque = (voidpf)0;
+
+        int z_res = deflateInit(&c_stream, level);
+        if (z_res != Z_OK)
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Can't compress update packet (zlib: deflateInit) Error code: %i (%s)", z_res, zError(z_res));
+            *dst_size = 0;
+            return;
+        }
+        s_initialized = true;
+        s_currentLevel = level;
+    }
+    else
+    {
+        int z_res = deflateReset(&c_stream);
+        if (z_res != Z_OK)
+        {
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Can't compress update packet (zlib: deflateReset) Error code: %i (%s)", z_res, zError(z_res));
+            *dst_size = 0;
+            return;
+        }
+
+        // CONFIG_UINT32_COMPRESSION_LEVEL can change at runtime (.reload config); deflateReset()
+        // alone keeps whatever level this thread's stream was first initialized with, so
+        // re-apply it whenever it differs from last time - deflateParams() is a cheap in-place
+        // update, nowhere near the cost of a full deflateInit()/deflateEnd() cycle, so this still
+        // preserves the original behavior of picking up a config change on the very next packet.
+        if (level != s_currentLevel)
+        {
+            z_res = deflateParams(&c_stream, level, Z_DEFAULT_STRATEGY);
+            if (z_res != Z_OK)
+            {
+                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Can't compress update packet (zlib: deflateParams) Error code: %i (%s)", z_res, zError(z_res));
+                *dst_size = 0;
+                return;
+            }
+            s_currentLevel = level;
+        }
     }
 
     c_stream.next_out = (Bytef*)dst;
@@ -89,7 +134,7 @@ void PacketCompressor::Compress(void* dst, uint32* dst_size, void* src, int src_
     c_stream.next_in = (Bytef*)src;
     c_stream.avail_in = (uInt)src_size;
 
-    z_res = deflate(&c_stream, Z_NO_FLUSH);
+    int z_res = deflate(&c_stream, Z_NO_FLUSH);
     if (z_res != Z_OK)
     {
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Can't compress update packet (zlib: deflate) Error code: %i (%s)", z_res, zError(z_res));
@@ -112,13 +157,8 @@ void PacketCompressor::Compress(void* dst, uint32* dst_size, void* src, int src_
         return;
     }
 
-    z_res = deflateEnd(&c_stream);
-    if (z_res != Z_OK)
-    {
-        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Can't compress update packet (zlib: deflateEnd) Error code: %i (%s)", z_res, zError(z_res));
-        *dst_size = 0;
-        return;
-    }
+    // No deflateEnd() here anymore - the stream stays alive in this thread's thread_local slot,
+    // reset (not freed) on the next call. It's only ever torn down implicitly at thread exit.
 
     *dst_size = c_stream.total_out;
 }

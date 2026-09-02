@@ -120,8 +120,18 @@ uint8 const* ConditionTargets = &ConditionTargetsInternal[3];
 // Checks if player meets the condition
 bool ConditionEntry::Meets(WorldObject const* target, Map const* map, WorldObject const* source, ConditionSource conditionSourceType) const
 {
-    sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Condition-System: Check condition %u, type %i - called from %s with params target: %s, map %i, source %s",
-              m_entry, m_condition, conditionSourceToStr[conditionSourceType], target ? target->GetGuidStr().c_str() : "<nullptr>", map ? map->GetId() : -1, source ? source->GetGuidStr().c_str() : "<nullptr>");
+    // Meets() runs on every condition check across the game (loot, EventAI, spell-area
+    // searchers, DB scripts, gossip/vendor, ...), often several times per tick and recursively
+    // for AND/OR/NOT nodes (see below). GetGuidStr() isn't just string formatting - for a player
+    // GUID it goes through sObjectMgr.GetPlayerNameByGUID(), a global cache lookup - so building
+    // both strings unconditionally before handing off to sLog.Out() (which then throws the work
+    // away internally whenever LOG_LVL_DEBUG isn't enabled, the overwhelming common case in
+    // production) was pure waste. Guarding with the same check Log::Out() already does
+    // internally (Log.cpp: m_consoleLevel/m_fileLevel vs LOG_LVL_DEBUG) changes nothing about
+    // when this line actually prints.
+    if (sLog.HasLogLevelOrHigher(LOG_LVL_DEBUG))
+        sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Condition-System: Check condition %u, type %i - called from %s with params target: %s, map %i, source %s",
+                  m_entry, m_condition, conditionSourceToStr[conditionSourceType], target ? target->GetGuidStr().c_str() : "<nullptr>", map ? map->GetId() : -1, source ? source->GetGuidStr().c_str() : "<nullptr>");
 
     if (m_flags & CONDITION_FLAG_SWAP_TARGETS)
         std::swap(source, target);

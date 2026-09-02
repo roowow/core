@@ -785,11 +785,25 @@ void Channel::SetOwner(ObjectGuid guid, bool exclaim)
 
 void Channel::SendToAll(WorldPacket* data, ObjectGuid guid)
 {
-    for (const auto& itr : m_players)
+    // Avoids GetPlayer()'s PlayerPointer (std::shared_ptr<AbstractPlayer>) allocation per
+    // recipient - one heap allocation + one shared_ptr control block per channel member, per
+    // broadcast message, for a pointer that's only ever read within this loop iteration and
+    // immediately discarded. Mirrors GetPlayer(ObjectGuid)'s own m_area_dependant branch
+    // directly instead of going through it - same precedent already used by Channel::List
+    // (branches on the equivalent condition without the wrapper too).
+    if (m_area_dependant)
     {
-        if (PlayerPointer pPlayer = GetPlayer(itr.first))
-            if (!pPlayer->GetSocial()->HasIgnore(guid))
-                pPlayer->GetSession()->SendPacket(data);
+        for (const auto& itr : m_players)
+            if (Player* pPlayer = sObjectAccessor.FindPlayerNotInWorld(itr.first))
+                if (!pPlayer->GetSocial()->HasIgnore(guid))
+                    pPlayer->GetSession()->SendPacket(data);
+    }
+    else
+    {
+        for (const auto& itr : m_players)
+            if (MasterPlayer* pPlayer = sObjectAccessor.FindMasterPlayer(itr.first))
+                if (!pPlayer->GetSocial()->HasIgnore(guid))
+                    pPlayer->GetSession()->SendPacket(data);
     }
 }
 
