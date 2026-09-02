@@ -47,6 +47,51 @@ void DbWriteOutbox::Initialize(std::string const& redisSocketPath, std::string c
 
 void DbWriteOutbox::Shutdown()
 {
+    // Bugfix (2026-09-02): wait for the Stream to actually drain before stopping the Flusher,
+    // instead of giving it one more ~2s BLOCK cycle and cutting it off regardless of how much
+    // backlog is left (see HPHA.md "Phase 3 续 部署实测" for the incident this caused). Anything
+    // still in the Stream when the Flusher stops sits untouched until the *next* process's
+    // Flusher happens to pick it up - replaying a stale write an unbounded time later, silently
+    // overwriting anything changed on the DB directly in between. This only matters if the caller
+    // has already stopped enqueueing new writes by the time Shutdown() runs (World::Shutdown()
+    // was reordered the same day to guarantee that - see World.cpp) - otherwise this loop could
+    // chase a moving target forever, which is exactly why it's still bounded by
+    // SHUTDOWN_DRAIN_TIMEOUT_SEC below rather than looping unconditionally.
+    if (m_enabled)
+    {
+        time_t const deadline = time(nullptr) + time_t(SHUTDOWN_DRAIN_TIMEOUT_SEC);
+        for (;;)
+        {
+            int64_t remaining = -1;
+            {
+                std::lock_guard<std::mutex> lock(m_redisMutex);
+                if (EnsureEnqueueRedisConnected())
+                {
+                    redisReply* reply = (redisReply*)redisCommand(m_redisCtx, "XLEN %s", m_streamKey.c_str());
+                    if (reply && reply->type == REDIS_REPLY_INTEGER)
+                        remaining = reply->integer;
+                    if (reply)
+                        freeReplyObject(reply);
+                }
+            }
+
+            if (remaining == 0)
+                break; // fully drained, safe to stop the Flusher now
+            if (remaining < 0)
+                break; // can't even check (Redis unreachable) - nothing more this loop can do
+            if (time(nullptr) >= deadline)
+            {
+                sLog.Out(LOG_DB_OUTBOX, LOG_LVL_ERROR,
+                         "DbWriteOutbox[%s]: Shutdown() gave up waiting for the Stream to drain after %us with "
+                         "%lld entries still queued - they will be replayed on next startup instead.",
+                         m_streamKey.c_str(), SHUTDOWN_DRAIN_TIMEOUT_SEC, (long long)remaining);
+                break;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        }
+    }
+
     m_stop = true;
     // Bounded but not instant: the Flusher thread only checks m_stop between blocking calls,
     // so this join() can take up to ~2s (the BLOCK timeout) in the common case, or up to the

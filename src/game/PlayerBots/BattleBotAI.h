@@ -172,7 +172,7 @@ public:
     void StartNewPathFromAnywhere();
     bool StartNewPathToObjective();
     bool StartNewPathToPosition(Position const& position, std::vector<BattleBotPath*> const& vPaths);
-    bool TryRetraceFromAVBossDeadEnd();
+    bool TryRetraceFromAVDeadEnd();
     void ClearPath();
     void StopMoving();
     bool m_doingGraveyardJump = false;

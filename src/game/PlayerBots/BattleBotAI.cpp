@@ -2190,6 +2190,29 @@ bool BattleBotAI::AttackStart(Unit* pVictim)
     {
         ClearPath();
         BeginChasing(pVictim);
+
+        // Mirrors [BRCombat] engage/mid-combat-switch for AV/WSG/AB, from the single choke
+        // point all ~15 target-selection call sites funnel through instead of instrumenting
+        // each one separately. BR logs its own engage event via a dedicated lambda in
+        // UpdateOutOfCombatAI (which also calls into this same function), so it's excluded
+        // here to avoid a duplicate line for every BR engage. Not spammy: Unit::Attack()
+        // returns false (not reaching this branch) when already melee-attacking the same
+        // victim, so this only fires on a genuine fresh engage or an actual target switch —
+        // not once per combat tick of an ongoing fight.
+        BattleGroundTypeId const bgType = me->GetBattleGroundTypeId();
+        if ((bgType == BATTLEGROUND_AV || bgType == BATTLEGROUND_WS || bgType == BATTLEGROUND_AB) &&
+            sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+        {
+            BattleGround* bg = me->GetBattleGround();
+            sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                     "[BGCombat] engage bot %s guid %u bg %u (hp=%.0f%%) vs %s (%s hp=%.0f%%) dist=%.1f.",
+                     me->GetName(), me->GetGUIDLow(), bg ? bg->GetInstanceID() : 0u,
+                     me->GetHealthPercent(),
+                     pVictim->GetName(),
+                     (pVictim->GetTypeId() == TYPEID_PLAYER && static_cast<Player const*>(pVictim)->IsBot()) ? "bot" : "player",
+                     pVictim->GetHealthPercent(), me->GetDistance(pVictim));
+        }
+
         return true;
     }
 
@@ -2848,7 +2871,7 @@ void BattleBotAI::UpdateWaypointMovement()
     if (StartNewPathFromBeginning())
         return;
 
-    if (TryRetraceFromAVBossDeadEnd())
+    if (TryRetraceFromAVDeadEnd())
         return;
 
     if ((m_isBattleRoyaleBot ? sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG) : sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG)))
@@ -2869,6 +2892,16 @@ void BattleBotAI::OnJustDied()
     {
         sLog.Out(LOG_BG, LOG_LVL_BASIC,
                  "[BRDeath] bot %s class %u instance %u pos %.1f %.1f.",
+                 me->GetName(), (uint32)me->GetClass(),
+                 me->GetBattleGroundId(),
+                 me->GetPositionX(), me->GetPositionY());
+    }
+    else if (!m_isBattleRoyaleBot && sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+    {
+        // Mirrors [BRDeath] above for AV/WSG/AB — same fields, gated by the regular-BG
+        // debug flag instead of the BR one.
+        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                 "[BGDeath] bot %s class %u instance %u pos %.1f %.1f.",
                  me->GetName(), (uint32)me->GetClass(),
                  me->GetBattleGroundId(),
                  me->GetPositionX(), me->GetPositionY());
@@ -6016,8 +6049,17 @@ void BattleBotAI::UpdateInCombatAI_Hunter()
                 return;
         }
 
+        // No !me->IsMoving() gate here on purpose: real Auto Shot fires while walking (that's
+        // the whole point of hunter kiting) — it isn't a standard cast-bar spell that
+        // movement interrupts. Gating it on standing still meant a hunter chasing or
+        // repositioning (which is most of the time in a BG fight, since BeginChasing's
+        // caster-chase-distance mechanic keeps re-adjusting position as the target moves)
+        // never got a window to fire its main repeatable damage source at all, compounding
+        // with Aimed Shot/Multi Shot also being non-instant (silently fail via SPELL_FAILED_
+        // MOVING while moving) and Serpent Sting refusing to reapply once already ticking —
+        // in a prolonged fight that left nothing left to cast but Arcane Shot on cooldown,
+        // matching the "hunter stands there doing nothing" report.
         if (me->HasSpell(BB_SPELL_AUTO_SHOT) &&
-            !me->IsMoving() &&
             (me->GetCombatDistance(pVictim) > 8.0f) &&
             !me->IsNonMeleeSpellCasted())
         {
@@ -6111,6 +6153,17 @@ void BattleBotAI::UpdateInCombatAI_Hunter()
             me->GetMotionMaster()->Clear();
             if (me->GetMotionMaster()->MoveDistance(pVictim, 25.0f))
                 return;
+
+            // MoveDistance can fail (no valid backward position — obstacles, cornered
+            // against a wall/cliff edge). Clear() just above already wiped whatever motion
+            // generator was running, and nothing later in this function restarts one, so a
+            // bare failure here left the hunter standing idle at melee range indefinitely.
+            // Auto Shot explicitly excludes <8y and the shots above already had their turn
+            // this tick, so there's genuinely nothing left to do but wait for the target to
+            // wander into or out of range on its own — another "stuck, not casting" case.
+            // Fall back to a normal chase (which re-derives a caster-chase-distance position
+            // through a different, more robust path) instead of leaving movement cleared.
+            BeginChasing(pVictim);
         }
     }
 }

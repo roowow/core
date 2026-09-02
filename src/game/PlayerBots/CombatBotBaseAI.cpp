@@ -3265,6 +3265,30 @@ SpellCastResult CombatBotBaseAI::DoCastSpell(Unit* pTarget, SpellEntry const* pS
                  (uint32)me->GetAttackers().size(),
                  me->GetDistance(pTarget));
     }
+    // Same per-cast record as [BRSkill] above, for AV/WSG/AB — gated behind the regular-BG
+    // debug flag instead of firing unconditionally like BR's does, since a full AV raid
+    // fight generates far more casts per second than a BR match ever does.
+    else if (result == SPELL_CAST_OK &&
+        (me->GetBattleGroundTypeId() == BATTLEGROUND_AV ||
+         me->GetBattleGroundTypeId() == BATTLEGROUND_WS ||
+         me->GetBattleGroundTypeId() == BATTLEGROUND_AB) &&
+        sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+    {
+        uint32 const tgtClass = pTarget->IsPlayer()
+            ? static_cast<Player const*>(pTarget)->GetClass() : 0u;
+        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                 "[BGSkill] who=bot name=%s class=%u instance=%u cast %s on %s(class %u)"
+                 " hp=%.0f mp=%.0f cp=%u tgt_hp=%.0f n_att=%u dist=%.1f",
+                 me->GetName(), (uint32)me->GetClass(), me->GetBattleGroundId(),
+                 pSpellEntry->SpellName[0].c_str(),
+                 pTarget->GetName(), tgtClass,
+                 me->GetHealthPercent(),
+                 me->GetPowerPercent(me->GetPowerType()),
+                 (uint32)me->GetComboPoints(),
+                 pTarget->GetHealthPercent(),
+                 (uint32)me->GetAttackers().size(),
+                 me->GetDistance(pTarget));
+    }
 
     //printf("cast %s result %u\n", pSpellEntry->SpellName[0].c_str(), result);
 

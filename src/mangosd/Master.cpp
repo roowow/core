@@ -40,7 +40,6 @@
 #include "remote/RemoteAccess/RASocket.h"
 #include "remote/soap/MaNGOSsoap.h"
 #include "Util.h"
-#include "MassMailMgr.h"
 #include "DBCStores.h"
 #include "WorldSocketMgr.h"
 #include "IO/Context/IoContext.h"
@@ -350,9 +349,15 @@ int Master::Run()
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Cleaning character database...");
     clearOnlineAccounts();
 
-    // send all still queued mass mails (before DB connections shutdown)
-    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Sending queued mail...");
-    sMassMailMgr.Update(true);
+    // Bugfix (2026-09-02): this call used to be here ("before DB connections shutdown"), but by
+    // this point world_thread.join() (above) has already run World::Shutdown() to completion,
+    // which since Phase 3 (see HPHA.md) shuts down sCharactersOutbox - the Flusher thread that
+    // MailDraft::SendMailTo()'s sCharactersOutbox.Enqueue() call needs to actually be consumed.
+    // Calling Update() here queued the SQL into Redis successfully (Enqueue() reconnects on a
+    // dead connection) but with no Flusher left to read it, silently deferring delivery to
+    // whenever the next process's Flusher happened to replay it - no error, no log. Moved into
+    // World::Shutdown() itself (World.cpp), right before the Outbox shutdowns, so it runs while
+    // the Flusher is still alive like every other characters-DB write in that function.
 
     // Wait for DB delay threads to end
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Closing database connections...");

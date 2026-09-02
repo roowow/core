@@ -1525,20 +1525,30 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
     &vPath_AV_TowerPoint_to_Coldtooth_Snivvle,
 };
 
-// The three boss-room approach paths above are one-way dead ends (see the
-// vPaths_NoReverseAllowed comment history: reversing them was disabled to fix an unrelated
-// oscillation at their crossroad junction). That leaves no automatic way back out once a bot
-// reaches the end of one of them and has nothing left to do there — StartNewPathToPosition and
-// StartNewPathFromBeginning both correctly refuse to pick them in reverse, and
-// StartNewPathFromAnywhere is forward-only, so the bot just hops in place at the dead end
-// forever. Used by the stranded-bot check in StartNewPathToObjective() to retrace the exact
-// path backward manually (bypassing vPaths_NoReverseAllowed on purpose, since that list is
-// only consulted by the shared selection functions, not by setting the path fields directly).
-std::vector<BattleBotPath*> const vPaths_AV_BossDeadEnds =
+// These approach paths are one-way dead ends (see the vPaths_NoReverseAllowed comment
+// history: reversing them was disabled to fix an unrelated oscillation at their crossroad/
+// junction). That leaves no automatic way back out once a bot reaches the end of one of them
+// and has nothing left to do there — StartNewPathToPosition and StartNewPathFromBeginning
+// both correctly refuse to pick them in reverse, and StartNewPathFromAnywhere is
+// forward-only, so the bot just hops in place at the dead end forever. Used by the
+// stranded-bot check in TryRetraceFromAVDeadEnd() to retrace the exact path backward
+// manually (bypassing vPaths_NoReverseAllowed on purpose, since that list is only consulted
+// by the shared selection functions, not by setting the path fields directly).
+//
+// Two families of caller can walk a bot all the way to one of these dead ends and later need
+// it to leave again: the boss-room approach paths (rally-to-defend-boss, or the older "attack
+// the enemy boss once their defenses are down" logic), and the four native-GY "graveyard to
+// graveyard flag" approach paths (any guard bot walking in to open/hold the flag via
+// BattleBotSelectAVGuardObjective, whenever its assignment ends while still standing there).
+std::vector<BattleBotPath*> const vPaths_AV_DeadEnds =
 {
     &vPath_AV_Alliance_Base_Bunker_Third_Crossroad_to_Alliance_Base_Vanndar_Stormpike,
     &vPath_AV_Horde_Base_Second_Crossroads_to_Horde_Base_DrekThar1,
     &vPath_AV_Horde_Base_Second_Crossroads_to_Horde_Base_DrekThar2,
+    &vPath_AV_Frostwolf_Graveyard_to_Frostwolf_Graveyard_Flag,
+    &vPath_AV_Iceblood_Graveyard_to_Iceblood_Graveyard_Flag,
+    &vPath_AV_Stonehearth_Graveyard_to_Stonehearth_Graveyard_Flag,
+    &vPath_AV_Stormpike_Graveyard_to_Stormpike_Flag,
 };
 
 // Paths excluded from StartNewPathToPosition objective routing.
@@ -1883,11 +1893,13 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
     return true;
 }
 
-// Rescue for a bot standing at the dead end of one of the AV boss-room approach paths
-// (vPaths_AV_BossDeadEnds) with nothing left to do there — happens after the boss-defense
-// rally (IsAVOwnBossUnderAttack() in StartNewPathToObjective()) once the fight is over, and
-// could in principle also happen to the pre-existing "attack the enemy boss" logic if that
-// push stalls. Those paths are deliberately one-way (vPaths_NoReverseAllowed), so
+// Rescue for a bot standing at the dead end of one of the AV one-way approach paths
+// (vPaths_AV_DeadEnds — boss rooms and native-GY graveyard-flag approaches) with nothing
+// left to do there. For the boss paths this happens after the boss-defense rally
+// (IsAVOwnBossUnderAttack() in StartNewPathToObjective()) once the fight is over, or in
+// principle to the older "attack the enemy boss" logic if that push stalls; for the
+// graveyard-flag paths it's a guard bot whose assignment ended while still standing at the
+// flag. Those paths are deliberately one-way (vPaths_NoReverseAllowed), so
 // StartNewPathToPosition/StartNewPathFromBeginning both correctly refuse to pick them in
 // reverse, and StartNewPathFromAnywhere is forward-only — none of them can route a way back
 // out, leaving the bot hopping in place at the dead end forever. Called from
@@ -1897,20 +1909,20 @@ bool BattleBotAI::StartNewPathToPosition(Position const& targetPosition, std::ve
 // instead, not yanked out by this). Retraces the exact path backward manually, bypassing
 // vPaths_NoReverseAllowed on purpose since it's only consulted by the shared selection
 // functions, not by setting the path fields directly.
-bool BattleBotAI::TryRetraceFromAVBossDeadEnd()
+bool BattleBotAI::TryRetraceFromAVDeadEnd()
 {
     BattleGround* bg = me->GetBattleGround();
     if (!bg || bg->GetTypeID() != BATTLEGROUND_AV)
         return false;
 
-    for (BattleBotPath* pDeadEndPath : vPaths_AV_BossDeadEnds)
+    for (BattleBotPath* pDeadEndPath : vPaths_AV_DeadEnds)
     {
         BattleBotWaypoint const& lastWP = pDeadEndPath->back();
         if (me->GetDistance(lastWP.x, lastWP.y, lastWP.z) < 50.0f)
         {
             if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
                 sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                    "[AV_BOSS_DEFENSE] bot %s guid %u bg %u team %u stranded at boss dead end, retracing out",
+                    "[AV_DEAD_END] bot %s guid %u bg %u team %u stranded, retracing out",
                     me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(), uint32(me->GetTeam()));
 
             // Resume from whichever waypoint on this path is actually closest instead of
@@ -2296,12 +2308,36 @@ static bool FindAVGYToGuard(BattleBotAI* pAI, uint32& outNode)
     // back. This actively routes OTHER free bots there as reinforcements instead of leaving
     // recapture entirely to that one sticky assignment plus whatever the (weaker,
     // distance-competing) attack-objective loop further down happens to send.
-    for (uint32 i = 0; i < 3; ++i)
+    //
+    // Picks whichever eligible native GY is CLOSEST to this bot, not just the first one in
+    // ownNative[] array order — if two of the three are under threat at once, array order
+    // would otherwise funnel every reinforcement to fill the first one's cap before anyone
+    // even looks at the second, regardless of which is actually more urgent or reachable.
     {
-        if (!bg->IsActiveEvent(ownNative[i], ownControlled) &&
-            CountAVBotsAssignedToGY(map, team, ownNative[i]) < AV_NATIVE_GY_RECAPTURE_CAP)
+        bool found = false;
+        uint32 closestNode = 0;
+        float closestDist = FLT_MAX;
+        for (uint32 i = 0; i < 3; ++i)
         {
-            outNode = ownNative[i];
+            if (bg->IsActiveEvent(ownNative[i], ownControlled) ||
+                CountAVBotsAssignedToGY(map, team, ownNative[i]) >= AV_NATIVE_GY_RECAPTURE_CAP)
+                continue;
+
+            Position gyPos;
+            if (!GetAVGYPosition(bg, map, team, ownNative[i], gyPos))
+                continue;
+
+            float const dist = pAI->me->GetDistance(gyPos);
+            if (!found || dist < closestDist)
+            {
+                found = true;
+                closestDist = dist;
+                closestNode = ownNative[i];
+            }
+        }
+        if (found)
+        {
+            outNode = closestNode;
             return true;
         }
     }
@@ -2654,9 +2690,13 @@ static std::pair<uint32, uint32> AV_AllianceDefendObjectives[] =
 // against other attack candidates (Galvangar, any still-Horde-held node) in the
 // closest-objective contest below. It's the last native GY standing before the home
 // graveyard next to Vanndar, so it's worth walking noticeably further for than an
-// equal-priority target elsewhere on the map — 0.5 means it only needs to be within 2x the
+// equal-priority target elsewhere on the map — 0.4 means it only needs to be within 2.5x the
 // distance of the current best candidate to win, instead of needing to be strictly closer.
-constexpr float AV_HOME_TIER_GY_ATTACK_WEIGHT = 0.5f;
+// Started at 0.5 (57% win rate against Galvangar/other Horde-held nodes in a real log); most
+// losses were legitimately-far cases where the winning candidate was several times closer,
+// but roughly a dozen were narrow misses (still lost by only 4%-50% even with the discount)
+// that a slightly stronger pull tips into wins.
+constexpr float AV_HOME_TIER_GY_ATTACK_WEIGHT = 0.4f;
 
 // Dedicated cavalry hunter selection (GUID-stable, 2 per faction from DPS pool).
 // Excludes healers, fixed GY guards, mine bots, and bots already in GY capture hold.
@@ -2746,7 +2786,25 @@ bool BattleBotAI::StartNewPathToObjective()
                         sLog.Out(LOG_BG, LOG_LVL_BASIC,
                             "[AV_BOSS_DEFENSE] rallying bot %s guid %u bg %u team %u to defend boss under attack",
                             me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(), uint32(me->GetTeam()));
-                    return StartNewPathToPosition(pOwnBoss->GetPosition(), vPaths_AV);
+
+                    if (StartNewPathToPosition(pOwnBoss->GetPosition(), vPaths_AV))
+                        return true;
+
+                    // StartNewPathToPosition refuses to produce a path once we're already
+                    // essentially at the destination (its own "prevent picking the last
+                    // point, it means we're already there" guard) — that's arrival, not
+                    // failure. Without this, a false here falls through to the generic
+                    // fallback chain, which (correctly for every OTHER caller) treats "no
+                    // path found" as "stranded at the one-way dead end" and walks the bot
+                    // back out — only for the very next tick to walk it right back in,
+                    // since the boss is still under attack. During a drawn-out siege this
+                    // showed up as a multi-minute rally/stranded ping-pong for whichever
+                    // bot ended up sitting right at that boundary (confirmed in a real log:
+                    // guid 9160 hit "stranded" 7 times in 8 minutes at bg 207). If we're
+                    // already within combat range of the boss, hold position and let combat
+                    // AI take over instead of yo-yoing.
+                    if (me->GetDistance(pOwnBoss) < 50.0f)
+                        return true;
                 }
             }
 
@@ -2958,6 +3016,65 @@ bool BattleBotAI::StartNewPathToObjective()
                         if (GameObject* pGO = me->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(BG_AV_SNOWFALL_GY, snowfallEvent2)))
                             if (me->IsWithinDist(pGO, VISIBILITY_DISTANCE_LARGE))
                                 return StartNewPathToPosition(pGO->GetPosition(), vPaths_AV);
+                    }
+                }
+
+                // Diagnostic mirroring [AV_RETAKE_DEBUG] for the Horde side, to check whether
+                // Frostwolf Relief Hut (the Horde equivalent of Stormpike Aid Station) suffers
+                // the same "never gets retaken" problem. The mechanism here is structurally
+                // different, though: unlike Alliance (Galvangar is only a soft, distance-
+                // competing candidate below), Horde has a HARD unconditional block just below
+                // — if Balinda is alive, the function returns before ever reaching the attack
+                // loop, full stop. Placed before that block so it still fires (and records
+                // balindaAlive=1) even when she's the one preventing Relief Hut from ever being
+                // considered. When she's dead, also checks whether anything earlier in
+                // AV_HordeAttackObjectives' array order (first-match-wins there, not
+                // distance-based like the Alliance loop) would win instead.
+                if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                {
+                    uint8 reliefHutState = 0xFF;
+                    if (bg->IsActiveEvent(BG_AV_FROSTWOLF_RELIEF_HUT_GY, ALLIANCE_ASSAULTED))
+                        reliefHutState = ALLIANCE_ASSAULTED;
+                    else if (bg->IsActiveEvent(BG_AV_FROSTWOLF_RELIEF_HUT_GY, ALLIANCE_CONTROLLED))
+                        reliefHutState = ALLIANCE_CONTROLLED;
+
+                    if (reliefHutState != 0xFF)
+                    {
+                        static std::map<uint32, uint32> s_lastReliefHutDebugLog;
+                        uint32 const now = WorldTimer::getMSTime();
+                        uint32& lastLog = s_lastReliefHutDebugLog[bg->GetInstanceID()];
+                        if (lastLog == 0 || now - lastLog >= 20000)
+                        {
+                            lastLog = now;
+                            bool const balindaAlive = !bg->IsActiveEvent(BG_AV_NodeEventCaptainDead_A, 0) &&
+                                me->GetMap()->GetCreature(bg->GetSingleCreatureGuid(BG_AV_CAPTAIN_A, 0)) != nullptr;
+
+                            // -1 sentinel: BG_AV_STORMPIKE_AID_STATION_GY is enum value 0, so a
+                            // plain uint32 "0 means none found" sentinel would be indistinguishable
+                            // from that node legitimately being the preemptor.
+                            int32 preemptingNode = -1;
+                            if (!balindaAlive)
+                            {
+                                for (const auto& objective : AV_HordeAttackObjectives)
+                                {
+                                    if (objective.first == BG_AV_FROSTWOLF_RELIEF_HUT_GY)
+                                        break;
+                                    if (bg->IsActiveEvent(objective.first, ALLIANCE_ASSAULTED) ||
+                                        bg->IsActiveEvent(objective.first, ALLIANCE_CONTROLLED) ||
+                                        bg->IsActiveEvent(objective.first, NEUTRAL_CONTROLLED))
+                                    {
+                                        preemptingNode = static_cast<int32>(objective.first);
+                                        break;
+                                    }
+                                }
+                            }
+
+                            sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                                "[AV_RETAKE_DEBUG_HORDE] bot %s guid %u bg %u reliefHutState=%u "
+                                "balindaAlive=%d preemptedByEarlierNode=%d",
+                                me->GetName(), me->GetGUIDLow(), bg->GetInstanceID(), reliefHutState,
+                                balindaAlive, preemptingNode);
+                        }
                     }
                 }
 

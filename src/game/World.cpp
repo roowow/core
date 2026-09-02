@@ -40,6 +40,7 @@
 #include "WorldPacket.h"
 #include "Weather.h"
 #include "Player.h"
+#include "Chat/MasterPlayer.h"
 #include "TransactionLog.h"
 #include "Group.h"
 #include "AccountMgr.h"
@@ -208,12 +209,36 @@ World::~World()
 
 void World::Shutdown()
 {
+    // Bugfix (2026-09-02): the three sXxxOutbox.Shutdown() calls used to run first (see original
+    // order below, kept for reference - do not restore). DbWriteOutbox::Shutdown() stops and
+    // joins that Outbox's Flusher thread, then disconnects its own enqueue-side Redis connection
+    // - but does NOT disable the Outbox or clear its target DB pointer. Every write still to come
+    // in this function (KickAll()'s per-player Player::SaveToDB(), sPlayerBotMgr.DeleteAll()'s
+    // bot saves, and whatever m_charDbWorkerThread/m_lfgQueueThread/m_asyncPacketsThread are
+    // still doing) goes through DbWriteOutbox::Enqueue(), which happily reconnects to Redis and
+    // XADDs the write into the Stream when its connection is down - but with the Flusher thread
+    // already joined, nothing is left to ever consume it. Those writes sat in Redis untouched
+    // until the *next* process started a fresh Flusher, which then replayed them - reverting
+    // characters' honor data (see HonorMgr.cpp FlushRankPoints() diagnostics comment) back to
+    // its pre-shutdown state minutes after restart, silently overwriting anything changed on the
+    // DB directly in between. Fix: shut the Outboxes down dead last, only after every subsystem
+    // that could still enqueue a characters/world/logs write has fully finished.
+    // Original order (kept for reference, do not restore):
+    //   sWebChatMgr.Shutdown();
+    //   sInstanceDataCache.Shutdown();
+    //   sAccountAuthCache.Shutdown();
+    //   sLogsOutbox.Shutdown();
+    //   sWorldOutbox.Shutdown();
+    //   sCharactersOutbox.Shutdown();
+    //   StopDbHealthMonitor();
+    //   sPlayerBotMgr.DeleteAll();
+    //   KickAll();                                     // save and kick all players
+    //   UpdateSessions(1);                             // real players unload required UpdateSessions call
+    //   (thread joins)
+    //   sAnticheatMgr->StopWardenUpdateThread();
     sWebChatMgr.Shutdown();
     sInstanceDataCache.Shutdown();
     sAccountAuthCache.Shutdown();
-    sLogsOutbox.Shutdown();
-    sWorldOutbox.Shutdown();
-    sCharactersOutbox.Shutdown();
     StopDbHealthMonitor();
     sPlayerBotMgr.DeleteAll();
     KickAll();                                     // save and kick all players
@@ -229,6 +254,20 @@ void World::Shutdown()
         m_asyncPacketsThread->join();
 
     sAnticheatMgr->StopWardenUpdateThread();
+
+    // Bugfix (2026-09-02): used to live in Master.cpp, called after world_thread.join() - i.e.
+    // after this very function (and the Outbox shutdowns below) had already run. MassMailMgr::
+    // Update()'s sends go through MailDraft::SendMailTo() -> sCharactersOutbox.Enqueue() (see
+    // Mail.cpp), so calling it once the Flusher is dead had the exact same bug as KickAll() did
+    // before the reorder above: any mail still queued at shutdown got silently deferred to
+    // whenever the next process's Flusher happened to replay it, with no log/error indicating it
+    // hadn't actually gone out. Moved here so it runs while the Flusher is still alive, same as
+    // every other characters-DB write in this function.
+    sMassMailMgr.Update(true);
+
+    sLogsOutbox.Shutdown();
+    sWorldOutbox.Shutdown();
+    sCharactersOutbox.Shutdown();
 }
 
 /// Find a session by its accountId. Might return nullptr if not found.
@@ -3285,17 +3324,40 @@ void World::LogMoneyTrade(ObjectGuid sender, ObjectGuid receiver, uint32 amount,
 void World::LogChat(WorldSession* sess, char const* type, char const* msg, PlayerPointer target, uint32 chanId, char const* chanStr)
 {
     ASSERT(sess);
-    PlayerPointer plr = sess->GetPlayerPointer();
-    ASSERT(plr);
+    // Avoids GetPlayerPointer()'s PlayerPointer (std::shared_ptr<AbstractPlayer>) allocation -
+    // this runs on every chat message sent server-wide (Say/Yell/Emote/Whisper/Party/Guild/
+    // Officer/Raid/BG/Channel all funnel through here unconditionally), for a pointer that's
+    // only read for GetName()/GetObjectGuid() right below. Mirrors GetPlayerPointer()'s own
+    // two branches (_player, then GetMasterPlayer()) directly instead of going through it.
+    // Original (kept for reference, do not restore):
+    //   PlayerPointer plr = sess->GetPlayerPointer();
+    //   ASSERT(plr);
+    char const* plrName;
+    ObjectGuid plrGuid;
+    if (Player* p = sess->GetPlayer())
+    {
+        plrName = p->GetName();
+        plrGuid = p->GetObjectGuid();
+    }
+    else if (MasterPlayer* mp = sess->GetMasterPlayer())
+    {
+        plrName = mp->GetName();
+        plrGuid = mp->GetObjectGuid();
+    }
+    else
+    {
+        ASSERT(false);
+        return;
+    }
 
     if (target)
-        sLog.Player(sess, LOG_CHAT, LOG_LVL_MINIMAL, "[%s] %s:%u -> %s:%u : %s", type, plr->GetName(), plr->GetObjectGuid().GetCounter(), target->GetName(), target->GetObjectGuid().GetCounter(), msg);
+        sLog.Player(sess, LOG_CHAT, LOG_LVL_MINIMAL, "[%s] %s:%u -> %s:%u : %s", type, plrName, plrGuid.GetCounter(), target->GetName(), target->GetObjectGuid().GetCounter(), msg);
     else if (chanId)
-        sLog.Player(sess, LOG_CHAT, LOG_LVL_MINIMAL, "[%s:%u] %s:%u : %s", type, chanId, plr->GetName(), plr->GetObjectGuid().GetCounter(), msg);
+        sLog.Player(sess, LOG_CHAT, LOG_LVL_MINIMAL, "[%s:%u] %s:%u : %s", type, chanId, plrName, plrGuid.GetCounter(), msg);
     else if (chanStr)
-        sLog.Player(sess, LOG_CHAT, LOG_LVL_MINIMAL, "[%s:%s] %s:%u : %s", type, chanStr, plr->GetName(), plr->GetObjectGuid().GetCounter(), msg);
+        sLog.Player(sess, LOG_CHAT, LOG_LVL_MINIMAL, "[%s:%s] %s:%u : %s", type, chanStr, plrName, plrGuid.GetCounter(), msg);
     else
-        sLog.Player(sess, LOG_CHAT, LOG_LVL_MINIMAL, "[%s] %s:%u : %s", type, plr->GetName(), plr->GetObjectGuid().GetCounter(), msg);
+        sLog.Player(sess, LOG_CHAT, LOG_LVL_MINIMAL, "[%s] %s:%u : %s", type, plrName, plrGuid.GetCounter(), msg);
 }
 
 void World::LogTransaction(PlayerTransactionData const& data)

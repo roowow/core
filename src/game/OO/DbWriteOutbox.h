@@ -171,6 +171,11 @@ private:
 
     static uint32 const RECONNECT_COOLDOWN_SEC = 30;
     static uint32 const HEARTBEAT_LOG_INTERVAL_SEC = 300; // 5 minutes
+    // Max time Shutdown() will wait for the Stream to fully drain before giving up and stopping
+    // the Flusher anyway (see Shutdown()'s comment). Generous enough to absorb a shutdown-time
+    // burst (e.g. many players logging out at once) without hanging process shutdown forever if
+    // MariaDB itself is genuinely unreachable.
+    static uint32 const SHUTDOWN_DRAIN_TIMEOUT_SEC = 60;
 };
 
 // Phase1 (see HPHA.md): fronts LogsDatabase for InstanceStatistics.cpp.
