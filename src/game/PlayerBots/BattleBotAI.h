@@ -82,6 +82,7 @@ public:
     float GetMaxAggroDistanceForMap() const;
     bool ShouldUseAVOpeningPassiveCombat() const;
     bool IsAVEnemyOverwhelming() const;
+    bool IsAVEnemyOverwhelmingTurtleReady() const;
     bool IsAVOwnBossUnderAttack() const;
     bool ShouldAVGuardGraveyards() const;
     Unit* SelectAVOpeningObjectiveNpcTarget(Unit* pExcept = nullptr) const;
@@ -176,6 +177,10 @@ public:
     void ClearPath();
     void StopMoving();
     bool m_doingGraveyardJump = false;
+    uint32 m_avFlySpeedCheckTime = 0;
+    float m_avFlySpeedCheckX = 0.0f;
+    float m_avFlySpeedCheckY = 0.0f;
+    float m_avFlySpeedCheckZ = 0.0f;
     bool m_movingInReverse = false;
     uint32 m_currentPoint = 0;
     BattleBotPath* m_currentPath = nullptr;
@@ -253,6 +258,10 @@ public:
     uint8 m_bgIndoorStuckTeleportTicks = 0;
     // Consecutive ticks spent stationary in a known WSG navmesh dead zone
     uint8 m_bgDeadZoneTicks = 0;
+    // AV equivalent of m_bgIndoorStuckLogTicks/m_bgIndoorStuckTeleportTicks, kept separate
+    // from the WSG counters so switching battlegrounds can't carry over a stale count.
+    uint8 m_avIndoorStuckLogTicks = 0;
+    uint8 m_avIndoorStuckTeleportTicks = 0;
 };
 
 #endif

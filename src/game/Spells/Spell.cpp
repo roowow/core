@@ -4632,7 +4632,17 @@ void Spell::SendSpellStart()
     if (castFlags & CAST_FLAG_AMMO)                         // projectile info
         WriteAmmoToPacket(&data);
 
-    m_caster->SendObjectMessageToSet(&data, true);
+    // Phase "网络带宽优化" 序3+4 (see HPHA.md, 2026-09-02): highest-frequency combat packet in the
+    // game (every single spell cast), previously fully synchronous/unqueued. No forceDroppable -
+    // unlike miss/resist/energize etc., dropping this isn't "a stat number is missing", it's "the
+    // raid loses its only warning that something is casting" (interrupt/dodge decisions), so it
+    // keeps the function's default map-type behavior (raid: queued but never dropped, only
+    // delayed up to a flush cycle; battleground: queued and droppable, same tolerance as other
+    // battleground combat-log traffic). Channel A (caster + the single unit target, if any) still
+    // gets this instantly regardless - only bystanders are affected. getUnitTarget() is nullptr
+    // for ground-targeted/GO-targeted casts, which is fine - same nullptr convention already used
+    // by SendAllTargetsMiss()/SendLogExecute() for multi/no-single-target cases.
+    m_caster->SendCombatLogMessageToSet(data, m_targets.getUnitTarget());
 }
 
 void Spell::SendSpellGo()
@@ -4667,7 +4677,14 @@ void Spell::SendSpellGo()
     if (castFlags & CAST_FLAG_AMMO)                         // projectile info
         WriteAmmoToPacket(&data);
 
-    m_caster->SendObjectMessageToSet(&data, true);
+    // Phase "网络带宽优化" 序3+4 (see HPHA.md, 2026-09-02) - see SendSpellStart() above for why
+    // this deliberately doesn't pass forceDroppable=true. For an AOE hitting multiple targets,
+    // only the resolved getUnitTarget() (the explicit single-target slot, if the cast had one)
+    // gets the instant channel A treatment - other AOE-hit targets see their own hit-effect via
+    // the same queued/delayed path as a bystander (the damage/heal number itself is unaffected,
+    // it's still sent through its own already-instant channel via SendSpellNonMeleeDamageLog()/
+    // SendHealSpellLog()).
+    m_caster->SendCombatLogMessageToSet(data, m_targets.getUnitTarget());
 }
 
 void Spell::WriteAmmoToPacket(WorldPacket* data)
@@ -4928,7 +4945,8 @@ void Spell::SendLogExecute()
     // time (missed, not deliberately skipped; found on a later completeness sweep). nullptr
     // target for the same reason as SendAllTargetsMiss()/SendLogExecute is inherently
     // multi-effect/multi-target (m_executeLogInfo), no single target to resolve for channel A.
-    m_caster->SendCombatLogMessageToSet(data, nullptr);
+    // forceDroppable=true (2026-09-02): explicitly on the "可自由砍" whitelist, see above.
+    m_caster->SendCombatLogMessageToSet(data, nullptr, true);
 }
 
 void Spell::SendInterrupted(uint8 result)
@@ -4939,7 +4957,11 @@ void Spell::SendInterrupted(uint8 result)
     WorldPacket data(SMSG_SPELL_FAILED_OTHER, (8 + 4));
     data << m_caster->GetObjectGuid(); // Same as for SMSG_SPELL_FAILURE
     data << m_spellInfo->Id;
-    m_caster->SendObjectMessageToSet(&data, true);
+    // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md): only casterGuid+spellId, no
+    // damage/heal/dispel number - "可自由砍" whitelist. No single target to resolve (this just
+    // tells bystanders the cast animation should stop), matches SendLogExecute()'s nullptr
+    // convention for the same reason.
+    m_caster->SendCombatLogMessageToSet(data, nullptr, true);
 }
 
 void Spell::SendAllTargetsMiss()
@@ -4975,9 +4997,11 @@ void Spell::SendAllTargetsMiss()
     // only fires when every target of an AOE missed) - one of them getting the instant channel
     // while the rest queue would be an arbitrary pick, not a meaningful fix, for a case that's
     // rare to begin with (a whole AOE cast whiffing on every target at once).
+    // forceDroppable=true (2026-09-02): same SPELLLOGMISS opcode as SendSpellMiss(), no damage
+    // number carried - droppable in raids too.
     WorldPacket binaryPacket(packet->GetOpcode());
     packet->AppendBodyTo(binaryPacket);
-    m_caster->SendCombatLogMessageToSet(binaryPacket, nullptr);
+    m_caster->SendCombatLogMessageToSet(binaryPacket, nullptr, true);
 }
 
 void Spell::SendChannelUpdate(uint32 time, bool interrupted)
@@ -5169,7 +5193,11 @@ void Spell::SendChannelStart(uint32 duration)
                 if (hit)
                 {
                     data.put<uint32>(count_pos, hit);
-                    m_caster->SendMessageToSet(&data, true);
+                    // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md): visual chain-line
+                    // anchor guids only (Chain Heal/Lightning-style connecting lines), no damage/
+                    // heal number - real numbers still go out via SPELLNONMELEEDAMAGELOG/
+                    // SPELLHEALLOG independently. Multi-target, nullptr per SendAllTargetsMiss().
+                    m_caster->SendCombatLogMessageToSet(data, nullptr, true);
                 }
             }
         }

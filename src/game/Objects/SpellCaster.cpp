@@ -674,9 +674,11 @@ void SpellCaster::SendSpellMiss(Unit const* target, uint32 spellId, SpellMissInf
     // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md): this opcode was already on the
     // "可自由砍" (freely droppable, no stats precision requirement) whitelist but never actually
     // got wired into the queue when 序3+4 shipped - see the other functions below for the same fix.
+    // forceDroppable=true (2026-09-02): raid's default allowDrop=false is for opcodes carrying
+    // real DPS/HPS numbers - a miss carries none, so it stays droppable even in a raid.
     WorldPacket binaryPacket(packet->GetOpcode());
     packet->AppendBodyTo(binaryPacket);
-    SendCombatLogMessageToSet(binaryPacket, target);
+    SendCombatLogMessageToSet(binaryPacket, target, true);
 }
 
 void SpellCaster::SendSpellDamageResist(Unit const* target, uint32 spellId) const
@@ -687,9 +689,11 @@ void SpellCaster::SendSpellDamageResist(Unit const* target, uint32 spellId) cons
     packet->spellId = spellId;
     packet->logFormat = 0; // 0=default, 1=debug
     // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md) - see SendSpellMiss() above.
+    // forceDroppable=true (2026-09-02, user confirmed): resist carries no damage number, added
+    // to the "可自由砍" whitelist.
     WorldPacket binaryPacket(packet->GetOpcode());
     packet->AppendBodyTo(binaryPacket);
-    SendCombatLogMessageToSet(binaryPacket, target);
+    SendCombatLogMessageToSet(binaryPacket, target, true);
 }
 
 void SpellCaster::SendSpellOrDamageImmune(Unit const* target, uint32 spellId) const
@@ -699,9 +703,11 @@ void SpellCaster::SendSpellOrDamageImmune(Unit const* target, uint32 spellId) co
     packet->targetGuid = target->GetObjectGuid();
     packet->spellId = spellId;
     // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md) - see SendSpellMiss() above.
+    // forceDroppable=true (2026-09-02, user confirmed): immune carries no damage number, added
+    // to the "可自由砍" whitelist.
     WorldPacket binaryPacket(packet->GetOpcode());
     packet->AppendBodyTo(binaryPacket);
-    SendCombatLogMessageToSet(binaryPacket, target);
+    SendCombatLogMessageToSet(binaryPacket, target, true);
 }
 
 uint32 SpellCaster::SpellCriticalDamageBonus(SpellEntry const* spellProto, uint32 damage, Unit const* pVictim, Spell* spell)
@@ -842,9 +848,11 @@ void SpellCaster::SendEnergizeSpellLog(Unit const* pTarget, uint32 spellId, uint
     packet->powerType = static_cast<uint32>(powertype);
     packet->amount = amount;
     // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md) - see SendSpellMiss() above.
+    // forceDroppable=true (2026-09-02): power gained (mana/energy/rage) isn't damage/heal/dispel
+    // telemetry a meter parses, so it stays droppable in raids too - see SendSpellMiss() above.
     WorldPacket binaryPacket(packet->GetOpcode());
     packet->AppendBodyTo(binaryPacket);
-    SendCombatLogMessageToSet(binaryPacket, pTarget);
+    SendCombatLogMessageToSet(binaryPacket, pTarget, true);
 #endif
 }
 

@@ -149,7 +149,7 @@ class Item : public Object
         bool HasInvolvedQuest(uint32 /*quest_id*/) const override { return false; }
         bool IsConjuredConsumable() const { return GetProto()->IsConjuredConsumable(); }
 
-        void AddToClientUpdateList() override;
+        bool AddToClientUpdateList() override;
         void RemoveFromClientUpdateList() override;
         void BuildUpdateData(UpdateDataMapType& update_players) override;
         void SetGeneratedLoot(bool value) { generatedLoot = value; }

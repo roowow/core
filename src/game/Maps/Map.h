@@ -543,7 +543,14 @@ class Map : public GridRefManager<NGridType>
             std::shared_lock<std::shared_timed_mutex> lock(m_objectsStore_lock);
             return m_objectsStore.find<T>(guid, (T*)nullptr);
         }
-        void AddUpdateObject(Object *obj);
+        // Bugfix (2026-09-02): returns whether obj was actually queued. Callers must only mark
+        // themselves as "already queued" (m_objectUpdated) when this returns true - see
+        // Object::ExecuteDelayedActions()/MarkForClientUpdate(). Returning false here (the map is
+        // mid-SendObjectUpdates()) used to be silently treated as success by every caller, which
+        // permanently stuck the object's incremental updates for every bystander already watching
+        // it (health, auras, ghost-form flag, etc.) until something else forced a fresh Create
+        // packet - see HPHA.md for the production symptom this caused.
+        bool AddUpdateObject(Object *obj);
 
         void RemoveUpdateObject(Object *obj);
         // May be called from a different map ...

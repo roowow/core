@@ -155,7 +155,8 @@ class Object
         void SendCreateUpdateToPlayer(Player* player);
 
         // must be overwrite in appropriate subclasses (WorldObject, Item currently), or will crash
-        virtual void AddToClientUpdateList();
+        // Returns whether the object was actually queued (Bugfix 2026-09-02, see Map::AddUpdateObject).
+        virtual bool AddToClientUpdateList();
         virtual void RemoveFromClientUpdateList();
         virtual void BuildUpdateData(UpdateDataMapType& update_players);
         void MarkForClientUpdate();
@@ -686,7 +687,12 @@ class WorldObject : public Object
         // pre-existing behavior). Lives on WorldObject rather than Unit because combat log
         // sources aren't always Units (SpellCaster - traps, totems acting on their owner's
         // behalf - derives from WorldObject directly).
-        void SendCombatLogMessageToSet(WorldPacket& data, WorldObject const* target) const;
+        // forceDroppable: for opcodes on the "可自由砍" whitelist (HPHA.md 序3+4 table) - ones
+        // that carry no DPS/HPS/dispel-count telemetry (miss/resist/immune/energize/execute/
+        // damage-shield notifications) - so they stay droppable under peak load even in a raid,
+        // where allowDrop would otherwise default to false. Leave at the default for anything
+        // that carries an actual damage/heal/dispel number a meter would parse.
+        void SendCombatLogMessageToSet(WorldPacket& data, WorldObject const* target, bool forceDroppable = false) const;
 
         virtual void SendMessageToSetInRange(WorldPacket* data, float dist, bool self) const;
         void SendMessageToSetExcept(WorldPacket* data, Player const* skipped_receiver) const;
@@ -764,7 +770,7 @@ class WorldObject : public Object
         void SetZoneScript();
         virtual ZoneScript* GetZoneScript() const { return m_zoneScript; }
 
-        void AddToClientUpdateList() override;
+        bool AddToClientUpdateList() override;
         void RemoveFromClientUpdateList() override;
         void BuildUpdateData(UpdateDataMapType &) override;
 

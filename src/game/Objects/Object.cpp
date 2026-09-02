@@ -1419,10 +1419,17 @@ void Object::BuildUpdateDataForPlayer(Player* pl, UpdateDataMapType& update_play
     BuildValuesUpdateBlockForPlayer(iter->second, iter->first);
 }
 
-void Object::AddToClientUpdateList()
+bool Object::AddToClientUpdateList()
 {
+    // Original (kept for reference, do not restore):
+    //   void Object::AddToClientUpdateList()
+    //   {
+    //       sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Unexpected call of Object::AddToClientUpdateList for object (TypeId: %u Update fields: %u)", GetTypeId(), m_valuesCount);
+    //       MANGOS_ASSERT(false);
+    //   }
     sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "Unexpected call of Object::AddToClientUpdateList for object (TypeId: %u Update fields: %u)", GetTypeId(), m_valuesCount);
     MANGOS_ASSERT(false);
+    return false;
 }
 
 void Object::RemoveFromClientUpdateList()
@@ -1445,11 +1452,20 @@ void Object::MarkForClientUpdate()
     {
         if (m_inWorld)
         {
+            // Bugfix (2026-09-02): only mark ourselves "already queued" if AddToClientUpdateList()
+            // actually queued us - it used to be called unconditionally and m_objectUpdated set
+            // true regardless of the result, silently and permanently dropping this object's
+            // incremental updates whenever it raced a busy map's SendObjectUpdates() window (or,
+            // for items, whenever the owner had no live session at that instant). See
+            // Map::AddUpdateObject()'s comment.
+            // Original (kept for reference, do not restore):
+            //   if (!m_objectUpdated)
+            //   {
+            //       AddToClientUpdateList();
+            //       m_objectUpdated = true;
+            //   }
             if (!m_objectUpdated)
-            {
-                AddToClientUpdateList();
-                m_objectUpdated = true;
-            }
+                m_objectUpdated = AddToClientUpdateList();
         }
     }
     else
@@ -1462,11 +1478,20 @@ void Object::ExecuteDelayedActions()
     {
         if (m_inWorld && !m_deleted)
         {
+            // Bugfix (2026-09-02) - see MarkForClientUpdate() above for the full explanation.
+            // Clearing the OBJECT_DELAYED_MARK_CLIENT_UPDATE bit below regardless of success is
+            // fine: m_objectUpdated staying false is what actually gates the retry, and the next
+            // organic field change on this object (health regen, an aura tick, anything) calls
+            // MarkForClientUpdate() again, re-arming this bit and trying again - by which point
+            // the map is essentially certain to be past its SendObjectUpdates() window.
+            // Original (kept for reference, do not restore):
+            //   if (!m_objectUpdated)
+            //   {
+            //       AddToClientUpdateList();
+            //       m_objectUpdated = true;
+            //   }
             if (!m_objectUpdated)
-            {
-                AddToClientUpdateList();
-                m_objectUpdated = true;
-            }
+                m_objectUpdated = AddToClientUpdateList();
         }
         m_delayedActions &= ~OBJECT_DELAYED_MARK_CLIENT_UPDATE;
     }
@@ -2308,7 +2333,7 @@ void WorldObject::SendMovementMessageToSet(WorldPacket data, bool self, WorldObj
     }
 }
 
-void WorldObject::SendCombatLogMessageToSet(WorldPacket& data, WorldObject const* target) const
+void WorldObject::SendCombatLogMessageToSet(WorldPacket& data, WorldObject const* target, bool forceDroppable) const
 {
     // Channel A (see HPHA.md 序3 "改进角度" 第1条, 2026-08-24) - the event's own participants
     // always get an instant, unqueued copy, regardless of map type. "Participant" is resolved up
@@ -2346,8 +2371,17 @@ void WorldObject::SendCombatLogMessageToSet(WorldPacket& data, WorldObject const
     // branch below, unchanged.
     bool const isBattleGround = GetMap()->IsBattleGround();
     bool const isRaid = GetMap()->IsRaid();
+    // 2026-09-02 (user call): raids default to allowDrop=false because raiders actively parse
+    // combat logs into DPS/HPS meters, so a dropped entry corrupts real stats they care about
+    // (see HPHA.md 序5). ZG and AQ20 (Ruins of Ahn'Qiraj) are a user-confirmed exception on this
+    // server - nobody's tracking stats there - so they're treated like a battleground for drop
+    // purposes even though Map::IsRaid() is still true for them (useQueue is unaffected).
+    uint32 const mapId = GetMap()->GetId();
+    bool const isNoStatsRaid = mapId == MAP_ZUL_GURUB || mapId == MAP_AHN_QIRAJ_RUINS;
     bool const useQueue = sWorld.GetBroadcaster()->IsEnabled() && (isBattleGround || isRaid);
-    bool const allowDrop = isBattleGround; // raid (isRaid) must never drop a combat log entry
+    // 2026-09-02: forceDroppable opts a specific opcode out of "raid = never drop" - see the
+    // declaration comment in Object.h for which opcodes this applies to and why.
+    bool const allowDrop = isBattleGround || isNoStatsRaid || forceDroppable;
 
     // this/target/their resolved owners are all excluded here regardless of useQueue - they were
     // already handled above (directly, or via their owner), and (unlike ObjectMessageDeliverer)
@@ -2957,9 +2991,14 @@ void WorldObject::UpdateObjectVisibility()
     GetMap()->UpdateObjectVisibility(this, cell, p);
 }
 
-void WorldObject::AddToClientUpdateList()
+bool WorldObject::AddToClientUpdateList()
 {
-    GetMap()->AddUpdateObject(this);
+    // Original (kept for reference, do not restore):
+    //   void WorldObject::AddToClientUpdateList()
+    //   {
+    //       GetMap()->AddUpdateObject(this);
+    //   }
+    return GetMap()->AddUpdateObject(this);
 }
 
 void WorldObject::RemoveFromClientUpdateList()

@@ -1978,15 +1978,42 @@ bool BattleBotAI::IsAVOwnBossUnderAttack() const
     return pBoss && pBoss->IsAlive() && pBoss->IsInCombat();
 }
 
+// Gates the "turtle" cluster of enemy-overwhelming reactions specifically — forcing guard
+// duty on regardless of mode, skipping the native-GY guard delay, and stopping mine bots
+// (see ShouldAVGuardGraveyards/FindAVGYToGuard/ShouldBeAVMineBot below). Combat-aggressiveness
+// (GetMaxAggroDistanceForMap/ShouldUseAVOpeningPassiveCombat) and IsAVOwnBossUnderAttack
+// deliberately do NOT use this gate: fighting on sight was explicitly asked for "at any
+// time", and the boss check already requires the boss to be in actual combat, which can't
+// happen in the first place until someone has physically reached it. The turtle cluster is
+// different — it's purely headcount-triggered with no other evidence a push is even
+// happening, so left ungated it fires from minute 0 of a match: reported concretely as a
+// team's bots sitting in the back guarding home graveyards and not advancing at all, 4
+// minutes into a match the enemy hadn't actually threatened yet, just because their real
+// player count happened to already be over 10. Requiring 5 minutes elapsed (the same
+// threshold FindAVGYToGuard's Priority 4 already uses for its normal, non-overwhelming guard
+// delay) gives the enemy some real time to actually attempt a push — and if they do, the
+// evidence-based reactions (IsAVOwnBossUnderAttack, FindAVGYToGuard's Priority 1 recapture
+// reinforcement once a GY is actually lost/assaulted) apply from the very first tick with no
+// gate at all, since those aren't guessing off headcount alone.
+bool BattleBotAI::IsAVEnemyOverwhelmingTurtleReady() const
+{
+    if (!IsAVEnemyOverwhelming())
+        return false;
+
+    BattleGround* bg = me->GetBattleGround();
+    return bg && bg->GetStartTime() >= 5 * 60 * 1000u;
+}
+
 // Effective "should this bot take up GY guard duty" flag. Normally just the per-mode/
 // per-instance m_avGuardGraveyards setting decided once at battleground init (Native mode:
 // always false; Push: always true; Random: per-team stable roll). When the enemy is fielding
-// more than 10 real players, guards are wanted regardless of what the mode rolled — this is
-// evaluated live rather than overwriting m_avGuardGraveyards itself, so it tracks the enemy
-// count as it changes instead of latching a one-time decision.
+// more than 10 real players (and the match has had time to show it, see
+// IsAVEnemyOverwhelmingTurtleReady), guards are wanted regardless of what the mode rolled —
+// this is evaluated live rather than overwriting m_avGuardGraveyards itself, so it tracks the
+// enemy count as it changes instead of latching a one-time decision.
 bool BattleBotAI::ShouldAVGuardGraveyards() const
 {
-    return m_avGuardGraveyards || IsAVEnemyOverwhelming();
+    return m_avGuardGraveyards || IsAVEnemyOverwhelmingTurtleReady();
 }
 
 float BattleBotAI::GetMaxAggroDistanceForMap() const
@@ -2755,6 +2782,17 @@ void BattleBotAI::DoGraveyardJump()
     if (!bg || bg->GetTypeID() != BATTLEGROUND_WS)
         return;
 
+    // Refuse to start a second jump replay on top of one already in progress. The whole
+    // sequence is a set of Relocate() calls scheduled as delayed lambda events (see below) —
+    // they don't cancel each other, so overlapping two of them would interleave two different
+    // recorded flight paths' positions on the same bot each tick, snapping it between
+    // unrelated points of both paths. UpdateAI() already refuses to make new path decisions
+    // while m_doingGraveyardJump is set, but that only guards the AI's own polling loop, not
+    // a second WSG_At*Graveyard waypoint callback reached via some other movement-completion
+    // path — this guard covers that directly, at the one place both callers funnel through.
+    if (m_doingGraveyardJump)
+        return;
+
     m_doingGraveyardJump = true;
     uint32 timeOffset = 0;
     std::vector<RecordedMovementPacket>* pPath = me->GetTeam() == HORDE ? &vHordeGraveyardJumpPath : &vAllianceGraveyardJumpPath;
@@ -3249,6 +3287,52 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
     if (!me->IsInWorld() || me->IsBeingTeleported() || m_doingGraveyardJump)
         return;
+
+    // Diagnostic for the "AI bots flying across AV at high speed" report: sample position
+    // once per AI decision tick (same throttled cadence as everything else — AV's is the
+    // slowest of the four, so this stays cheap) and flag anything that implies a speed no
+    // legitimate movement (even a fast mount) could produce. Deliberately placed AFTER the
+    // IsBeingTeleported()/m_doingGraveyardJump early-return above, so a real teleport (dead-
+    // zone/indoor-stuck rescue, hearthstone, GM command, ...) or the WSG graveyard-jump replay
+    // don't themselves get flagged — anything that still fires here happened via ordinary
+    // movement (MovePoint/MoveChase/MoveDistance/...), which is exactly the category the
+    // report describes and none of those mechanisms currently have their own logging.
+    if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+    {
+        BattleGround* bgFlyCheck = me->GetBattleGround();
+        if (bgFlyCheck && bgFlyCheck->GetTypeID() == BATTLEGROUND_AV)
+        {
+            uint32 const nowFlyCheck = WorldTimer::getMSTime();
+            if (m_avFlySpeedCheckTime != 0)
+            {
+                uint32 const elapsed = nowFlyCheck - m_avFlySpeedCheckTime;
+                // Skip absurdly long gaps (bot just entered the world, was previously out of
+                // this check's battleground, etc.) — those aren't a single movement's speed.
+                if (elapsed > 0 && elapsed < 15000)
+                {
+                    float const dist = me->GetDistance(m_avFlySpeedCheckX, m_avFlySpeedCheckY, m_avFlySpeedCheckZ);
+                    float const speed = dist / (float(elapsed) / 1000.0f);
+                    // ~7 yd/s unmounted run, ~14-16 yd/s at 100% mount speed is the real
+                    // ceiling in this era — 60 yd/s is nowhere near reachable legitimately.
+                    if (speed > 60.0f)
+                    {
+                        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                            "[AV_FLY_DEBUG] bot %s guid %u bg %u speed=%.1fyd/s dist=%.1f elapsed=%ums "
+                            "from(%.1f,%.1f,%.1f) to(%.1f,%.1f,%.1f) mounted=%d hasPath=%d motionType=%u",
+                            me->GetName(), me->GetGUIDLow(), bgFlyCheck->GetInstanceID(), speed, dist, elapsed,
+                            m_avFlySpeedCheckX, m_avFlySpeedCheckY, m_avFlySpeedCheckZ,
+                            me->GetPositionX(), me->GetPositionY(), me->GetPositionZ(),
+                            me->IsMounted(), m_currentPath != nullptr,
+                            uint32(me->GetMotionMaster()->GetCurrentMovementGeneratorType()));
+                    }
+                }
+            }
+            m_avFlySpeedCheckTime = nowFlyCheck;
+            m_avFlySpeedCheckX = me->GetPositionX();
+            m_avFlySpeedCheckY = me->GetPositionY();
+            m_avFlySpeedCheckZ = me->GetPositionZ();
+        }
+    }
 
     if (!m_initialized)
     {
@@ -3873,6 +3957,64 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         else
         {
             m_bgStuckCounter = 0;
+        }
+    }
+
+    // AV: generic "physically stuck indoors, not making progress" rescue. AV currently has
+    // no equivalent of the WSG block above at all outside the 7 specific one-way dead-end
+    // paths TryRetraceFromAVDeadEnd() covers (3 boss approaches + 4 native-GY flag
+    // approaches) — a bot that wanders into some OTHER indoor structure (a bunker/tower
+    // interior not on any recorded capture path, knocked in by combat, ...) has nothing to
+    // rescue it and can sit there indefinitely. Reported concretely: a GM found several
+    // Alliance bots wedged into a Dun Baldar-area tower near Stormpike Aid Station while it
+    // was under assault — right where this session's Priority-1 reinforcement/retake-weight
+    // logic (FindAVGYToGuard, AV_HOME_TIER_GY_ATTACK_WEIGHT) has been actively routing extra
+    // bots. Excludes an active flag-capture channel (spell 21651, "SPELL_CAPTURE_BANNER" —
+    // that name is a #define local to BattleBotWaypoints.cpp, not visible here, hence the
+    // literal) explicitly: AV's own capture channel is legitimately stationary and indoors
+    // for some bunker/tower flags (e.g. Dun Baldar North Bunker's AV_AtFlag waypoint), and
+    // must not be mistaken for being stuck.
+    {
+        BattleGround* avBg = me->GetBattleGround();
+        if (avBg && avBg->GetTypeID() == BATTLEGROUND_AV && avBg->GetStatus() != STATUS_WAIT_JOIN &&
+            !me->IsInCombat() && !me->IsMoving() &&
+            !(me->GetCurrentSpell(CURRENT_GENERIC_SPELL) &&
+              me->GetCurrentSpell(CURRENT_GENERIC_SPELL)->m_spellInfo->Id == 21651))
+        {
+            float const avCurX = me->GetPositionX();
+            float const avCurY = me->GetPositionY();
+            bool const avOutdoors = me->GetMap()->GetTerrain()->IsOutdoors(avCurX, avCurY, me->GetPositionZ());
+            if (!avOutdoors)
+            {
+                if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG) && ++m_avIndoorStuckLogTicks >= 30)
+                {
+                    m_avIndoorStuckLogTicks = 0;
+                    sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                             "[BattleGroundMovement] av-indoor-stuck bot %s guid %u bg %u pos %.2f %.2f %.2f.",
+                             me->GetName(), me->GetGUIDLow(), avBg->GetInstanceID(), avCurX, avCurY, me->GetPositionZ());
+                }
+                if (++m_avIndoorStuckTeleportTicks >= 10) // ~20 s
+                {
+                    m_avIndoorStuckTeleportTicks = 0;
+                    // Own home native GY — same coordinates as GetAVNativeGraveyardFallbackPosition's
+                    // BG_AV_STORMPIKE_GY/BG_AV_FROSTWOLF_GY cases (that helper is file-local to
+                    // BattleBotWaypoints.cpp, so the values are duplicated here rather than shared).
+                    float const gyX = (me->GetTeam() == HORDE) ? -1079.61f : 667.173f;
+                    float const gyY = (me->GetTeam() == HORDE) ? -345.548f : -295.225f;
+                    float const gyZ = (me->GetTeam() == HORDE) ? 55.1131f  : 30.29f;
+                    if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                                 "[BattleGroundMovement] av-indoor-stuck teleport bot %s guid %u bg %u from %.2f %.2f %.2f.",
+                                 me->GetName(), me->GetGUIDLow(), avBg->GetInstanceID(), avCurX, avCurY, me->GetPositionZ());
+                    ClearPath();
+                    me->NearTeleportTo(gyX, gyY, gyZ, me->GetOrientation());
+                }
+            }
+            else
+            {
+                m_avIndoorStuckLogTicks = 0;
+                m_avIndoorStuckTeleportTicks = 0;
+            }
         }
     }
 

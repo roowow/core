@@ -213,6 +213,16 @@ bool BattleBotTryCaptureNearbyObjective(BattleBotAI* pAI)
     {
         case BATTLEGROUND_AB:
             return BattleBotTryCaptureNearbyABObjective(pAI);
+        case BATTLEGROUND_AV:
+            // Mirrors the AB case: this whole function is checked before DrinkAndEat() in
+            // UpdateAI()'s out-of-combat sequence specifically so an active flag capture
+            // wins that race. AV had no case here at all, so a bot standing right at an
+            // openable graveyard flag with low mana fell straight through to DrinkAndEat()
+            // and started drinking instead of capturing — the flag capture logic that does
+            // exist for AV (also AtFlag(), called from BattleBotSelectAVGuardObjective) only
+            // runs later, inside UpdateBattleGroundAI(), by which point DrinkAndEat() had
+            // already claimed the tick and returned.
+            return AtFlag(pAI, vFlagsAV);
         default:
             return false;
     }
@@ -1523,6 +1533,25 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
     &vPath_AV_Alliance_Base_Bunker_Third_Crossroad_to_Alliance_Base_Vanndar_Stormpike,
     &vPath_AV_Stormpike_to_Irondeep_Morloch,
     &vPath_AV_TowerPoint_to_Coldtooth_Snivvle,
+    // Same bug class as the tower/bunker paths already excluded above (Iceblood/TowerPoint/
+    // Stonehearth, see the older commit history that added those): these two climb from
+    // "First/Second Crossroad" up into Dun Baldar's North/South Bunker, and each crossroad
+    // is also the shared endpoint of two OTHER paths (the leg leading in, and the leg
+    // continuing on to the next crossroad) — three paths converging on the same coordinate.
+    // Left reversible, StartNewPathFromBeginning's random pick at that junction sometimes
+    // sends a bot back up into the bunker it just walked out of, right after
+    // StartNewPathFromAnywhere/the attack-objective loop already routed it back to that same
+    // junction — reported concretely as bots visibly cycling "enter tower, exit, mount,
+    // immediately re-enter" without end. These were apparently never covered when the
+    // Iceblood/TowerPoint/Stonehearth ones were fixed for the identical reason.
+    &vPath_AV_Alliance_Base_Bunker_First_Crossroad_to_Alliance_Base_North_Bunker,
+    &vPath_AV_Alliance_Base_Bunker_Second_Crossroad_to_Alliance_Base_South_Bunker,
+    // Horde symmetric case, same junction pattern (checked after a real report on the
+    // Alliance side confirmed this bug class): "Horde Base First Crossroads"
+    // (-1320.18,-289.806) is shared by FOUR paths — the leg in from Frostwolf Graveyard
+    // Flag, these two tower climbs, and the leg on to Second Crossroads.
+    &vPath_AV_Horde_Base_First_Crossroads_to_East_Frostwolf_Tower_Flag,
+    &vPath_AV_Horde_Base_First_Crossroads_to_West_Frostwolf_Tower_Flag,
 };
 
 // These approach paths are one-way dead ends (see the vPaths_NoReverseAllowed comment
@@ -1535,11 +1564,13 @@ std::vector<BattleBotPath*> const vPaths_NoReverseAllowed =
 // manually (bypassing vPaths_NoReverseAllowed on purpose, since that list is only consulted
 // by the shared selection functions, not by setting the path fields directly).
 //
-// Two families of caller can walk a bot all the way to one of these dead ends and later need
+// Three families of caller can walk a bot all the way to one of these dead ends and later need
 // it to leave again: the boss-room approach paths (rally-to-defend-boss, or the older "attack
-// the enemy boss once their defenses are down" logic), and the four native-GY "graveyard to
+// the enemy boss once their defenses are down" logic), the four native-GY "graveyard to
 // graveyard flag" approach paths (any guard bot walking in to open/hold the flag via
-// BattleBotSelectAVGuardObjective, whenever its assignment ends while still standing there).
+// BattleBotSelectAVGuardObjective, whenever its assignment ends while still standing there),
+// and the two Dun Baldar North/South Bunker climbing paths (any bot sent to attack/capture
+// that bunker, once it's done there — captured, lost interest, or got kicked out by combat).
 std::vector<BattleBotPath*> const vPaths_AV_DeadEnds =
 {
     &vPath_AV_Alliance_Base_Bunker_Third_Crossroad_to_Alliance_Base_Vanndar_Stormpike,
@@ -1549,6 +1580,10 @@ std::vector<BattleBotPath*> const vPaths_AV_DeadEnds =
     &vPath_AV_Iceblood_Graveyard_to_Iceblood_Graveyard_Flag,
     &vPath_AV_Stonehearth_Graveyard_to_Stonehearth_Graveyard_Flag,
     &vPath_AV_Stormpike_Graveyard_to_Stormpike_Flag,
+    &vPath_AV_Alliance_Base_Bunker_First_Crossroad_to_Alliance_Base_North_Bunker,
+    &vPath_AV_Alliance_Base_Bunker_Second_Crossroad_to_Alliance_Base_South_Bunker,
+    &vPath_AV_Horde_Base_First_Crossroads_to_East_Frostwolf_Tower_Flag,
+    &vPath_AV_Horde_Base_First_Crossroads_to_West_Frostwolf_Tower_Flag,
 };
 
 // Paths excluded from StartNewPathToPosition objective routing.
@@ -2367,11 +2402,13 @@ static bool FindAVGYToGuard(BattleBotAI* pAI, uint32& outNode)
     }
 
     // Priority 4: Own native GYs after 5 minutes — 2 guards each, GUID-spread.
-    // If the enemy is fielding more than 10 real players, that delay is skipped entirely
-    // (guards go up immediately, even at battleground start) and the own rearmost/home GY
-    // (the one that guards the approach to our final boss) gets double the guard count,
-    // since that's the graveyard a boss-rush push has to go through.
-    bool const enemyOverwhelming = pAI->IsAVEnemyOverwhelming();
+    // If the enemy is fielding more than 10 real players AND the match has run long enough
+    // to show it's a real push (IsAVEnemyOverwhelmingTurtleReady — same 5-minute mark as the
+    // delay below, so by the time this can be true the delay has already elapsed on its own;
+    // see that function's comment for why headcount alone isn't gated instantly here), the
+    // own rearmost/home GY (the one that guards the approach to our final boss) gets double
+    // the guard count, since that's the graveyard a boss-rush push has to go through.
+    bool const enemyOverwhelming = pAI->IsAVEnemyOverwhelmingTurtleReady();
 
     if (bg->GetStartTime() < 5 * 60 * 1000u && !enemyOverwhelming)
         return false;
@@ -2445,9 +2482,11 @@ static bool ShouldBeAVMineBot(BattleBotAI const* pAI)
     if (MINE_MISSION_COUNT == 0)
         return false;
 
-    // Enemy is fielding more than 10 real players: every spare body is needed for defense,
-    // stop sending bots off to babysit the mine.
-    if (pAI->IsAVEnemyOverwhelming())
+    // Enemy is fielding more than 10 real players and the match has run long enough to show
+    // it's a real push (IsAVEnemyOverwhelmingTurtleReady, not the instant/ungated version —
+    // see that function's comment): every spare body is needed for defense, stop sending
+    // bots off to babysit the mine.
+    if (pAI->IsAVEnemyOverwhelmingTurtleReady())
         return false;
     Team const team = pAI->me->GetTeam();
     Map* map = pAI->me->GetMap();
@@ -2855,9 +2894,10 @@ bool BattleBotAI::StartNewPathToObjective()
                     ? (bg->IsActiveEvent(BG_AV_STONEHEARTH_GY, HORDE_ASSAULTED) || bg->IsActiveEvent(BG_AV_STONEHEARTH_GY, HORDE_CONTROLLED))
                     : (bg->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_ASSAULTED) || bg->IsActiveEvent(BG_AV_FROSTWOLF_GY, ALLIANCE_CONTROLLED));
 
-                // Release if the enemy is fielding more than 10 real players — pull mine
-                // bots back to help defend instead of babysitting resource gathering.
-                bool const enemyOverwhelming = IsAVEnemyOverwhelming();
+                // Release if the enemy is fielding more than 10 real players and the match
+                // has run long enough to show it's a real push — pull mine bots back to help
+                // defend instead of babysitting resource gathering.
+                bool const enemyOverwhelming = IsAVEnemyOverwhelmingTurtleReady();
 
                 if (!ownKeyGyLost && !enemyOverwhelming)
                 {

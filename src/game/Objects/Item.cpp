@@ -1169,11 +1169,19 @@ bool Item::IsBindedNotWith(Player const* player) const
     return true;
 }
 
-void Item::AddToClientUpdateList()
+bool Item::AddToClientUpdateList()
 {
+    // Original (kept for reference, do not restore):
+    //   void Item::AddToClientUpdateList()
+    //   {
+    //       if (Player* pl = GetOwner())
+    //           if (pl->GetSession()->IsConnected() && !pl->GetSession()->PlayerLogout())
+    //               pl->GetMap()->AddUpdateObject(this);
+    //   }
     if (Player* pl = GetOwner())
         if (pl->GetSession()->IsConnected() && !pl->GetSession()->PlayerLogout())
-            pl->GetMap()->AddUpdateObject(this);
+            return pl->GetMap()->AddUpdateObject(this);
+    return false;
 }
 
 void Item::RemoveFromClientUpdateList()

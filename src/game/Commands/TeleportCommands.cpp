@@ -24,6 +24,7 @@
 #include "ObjectMgr.h"
 #include "MapManager.h"
 #include "Util.h"
+#include "BattleGroundMgr.h"
 
 bool ChatHandler::HandleTeleCommand(char* args)
 {
@@ -1251,6 +1252,41 @@ bool ChatHandler::HandleGonameCommand(char* args)
             // when porting out from the bg, it will be reset to 0
             if (pPlayer->GetBattleGroundId() != pTarget->GetBattleGroundId())
             {
+                // Make the GM a real battleground participant, not just a bystander who
+                // happens to share the map. A bare SetBattleGroundId() below is not enough:
+                // HandleMoveWorldportAckOpcode only calls BattleGround::AddPlayer() — the
+                // thing that actually registers the player, sends world states, and shows
+                // the battleground map overlay client-side — for a player who is invited
+                // (Player::IsInvitedForBattleGroundInstance()). Without going through the
+                // same invite bookkeeping a normal queue-pop does, that check is always
+                // false for a goname'd GM, so AddPlayer() never fires and the client never
+                // gets the battleground state. If the GM's team (their own faction — that's
+                // the only team they can legally end up on) has no free slot, evict one bot
+                // to make room rather than refuse; never evicts a real player.
+                if (BattleGround* bg = sBattleGroundMgr.GetBattleGround(pTarget->GetBattleGroundId(), pTarget->GetBattleGroundTypeId()))
+                {
+                    Team const team = pPlayer->GetTeam();
+                    bool canJoin = bg->GetFreeSlotsForTeam(team) > 0;
+                    if (!canJoin && bg->GetBotPlayersCountByTeam(team) > 0 && bg->DeleteBattleBot(team))
+                    {
+                        bg->AddToBGFreeSlotQueue();
+                        canJoin = true;
+                    }
+
+                    if (canJoin)
+                    {
+                        BattleGroundQueueTypeId const bgQueueTypeId = sBattleGroundMgr.BgQueueTypeId(pTarget->GetBattleGroundTypeId());
+                        pPlayer->AddBattleGroundQueueId(bgQueueTypeId);
+                        pPlayer->SetInviteForBattleGroundQueueType(bgQueueTypeId, bg->GetInstanceID());
+                        bg->IncreaseInvitedCount(team);
+                        pPlayer->SetBGTeam(team);
+                    }
+                    else
+                    {
+                        PSendSysMessage("%s's battleground team is full and has no bot to evict — going there as a plain bystander (no battleground map/state).", chrNameLink.c_str());
+                    }
+                }
+
                 pPlayer->SetBattleGroundId(pTarget->GetBattleGroundId(), pTarget->GetBattleGroundTypeId());
                 teleFlags |= TELE_TO_FORCE_MAP_CHANGE;
             }

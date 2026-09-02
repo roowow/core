@@ -2891,12 +2891,21 @@ WorldObject* Map::GetWorldObjectOrPlayer(ObjectGuid guid)
     return nullptr;
 }
 
-void Map::AddUpdateObject(Object *obj)
+bool Map::AddUpdateObject(Object *obj)
 {
+    // Original (kept for reference, do not restore):
+    //   void Map::AddUpdateObject(Object *obj)
+    //   {
+    //       if (m_processingSendObjUpdates)
+    //           return;
+    //       std::lock_guard<std::mutex> lock(m_objectsToClientUpdateLock);
+    //       m_objectsToClientUpdate.insert(obj);
+    //   }
     if (m_processingSendObjUpdates)
-        return;
+        return false;
     std::lock_guard<std::mutex> lock(m_objectsToClientUpdateLock);
     m_objectsToClientUpdate.insert(obj);
+    return true;
 }
 
 void Map::RemoveUpdateObject(Object *obj)

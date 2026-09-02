@@ -1868,10 +1868,11 @@ void Unit::TriggerDamageShields(Unit* pVictim)
             spellDamageShieldPacket->school = pSpellProto->School;
             // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md) - see SpellCaster::
             // SendSpellMiss() for the same fix on the other "可自由砍" whitelist opcodes.
+            // forceDroppable=true (2026-09-02): SPELLDAMAGESHIELD is explicitly on that whitelist.
             {
                 WorldPacket binaryPacket(spellDamageShieldPacket->GetOpcode());
                 spellDamageShieldPacket->AppendBodyTo(binaryPacket);
-                pVictim->SendCombatLogMessageToSet(binaryPacket, this);
+                pVictim->SendCombatLogMessageToSet(binaryPacket, this, true);
             }
 
             pVictim->DealDamage(this, damage, nullptr, SPELL_DIRECT_DAMAGE, pSpellProto->GetSpellSchoolMask(), pSpellProto, true);
@@ -2594,7 +2595,11 @@ void Unit::SendMeleeAttackStart(Unit const* pVictim) const
     auto packet = std::make_unique<WorldPackets::Combat::AttackStart>();
     packet->attackerGuid = GetObjectGuid();
     packet->victimGuid = pVictim->GetObjectGuid();
-    SendObjectMessageToSet(std::move(packet), true);
+    // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md): attacker/victim guid only, no
+    // damage number - engage/disengage state notice, "可自由砍" whitelist.
+    WorldPacket binaryPacket(packet->GetOpcode());
+    packet->AppendBodyTo(binaryPacket);
+    SendCombatLogMessageToSet(binaryPacket, pVictim, true);
 }
 
 void Unit::SendMeleeAttackStop(Unit const* pVictim) const
@@ -2604,7 +2609,10 @@ void Unit::SendMeleeAttackStop(Unit const* pVictim) const
     if (pVictim)
         packet->victimGuid = pVictim->GetObjectGuid();
     packet->isDead = GetHealth() == 0;
-    SendObjectMessageToSet(std::move(packet), true);
+    // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md) - see SendMeleeAttackStart() above.
+    WorldPacket binaryPacket(packet->GetOpcode());
+    packet->AppendBodyTo(binaryPacket);
+    SendCombatLogMessageToSet(binaryPacket, pVictim, true);
 }
 
 bool Unit::IsSpellPartiallyBlocked(SpellCaster const* pCaster, SpellEntry const* spellEntry, WeaponAttackType attackType) const
@@ -5590,9 +5598,11 @@ void Unit::SendEnvironmentalDamageLog(uint8 type, uint32 damage, uint32 absorb, 
     // for the same fix on the other "可自由砍" whitelist opcodes. No separate target here (this
     // is self-inflicted damage, `this` is both attacker and victim), matches the nullptr target
     // convention already used by Unit::SendPeriodicAuraLog() for the same reason.
+    // forceDroppable=true (2026-09-02): self-inflicted (fall/lava/drowning) damage isn't caused
+    // by another combatant, raid DPS/HPS meters don't attribute it to anyone - droppable in raids.
     WorldPacket binaryPacket(packet->GetOpcode());
     packet->AppendBodyTo(binaryPacket);
-    SendCombatLogMessageToSet(binaryPacket, nullptr);
+    SendCombatLogMessageToSet(binaryPacket, nullptr, true);
 }
 
 uint32 Unit::GetSpellRank(SpellEntry const* spellInfo) const
@@ -11200,7 +11210,9 @@ void Unit::SendSpellGo(Unit* target, uint32 spellId) const
     data << uint8(0);
 
     data << targets;
-    SendMessageToSet(&data, true);
+    // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md): script-only forced visual (no
+    // real hit/miss resolution, guid+spellId only, no damage number) - "可自由砍" whitelist.
+    SendCombatLogMessageToSet(data, target, true);
 }
 
 void Unit::SendPlaySpellVisualKit(uint32 id) const
@@ -11208,7 +11220,13 @@ void Unit::SendPlaySpellVisualKit(uint32 id) const
     auto packet = std::make_unique<WorldPackets::Spell::PlaySpellVisual>();
     packet->casterGuid = GetObjectGuid();
     packet->spellVisualId = id;
-    SendMessageToSet(std::move(packet), true);
+    // Phase "网络带宽优化" 序3+4 completeness fix (see HPHA.md): casterGuid+visualKitId only, no
+    // target, no damage number - "可自由砍" whitelist. Several call sites (channeled spells'
+    // periodic visual pulse) re-fire this every SPELL_CHANNEL_VISUAL_TIMER cycle anyway, so a
+    // dropped copy self-heals on the next tick.
+    WorldPacket binaryPacket(packet->GetOpcode());
+    packet->AppendBodyTo(binaryPacket);
+    SendCombatLogMessageToSet(binaryPacket, nullptr, true);
 }
 
 void Unit::CancelSpellChannelingAnimationInstantly()
