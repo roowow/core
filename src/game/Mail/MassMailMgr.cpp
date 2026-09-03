@@ -58,7 +58,15 @@ void MassMailMgr::AddMassMailTask(MailDraft* mailProto, MailSender const& sender
 
 struct MassMailerQueryHandler
 {
-    void HandleQueryCallback(std::unique_ptr<QueryResult> result, MailDraft* mailProto, MailSender sender)
+    // Bugfix (2026-09-03): was a non-static member called via AsyncPQuery (DB worker thread pool
+    // thread) - AddMassMailTask(MailDraft*, MailSender const&) below is documented in
+    // MassMailMgr.h as "NOT SAFE for call from Map::Update content/etc" (m_massMails is a plain
+    // std::list, no mutex, popped from the front every tick by MassMailMgr::Update() on the main
+    // thread), yet this callback was calling it from a thread that isn't even the main thread -
+    // strictly worse than the "unsafe from Map::Update" case the comment was warning about. Made
+    // static (doesn't touch any instance state) so it can move to AsyncPQueryUnsafe, which forces
+    // the callback onto the main thread instead.
+    static void HandleQueryCallback(std::unique_ptr<QueryResult> result, MailDraft* mailProto, MailSender sender)
     {
         if (!result)
         {
@@ -75,11 +83,13 @@ struct MassMailerQueryHandler
         }
         while (result->NextRow());
     }
-} massMailerQueryHandler;
+};
 
 void MassMailMgr::AddMassMailTask(MailDraft* mailProto, MailSender const& sender, char const* query)
 {
-    CharacterDatabase.AsyncPQuery(&massMailerQueryHandler, &MassMailerQueryHandler::HandleQueryCallback, mailProto, sender, query);
+    // Original (kept for reference, do not restore):
+    //   CharacterDatabase.AsyncPQuery(&massMailerQueryHandler, &MassMailerQueryHandler::HandleQueryCallback, mailProto, sender, query);
+    CharacterDatabase.AsyncPQueryUnsafe(&MassMailerQueryHandler::HandleQueryCallback, mailProto, sender, query);
 }
 
 void MassMailMgr::Update(bool sendall /*= false*/)

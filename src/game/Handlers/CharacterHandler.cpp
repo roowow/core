@@ -175,7 +175,19 @@ void WorldSession::HandleCharEnum(std::unique_ptr<QueryResult> result)
 void WorldSession::HandleCharEnumOpcode(NullClientPacket const& /*packet*/)
 {
     // get all the data necessary for loading all characters (along with their pets) on the account
-    CharacterDatabase.AsyncPQuery(&chrHandler, &CharacterHandler::HandleCharEnumCallback, GetAccountId(),
+    // Bugfix (2026-09-03): was AsyncPQuery - same class of bug just fixed for HandleCharRenameOpcode
+    // above (see that comment). HandleCharEnumCallback() calls sWorld.FindSession(account), which
+    // does an unlocked find() on World::m_sessions while the main thread concurrently
+    // inserts/erases from the same map (World.cpp UpdateSessions()/SetSessionDisconnected()) - and
+    // even if FindSession() returns a real pointer, calling session->HandleCharEnum()/SendPacket()
+    // on it from this thread races the main thread potentially deleting that same session at the
+    // same moment (the class comment above ("don't call WorldSession directly... it may get
+    // deleted") only guards against holding a stale pointer *across* the async boundary, not
+    // against this - the re-lookup itself is unsynchronized). AsyncPQueryUnsafe moves the callback
+    // onto the main thread instead.
+    // Original (kept for reference, do not restore):
+    //   CharacterDatabase.AsyncPQuery(&chrHandler, &CharacterHandler::HandleCharEnumCallback, GetAccountId(),
+    CharacterDatabase.AsyncPQueryUnsafe(&chrHandler, &CharacterHandler::HandleCharEnumCallback, GetAccountId(),
                                   //           0                    1                    2                    3                     4                      5                    6                    7                          8                          9                           10
                                   "SELECT `characters`.`guid`, `characters`.`name`, `characters`.`race`, `characters`.`class`, `characters`.`gender`, `characters`.`skin`, `characters`.`face`, `characters`.`hair_style`, `characters`.`hair_color`, `characters`.`facial_hair`, `characters`.`level`, "
                                   //    11                   12                  13                         14                         15                         16                         17
@@ -894,7 +906,19 @@ void WorldSession::HandleCharRenameOpcode(WorldPackets::Character::CharRename co
 
     // make sure that the character belongs to the current account, that rename at login is enabled
     // and that there is no character with the desired new name
-    CharacterDatabase.AsyncPQuery(&WorldSession::HandleChangePlayerNameOpcodeCallBack,
+    // Bugfix (2026-09-03): was AsyncPQuery (callback runs on a DB worker thread pool thread,
+    // concurrent with the main world thread) - HandleChangePlayerNameOpcodeCallBack() calls
+    // sObjectMgr.ChangePlayerNameInCache(), which does unlocked erase()/insert() on
+    // ObjectMgr's m_playerNameToGuid/m_playerCacheData maps (no mutex anywhere near them) while
+    // the main thread is concurrently reading the same maps (e.g. Group::UpdateOfflineLeader ->
+    // GetPlayerDataByGUID) - a std::map data race, previously flagged as a known/deferred risk
+    // (see HPHA.md) and now matched to a real production crash (main thread found stuck in a
+    // corrupted _Rb_tree traversal inside GetPlayerDataByGUID, killed by the freeze-detector
+    // watchdog). AsyncPQueryUnsafe forces the callback back onto the main thread instead - same
+    // fix already applied to SwitchTalent/gift-unwrap/oo_creatures.cpp for this exact class of bug.
+    // Original (kept for reference, do not restore):
+    //   CharacterDatabase.AsyncPQuery(&WorldSession::HandleChangePlayerNameOpcodeCallBack,
+    CharacterDatabase.AsyncPQueryUnsafe(&WorldSession::HandleChangePlayerNameOpcodeCallBack,
                                   GetAccountId(), packet.newname,
                                   "SELECT `guid`, `name` FROM `characters` WHERE `guid` = %u AND `account` = %u AND (`character_flags` & %u) = %u AND NOT EXISTS (SELECT NULL FROM `characters` WHERE `name` = '%s')",
                                   packet.guid.GetCounter(), GetAccountId(), CHARACTER_FLAG_RENAME, CHARACTER_FLAG_RENAME, escaped_newname.c_str()
