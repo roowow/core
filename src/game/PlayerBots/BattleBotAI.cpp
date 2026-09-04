@@ -5885,7 +5885,16 @@ void BattleBotAI::UpdateOutOfCombatAI()
     // was the visible symptom (Bloodrage cast while unmounted), but 2026-09-04 testing showed
     // Priests silently doing the same thing — the underlying gap applies to every class, not
     // just Warriors, so it belongs here instead of duplicated per class.
-    if (!me->IsMounted() && UseMount())
+    //
+    // !me->GetVictim() (2026-09-04, see ABLogic.md 8.37): this whole function only runs
+    // while !me->IsInCombat(), but IsInCombat() can lag a tick or more behind actually
+    // having a target — a bot that just spotted an enemy and is chasing/about to swing
+    // already has GetVictim() set, and AttackStart() dismounts it (RemoveSpellsCausingAura)
+    // as part of engaging. Without this check, THIS function would see "not mounted, not
+    // in combat yet" on the very next tick and remount it mid-chase, which then gets
+    // dismounted again to actually attack — repeat forever. User-reported: bots flickering
+    // mount/dismount when they run into an enemy instead of engaging cleanly.
+    if (!me->IsMounted() && !me->GetVictim() && UseMount())
         return;
 
     // Undead: Cannibalize - channel HP recovery from nearby corpse
