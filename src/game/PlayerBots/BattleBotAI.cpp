@@ -6029,25 +6029,32 @@ void BattleBotAI::UpdateOutOfCombatAI_Paladin()
         }
     }
 
-    if (m_spells.paladin.pAura &&
-        CanTryToCastSpell(me, m_spells.paladin.pAura))
+    // 2026-09-04 (see ABLogic.md 8.36, same root cause as 8.35): DoCastSpell() unconditionally
+    // force-dismounts before every cast, so a freshly-mounted paladin would get yanked back
+    // off just to cast its aura/blessing. Neither is urgent enough to justify interrupting
+    // the ride — deferred until naturally dismounted.
+    if (!me->IsMounted())
     {
-        if (DoCastSpell(me, m_spells.paladin.pAura) == SPELL_CAST_OK)
-            return;
-    }
-
-    if (m_spells.paladin.pBlessingBuff)
-    {
-        Player* pTarget = SelectBuffTarget(m_spells.paladin.pBlessingBuff);
-        // BR中机器人没有组队，SelectBuffTarget找不到任何人，回退到给自己加
-        if (!pTarget && IsValidBuffTarget(me, m_spells.paladin.pBlessingBuff))
-            pTarget = me;
-        if (pTarget && CanTryToCastSpell(pTarget, m_spells.paladin.pBlessingBuff))
+        if (m_spells.paladin.pAura &&
+            CanTryToCastSpell(me, m_spells.paladin.pAura))
         {
-            if (DoCastSpell(pTarget, m_spells.paladin.pBlessingBuff) == SPELL_CAST_OK)
-            {
-                m_isBuffing = true;
+            if (DoCastSpell(me, m_spells.paladin.pAura) == SPELL_CAST_OK)
                 return;
+        }
+
+        if (m_spells.paladin.pBlessingBuff)
+        {
+            Player* pTarget = SelectBuffTarget(m_spells.paladin.pBlessingBuff);
+            // BR中机器人没有组队，SelectBuffTarget找不到任何人，回退到给自己加
+            if (!pTarget && IsValidBuffTarget(me, m_spells.paladin.pBlessingBuff))
+                pTarget = me;
+            if (pTarget && CanTryToCastSpell(pTarget, m_spells.paladin.pBlessingBuff))
+            {
+                if (DoCastSpell(pTarget, m_spells.paladin.pBlessingBuff) == SPELL_CAST_OK)
+                {
+                    m_isBuffing = true;
+                    return;
+                }
             }
         }
     }
@@ -6202,7 +6209,11 @@ void BattleBotAI::UpdateOutOfCombatAI_Shaman()
             return;
     }
 
-    if (m_spells.shaman.pLightningShield &&
+    // 2026-09-04 (see ABLogic.md 8.36): DoCastSpell() force-dismounts before casting;
+    // Lightning Shield isn't urgent enough to justify yanking a freshly-mounted shaman
+    // back off, so deferred until it's naturally dismounted.
+    if (!me->IsMounted() &&
+        m_spells.shaman.pLightningShield &&
         CanTryToCastSpell(me, m_spells.shaman.pLightningShield))
     {
         if (DoCastSpell(me, m_spells.shaman.pLightningShield) == SPELL_CAST_OK)
@@ -6607,35 +6618,41 @@ void BattleBotAI::UpdateInCombatAI_Hunter()
 
 void BattleBotAI::UpdateOutOfCombatAI_Mage()
 {
-    if (m_spells.mage.pArcaneBrilliance)
+    // 2026-09-04 (see ABLogic.md 8.36): DoCastSpell() force-dismounts before casting; none
+    // of these self-buffs are urgent enough to justify yanking a freshly-mounted mage back
+    // off, so all deferred until it's naturally dismounted.
+    if (!me->IsMounted())
     {
-        if (CanTryToCastSpell(me, m_spells.mage.pArcaneBrilliance))
+        if (m_spells.mage.pArcaneBrilliance)
         {
-            if (DoCastSpell(me, m_spells.mage.pArcaneBrilliance) == SPELL_CAST_OK)
+            if (CanTryToCastSpell(me, m_spells.mage.pArcaneBrilliance))
+            {
+                if (DoCastSpell(me, m_spells.mage.pArcaneBrilliance) == SPELL_CAST_OK)
+                    return;
+            }
+        }
+        else if (m_spells.mage.pArcaneIntellect)
+        {
+            if (CanTryToCastSpell(me, m_spells.mage.pArcaneIntellect))
+            {
+                if (DoCastSpell(me, m_spells.mage.pArcaneIntellect) == SPELL_CAST_OK)
+                    return;
+            }
+        }
+
+        if (m_spells.mage.pIceArmor &&
+            CanTryToCastSpell(me, m_spells.mage.pIceArmor))
+        {
+            if (DoCastSpell(me, m_spells.mage.pIceArmor) == SPELL_CAST_OK)
                 return;
         }
-    }
-    else if (m_spells.mage.pArcaneIntellect)
-    {
-        if (CanTryToCastSpell(me, m_spells.mage.pArcaneIntellect))
+
+        if (m_spells.mage.pIceBarrier &&
+            CanTryToCastSpell(me, m_spells.mage.pIceBarrier))
         {
-            if (DoCastSpell(me, m_spells.mage.pArcaneIntellect) == SPELL_CAST_OK)
+            if (DoCastSpell(me, m_spells.mage.pIceBarrier) == SPELL_CAST_OK)
                 return;
         }
-    }
-
-    if (m_spells.mage.pIceArmor &&
-        CanTryToCastSpell(me, m_spells.mage.pIceArmor))
-    {
-        if (DoCastSpell(me, m_spells.mage.pIceArmor) == SPELL_CAST_OK)
-            return;
-    }
-
-    if (m_spells.mage.pIceBarrier &&
-        CanTryToCastSpell(me, m_spells.mage.pIceBarrier))
-    {
-        if (DoCastSpell(me, m_spells.mage.pIceBarrier) == SPELL_CAST_OK)
-            return;
     }
 
     if (me->GetVictim())
@@ -6934,7 +6951,18 @@ void BattleBotAI::UpdateInCombatAI_Mage()
 void BattleBotAI::UpdateOutOfCombatAI_Priest()
 {
     BattleGround* bg = me->GetBattleGround();
-    if (bg && bg->GetStatus() == STATUS_WAIT_JOIN)
+    // Below 50% mana, stop handing out more WAIT_JOIN buffs (2026-09-04, log-confirmed:
+    // a Priest buffing every ally with Fortitude/Spirit/Shadow Protection one after another
+    // has no floor on how far this can drain it — one full team's worth of casts took it
+    // from a healthy 97% down to 8%, at which point casting Shadowform on top (which also
+    // costs mana AND forces a dismount, same as any shapeshift) left it at 1%. The one-shot
+    // WAIT_JOIN recovery drink (m_bgWaitJoinRecoveryDone) had already been used earlier, so
+    // nothing else stops this — it just keeps sitting there drinking well past the gate
+    // opening instead of riding out, having never actually been "stuck on a mount" at all.
+    // Stopping buff casts here preserves enough mana for Shadowform and the opening rush;
+    // already-cast buffs on allies aren't undone, this only skips handing out MORE of them.
+    bool const lowMana = me->GetPowerType() == POWER_MANA && me->GetPowerPercent(POWER_MANA) < 50.0f;
+    if (bg && bg->GetStatus() == STATUS_WAIT_JOIN && !lowMana)
     {
         if (m_spells.priest.pPrayerofFortitude)
         {
@@ -7006,21 +7034,28 @@ void BattleBotAI::UpdateOutOfCombatAI_Priest()
         }
     }
 
-    if (m_spells.priest.pShadowform &&
-        m_role != ROLE_HEALER &&
-        CanTryToCastSpell(me, m_spells.priest.pShadowform))
+    // 2026-09-04 (see ABLogic.md 8.34/8.36): this is the exact cast that started the whole
+    // investigation — Shadowform is a shapeshift, so on top of DoCastSpell()'s own
+    // force-dismount it also costs real mana and (like any shapeshift) drops the mount a
+    // second way. Neither Shadowform nor Inner Fire need to happen while riding.
+    if (!me->IsMounted())
     {
-        if (DoCastSpell(me, m_spells.priest.pShadowform) == SPELL_CAST_OK)
-            return;
-    }
-
-    if (m_spells.priest.pInnerFire &&
-        CanTryToCastSpell(me, m_spells.priest.pInnerFire))
-    {
-        if (DoCastSpell(me, m_spells.priest.pInnerFire) == SPELL_CAST_OK)
+        if (m_spells.priest.pShadowform &&
+            m_role != ROLE_HEALER &&
+            CanTryToCastSpell(me, m_spells.priest.pShadowform))
         {
-            m_isBuffing = true;
-            return;
+            if (DoCastSpell(me, m_spells.priest.pShadowform) == SPELL_CAST_OK)
+                return;
+        }
+
+        if (m_spells.priest.pInnerFire &&
+            CanTryToCastSpell(me, m_spells.priest.pInnerFire))
+        {
+            if (DoCastSpell(me, m_spells.priest.pInnerFire) == SPELL_CAST_OK)
+            {
+                m_isBuffing = true;
+                return;
+            }
         }
     }
 
@@ -7227,7 +7262,12 @@ void BattleBotAI::UpdateInCombatAI_Priest()
 void BattleBotAI::UpdateOutOfCombatAI_Warlock()
 {
     BattleGround* bg = me->GetBattleGround();
-    if (bg && bg->GetStatus() == STATUS_WAIT_JOIN)
+    // Same mana-floor guard as Priest's WAIT_JOIN buffing (see ABLogic.md 8.34) — lower
+    // risk here since it's only one buff type, but the same "one-shot WAIT_JOIN recovery
+    // already spent, no other floor" trap applies in principle, so applied proactively
+    // rather than waiting for a log to prove it happens.
+    bool const lowMana = me->GetPowerType() == POWER_MANA && me->GetPowerPercent(POWER_MANA) < 50.0f;
+    if (bg && bg->GetStatus() == STATUS_WAIT_JOIN && !lowMana)
     {
         if (m_spells.warlock.pDetectInvisibility)
         {
@@ -7245,7 +7285,11 @@ void BattleBotAI::UpdateOutOfCombatAI_Warlock()
         }
     }
 
-    if (m_spells.warlock.pDemonArmor &&
+    // 2026-09-04 (see ABLogic.md 8.36): DoCastSpell() force-dismounts before casting; Demon
+    // Armor isn't urgent enough to justify yanking a freshly-mounted warlock back off, so
+    // deferred until it's naturally dismounted.
+    if (!me->IsMounted() &&
+        m_spells.warlock.pDemonArmor &&
         CanTryToCastSpell(me, m_spells.warlock.pDemonArmor))
     {
         if (DoCastSpell(me, m_spells.warlock.pDemonArmor) == SPELL_CAST_OK)
@@ -7454,34 +7498,47 @@ void BattleBotAI::UpdateOutOfCombatAI_Warrior()
     // shared attempt already failed this tick for a real reason (indoors, flag-carrying,
     // etc.), so there's nothing more to do about it here.
 
-    // Need Battle Stance for Charge; tank will switch to Defensive Stance in combat
-    if (m_spells.warrior.pBattleStance &&
-        CanTryToCastSpell(me, m_spells.warrior.pBattleStance))
+    // 2026-09-04 (see ABLogic.md 8.35): none of Battle Stance/Battle Shout/Bloodrage are
+    // worth casting while mounted. CombatBotBaseAI::DoCastSpell() unconditionally force-
+    // dismounts before every cast (RemoveSpellsCausingAura(SPELL_AURA_MOUNTED)) — a warrior
+    // that just successfully mounted (8.27) would immediately get yanked back off to cast
+    // one of these, need a tick to remount, then get yanked off again for the next one.
+    // User-reported symptom matched exactly: warriors dismounting in place to cast
+    // Bloodrage right after the gate opens, delaying the rush on a node. None of these
+    // three are time-critical before combat actually starts — Battle Shout/Bloodrage can
+    // wait until the warrior is naturally dismounted (arrived, fighting, knocked off),
+    // and Charge's Battle Stance requirement only matters once actually engaging.
+    if (!me->IsMounted())
     {
-        if (DoCastSpell(me, m_spells.warrior.pBattleStance) == SPELL_CAST_OK)
+        // Need Battle Stance for Charge; tank will switch to Defensive Stance in combat
+        if (m_spells.warrior.pBattleStance &&
+            CanTryToCastSpell(me, m_spells.warrior.pBattleStance))
         {
-            if (warriorMountDebug)
-                sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MOUNT_DEBUG] bot %s cast BattleStance, returning.", me->GetName());
-            return;
+            if (DoCastSpell(me, m_spells.warrior.pBattleStance) == SPELL_CAST_OK)
+            {
+                if (warriorMountDebug)
+                    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MOUNT_DEBUG] bot %s cast BattleStance, returning.", me->GetName());
+                return;
+            }
         }
-    }
 
-    if (m_spells.warrior.pBattleShout &&
-       !me->HasAura(m_spells.warrior.pBattleShout->Id))
-    {
-        if (CanTryToCastSpell(me, m_spells.warrior.pBattleShout))
+        if (m_spells.warrior.pBattleShout &&
+           !me->HasAura(m_spells.warrior.pBattleShout->Id))
         {
-            if (warriorMountDebug)
-                sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MOUNT_DEBUG] bot %s casting BattleShout.", me->GetName());
-            DoCastSpell(me, m_spells.warrior.pBattleShout);
-        }
-        else if (m_spells.warrior.pBloodrage &&
-            (me->GetPower(POWER_RAGE) < 10) &&
-            CanTryToCastSpell(me, m_spells.warrior.pBloodrage))
-        {
-            if (warriorMountDebug)
-                sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MOUNT_DEBUG] bot %s casting Bloodrage (rage=%u).", me->GetName(), me->GetPower(POWER_RAGE));
-            DoCastSpell(me, m_spells.warrior.pBloodrage);
+            if (CanTryToCastSpell(me, m_spells.warrior.pBattleShout))
+            {
+                if (warriorMountDebug)
+                    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MOUNT_DEBUG] bot %s casting BattleShout.", me->GetName());
+                DoCastSpell(me, m_spells.warrior.pBattleShout);
+            }
+            else if (m_spells.warrior.pBloodrage &&
+                (me->GetPower(POWER_RAGE) < 10) &&
+                CanTryToCastSpell(me, m_spells.warrior.pBloodrage))
+            {
+                if (warriorMountDebug)
+                    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MOUNT_DEBUG] bot %s casting Bloodrage (rage=%u).", me->GetName(), me->GetPower(POWER_RAGE));
+                DoCastSpell(me, m_spells.warrior.pBloodrage);
+            }
         }
     }
 
@@ -8146,31 +8203,39 @@ void BattleBotAI::UpdateOutOfCombatAI_Druid()
 
     if (bg && bg->GetStatus() == STATUS_WAIT_JOIN)
     {
-        if (m_spells.druid.pGiftoftheWild)
+        // Same mana-floor guard as Priest's WAIT_JOIN buffing (see ABLogic.md 8.34) —
+        // gated inside the branch (not on the outer if, which would otherwise fall into
+        // the else branch below meant for STATUS_IN_PROGRESS and attempt its own,
+        // similarly mana-costing self-buffs instead of just pausing).
+        bool const lowMana = me->GetPowerType() == POWER_MANA && me->GetPowerPercent(POWER_MANA) < 50.0f;
+        if (!lowMana)
         {
-            if (Player* pTarget = SelectBuffTarget(m_spells.druid.pGiftoftheWild))
+            if (m_spells.druid.pGiftoftheWild)
             {
-                if (CanTryToCastSpell(pTarget, m_spells.druid.pGiftoftheWild))
+                if (Player* pTarget = SelectBuffTarget(m_spells.druid.pGiftoftheWild))
                 {
-                    if (DoCastSpell(pTarget, m_spells.druid.pGiftoftheWild) == SPELL_CAST_OK)
+                    if (CanTryToCastSpell(pTarget, m_spells.druid.pGiftoftheWild))
                     {
-                        m_isBuffing = true;
-                        return;
+                        if (DoCastSpell(pTarget, m_spells.druid.pGiftoftheWild) == SPELL_CAST_OK)
+                        {
+                            m_isBuffing = true;
+                            return;
+                        }
                     }
                 }
             }
-        }
 
-        if (m_spells.druid.pThorns)
-        {
-            if (Player* pTarget = SelectBuffTarget(m_spells.druid.pThorns))
+            if (m_spells.druid.pThorns)
             {
-                if (CanTryToCastSpell(pTarget, m_spells.druid.pThorns))
+                if (Player* pTarget = SelectBuffTarget(m_spells.druid.pThorns))
                 {
-                    if (DoCastSpell(pTarget, m_spells.druid.pThorns) == SPELL_CAST_OK)
+                    if (CanTryToCastSpell(pTarget, m_spells.druid.pThorns))
                     {
-                        m_isBuffing = true;
-                        return;
+                        if (DoCastSpell(pTarget, m_spells.druid.pThorns) == SPELL_CAST_OK)
+                        {
+                            m_isBuffing = true;
+                            return;
+                        }
                     }
                 }
             }
