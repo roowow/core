@@ -597,32 +597,14 @@ static bool IsABOpeningPhase(BattleGround* bg)
            CountABOccupiedNodesByTeam(bg, HORDE) == 0;
 }
 
-static Position const& SelectABPositionForBot(BattleBotAI* pAI, std::vector<uint8> const& nodes, bool openingPhase = false, uint8* outNodeIndex = nullptr)
+static Position const& SelectABPositionForBot(BattleBotAI* pAI, std::vector<uint8> const& nodes, uint8* outNodeIndex = nullptr)
 {
-    // Opening rush: every free bot starts clustered at the same waiting spot
-    // (AB_WAITING_POS_*, only a couple yards of jitter), so at t=0 all 5 nodes tie
-    // at 0 guards and "nearest" resolves to the identical node for the whole team —
-    // everyone piles onto one node instead of spreading out to grab several at once.
-    // Fall back to a stable per-bot GUID hash here so the team naturally spreads
-    // across the tied candidates. Once anything is captured we're past the opening
-    // rush and switch back to nearest (below) for normal guard-reassignment efficiency.
-    if (openingPhase && nodes.size() > 1)
-    {
-        uint8 const picked = nodes[pAI->me->GetObjectGuid().GetCounter() % nodes.size()];
-        // TEMP DEBUG (2026-09-04): remove once confirmed fixed — see ABLogic.md 8.11/8.18.
-        if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
-        {
-            std::string nodeList;
-            for (uint8 n : nodes) { nodeList += std::to_string(n); nodeList += ','; }
-            sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                "[AB_OPEN_DEBUG] hash-pick bot %s guid %u team %u candidates=%s picked=%u.",
-                pAI->me->GetName(), pAI->me->GetGUIDLow(), uint32(pAI->me->GetTeam()), nodeList.c_str(), picked);
-        }
-        if (outNodeIndex)
-            *outNodeIndex = picked;
-        return AB_GuardPositions[picked];
-    }
-
+    // The opening rush used to hash-pick among tied candidates here (everyone starts
+    // clustered at the same waiting spot, so "nearest" alone would send the whole team to
+    // one node) — that's now handled by FindABAssaultPosition()'s dedicated opening-phase
+    // group assignment (see ABLogic.md 8.28) before this function is ever reached during
+    // the opening, so this only needs to handle normal mid-match guard reassignment.
+    //
     // Among nodes tied on guard need, send the bot to the nearest one instead of a
     // GUID hash, so bots don't criss-cross the map to reach an equally-needy node.
     uint8 nearest = nodes[0];
@@ -821,19 +803,107 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
         }
     }
 
+    bool const openingPhase = IsABOpeningPhase(bg);
+
+    if (openingPhase)
+    {
+        // Opening-phase group assignment (2026-09-04, replaces the old "everyone decides
+        // solo, hash-picks among whichever nodes are least-crowded" scheme): split the
+        // team into 4 groups so bots travel together with a shared destination instead of
+        // trickling out independently. One bot goes alone to the node nearest this team's
+        // spawn (shortest trip, captured fastest); the rest split into 3 groups by GUID,
+        // each group heading to one of the 4 remaining nodes — distinct nodes only (no two
+        // groups sent to the same place, one of the 4 gets no group this wave). The target
+        // node per group is picked by hashing the BG instance ID, team, and node index —
+        // varies match to match, but every bot on the team computes the identical result
+        // independently, no shared/synchronized state needed.
+        //
+        // This only governs the INITIAL opening target. Once IsABOpeningPhase() ends or a
+        // bot's committed node gets captured/ambushed, everything downstream (sticky
+        // commitment above, guard reinforcement, urgent response, meat-grinder avoidance,
+        // the normal nearest-distance logic below) behaves exactly as before — nothing
+        // here "remembers" the grouping past this one decision.
+        // Distance from the team's fixed waiting spot, not the calling bot's own current
+        // position — a bot re-deciding later while still technically in the opening window
+        // (e.g. died and respawned before anyone captured anything) could otherwise compute
+        // a different "nearest" than the rest of the team based on wherever it happens to be
+        // standing right now.
+        Position const& teamWaitPos = (pAI->me->GetTeam() == HORDE) ? AB_WAITING_POS_HORDE : AB_WAITING_POS_ALLIANCE;
+        uint8 nearest = 0;
+        float nearestDist = GetDistance3D(AB_GuardPositions[0], teamWaitPos);
+        for (uint8 i = 1; i < BG_AB_NODES_MAX; ++i)
+        {
+            float const d = GetDistance3D(AB_GuardPositions[i], teamWaitPos);
+            if (d < nearestDist)
+            {
+                nearestDist = d;
+                nearest = i;
+            }
+        }
+
+        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), nearest) &&
+            CountABGuardBots(pAI, AB_GuardPositions[nearest], true) < 1)
+        {
+            outPosition = AB_GuardPositions[nearest];
+            pAI->m_abCommittedNode = int8(nearest);
+            if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                    "[AB_OPEN_DEBUG] opening-group solo-nearest bot %s node %u chosenPos=%.1f,%.1f.",
+                    pAI->me->GetName(), uint32(nearest), outPosition.x, outPosition.y);
+            return true;
+        }
+
+        uint8 remaining[4];
+        uint8 remainingCount = 0;
+        for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
+            if (i != nearest)
+                remaining[remainingCount++] = i;
+
+        // Insertion-sort the 4 remaining nodes by a per-(instance,team,node) hash key —
+        // trivial for 4 elements, avoids pulling in <algorithm> just for this.
+        uint32 keys[4];
+        for (uint8 i = 0; i < 4; ++i)
+            keys[i] = (bg->GetInstanceID() * 2654435761u) ^ (uint32(pAI->me->GetTeam()) * 40503u) ^ (uint32(remaining[i]) * 2246822519u);
+        for (uint8 i = 1; i < 4; ++i)
+        {
+            uint8 const node = remaining[i];
+            uint32 const key = keys[i];
+            int8 j = int8(i) - 1;
+            while (j >= 0 && keys[j] > key)
+            {
+                remaining[j + 1] = remaining[j];
+                keys[j + 1] = keys[j];
+                --j;
+            }
+            remaining[j + 1] = node;
+            keys[j + 1] = key;
+        }
+
+        uint8 const myGroup = uint8(pAI->me->GetGUIDLow() % 3);
+        uint8 const targetNode = remaining[myGroup];
+
+        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), targetNode))
+        {
+            outPosition = AB_GuardPositions[targetNode];
+            pAI->m_abCommittedNode = int8(targetNode);
+            if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                    "[AB_OPEN_DEBUG] opening-group bot %s group %u node %u chosenPos=%.1f,%.1f groupOrder=%u,%u,%u,%u.",
+                    pAI->me->GetName(), uint32(myGroup), uint32(targetNode), outPosition.x, outPosition.y,
+                    uint32(remaining[0]), uint32(remaining[1]), uint32(remaining[2]), uint32(remaining[3]));
+            return true;
+        }
+
+        return false;
+    }
+
     // Two tiers: nodes with no recent ambush deaths are always preferred (bots route
     // around a known kill zone toward other opportunities first). Only when nothing
     // safe is available do we fall back to the ambushed node(s), and even then only
     // once fewer than AB_GUARD_REQUIRED_BOTS + AB_MEAT_GRINDER_EXTRA_GUARDS bots are
     // already there/en route, so bots mass up into a bigger push instead of trickling
     // in solo.
-    // During the opening rush, capturing a neutral node only takes one bot physically
-    // there — a second one assigned before it's even captured just eats into the pool
-    // of free bots that could instead be grabbing a DIFFERENT node at the same time.
-    // Once the match is past the opening (someone owns something), go back to requiring
-    // AB_GUARD_REQUIRED_BOTS so a fresh capture attempt has backup against contest.
-    bool const openingPhase = IsABOpeningPhase(bg);
-    uint8 const assaultThreshold = openingPhase ? 1 : AB_GUARD_REQUIRED_BOTS;
+    uint8 const assaultThreshold = AB_GUARD_REQUIRED_BOTS;
     uint8 bestCount = assaultThreshold;
     std::vector<uint8> bestNodes;
     uint8 bestAmbushCount = AB_GUARD_REQUIRED_BOTS + AB_MEAT_GRINDER_EXTRA_GUARDS;
@@ -866,8 +936,8 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
         // TEMP DEBUG (2026-09-04): remove once confirmed fixed — see ABLogic.md 8.11/8.18.
         if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
             sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                "[AB_OPEN_DEBUG] node-scan bot %s node %u count=%u threshold=%u openingPhase=%u.",
-                pAI->me->GetName(), uint32(i), uint32(count), uint32(assaultThreshold), uint32(openingPhase));
+                "[AB_OPEN_DEBUG] node-scan bot %s node %u count=%u threshold=%u.",
+                pAI->me->GetName(), uint32(i), uint32(count), uint32(assaultThreshold));
 
         if (count >= assaultThreshold)
             continue;
@@ -887,20 +957,20 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
     if (!bestNodes.empty())
     {
         uint8 chosenNode = 0;
-        outPosition = SelectABPositionForBot(pAI, bestNodes, openingPhase, &chosenNode);
+        outPosition = SelectABPositionForBot(pAI, bestNodes, &chosenNode);
         pAI->m_abCommittedNode = int8(chosenNode);
         // TEMP DEBUG (2026-09-04): remove once confirmed fixed — see ABLogic.md 8.11/8.18.
         if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
             sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                "[AB_OPEN_DEBUG] FindABAssaultPosition RETURN bot %s bestNodes.size=%u openingPhase=%u chosenPos=%.1f,%.1f.",
-                pAI->me->GetName(), uint32(bestNodes.size()), uint32(openingPhase), outPosition.x, outPosition.y);
+                "[AB_OPEN_DEBUG] FindABAssaultPosition RETURN bot %s bestNodes.size=%u chosenPos=%.1f,%.1f.",
+                pAI->me->GetName(), uint32(bestNodes.size()), outPosition.x, outPosition.y);
         return true;
     }
 
     if (!ambushNodes.empty())
     {
         uint8 chosenNode = 0;
-        outPosition = SelectABPositionForBot(pAI, ambushNodes, openingPhase, &chosenNode);
+        outPosition = SelectABPositionForBot(pAI, ambushNodes, &chosenNode);
         pAI->m_abCommittedNode = int8(chosenNode);
         if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
             sLog.Out(LOG_BG, LOG_LVL_BASIC,

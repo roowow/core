@@ -1245,13 +1245,36 @@ void Player::Update(uint32 update_diff, uint32 p_time)
     if (!IsInWorld())
         return;
 
+    // Diagnostic sub-timers (2026-09-04): Map.cpp's "Slow player update" log only reports the
+    // total time spent here, with no breakdown - unlike Map::Update()'s own "Update single map"
+    // sub-timers. These buckets cover the few pieces suspected of causing occasional big spikes
+    // (aura/spell/AI processing, the nearby-unit stealth scan, and the periodic autosave); every
+    // thing else is charged to "other" by subtraction. Only logged past the same 20ms threshold
+    // Map.cpp already uses, so this line shows up alongside "Slow player update" for the same
+    // event, and the cost of the timers themselves stays negligible on the fast path.
+    uint32 const updateStartTime = WorldTimer::getMSTime();
+    uint32 unitUpdateTime = 0, stealthDetectTime = 0, saveToDBTime = 0;
+    auto logBreakdownIfSlow = [&]()
+    {
+        uint32 const totalTime = WorldTimer::getMSTimeDiffToNow(updateStartTime);
+        if (totalTime >= 20)
+            sLog.Out(LOG_PERFORMANCE, LOG_LVL_BASIC,
+                      "Player update breakdown: %ums. Player '%s' (GUID: %u) [unitUpdate %ums|stealthDetect %ums|saveToDB %ums|other %ums]",
+                      totalTime, GetName(), GetGUIDLow(), unitUpdateTime, stealthDetectTime, saveToDBTime,
+                      totalTime - unitUpdateTime - stealthDetectTime - saveToDBTime);
+    };
+
     UpdateMirrorTimers(update_diff);
 
     //used to implement delayed far teleports
     SetCanDelayTeleport(true);
-    Unit::Update(update_diff, p_time);
-    if (m_AI)
-        m_AI->UpdateAI(p_time);
+    {
+        uint32 const unitUpdateStart = WorldTimer::getMSTime();
+        Unit::Update(update_diff, p_time);
+        if (m_AI)
+            m_AI->UpdateAI(p_time);
+        unitUpdateTime = WorldTimer::getMSTimeDiffToNow(unitUpdateStart);
+    }
     SetCanDelayTeleport(false);
 
     // After Unit::Update() (which just ran UpdateCooldowns(), clearing any GCD categories that
@@ -1281,7 +1304,9 @@ void Player::Update(uint32 update_diff, uint32 p_time)
     {
         if (update_diff >= m_detectInvisibilityTimer)
         {
+            uint32 const stealthDetectStart = WorldTimer::getMSTime();
             HandleStealthedUnitsDetection();
+            stealthDetectTime = WorldTimer::getMSTimeDiffToNow(stealthDetectStart);
             m_detectInvisibilityTimer = 2000;
         }
         else
@@ -1393,7 +1418,9 @@ void Player::Update(uint32 update_diff, uint32 p_time)
         if (update_diff >= m_nextSave)
         {
             // m_nextSave reseted in SaveToDB call
+            uint32 const saveToDBStart = WorldTimer::getMSTime();
             SaveToDB();
+            saveToDBTime = WorldTimer::getMSTimeDiffToNow(saveToDBStart);
             //if (!IsSavingDisabled())
             //    sLog.Out(LOG_BASIC, LOG_LVL_BASIC, "Player '%s' (GUID: %u) saved", GetName(), GetGUIDLow());
         }
@@ -1454,7 +1481,10 @@ void Player::Update(uint32 update_diff, uint32 p_time)
 
     // Movement extrapolation & cheat computation - only if not already kicked!
     if (!GetSession()->IsConnected())
+    {
+        logBreakdownIfSlow();
         return;
+    }
 
     if (m_enableInstanceSwitch && !IsTaxiFlying() && IsInWorld() && GetMap()->IsContinent() && !GetTransport() && !IsBeingTeleported())
     {
@@ -1470,6 +1500,7 @@ void Player::Update(uint32 update_diff, uint32 p_time)
         if (m_repopAtGraveyardPending && !HasPendingMovementChange())
         {
             RepopAtGraveyard();
+            logBreakdownIfSlow();
             return;
         }
 
@@ -1502,6 +1533,8 @@ void Player::Update(uint32 update_diff, uint32 p_time)
     {
         oowowInfo.cache_PartyText = 0;
     }
+
+    logBreakdownIfSlow();
 }
 
 void Player::OnDisconnected()

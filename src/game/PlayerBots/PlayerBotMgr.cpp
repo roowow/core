@@ -1060,15 +1060,16 @@ void PlayerBotMgr::AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam,
     else if (queueType == BATTLEGROUND_QUEUE_AB)
     {
         // AB class distribution. Hunter excluded (poor in node melee). No tank specs.
-        // Tier 1 (6x): Warrior, Mage, Rogue, Warlock, Paladin/Shaman
-        // Tier 2 (4x): Priest, Druid
+        // Tier 1 (6x): Warrior, Mage, Rogue
+        // Tier 2 (4x): Priest, Paladin/Shaman
+        // Tier 3 (3x): Druid, Warlock
         availableClasses = {
             CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR,
             CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,
             CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
             CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,
-            CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,
-            CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK,
+            CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,
+            CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK,
         };
         if (botTeam == HORDE)
         {
@@ -1076,13 +1077,9 @@ void PlayerBotMgr::AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam,
             availableClasses.push_back(CLASS_SHAMAN);
             availableClasses.push_back(CLASS_SHAMAN);
             availableClasses.push_back(CLASS_SHAMAN);
-            availableClasses.push_back(CLASS_SHAMAN);
-            availableClasses.push_back(CLASS_SHAMAN);
         }
         else
         {
-            availableClasses.push_back(CLASS_PALADIN);
-            availableClasses.push_back(CLASS_PALADIN);
             availableClasses.push_back(CLASS_PALADIN);
             availableClasses.push_back(CLASS_PALADIN);
             availableClasses.push_back(CLASS_PALADIN);

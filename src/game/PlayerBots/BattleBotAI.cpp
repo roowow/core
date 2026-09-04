@@ -5855,6 +5855,18 @@ void BattleBotAI::UpdateFlagCarrierAI()
 
 void BattleBotAI::UpdateOutOfCombatAI()
 {
+    // Try to mount before anything else, every out-of-combat tick regardless of class or
+    // m_currentPath (see ABLogic.md 8.25/8.27). UpdateWaypointMovement()'s own remount hook
+    // only fires once m_currentPath goes null — with 8.24's long single-segment direct AB
+    // routes, a bot that wasn't mounted yet when BattleBotSelectABObjective() handed out its
+    // path (e.g. still finishing a WAIT_JOIN recovery drink) would otherwise walk that whole
+    // route on foot with no second chance. Originally added Warrior-only (8.25) because that
+    // was the visible symptom (Bloodrage cast while unmounted), but 2026-09-04 testing showed
+    // Priests silently doing the same thing — the underlying gap applies to every class, not
+    // just Warriors, so it belongs here instead of duplicated per class.
+    if (!me->IsMounted() && UseMount())
+        return;
+
     // Undead: Cannibalize - channel HP recovery from nearby corpse
     if (m_racialSpells.pCannibalize && me->GetHealthPercent() < 70.0f &&
         CanTryToCastSpell(me, m_racialSpells.pCannibalize))
@@ -7416,14 +7428,10 @@ void BattleBotAI::UpdateOutOfCombatAI_Warrior()
                  (m_spells.warrior.pBattleShout && me->HasAura(m_spells.warrior.pBattleShout->Id)));
     }
 
-    // No !m_currentPath gate here (see ABLogic.md 8.25): once BattleBotSelectABObjective()
-    // hands out a path the tick after gate-open, m_currentPath is set for the rest of that
-    // (now often single-segment, see 8.24's direct routes) leg — a warrior that hadn't
-    // mounted yet by then would never get another chance and just walk the whole route on
-    // foot, casting Battle Shout/Bloodrage instead. UseMount() already refuses to interrupt
-    // AV/WSG movement on its own; for AB it's safe to call every tick until it succeeds.
-    if (!me->IsMounted() && UseMount())
-        return;
+    // Mount attempt itself now lives in UpdateOutOfCombatAI() (see ABLogic.md 8.27), shared
+    // by every class instead of duplicated here — if we get this far still unmounted, that
+    // shared attempt already failed this tick for a real reason (indoors, flag-carrying,
+    // etc.), so there's nothing more to do about it here.
 
     // Need Battle Stance for Charge; tank will switch to Defensive Stance in combat
     if (m_spells.warrior.pBattleStance &&
