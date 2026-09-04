@@ -4139,16 +4139,20 @@ void BattleBotAI::UpdateAI(uint32 const diff)
             bool const waitOutdoors = me->GetMap()->GetTerrain()->IsOutdoors(waitCurX, waitCurY, me->GetPositionZ());
             if (!waitOutdoors)
             {
-                if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG) && ++m_bgWaitJoinIndoorStuckLogTicks >= 30)
+                if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG) && ++m_bgWaitJoinIndoorStuckLogTicks >= 10)
                 {
                     m_bgWaitJoinIndoorStuckLogTicks = 0;
                     sLog.Out(LOG_BG, LOG_LVL_BASIC,
                              "[BattleGroundMovement] waitjoin-indoor-stuck bot %s guid %u bg %u pos %.2f %.2f %.2f.",
                              me->GetName(), me->GetGUIDLow(), waitBg->GetInstanceID(), waitCurX, waitCurY, me->GetPositionZ());
                 }
-                // ~30 s — generous grace window so a bot that simply hasn't started
-                // walking yet on the very first ticks isn't mistaken for being stuck.
-                if (++m_bgWaitJoinIndoorStuckTeleportTicks >= 15)
+                // 2026-09-04 log data (Bg_2026-09-04_14-25-3.log): bots that end up stuck are
+                // stuck almost immediately (indoors within ~2-3s of joining, never make real
+                // progress toward the waiting spot), not "slow but still walking" — so a short
+                // window doesn't risk misjudging a bot that simply hasn't started yet. Original
+                // 15-tick (~11s measured) window left 57% of bots (17/30 in that log) stuck for
+                // that long; cut to 6 ticks (~4-6s depending on this BG's tick rate).
+                if (++m_bgWaitJoinIndoorStuckTeleportTicks >= 6)
                 {
                     m_bgWaitJoinIndoorStuckTeleportTicks = 0;
                     Position const* dest = nullptr;
@@ -7353,15 +7357,13 @@ void BattleBotAI::UpdateInCombatAI_Warlock()
 
 void BattleBotAI::UpdateOutOfCombatAI_Warrior()
 {
-    // Mounting wins the race against self-buffing right around the gates opening.
-    // Rage is normally 0 coming out of WAIT_JOIN, so the Battle Shout attempt below falls
-    // back to Bloodrage — and while that cast/GCD is in flight, UseMount()'s own CastSpell
-    // fails, delaying mounting by a couple of seconds for no benefit (buffs work fine once
-    // already mounted). Scoped to "still in the opening window" via !m_currentPath (hasn't
-    // picked/started a route to an objective yet) rather than elapsed time — BattleGround's
-    // GetStartTime() counts from BG object creation, i.e. it already includes the whole
-    // WAIT_JOIN countdown, so it's already well past any short "first N seconds" cutoff by
-    // the time STATUS_IN_PROGRESS begins and can't be used to detect "just opened" here.
+    // Mount before self-buffing when not yet mounted and still in the opening window
+    // (!m_currentPath: hasn't picked/started a route to an objective yet). 2026-09-04 log
+    // data disproved the original theory that Battle Shout/Bloodrage's cast was delaying
+    // this (every UseMount() failure logged casting=0 — never actually mid-cast); the real
+    // blocker turned out to be bots stuck indoors during WAIT_JOIN (see the rescue in
+    // UpdateAI() and ABLogic.md 8.17/8.18). Kept as a harmless ordering improvement, but it
+    // isn't the fix for that issue.
     // TEMP DEBUG (2026-09-04): remove once confirmed fixed — see ABLogic.md 8.16/8.18.
     bool const warriorMountDebug = sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG);
     if (warriorMountDebug && !me->IsMounted())
