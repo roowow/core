@@ -1972,7 +1972,10 @@ bool BattleBotAI::DrinkAndEat()
         else if (me->IsMoving())
         {
             // Actively traveling toward an objective — don't interrupt (matches
-            // UseMount()'s own don't-interrupt-travel behavior for AV/WSG).
+            // UseMount()'s own don't-interrupt-travel behavior for AV/WSG). Also clears
+            // the stationary-recovery arm timer below, so the next time this bot stops
+            // moving it gets its own fresh grace tick instead of reusing a stale one.
+            m_stationaryRecoveryArmTime = 0;
             return false;
         }
         else
@@ -1989,6 +1992,23 @@ bool BattleBotAI::DrinkAndEat()
             // rolling cooldown off m_lastMountTime rather than a one-shot flag.
             if (WorldTimer::getMSTime() - m_lastMountTime < 5000)
                 return false;
+
+            // One tick's grace before actually committing to sit down (see
+            // m_stationaryRecoveryArmTime's declaration and ABLogic.md 8.31): a bot that's
+            // "stationary" only because it hasn't been handed an objective YET this tick
+            // (most commonly right as WAIT_JOIN ends) should get a chance to start moving
+            // first — recovering can wait, but losing the opening rush to a ~20s drink
+            // can't be undone.
+            uint32 const now = WorldTimer::getMSTime();
+            if (m_stationaryRecoveryArmTime == 0)
+            {
+                m_stationaryRecoveryArmTime = now + 1000;
+                return false;
+            }
+            if (now < m_stationaryRecoveryArmTime)
+                return false;
+
+            m_stationaryRecoveryArmTime = 0;
             me->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
         }
     }
@@ -3123,6 +3143,7 @@ void BattleBotAI::OnEnterBattleGround()
 
     m_bgWaitJoinRecoveryDone = false;
     m_lastMountTime = 0;
+    m_stationaryRecoveryArmTime = 0;
 
     SummonPetIfNeeded();
 
@@ -8101,8 +8122,20 @@ void BattleBotAI::UpdateOutOfCombatAI_Druid()
 
     // 2. 核心优化：如果你骑着马，且【没有】攻击目标，才拦截后续的变身和加Buff逻辑
     // 这样如果一旦有了 Victim（被怪打了或者决定开怪），逻辑就能向下走，正常触发战斗
+    //
+    // 2026-09-04 修复：这条 return 排在下面 WAIT_JOIN/非WAIT_JOIN 两个分支里的
+    // m_isBuffing 复位逻辑之前——一旦机器人在 WAIT_JOIN 阶段施法加成功过一次buff
+    // （m_isBuffing 置 true），随后一旦成功上马（8.27 之后几乎必然会发生），
+    // 每个 tick 都会在这里直接 return，复位逻辑永远碰不到，m_isBuffing 就永久卡
+    // 在 true——UpdateAI() 里 `if (m_isBuffing) return;` 导致这个机器人的整个
+    // 后续 AI（包括分配据点、移动）全部停摆，除非被人打进战斗才能靠
+    // AttackStart() 里的复位解出来。骑着马又没有目标时，不可能真的还在读条/
+    // 等GCD，所以在这里直接清掉是安全的。
     if (me->IsMounted() && !me->GetVictim())
+    {
+        m_isBuffing = false;
         return;
+    }
 
     if (me->HasAura(BB_SPELL_FOOD) || me->HasAura(BB_SPELL_DRINK))
         return;

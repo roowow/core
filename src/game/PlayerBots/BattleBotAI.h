@@ -179,6 +179,20 @@ public:
     // m_bgWaitJoinRecoveryDone guards against during WAIT_JOIN, but this applies for the
     // whole match since a stationary bot can need to recover more than once.
     uint32 m_lastMountTime = 0;
+    // 0 = not yet armed. DrinkAndEat()'s stationary-while-mounted recovery (above) gives a
+    // bot ONE tick's grace before actually dismounting: the first tick a bot is observed
+    // mounted+stationary+needing recovery, this gets set to (now + 1000ms) and the dismount
+    // is deferred instead of firing immediately — long enough for the normal objective flow
+    // (UpdateWaypointMovement -> StartNewPathToObjective, later this same or the very next
+    // tick) to hand it a path and get it moving, at which point the IsMoving() branch takes
+    // over and recovery never happens at all. Without this, a bot that's mounted-but-hasn't-
+    // started-moving-yet right at the instant WAIT_JOIN ends (e.g. still finishing its one
+    // WAIT_JOIN recovery drink when the gate opens) would sit down and drink for the better
+    // part of a match's opening seconds instead of riding out immediately — confirmed via
+    // log 2026-09-04 (Bg_2026-09-04_23-23-0.log): a Priest at 6% mana got dismounted the
+    // tick after gate-open and didn't move again for ~20s. Reset to 0 whenever the bot is
+    // seen moving, so the next stationary spell gets its own fresh grace tick.
+    uint32 m_stationaryRecoveryArmTime = 0;
     // AB assault target the bot has committed to (AB_GuardPositions index, -1 = none).
     // vPaths_AB routes are stitched from multiple point-to-point segments, so a long
     // journey re-triggers FindABAssaultPosition() at every segment boundary — without this,

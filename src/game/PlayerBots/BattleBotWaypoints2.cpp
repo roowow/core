@@ -807,16 +807,15 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
 
     if (openingPhase)
     {
-        // Opening-phase group assignment (2026-09-04, replaces the old "everyone decides
-        // solo, hash-picks among whichever nodes are least-crowded" scheme): split the
-        // team into 4 groups so bots travel together with a shared destination instead of
-        // trickling out independently. One bot goes alone to the node nearest this team's
-        // spawn (shortest trip, captured fastest); the rest split into 3 groups by GUID,
-        // each group heading to one of the 4 remaining nodes — distinct nodes only (no two
-        // groups sent to the same place, one of the 4 gets no group this wave). The target
-        // node per group is picked by hashing the BG instance ID, team, and node index —
-        // varies match to match, but every bot on the team computes the identical result
-        // independently, no shared/synchronized state needed.
+        // Opening-phase group assignment (2026-09-04, revised 8.32 — see ABLogic.md).
+        // Step 1: every one of the 5 nodes gets exactly one solo bot first (no node left
+        // completely empty). Step 2: once all 5 solo slots are taken, the rest of the team
+        // splits into 2 groups by GUID, each reinforcing one of the 4 NON-nearest nodes —
+        // distinct nodes only (no two groups sent to the same place; 2 of those 4 get no
+        // reinforcement this wave, but every node already has its solo bot from step 1).
+        // The reinforcement target per group is picked by hashing the BG instance ID,
+        // team, and node index — varies match to match, but every bot on the team computes
+        // the identical result independently, no shared/synchronized state needed.
         //
         // This only governs the INITIAL opening target. Once IsABOpeningPhase() ends or a
         // bot's committed node gets captured/ambushed, everything downstream (sticky
@@ -841,18 +840,30 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
             }
         }
 
-        if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), nearest) &&
-            CountABGuardBots(pAI, AB_GuardPositions[nearest], true) < 1)
+        // Step 1: any node (all 5, not just nearest) still missing its solo bot.
+        uint8 soloCandidates[BG_AB_NODES_MAX];
+        uint8 soloCount = 0;
+        for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
         {
-            outPosition = AB_GuardPositions[nearest];
-            pAI->m_abCommittedNode = int8(nearest);
+            if (IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), i))
+                continue;
+            if (CountABGuardBots(pAI, AB_GuardPositions[i], true) < 1)
+                soloCandidates[soloCount++] = i;
+        }
+        if (soloCount > 0)
+        {
+            uint8 const picked = soloCandidates[pAI->me->GetGUIDLow() % soloCount];
+            outPosition = AB_GuardPositions[picked];
+            pAI->m_abCommittedNode = int8(picked);
             if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
                 sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                    "[AB_OPEN_DEBUG] opening-group solo-nearest bot %s node %u chosenPos=%.1f,%.1f.",
-                    pAI->me->GetName(), uint32(nearest), outPosition.x, outPosition.y);
+                    "[AB_OPEN_DEBUG] opening-group solo bot %s node %u chosenPos=%.1f,%.1f.",
+                    pAI->me->GetName(), uint32(picked), outPosition.x, outPosition.y);
             return true;
         }
 
+        // Step 2: all 5 solo slots filled — remaining bots reinforce 2 of the 4
+        // non-nearest nodes, split into 2 groups.
         uint8 remaining[4];
         uint8 remainingCount = 0;
         for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
@@ -860,10 +871,28 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
                 remaining[remainingCount++] = i;
 
         // Insertion-sort the 4 remaining nodes by a per-(instance,team,node) hash key —
-        // trivial for 4 elements, avoids pulling in <algorithm> just for this.
+        // trivial for 4 elements, avoids pulling in <algorithm> just for this. A plain
+        // XOR-of-multiplied-terms hash was tried first but doesn't mix bits enough with
+        // only 4 small node values to reshuffle — the two teams' remaining[] sets overlap
+        // heavily (they only ever differ by each team's own home node), so a weak hash let
+        // both teams land on the same 2 reinforcement targets far more often than chance
+        // would suggest. Combine (instance, team) into one seed and run it through a
+        // murmur3-style finalizer (full avalanche — every input bit affects every output
+        // bit) before folding in the node value, so team alone reliably reshuffles the
+        // whole ordering instead of just nudging a few bits.
+        auto const mix32 = [](uint32 x) -> uint32
+        {
+            x ^= x >> 16;
+            x *= 0x85ebca6bu;
+            x ^= x >> 13;
+            x *= 0xc2b2ae35u;
+            x ^= x >> 16;
+            return x;
+        };
+        uint32 const seed = mix32(bg->GetInstanceID() * 2654435761u + uint32(pAI->me->GetTeam()) * 2246822519u);
         uint32 keys[4];
         for (uint8 i = 0; i < 4; ++i)
-            keys[i] = (bg->GetInstanceID() * 2654435761u) ^ (uint32(pAI->me->GetTeam()) * 40503u) ^ (uint32(remaining[i]) * 2246822519u);
+            keys[i] = mix32(seed + uint32(remaining[i]) * 40503u);
         for (uint8 i = 1; i < 4; ++i)
         {
             uint8 const node = remaining[i];
@@ -879,7 +908,7 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
             keys[j + 1] = key;
         }
 
-        uint8 const myGroup = uint8(pAI->me->GetGUIDLow() % 3);
+        uint8 const myGroup = uint8(pAI->me->GetGUIDLow() % 2);
         uint8 const targetNode = remaining[myGroup];
 
         if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), targetNode))
@@ -888,7 +917,7 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
             pAI->m_abCommittedNode = int8(targetNode);
             if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
                 sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                    "[AB_OPEN_DEBUG] opening-group bot %s group %u node %u chosenPos=%.1f,%.1f groupOrder=%u,%u,%u,%u.",
+                    "[AB_OPEN_DEBUG] opening-group reinforce bot %s group %u node %u chosenPos=%.1f,%.1f groupOrder=%u,%u,%u,%u.",
                     pAI->me->GetName(), uint32(myGroup), uint32(targetNode), outPosition.x, outPosition.y,
                     uint32(remaining[0]), uint32(remaining[1]), uint32(remaining[2]), uint32(remaining[3]));
             return true;
