@@ -597,7 +597,7 @@ static bool IsABOpeningPhase(BattleGround* bg)
            CountABOccupiedNodesByTeam(bg, HORDE) == 0;
 }
 
-static Position const& SelectABPositionForBot(BattleBotAI* pAI, std::vector<uint8> const& nodes, bool openingPhase = false)
+static Position const& SelectABPositionForBot(BattleBotAI* pAI, std::vector<uint8> const& nodes, bool openingPhase = false, uint8* outNodeIndex = nullptr)
 {
     // Opening rush: every free bot starts clustered at the same waiting spot
     // (AB_WAITING_POS_*, only a couple yards of jitter), so at t=0 all 5 nodes tie
@@ -618,6 +618,8 @@ static Position const& SelectABPositionForBot(BattleBotAI* pAI, std::vector<uint
                 "[AB_OPEN_DEBUG] hash-pick bot %s guid %u team %u candidates=%s picked=%u.",
                 pAI->me->GetName(), pAI->me->GetGUIDLow(), uint32(pAI->me->GetTeam()), nodeList.c_str(), picked);
         }
+        if (outNodeIndex)
+            *outNodeIndex = picked;
         return AB_GuardPositions[picked];
     }
 
@@ -634,6 +636,8 @@ static Position const& SelectABPositionForBot(BattleBotAI* pAI, std::vector<uint
             nearest = nodes[i];
         }
     }
+    if (outNodeIndex)
+        *outNodeIndex = nearest;
     return AB_GuardPositions[nearest];
 }
 
@@ -790,6 +794,33 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
         }
     }
 
+    // Sticky commitment: vPaths_AB routes are stitched from multiple point-to-point
+    // segments, so a long journey (e.g. toward Blacksmith) re-enters this function at
+    // every segment boundary. Once IsABOpeningPhase() ends (someone captured anything),
+    // the distribution loop below falls back to nearest-distance from wherever the bot
+    // currently is — which, mid-journey, is often a DIFFERENT, closer node than the one
+    // originally assigned, causing the bot to abandon its run partway there. Honor an
+    // existing commitment as long as it's still a legitimate target; otherwise fall
+    // through and let the normal logic (below) pick a fresh one.
+    if (pAI->m_abCommittedNode >= 0 && pAI->m_abCommittedNode < BG_AB_NODES_MAX)
+    {
+        uint8 const committed = uint8(pAI->m_abCommittedNode);
+        if (IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), committed) ||
+            IsABNodeRecentAmbush(bg, pAI->me->GetTeam(), committed))
+        {
+            pAI->m_abCommittedNode = -1;
+        }
+        else
+        {
+            outPosition = AB_GuardPositions[committed];
+            if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                    "[AB_OPEN_DEBUG] sticky-commitment bot %s node %u chosenPos=%.1f,%.1f.",
+                    pAI->me->GetName(), uint32(committed), outPosition.x, outPosition.y);
+            return true;
+        }
+    }
+
     // Two tiers: nodes with no recent ambush deaths are always preferred (bots route
     // around a known kill zone toward other opportunities first). Only when nothing
     // safe is available do we fall back to the ambushed node(s), and even then only
@@ -855,7 +886,9 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
 
     if (!bestNodes.empty())
     {
-        outPosition = SelectABPositionForBot(pAI, bestNodes, openingPhase);
+        uint8 chosenNode = 0;
+        outPosition = SelectABPositionForBot(pAI, bestNodes, openingPhase, &chosenNode);
+        pAI->m_abCommittedNode = int8(chosenNode);
         // TEMP DEBUG (2026-09-04): remove once confirmed fixed — see ABLogic.md 8.11/8.18.
         if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
             sLog.Out(LOG_BG, LOG_LVL_BASIC,
@@ -866,7 +899,9 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
 
     if (!ambushNodes.empty())
     {
-        outPosition = SelectABPositionForBot(pAI, ambushNodes, openingPhase);
+        uint8 chosenNode = 0;
+        outPosition = SelectABPositionForBot(pAI, ambushNodes, openingPhase, &chosenNode);
+        pAI->m_abCommittedNode = int8(chosenNode);
         if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
             sLog.Out(LOG_BG, LOG_LVL_BASIC,
                 "[AB_MEAT_GRINDER] fallback-to-ambush bot %s team %u instance %u candidates=%u bestAmbushCount=%u",
@@ -2147,7 +2182,14 @@ bool BattleBotSelectABObjective(BattleBotAI* pAI)
                 pAI->me->GetName(), targetPosition.x, targetPosition.y, gotPath, pAI->me->GetDistance(targetPosition));
         if (gotPath)
             return true;
-        return pAI->me->GetDistance(targetPosition) <= AB_GUARD_EXCESS_RADIUS;
+        if (pAI->me->GetDistance(targetPosition) <= AB_GUARD_EXCESS_RADIUS)
+            return true;
+        // A sticky commitment (see FindABAssaultPosition) can point at a target that's no
+        // longer reachable from here (e.g. the bot got knocked off-route by combat) — drop
+        // it so the next call re-decides fresh instead of retrying the same unreachable
+        // node forever.
+        pAI->m_abCommittedNode = -1;
+        return false;
     }
     return false;
 }

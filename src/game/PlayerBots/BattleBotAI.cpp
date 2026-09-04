@@ -3022,6 +3022,9 @@ void BattleBotAI::OnJustDied()
     m_wsWasFlagCarrier = false;
 
     RecordABAssaultDeath(this);
+    // Death at the committed node may mean it just turned into a meat grinder;
+    // let the next FindABAssaultPosition() call re-decide from scratch.
+    m_abCommittedNode = -1;
 
     ClearPath();
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
@@ -3181,6 +3184,7 @@ void BattleBotAI::OnLeaveBattleGround()
     m_brAirborneTicks = 0;
     m_brZoneEscapeFailTicks = 0;
     m_brSafeRecoveryFailTicks = 0;
+    m_abCommittedNode = -1;
 
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
         StopMoving();

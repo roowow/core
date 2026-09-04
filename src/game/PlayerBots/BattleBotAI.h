@@ -172,6 +172,15 @@ public:
     // without this a bot would drink to full, mount (paying that cost), see mana below the
     // 100% WAIT_JOIN threshold again, dismount to drink again, remount, and loop forever.
     bool m_bgWaitJoinRecoveryDone = false;
+    // AB assault target the bot has committed to (AB_GuardPositions index, -1 = none).
+    // vPaths_AB routes are stitched from multiple point-to-point segments, so a long
+    // journey re-triggers FindABAssaultPosition() at every segment boundary — without this,
+    // a bot assigned a far node (e.g. Blacksmith) at the open could "change its mind"
+    // partway there once opening-phase distribution ends and the fresh decision falls back
+    // to nearest-distance from wherever it currently is, settling for a closer node its
+    // route happened to pass. Cleared on death/leaving the battleground and whenever the
+    // committed node gets captured or turns out to be a recently-ambushed one.
+    int8 m_abCommittedNode = -1;
 
     // Movement System
     void UpdateWaypointMovement();
