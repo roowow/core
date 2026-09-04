@@ -1799,6 +1799,22 @@ uint32 BattleBotAI::GetMountSpellId() const
 
 bool BattleBotAI::UseMount()
 {
+    // TEMP DEBUG (2026-09-04): tracing why some Warriors fail to mount right after
+    // WAIT_JOIN ends. Remove once confirmed fixed — see ABLogic.md 8.16/8.18.
+    bool const mountDebug = sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG);
+    BattleGround* mountDebugBg = mountDebug ? me->GetBattleGround() : nullptr;
+    auto logMountFail = [&](char const* reason)
+    {
+        if (mountDebug)
+            sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                     "[MOUNT_DEBUG] bot %s guid %u class %u bg %u status %u fail=%s moving=%u casting=%u.",
+                     me->GetName(), me->GetGUIDLow(), (uint32)me->GetClass(),
+                     mountDebugBg ? mountDebugBg->GetInstanceID() : 0u,
+                     mountDebugBg ? (uint32)mountDebugBg->GetStatus() : 0u,
+                     reason, me->IsMoving(),
+                     me->GetCurrentSpell(CURRENT_GENERIC_SPELL) ? me->GetCurrentSpell(CURRENT_GENERIC_SPELL)->m_spellInfo->Id : 0u);
+    };
+
     if (me->IsMounted())
         return false;
 
@@ -1812,38 +1828,38 @@ bool BattleBotAI::UseMount()
         // only block it while still walking there, so bots are ready to ride out the
         // instant the gates open instead of losing time mounting up afterward.
         if (bg->GetStatus() == STATUS_WAIT_JOIN && me->IsMoving())
-            return false;
+            { logMountFail("waitjoin-moving"); return false; }
         // Don't interrupt active AV/WSG path traversal to mount; bots can mount
         // naturally between path segments when they are already stopped.
         if (me->IsMoving() && (bg->GetTypeID() == BATTLEGROUND_AV || bg->GetTypeID() == BATTLEGROUND_WS))
-            return false;
+            { logMountFail("av-ws-moving"); return false; }
     }
 
     if (me->HasAura(AURA_WARSONG_FLAG) ||
         me->HasAura(AURA_SILVERWING_FLAG))
-        return false;
+        { logMountFail("carrying-flag"); return false; }
 
     uint32 spellId = GetMountSpellId();
     if (!spellId)
-        return false;
+        { logMountFail("no-mount-spell"); return false; }
 
     SpellEntry const* pSpellEntry = sSpellMgr.GetSpellEntry(spellId);
     if (!pSpellEntry)
-        return false;
+        { logMountFail("no-spell-entry"); return false; }
 
     if (me->IsInWater() && me->IsInHighLiquid())
-        return false;
+        { logMountFail("in-water"); return false; }
 
     if (!sSpellMgr.GetRequiredAreaForSpell(pSpellEntry->Id) &&
         me->GetMap()->GetMapEntry() && !me->GetMap()->GetMapEntry()->IsMountAllowed())
-        return false;
+        { logMountFail("map-no-mount"); return false; }
 
     if (me->GetAreaId() == 35)
-        return false;
+        { logMountFail("area-35"); return false; }
 
     if ((pSpellEntry->Attributes & SPELL_ATTR_ONLY_OUTDOORS) &&
         !me->GetMap()->GetTerrain()->IsOutdoors(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ()))
-        return false;
+        { logMountFail("indoors"); return false; }
 
     // Druid: remove shapeshift before checking display ID and mounting,
     // but only after all blocking conditions have already passed.
@@ -1851,7 +1867,7 @@ bool BattleBotAI::UseMount()
         me->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
 
     if (me->GetDisplayId() != me->GetNativeDisplayId())
-        return false;
+        { logMountFail("wrong-displayid"); return false; }
 
     if (me->HasAura(SPELL_AURA_MOD_STEALTH))
         me->RemoveSpellsCausingAura(SPELL_AURA_MOD_STEALTH);
@@ -1862,9 +1878,24 @@ bool BattleBotAI::UseMount()
         StopMoving();
     }
 
-    if (me->CastSpell(me, pSpellEntry, false) == SPELL_CAST_OK)
+    SpellCastResult const mountCastResult = me->CastSpell(me, pSpellEntry, false);
+    if (mountCastResult == SPELL_CAST_OK)
+    {
+        if (mountDebug)
+            sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                     "[MOUNT_DEBUG] bot %s guid %u class %u bg %u status %u SUCCESS spell=%u.",
+                     me->GetName(), me->GetGUIDLow(), (uint32)me->GetClass(),
+                     mountDebugBg ? mountDebugBg->GetInstanceID() : 0u,
+                     mountDebugBg ? (uint32)mountDebugBg->GetStatus() : 0u, spellId);
         return true;
+    }
 
+    if (mountDebug)
+        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                 "[MOUNT_DEBUG] bot %s guid %u class %u bg %u status %u castfail=%u spell=%u.",
+                 me->GetName(), me->GetGUIDLow(), (uint32)me->GetClass(),
+                 mountDebugBg ? mountDebugBg->GetInstanceID() : 0u,
+                 mountDebugBg ? (uint32)mountDebugBg->GetStatus() : 0u, (uint32)mountCastResult, spellId);
     return false;
 }
 
@@ -4084,6 +4115,78 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                 m_avIndoorStuckLogTicks = 0;
                 m_avIndoorStuckTeleportTicks = 0;
             }
+        }
+    }
+
+    // AV/WSG/AB: generic "stuck indoors during WAIT_JOIN staging" rescue.
+    // OnEnterBattleGround() issues a MovePoint to the team's waiting spot near the starting
+    // gate, but pathfinding can fail to route around it while it's still closed (e.g. AB's
+    // BG_EVENT_DOOR gate stays shut for the whole countdown via StartingEventOpenDoors()) —
+    // stranding the bot in the spawn room. Being indoors also silently blocks UseMount()
+    // (SPELL_ATTR_ONLY_OUTDOORS), so a bot stuck like this never mounts for the rest of
+    // WAIT_JOIN. Unlike the AV mid-match rescue above, this one specifically targets
+    // WAIT_JOIN and teleports straight to the same waiting-spot coordinates
+    // OnEnterBattleGround() was already aiming for (already outdoors and reachable for
+    // every other bot, since only some fail to path there).
+    {
+        BattleGround* waitBg = me->GetBattleGround();
+        if (waitBg && waitBg->GetStatus() == STATUS_WAIT_JOIN &&
+            (waitBg->GetTypeID() == BATTLEGROUND_AV || waitBg->GetTypeID() == BATTLEGROUND_WS || waitBg->GetTypeID() == BATTLEGROUND_AB) &&
+            !me->IsMoving())
+        {
+            float const waitCurX = me->GetPositionX();
+            float const waitCurY = me->GetPositionY();
+            bool const waitOutdoors = me->GetMap()->GetTerrain()->IsOutdoors(waitCurX, waitCurY, me->GetPositionZ());
+            if (!waitOutdoors)
+            {
+                if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG) && ++m_bgWaitJoinIndoorStuckLogTicks >= 30)
+                {
+                    m_bgWaitJoinIndoorStuckLogTicks = 0;
+                    sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                             "[BattleGroundMovement] waitjoin-indoor-stuck bot %s guid %u bg %u pos %.2f %.2f %.2f.",
+                             me->GetName(), me->GetGUIDLow(), waitBg->GetInstanceID(), waitCurX, waitCurY, me->GetPositionZ());
+                }
+                // ~30 s — generous grace window so a bot that simply hasn't started
+                // walking yet on the very first ticks isn't mistaken for being stuck.
+                if (++m_bgWaitJoinIndoorStuckTeleportTicks >= 15)
+                {
+                    m_bgWaitJoinIndoorStuckTeleportTicks = 0;
+                    Position const* dest = nullptr;
+                    switch (waitBg->GetTypeID())
+                    {
+                        case BATTLEGROUND_AV:
+                            dest = (me->GetTeam() == HORDE) ? &AV_WAITING_POS_HORDE : &AV_WAITING_POS_ALLIANCE;
+                            break;
+                        case BATTLEGROUND_WS:
+                            dest = (me->GetTeam() == HORDE) ? &WS_WAITING_POS_HORDE_1 : &WS_WAITING_POS_ALLIANCE_1;
+                            break;
+                        case BATTLEGROUND_AB:
+                            dest = (me->GetTeam() == HORDE) ? &AB_WAITING_POS_HORDE : &AB_WAITING_POS_ALLIANCE;
+                            break;
+                        default:
+                            break;
+                    }
+                    if (dest)
+                    {
+                        if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+                            sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                                     "[BattleGroundMovement] waitjoin-indoor-stuck teleport bot %s guid %u bg %u from %.2f %.2f %.2f.",
+                                     me->GetName(), me->GetGUIDLow(), waitBg->GetInstanceID(), waitCurX, waitCurY, me->GetPositionZ());
+                        ClearPath();
+                        me->NearTeleportTo(dest->x, dest->y, dest->z, dest->o);
+                    }
+                }
+            }
+            else
+            {
+                m_bgWaitJoinIndoorStuckLogTicks = 0;
+                m_bgWaitJoinIndoorStuckTeleportTicks = 0;
+            }
+        }
+        else
+        {
+            m_bgWaitJoinIndoorStuckLogTicks = 0;
+            m_bgWaitJoinIndoorStuckTeleportTicks = 0;
         }
     }
 
@@ -7259,6 +7362,19 @@ void BattleBotAI::UpdateOutOfCombatAI_Warrior()
     // GetStartTime() counts from BG object creation, i.e. it already includes the whole
     // WAIT_JOIN countdown, so it's already well past any short "first N seconds" cutoff by
     // the time STATUS_IN_PROGRESS begins and can't be used to detect "just opened" here.
+    // TEMP DEBUG (2026-09-04): remove once confirmed fixed — see ABLogic.md 8.16/8.18.
+    bool const warriorMountDebug = sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG);
+    if (warriorMountDebug && !me->IsMounted())
+    {
+        BattleGround* dbgBg = me->GetBattleGround();
+        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                 "[MOUNT_DEBUG] UpdateOutOfCombatAI_Warrior bot %s guid %u bg %u status %u hasPath=%u rage=%u battleShoutUp=%u.",
+                 me->GetName(), me->GetGUIDLow(),
+                 dbgBg ? dbgBg->GetInstanceID() : 0u, dbgBg ? (uint32)dbgBg->GetStatus() : 0u,
+                 m_currentPath != nullptr, me->GetPower(POWER_RAGE),
+                 (m_spells.warrior.pBattleShout && me->HasAura(m_spells.warrior.pBattleShout->Id)));
+    }
+
     if (!me->IsMounted())
     {
         if (BattleGround* bgForMount = me->GetBattleGround())
@@ -7274,18 +7390,28 @@ void BattleBotAI::UpdateOutOfCombatAI_Warrior()
         CanTryToCastSpell(me, m_spells.warrior.pBattleStance))
     {
         if (DoCastSpell(me, m_spells.warrior.pBattleStance) == SPELL_CAST_OK)
+        {
+            if (warriorMountDebug)
+                sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MOUNT_DEBUG] bot %s cast BattleStance, returning.", me->GetName());
             return;
+        }
     }
 
     if (m_spells.warrior.pBattleShout &&
        !me->HasAura(m_spells.warrior.pBattleShout->Id))
     {
         if (CanTryToCastSpell(me, m_spells.warrior.pBattleShout))
+        {
+            if (warriorMountDebug)
+                sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MOUNT_DEBUG] bot %s casting BattleShout.", me->GetName());
             DoCastSpell(me, m_spells.warrior.pBattleShout);
+        }
         else if (m_spells.warrior.pBloodrage &&
             (me->GetPower(POWER_RAGE) < 10) &&
             CanTryToCastSpell(me, m_spells.warrior.pBloodrage))
         {
+            if (warriorMountDebug)
+                sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MOUNT_DEBUG] bot %s casting Bloodrage (rage=%u).", me->GetName(), me->GetPower(POWER_RAGE));
             DoCastSpell(me, m_spells.warrior.pBloodrage);
         }
     }

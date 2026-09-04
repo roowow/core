@@ -270,6 +270,11 @@ public:
     // from the WSG counters so switching battlegrounds can't carry over a stale count.
     uint8 m_avIndoorStuckLogTicks = 0;
     uint8 m_avIndoorStuckTeleportTicks = 0;
+    // AV/WSG/AB WAIT_JOIN-staging equivalent: OnEnterBattleGround()'s MovePoint to the
+    // waiting spot can fail to route around a closed starting gate, stranding a bot indoors
+    // (and unable to mount, since mounting requires being outdoors) for the whole countdown.
+    uint8 m_bgWaitJoinIndoorStuckLogTicks = 0;
+    uint8 m_bgWaitJoinIndoorStuckTeleportTicks = 0;
 };
 
 #endif

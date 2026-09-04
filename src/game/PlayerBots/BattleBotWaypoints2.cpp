@@ -35,6 +35,7 @@
 #include <cstddef>
 #include <map>
 #include <deque>
+#include <string>
 
 using namespace Geometry;
 
@@ -606,7 +607,19 @@ static Position const& SelectABPositionForBot(BattleBotAI* pAI, std::vector<uint
     // across the tied candidates. Once anything is captured we're past the opening
     // rush and switch back to nearest (below) for normal guard-reassignment efficiency.
     if (openingPhase && nodes.size() > 1)
-        return AB_GuardPositions[nodes[pAI->me->GetObjectGuid().GetCounter() % nodes.size()]];
+    {
+        uint8 const picked = nodes[pAI->me->GetObjectGuid().GetCounter() % nodes.size()];
+        // TEMP DEBUG (2026-09-04): remove once confirmed fixed — see ABLogic.md 8.11/8.18.
+        if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+        {
+            std::string nodeList;
+            for (uint8 n : nodes) { nodeList += std::to_string(n); nodeList += ','; }
+            sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                "[AB_OPEN_DEBUG] hash-pick bot %s guid %u team %u candidates=%s picked=%u.",
+                pAI->me->GetName(), pAI->me->GetGUIDLow(), uint32(pAI->me->GetTeam()), nodeList.c_str(), picked);
+        }
+        return AB_GuardPositions[picked];
+    }
 
     // Among nodes tied on guard need, send the bot to the nearest one instead of a
     // GUID hash, so bots don't criss-cross the map to reach an equally-needy node.
@@ -819,6 +832,12 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
             continue;
         }
 
+        // TEMP DEBUG (2026-09-04): remove once confirmed fixed — see ABLogic.md 8.11/8.18.
+        if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+            sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                "[AB_OPEN_DEBUG] node-scan bot %s node %u count=%u threshold=%u openingPhase=%u.",
+                pAI->me->GetName(), uint32(i), uint32(count), uint32(assaultThreshold), uint32(openingPhase));
+
         if (count >= assaultThreshold)
             continue;
 
@@ -837,6 +856,11 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
     if (!bestNodes.empty())
     {
         outPosition = SelectABPositionForBot(pAI, bestNodes, openingPhase);
+        // TEMP DEBUG (2026-09-04): remove once confirmed fixed — see ABLogic.md 8.11/8.18.
+        if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+            sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                "[AB_OPEN_DEBUG] FindABAssaultPosition RETURN bot %s bestNodes.size=%u openingPhase=%u chosenPos=%.1f,%.1f.",
+                pAI->me->GetName(), uint32(bestNodes.size()), uint32(openingPhase), outPosition.x, outPosition.y);
         return true;
     }
 
@@ -951,6 +975,13 @@ static bool MoveToNearbyABOpenFlag(BattleBotAI* pAI)
 
     pAI->ClearPath();
     pAI->me->GetMotionMaster()->MovePoint(0, pBestFlag->GetPositionX(), pBestFlag->GetPositionY(), pBestFlag->GetPositionZ(), MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE);
+    // TEMP DEBUG (2026-09-04): remove once confirmed fixed — see ABLogic.md 8.11/8.18.
+    // Checks if the "nearby open flag" shortcut is what's actually funneling bots to a
+    // single node, bypassing FindABAssaultPosition's opening-phase distribution entirely.
+    if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+            "[AB_OPEN_DEBUG] MoveToNearbyABOpenFlag bot %s dist=%.1f flagPos=%.1f,%.1f (bypasses FindABAssaultPosition).",
+            pAI->me->GetName(), bestDistance, pBestFlag->GetPositionX(), pBestFlag->GetPositionY());
     return true;
 }
 
@@ -2049,13 +2080,25 @@ bool BattleBotSelectABObjective(BattleBotAI* pAI)
     Position targetPosition;
     if (FindABOwnedGuardPosition(pAI, targetPosition))
     {
-        if (pAI->StartNewPathToPosition(targetPosition, vPaths_AB))
+        bool const gotPath = pAI->StartNewPathToPosition(targetPosition, vPaths_AB);
+        // TEMP DEBUG (2026-09-04): remove once confirmed fixed — see ABLogic.md 8.11/8.18.
+        if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+            sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                "[AB_OPEN_DEBUG] BattleBotSelectABObjective bot %s source=OwnedGuard target=%.1f,%.1f gotPath=%u dist=%.1f.",
+                pAI->me->GetName(), targetPosition.x, targetPosition.y, gotPath, pAI->me->GetDistance(targetPosition));
+        if (gotPath)
             return true;
         return pAI->me->GetDistance(targetPosition) <= AB_GUARD_EXCESS_RADIUS;
     }
     if (FindABAssaultPosition(pAI, targetPosition))
     {
-        if (pAI->StartNewPathToPosition(targetPosition, vPaths_AB))
+        bool const gotPath = pAI->StartNewPathToPosition(targetPosition, vPaths_AB);
+        // TEMP DEBUG (2026-09-04): remove once confirmed fixed — see ABLogic.md 8.11/8.18.
+        if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+            sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                "[AB_OPEN_DEBUG] BattleBotSelectABObjective bot %s source=Assault target=%.1f,%.1f gotPath=%u dist=%.1f.",
+                pAI->me->GetName(), targetPosition.x, targetPosition.y, gotPath, pAI->me->GetDistance(targetPosition));
+        if (gotPath)
             return true;
         return pAI->me->GetDistance(targetPosition) <= AB_GUARD_EXCESS_RADIUS;
     }
