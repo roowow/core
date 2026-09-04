@@ -16,6 +16,7 @@
 
 #include "BattleBotAI.h"
 #include "BattleBotWaypoints.h"
+#include "BattleBotWaypoints2.h"
 #include "OO/OOMgr.h"
 #include "BattleGround.h"
 #include "BattleGroundAV.h"
@@ -1806,7 +1807,11 @@ bool BattleBotAI::UseMount()
         if (bg->GetTypeID() == BATTLEGROUND_BR)
             return false;
 
-        if (bg->GetStatus() == STATUS_WAIT_JOIN)
+        // During the pre-start staging countdown, mounting is fine once the bot has
+        // actually arrived and stopped at its waiting spot (OnEnterBattleGround) —
+        // only block it while still walking there, so bots are ready to ride out the
+        // instant the gates open instead of losing time mounting up afterward.
+        if (bg->GetStatus() == STATUS_WAIT_JOIN && me->IsMoving())
             return false;
         // Don't interrupt active AV/WSG path traversal to mount; bots can mount
         // naturally between path segments when they are already stopped.
@@ -2955,6 +2960,8 @@ void BattleBotAI::OnJustDied()
     }
     m_wsWasFlagCarrier = false;
 
+    RecordABAssaultDeath(this);
+
     ClearPath();
     if (me->GetMotionMaster()->GetCurrentMovementGeneratorType())
         StopMoving();
@@ -3060,10 +3067,20 @@ void BattleBotAI::OnEnterBattleGround()
         else
             me->GetMotionMaster()->MovePoint(0, AV_WAITING_POS_ALLIANCE.x + frand(-6.0f, 6.0f), AV_WAITING_POS_ALLIANCE.y + frand(-6.0f, 6.0f), AV_WAITING_POS_ALLIANCE.z, MOVE_PATHFINDING | MOVE_EXCLUDE_STEEP_SLOPES | MOVE_RUN_MODE, 0, AV_WAITING_POS_ALLIANCE.o);
     }
+
+    if (bg->GetTypeID() == BATTLEGROUND_WS || bg->GetTypeID() == BATTLEGROUND_AB || bg->GetTypeID() == BATTLEGROUND_AV)
+        GiveBattleGroundPotions();
 }
 
 void BattleBotAI::OnLeaveBattleGround()
 {
+    // Mirrors BR's CleanupBRItems(): potions granted per-match by GiveBattleGroundPotions()
+    // shouldn't persist/stack across matches. No-op for bots that never had them (BR bots
+    // use their own separate 900xxx item clones, untouched here).
+    me->DestroyItemCount(13446, 200, true, false); // Major Healing Potion
+    me->DestroyItemCount(13444, 200, true, false); // Major Mana Potion
+    me->DestroyItemCount(5634, 200, true, false);  // Free Action Potion
+
     ClearPath();
     m_avStartWaveInitialized = false;
     m_avStartWaveBgInstance = 0;
@@ -3355,7 +3372,32 @@ void BattleBotAI::UpdateAI(uint32 const diff)
                     m_role = ROLE_MELEE_DPS;
                     break;
                 case CLASS_PALADIN:
-                    m_role = urand(0, 1) ? ROLE_MELEE_DPS : ROLE_HEALER;
+                    m_role = (m_battlegroundId == BATTLEGROUND_QUEUE_AB) ? ROLE_MELEE_DPS : (urand(0, 1) ? ROLE_MELEE_DPS : ROLE_HEALER);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        // AB specifically also excludes healer specs (on top of the tank exclusion above,
+        // which already applies to WSG too): a healer in AB just stands at one node
+        // healing itself, it doesn't actively follow/protect anyone (see ABLogic.md 7.3),
+        // so it's mostly wasted. WSG keeps its Paladin healer chance — the "follow the
+        // flag carrier" mechanic there gives healers a real job. Priest/Druid/Shaman are
+        // never pinned by the WSG/AB block above (only Warrior/Paladin are), so without
+        // this they'd fall through to AutoAssignRole(), which defaults them to healer.
+        if (!m_isBattleRoyaleBot && m_battlegroundId == BATTLEGROUND_QUEUE_AB && m_role == ROLE_INVALID)
+        {
+            switch (me->GetClass())
+            {
+                case CLASS_PRIEST:
+                    m_role = ROLE_RANGE_DPS; // Shadow only
+                    break;
+                case CLASS_DRUID:
+                    m_role = urand(0, 1) ? ROLE_MELEE_DPS : ROLE_RANGE_DPS; // Feral or Balance
+                    break;
+                case CLASS_SHAMAN:
+                    m_role = urand(0, 1) ? ROLE_MELEE_DPS : ROLE_RANGE_DPS; // Enhancement or Elemental
                     break;
                 default:
                     break;
@@ -3693,6 +3735,15 @@ void BattleBotAI::UpdateAI(uint32 const diff)
 
     if (UpdateAVPhase1WaitingAI())
         return;
+
+    // Checked once per tick regardless of combat state (potions are instant-use, unlike
+    // DrinkAndEat()'s sit-and-channel recovery below, which only fires out of combat).
+    // BR has its own equivalent call inside UpdateBattleRoyaleAI() with its own items.
+    if (BattleGround* bgForPotion = me->GetBattleGround())
+    {
+        if (bgForPotion->GetTypeID() != BATTLEGROUND_BR && TryUseBattleGroundPotion())
+            return;
+    }
 
     if (!me->IsInCombat())
     {
@@ -4318,7 +4369,7 @@ bool BattleBotAI::UpdateBattleGroundAI()
     return false;
 }
 
-bool BattleBotAI::TryUseBRPotion()
+bool BattleBotAI::TryUsePotion(uint32 healEntry, uint32 manaEntry, uint32 faEntry, char const* logTag, bool debugLog)
 {
     if (me->IsNonMeleeSpellCasted(false))
         return false;
@@ -4335,14 +4386,17 @@ bool BattleBotAI::TryUseBRPotion()
         return nullptr;
     };
 
-    bool const debugLog = sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG);
-    auto logItemUse = [&](Item* pItem, char const* reason)
+    // itemName is captured by the caller BEFORE UseItemEffect() runs — on the last charge
+    // of a stack, casting the item synchronously frees the Item object (Spell::TakeCastItem()
+    // -> DestroyItemCount(Item*, ...) -> DestroyItem()), so pItem must not be touched again
+    // after UseItemEffect() returns.
+    auto logItemUse = [&](char const* itemName, char const* reason)
     {
         if (debugLog)
             sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                     "[BRSkill] bot %s guid %u instance %u used %s (%s hp=%.0f%% mana=%.0f%%).",
-                     me->GetName(), me->GetGUIDLow(), me->GetBattleGroundId(),
-                     pItem->GetProto()->Name1,
+                     "[%s] bot %s guid %u instance %u used %s (%s hp=%.0f%% mana=%.0f%%).",
+                     logTag, me->GetName(), me->GetGUIDLow(), me->GetBattleGroundId(),
+                     itemName,
                      reason,
                      me->GetHealthPercent(),
                      me->GetMaxPower(POWER_MANA) > 0 ? me->GetPowerPercent(POWER_MANA) : 0.0f);
@@ -4351,17 +4405,23 @@ bool BattleBotAI::TryUseBRPotion()
     // Healing potion when below 40% HP
     if (me->GetHealthPercent() < 40.0f)
     {
-        if (Item* pItem = findInBag(900234))
+        if (Item* pItem = findInBag(healEntry))
+        {
+            char const* itemName = pItem->GetProto()->Name1;
             if (UseItemEffect(pItem, false))
-                { logItemUse(pItem, "hp-low"); return true; }
+                { logItemUse(itemName, "hp-low"); return true; }
+        }
     }
 
     // Mana potion when below 25% mana (skip non-mana classes)
     if (me->GetMaxPower(POWER_MANA) > 0 && me->GetPowerPercent(POWER_MANA) < 25.0f)
     {
-        if (Item* pItem = findInBag(900233))
+        if (Item* pItem = findInBag(manaEntry))
+        {
+            char const* itemName = pItem->GetProto()->Name1;
             if (UseItemEffect(pItem, false))
-                { logItemUse(pItem, "mana-low"); return true; }
+                { logItemUse(itemName, "mana-low"); return true; }
+        }
     }
 
     // Free Action Potion when snared or rooted
@@ -4375,13 +4435,47 @@ bool BattleBotAI::TryUseBRPotion()
             me->IsSpellReady(m_spells.mage.pBlink);
         if (!mageCanBlink)
         {
-            if (Item* pItem = findInBag(900218))
+            if (Item* pItem = findInBag(faEntry))
+            {
+                char const* itemName = pItem->GetProto()->Name1;
                 if (UseItemEffect(pItem, false))
-                    { logItemUse(pItem, "snared"); return true; }
+                    { logItemUse(itemName, "snared"); return true; }
+            }
         }
     }
 
     return false;
+}
+
+bool BattleBotAI::TryUseBRPotion()
+{
+    return TryUsePotion(900234, 900233, 900218, "BRSkill", sWorld.getConfig(CONFIG_BOOL_BATTLE_ROYALE_MOVEMENT_DEBUG));
+}
+
+// Same mechanic as TryUseBRPotion(), for AV/WSG/AB instead of BR. Uses real stock
+// potions (Major Healing/Mana Potion, Free Action Potion) rather than BR's custom
+// "vanish on leaving the arena" clones — see GiveBattleGroundPotions() for why.
+bool BattleBotAI::TryUseBattleGroundPotion()
+{
+    return TryUsePotion(13446, 13444, 5634, "BGSkill", sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG));
+}
+
+// Called once from OnEnterBattleGround() for AV/WSG/AB bots (not BR, which has its own
+// GiveBRItemToBot() granting its custom potion clones at round start). Stock items, so
+// no item_template changes needed. Mana potion is skipped for classes with no mana bar.
+void BattleBotAI::GiveBattleGroundPotions()
+{
+    auto give = [this](uint32 entry, uint32 count)
+    {
+        ItemPosCountVec dest;
+        if (me->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, entry, count) == EQUIP_ERR_OK)
+            me->StoreNewItem(dest, entry, true);
+    };
+
+    give(13446, 5); // Major Healing Potion
+    give(5634, 5);  // Free Action Potion
+    if (me->GetMaxPower(POWER_MANA) > 0)
+        give(13444, 5); // Major Mana Potion
 }
 
 void BattleBotAI::UpdateBattleRoyaleAI()

@@ -30,7 +30,11 @@
 #include "DBCStores.h"
 #include "Geometry.h"
 #include "Utilities/Random.h"
+#include "Log.h"
+#include "World.h"
 #include <cstddef>
+#include <map>
+#include <deque>
 
 using namespace Geometry;
 
@@ -585,13 +589,25 @@ static uint8 GetABRequiredGuardBots(BattleGround* bg, Team team)
     return CountABOccupiedNodesByTeam(bg, team) >= 3 ? 1 : AB_GUARD_REQUIRED_BOTS;
 }
 
-static uint8 GetABHomeNode(Team team)
+// True while neither team has captured anything yet — the opening-rush window.
+static bool IsABOpeningPhase(BattleGround* bg)
 {
-    return team == ALLIANCE ? BG_AB_NODE_STABLES : BG_AB_NODE_FARM;
+    return CountABOccupiedNodesByTeam(bg, ALLIANCE) == 0 &&
+           CountABOccupiedNodesByTeam(bg, HORDE) == 0;
 }
 
-static Position const& SelectABPositionForBot(BattleBotAI* pAI, std::vector<uint8> const& nodes)
+static Position const& SelectABPositionForBot(BattleBotAI* pAI, std::vector<uint8> const& nodes, bool openingPhase = false)
 {
+    // Opening rush: every free bot starts clustered at the same waiting spot
+    // (AB_WAITING_POS_*, only a couple yards of jitter), so at t=0 all 5 nodes tie
+    // at 0 guards and "nearest" resolves to the identical node for the whole team —
+    // everyone piles onto one node instead of spreading out to grab several at once.
+    // Fall back to a stable per-bot GUID hash here so the team naturally spreads
+    // across the tied candidates. Once anything is captured we're past the opening
+    // rush and switch back to nearest (below) for normal guard-reassignment efficiency.
+    if (openingPhase && nodes.size() > 1)
+        return AB_GuardPositions[nodes[pAI->me->GetObjectGuid().GetCounter() % nodes.size()]];
+
     // Among nodes tied on guard need, send the bot to the nearest one instead of a
     // GUID hash, so bots don't criss-cross the map to reach an equally-needy node.
     uint8 nearest = nodes[0];
@@ -606,6 +622,99 @@ static Position const& SelectABPositionForBot(BattleBotAI* pAI, std::vector<uint
         }
     }
     return AB_GuardPositions[nearest];
+}
+
+// "Meat grinder" mitigation: FindABAssaultPosition() below sends free bots one at a
+// time down a single deterministic path (StartNewPathToPosition() is a closest-match
+// pick, not randomized) toward whichever node needs guards most. If that node is a
+// known, camped ambush, every respawning bot gets fed into it solo, forever, since
+// CountABGuardBots() only ever counts who's alive/present right now and has no memory
+// of prior losses. Here we track recent assault deaths per (BG instance, team, node)
+// and use that to prefer other objectives and to require a bigger group before
+// committing more bots to a node that's been killing them. Timestamps age out of the
+// window on their own, so this needs no separate cooldown/reset.
+#define AB_MEAT_GRINDER_DEATH_WINDOW_MS 120000
+#define AB_MEAT_GRINDER_DEATH_THRESHOLD 2
+#define AB_MEAT_GRINDER_EXTRA_GUARDS    2
+
+struct ABNodeDeathKey
+{
+    uint32 bgInstanceId;
+    Team team;
+    uint8 node;
+
+    bool operator<(ABNodeDeathKey const& other) const
+    {
+        if (bgInstanceId != other.bgInstanceId)
+            return bgInstanceId < other.bgInstanceId;
+        if (team != other.team)
+            return team < other.team;
+        return node < other.node;
+    }
+};
+
+static std::map<ABNodeDeathKey, std::deque<uint32>> s_abNodeDeathTimes;
+
+// Shared by IsABNodeRecentAmbush() and RecordABAssaultDeath() so a deque that hasn't
+// been queried in a while (no FindABAssaultPosition() call for that node) doesn't sit
+// on stale timestamps — RecordABAssaultDeath()'s own diagnostic log needs an accurate
+// count too, not just the gameplay decision path.
+static void PruneABNodeDeathTimes(std::deque<uint32>& times, uint32 now)
+{
+    while (!times.empty() && (now - times.front()) > AB_MEAT_GRINDER_DEATH_WINDOW_MS)
+        times.pop_front();
+}
+
+static bool IsABNodeRecentAmbush(BattleGround* bg, Team team, uint8 node)
+{
+    ABNodeDeathKey const key{ bg->GetInstanceID(), team, node };
+    auto itr = s_abNodeDeathTimes.find(key);
+    if (itr == s_abNodeDeathTimes.end())
+        return false;
+
+    PruneABNodeDeathTimes(itr->second, WorldTimer::getMSTime());
+    return itr->second.size() >= AB_MEAT_GRINDER_DEATH_THRESHOLD;
+}
+
+static int8 FindABTargetNodeForBot(BattleBotAI* pAI)
+{
+    for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
+        if (IsABAssignedToGuardPosition(pAI->me, AB_GuardPositions[i]))
+            return (int8)i;
+    return -1;
+}
+
+// Called from BattleBotAI::OnJustDied() while the bot's path/movement destination is
+// still intact, so we can tell which node it was heading toward when it died. Only
+// counts as an "ambush" death if the node wasn't already ours (i.e. this was an
+// assault/retake attempt, not routine guard duty being overrun).
+void RecordABAssaultDeath(BattleBotAI* pAI)
+{
+    BattleGround* bg = pAI->me->GetBattleGround();
+    if (!bg || bg->GetTypeID() != BATTLEGROUND_AB)
+        return;
+
+    int8 const node = FindABTargetNodeForBot(pAI);
+    if (node < 0)
+        return;
+
+    Team const team = pAI->me->GetTeam();
+    if (IsABNodeOccupiedByTeam(bg, team, (uint8)node))
+        return;
+
+    ABNodeDeathKey const key{ bg->GetInstanceID(), team, (uint8)node };
+    std::deque<uint32>& times = s_abNodeDeathTimes[key];
+    uint32 const now = WorldTimer::getMSTime();
+    PruneABNodeDeathTimes(times, now);
+    times.push_back(now);
+    while (times.size() > 8)
+        times.pop_front();
+
+    if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+            "[AB_MEAT_GRINDER] assault-death bot %s team %u node %u instance %u recentDeaths=%u ambush=%u",
+            pAI->me->GetName(), uint32(team), uint32(node), bg->GetInstanceID(),
+            uint32(times.size()), uint32(times.size() >= AB_MEAT_GRINDER_DEATH_THRESHOLD));
 }
 
 static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
@@ -668,16 +777,17 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
         }
     }
 
-    uint8 const homeNode = GetABHomeNode(pAI->me->GetTeam());
-    if (!IsABNodeOccupiedByTeam(bg, pAI->me->GetTeam(), homeNode) &&
-        CountABGuardBots(pAI, AB_GuardPositions[homeNode], true) < AB_GUARD_REQUIRED_BOTS)
-    {
-        outPosition = AB_GuardPositions[homeNode];
-        return true;
-    }
-
+    // Two tiers: nodes with no recent ambush deaths are always preferred (bots route
+    // around a known kill zone toward other opportunities first). Only when nothing
+    // safe is available do we fall back to the ambushed node(s), and even then only
+    // once fewer than AB_GUARD_REQUIRED_BOTS + AB_MEAT_GRINDER_EXTRA_GUARDS bots are
+    // already there/en route, so bots mass up into a bigger push instead of trickling
+    // in solo.
+    bool const openingPhase = IsABOpeningPhase(bg);
     uint8 bestCount = AB_GUARD_REQUIRED_BOTS;
     std::vector<uint8> bestNodes;
+    uint8 bestAmbushCount = AB_GUARD_REQUIRED_BOTS + AB_MEAT_GRINDER_EXTRA_GUARDS;
+    std::vector<uint8> ambushNodes;
 
     for (uint8 i = 0; i < BG_AB_NODES_MAX; ++i)
     {
@@ -685,6 +795,24 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
             continue;
 
         uint8 count = CountABGuardBots(pAI, AB_GuardPositions[i], true);
+
+        if (IsABNodeRecentAmbush(bg, pAI->me->GetTeam(), i))
+        {
+            if (count >= bestAmbushCount)
+                continue;
+
+            if (count < bestAmbushCount)
+            {
+                bestAmbushCount = count;
+                ambushNodes.clear();
+            }
+
+            if (count == bestAmbushCount)
+                ambushNodes.push_back(i);
+
+            continue;
+        }
+
         if (count >= AB_GUARD_REQUIRED_BOTS)
             continue;
 
@@ -700,11 +828,24 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
         }
     }
 
-    if (bestNodes.empty())
-        return false;
+    if (!bestNodes.empty())
+    {
+        outPosition = SelectABPositionForBot(pAI, bestNodes, openingPhase);
+        return true;
+    }
 
-    outPosition = SelectABPositionForBot(pAI, bestNodes);
-    return true;
+    if (!ambushNodes.empty())
+    {
+        outPosition = SelectABPositionForBot(pAI, ambushNodes, openingPhase);
+        if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+            sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                "[AB_MEAT_GRINDER] fallback-to-ambush bot %s team %u instance %u candidates=%u bestAmbushCount=%u",
+                pAI->me->GetName(), uint32(pAI->me->GetTeam()), bg->GetInstanceID(),
+                uint32(ambushNodes.size()), uint32(bestAmbushCount));
+        return true;
+    }
+
+    return false;
 }
 
 static bool FindABOwnedGuardPosition(BattleBotAI* pAI, Position& outPosition)

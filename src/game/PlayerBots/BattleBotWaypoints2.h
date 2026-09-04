@@ -23,5 +23,6 @@ class BattleBotAI;
 bool BattleBotTryCaptureNearbyABObjective(BattleBotAI* pAI);
 bool BattleBotSelectABObjective(BattleBotAI* pAI);
 bool BattleBotSelectWSGObjective(BattleBotAI* pAI);
+void RecordABAssaultDeath(BattleBotAI* pAI);
 
 #endif

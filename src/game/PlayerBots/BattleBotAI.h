@@ -104,7 +104,10 @@ public:
     void UpdateFlagCarrierAI();
     bool UpdateBattleGroundAI();
     void UpdateBattleRoyaleAI();
+    bool TryUsePotion(uint32 healEntry, uint32 manaEntry, uint32 faEntry, char const* logTag, bool debugLog);
     bool TryUseBRPotion();
+    bool TryUseBattleGroundPotion();
+    void GiveBattleGroundPotions();
     bool TryUseBattleGroundFlag(uint32 entry);
     void UpdateInCombatAI() final;
     void UpdateOutOfCombatAI() final;
