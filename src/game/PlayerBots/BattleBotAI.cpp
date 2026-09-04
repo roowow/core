@@ -1799,22 +1799,6 @@ uint32 BattleBotAI::GetMountSpellId() const
 
 bool BattleBotAI::UseMount()
 {
-    // TEMP DEBUG (2026-09-04): tracing why some Warriors fail to mount right after
-    // WAIT_JOIN ends. Remove once confirmed fixed — see ABLogic.md 8.16/8.18.
-    bool const mountDebug = sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG);
-    BattleGround* mountDebugBg = mountDebug ? me->GetBattleGround() : nullptr;
-    auto logMountFail = [&](char const* reason)
-    {
-        if (mountDebug)
-            sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                     "[MOUNT_DEBUG] bot %s guid %u class %u bg %u status %u fail=%s moving=%u casting=%u.",
-                     me->GetName(), me->GetGUIDLow(), (uint32)me->GetClass(),
-                     mountDebugBg ? mountDebugBg->GetInstanceID() : 0u,
-                     mountDebugBg ? (uint32)mountDebugBg->GetStatus() : 0u,
-                     reason, me->IsMoving(),
-                     me->GetCurrentSpell(CURRENT_GENERIC_SPELL) ? me->GetCurrentSpell(CURRENT_GENERIC_SPELL)->m_spellInfo->Id : 0u);
-    };
-
     if (me->IsMounted())
         return false;
 
@@ -1828,38 +1812,38 @@ bool BattleBotAI::UseMount()
         // only block it while still walking there, so bots are ready to ride out the
         // instant the gates open instead of losing time mounting up afterward.
         if (bg->GetStatus() == STATUS_WAIT_JOIN && me->IsMoving())
-            { logMountFail("waitjoin-moving"); return false; }
+            return false;
         // Don't interrupt active AV/WSG path traversal to mount; bots can mount
         // naturally between path segments when they are already stopped.
         if (me->IsMoving() && (bg->GetTypeID() == BATTLEGROUND_AV || bg->GetTypeID() == BATTLEGROUND_WS))
-            { logMountFail("av-ws-moving"); return false; }
+            return false;
     }
 
     if (me->HasAura(AURA_WARSONG_FLAG) ||
         me->HasAura(AURA_SILVERWING_FLAG))
-        { logMountFail("carrying-flag"); return false; }
+        return false;
 
     uint32 spellId = GetMountSpellId();
     if (!spellId)
-        { logMountFail("no-mount-spell"); return false; }
+        return false;
 
     SpellEntry const* pSpellEntry = sSpellMgr.GetSpellEntry(spellId);
     if (!pSpellEntry)
-        { logMountFail("no-spell-entry"); return false; }
+        return false;
 
     if (me->IsInWater() && me->IsInHighLiquid())
-        { logMountFail("in-water"); return false; }
+        return false;
 
     if (!sSpellMgr.GetRequiredAreaForSpell(pSpellEntry->Id) &&
         me->GetMap()->GetMapEntry() && !me->GetMap()->GetMapEntry()->IsMountAllowed())
-        { logMountFail("map-no-mount"); return false; }
+        return false;
 
     if (me->GetAreaId() == 35)
-        { logMountFail("area-35"); return false; }
+        return false;
 
     if ((pSpellEntry->Attributes & SPELL_ATTR_ONLY_OUTDOORS) &&
         !me->GetMap()->GetTerrain()->IsOutdoors(me->GetPositionX(), me->GetPositionY(), me->GetPositionZ()))
-        { logMountFail("indoors"); return false; }
+        return false;
 
     // Druid: remove shapeshift before checking display ID and mounting,
     // but only after all blocking conditions have already passed.
@@ -1867,7 +1851,7 @@ bool BattleBotAI::UseMount()
         me->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
 
     if (me->GetDisplayId() != me->GetNativeDisplayId())
-        { logMountFail("wrong-displayid"); return false; }
+        return false;
 
     if (me->HasAura(SPELL_AURA_MOD_STEALTH))
         me->RemoveSpellsCausingAura(SPELL_AURA_MOD_STEALTH);
@@ -1882,21 +1866,9 @@ bool BattleBotAI::UseMount()
     if (mountCastResult == SPELL_CAST_OK)
     {
         m_lastMountTime = WorldTimer::getMSTime();
-        if (mountDebug)
-            sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                     "[MOUNT_DEBUG] bot %s guid %u class %u bg %u status %u SUCCESS spell=%u.",
-                     me->GetName(), me->GetGUIDLow(), (uint32)me->GetClass(),
-                     mountDebugBg ? mountDebugBg->GetInstanceID() : 0u,
-                     mountDebugBg ? (uint32)mountDebugBg->GetStatus() : 0u, spellId);
         return true;
     }
 
-    if (mountDebug)
-        sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                 "[MOUNT_DEBUG] bot %s guid %u class %u bg %u status %u castfail=%u spell=%u.",
-                 me->GetName(), me->GetGUIDLow(), (uint32)me->GetClass(),
-                 mountDebugBg ? mountDebugBg->GetInstanceID() : 0u,
-                 mountDebugBg ? (uint32)mountDebugBg->GetStatus() : 0u, (uint32)mountCastResult, spellId);
     return false;
 }
 
@@ -1936,20 +1908,6 @@ bool BattleBotAI::DrinkAndEat()
 
     if (!needToEat && !needToDrink)
         return false;
-
-    // TEMP DEBUG (2026-09-04): tracing why some bots sit down to drink/eat right after
-    // the gates open instead of staying mounted and rushing an objective. Remove once
-    // confirmed fixed — see ABLogic.md 8.21.
-    if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
-        sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                 "[DRINK_DEBUG] bot %s guid %u class %u bg %u status %u isMounted=%u isGuard=%u "
-                 "hp=%.0f%% mana=%.0f%% hpThresh=%.0f manaThresh=%.0f needToEat=%u needToDrink=%u.",
-                 me->GetName(), me->GetGUIDLow(), (uint32)me->GetClass(),
-                 bg ? bg->GetInstanceID() : 0u, bg ? (uint32)bg->GetStatus() : 0u,
-                 me->IsMounted(), isGuard,
-                 me->GetHealthPercent(),
-                 me->GetMaxPower(POWER_MANA) > 0 ? me->GetPowerPercent(POWER_MANA) : 0.0f,
-                 recoveryThreshold, manaRecoveryThreshold, needToEat, needToDrink);
 
     if (me->IsMounted())
     {
@@ -7508,19 +7466,6 @@ void BattleBotAI::UpdateOutOfCombatAI_Warrior()
     // Mount before self-buffing when not yet mounted (see ABLogic.md 8.16/8.25 for the
     // history: an earlier version of this gated on !m_currentPath, which backfired once
     // objectives got assigned immediately on gate-open — see the comment below).
-    // TEMP DEBUG (2026-09-04): remove once confirmed fixed — see ABLogic.md 8.16/8.18.
-    bool const warriorMountDebug = sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG);
-    if (warriorMountDebug && !me->IsMounted())
-    {
-        BattleGround* dbgBg = me->GetBattleGround();
-        sLog.Out(LOG_BG, LOG_LVL_BASIC,
-                 "[MOUNT_DEBUG] UpdateOutOfCombatAI_Warrior bot %s guid %u bg %u status %u hasPath=%u rage=%u battleShoutUp=%u.",
-                 me->GetName(), me->GetGUIDLow(),
-                 dbgBg ? dbgBg->GetInstanceID() : 0u, dbgBg ? (uint32)dbgBg->GetStatus() : 0u,
-                 m_currentPath != nullptr, me->GetPower(POWER_RAGE),
-                 (m_spells.warrior.pBattleShout && me->HasAura(m_spells.warrior.pBattleShout->Id)));
-    }
-
     // Mount attempt itself now lives in UpdateOutOfCombatAI() (see ABLogic.md 8.27), shared
     // by every class instead of duplicated here — if we get this far still unmounted, that
     // shared attempt already failed this tick for a real reason (indoors, flag-carrying,
@@ -7543,11 +7488,7 @@ void BattleBotAI::UpdateOutOfCombatAI_Warrior()
             CanTryToCastSpell(me, m_spells.warrior.pBattleStance))
         {
             if (DoCastSpell(me, m_spells.warrior.pBattleStance) == SPELL_CAST_OK)
-            {
-                if (warriorMountDebug)
-                    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MOUNT_DEBUG] bot %s cast BattleStance, returning.", me->GetName());
                 return;
-            }
         }
 
         if (m_spells.warrior.pBattleShout &&
@@ -7555,16 +7496,12 @@ void BattleBotAI::UpdateOutOfCombatAI_Warrior()
         {
             if (CanTryToCastSpell(me, m_spells.warrior.pBattleShout))
             {
-                if (warriorMountDebug)
-                    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MOUNT_DEBUG] bot %s casting BattleShout.", me->GetName());
                 DoCastSpell(me, m_spells.warrior.pBattleShout);
             }
             else if (m_spells.warrior.pBloodrage &&
                 (me->GetPower(POWER_RAGE) < 10) &&
                 CanTryToCastSpell(me, m_spells.warrior.pBloodrage))
             {
-                if (warriorMountDebug)
-                    sLog.Out(LOG_BG, LOG_LVL_BASIC, "[MOUNT_DEBUG] bot %s casting Bloodrage (rage=%u).", me->GetName(), me->GetPower(POWER_RAGE));
                 DoCastSpell(me, m_spells.warrior.pBloodrage);
             }
         }

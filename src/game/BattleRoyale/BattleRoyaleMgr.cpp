@@ -248,9 +248,28 @@ void BattleRoyaleMgr::Update(uint32 diff)
 
         if (Corpse* corpse = sObjectAccessor.GetCorpseForPlayerGUID(it->first))
         {
-            sObjectAccessor.RemoveCorpse(corpse);
-            corpse->DeleteFromDB();
-            delete corpse;
+            // Bugfix (2026-09-05): for INSTANCED BR templates the BattleGroundMap the corpse
+            // lives on can be unloaded (and deleted) well within this 120s window - a short
+            // round can empty out and tear down its map long before the loot timer expires.
+            // The map's own unload path (Map::RemoveCorpses(), called from UnloadAll()) only
+            // clears corpses queued through the normal resurrect-then-remove flow; this BR loot
+            // corpse never enters that queue, so it isn't freed there and survives in
+            // ObjectAccessor's global registry with a now-dangling Map* inside it. GetMapId()/
+            // GetInstanceId() read plain data fields (not the cached Map* via GetMap()), so
+            // they're safe to call here even if the map is already gone - use them to confirm
+            // the map is still alive before touching anything that dereferences it.
+            if (!sMapMgr.FindMap(corpse->GetMapId(), corpse->GetInstanceId()))
+            {
+                sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                          "[BattleRoyaleMgr] Skipped delayed corpse cleanup for guid %u: map %u inst %u no longer loaded (corpse leaked, not deleted).",
+                          it->first.GetCounter(), corpse->GetMapId(), corpse->GetInstanceId());
+            }
+            else
+            {
+                sObjectAccessor.RemoveCorpse(corpse);
+                corpse->DeleteFromDB();
+                delete corpse;
+            }
         }
         it = m_pendingCorpseCleanup.erase(it);
     }
