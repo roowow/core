@@ -2094,7 +2094,18 @@ bool BattleBotReturnToGuardPositionBeforeRecovery(BattleBotAI* pAI)
 
 bool BattleBotTryCaptureNearbyABObjective(BattleBotAI* pAI)
 {
-    if (AtFlag(pAI, vFlagsAB))
+    // Same reasoning as MoveToNearbyABOpenFlag's m_currentPath gate, applied to the OTHER
+    // per-tick shortcut: a bot mid-journey on a multi-hop recorded path (e.g. routing
+    // through Lumber Mill on the way to Blacksmith) must not have its journey hijacked by
+    // AtFlag() clicking whatever OTHER node's flag its route happens to pass within
+    // interaction range of. Confirmed via log (Bg_2026-09-04_16-55-1.log): a bot correctly
+    // assigned to Blacksmith (gotPath=1) ended up capturing Lumber Mill instead 35 seconds
+    // into its walk, because that route legitimately passes right by Lumber Mill's flag —
+    // this generic per-tick check (unlike the waypoint's own AB_AtFlag callback, which
+    // fires separately and only at the path's actual last point) doesn't know or care which
+    // flag the bot is really headed for. A bot with no active path (idle, already arrived,
+    // guarding, walking opportunistically via MoveToNearbyABOpenFlag) is unaffected.
+    if (!pAI->m_currentPath && AtFlag(pAI, vFlagsAB))
         return true;
     if (MoveToNearbyABOpenFlag(pAI))
         return true;
