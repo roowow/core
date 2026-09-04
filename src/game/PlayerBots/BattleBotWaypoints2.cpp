@@ -946,6 +946,19 @@ static bool IsABFlagOpenable(BattleBotAI const* pAI, GameObject* pGo)
 
 static bool MoveToNearbyABOpenFlag(BattleBotAI* pAI)
 {
+    // Don't hijack a bot that's already committed to a recorded path toward its assigned
+    // objective (FindABAssaultPosition's opening-phase distribution, guard reassignment,
+    // etc.) just because that path happens to pass within AB_GUARD_EXCESS_RADIUS of some
+    // OTHER node's flag along the way. Confirmed via log (Bg_2026-09-04_14-51-4.log):
+    // bots correctly assigned to a far node (e.g. Blacksmith) were being redirected mid-
+    // route to a closer node (Stables) purely because their path happened to pass nearby —
+    // this is what was causing the whole team to visibly converge on one node at the open
+    // instead of spreading out, even though the underlying distribution was working fine.
+    // A bot with no active path (idle, already arrived, between assignments) is still free
+    // to grab whatever's opportunistically nearby.
+    if (pAI->m_currentPath)
+        return false;
+
     GameObject* pBestFlag = nullptr;
     float bestDistance = FLT_MAX;
 
