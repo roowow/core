@@ -1873,9 +1873,6 @@ bool BattleBotAI::DrinkAndEat()
     if (m_isBuffing)
         return false;
 
-    if (me->IsMounted())
-        return false;
-
     if (me->GetVictim())
         return false;
 
@@ -1907,6 +1904,25 @@ bool BattleBotAI::DrinkAndEat()
 
     if (!needToEat && !needToDrink)
         return false;
+
+    if (me->IsMounted())
+    {
+        // A bot that mounted early during WAIT_JOIN staging (see UseMount()'s
+        // STATUS_WAIT_JOIN handling) must not get permanently stuck unable to recover
+        // just because DrinkAndEat() used to refuse outright while mounted — there's no
+        // rush before the gates open, so dismount and drink/eat like normal. Outside
+        // WAIT_JOIN, staying mounted still wins (matches UseMount()'s own
+        // don't-interrupt-travel behavior for AV/WSG).
+        //
+        // Capped at one dismount-to-recover per waiting period (m_bgWaitJoinRecoveryDone):
+        // Paladin/Warlock class mounts cost 35-45% of max mana to summon. Without the cap,
+        // a bot would drink to full, mount (paying that cost), find itself back below the
+        // 100% WAIT_JOIN threshold, dismount to drink again, remount, and repeat forever.
+        if (!isWaiting || m_bgWaitJoinRecoveryDone)
+            return false;
+        m_bgWaitJoinRecoveryDone = true;
+        me->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+    }
 
     // Do not stop while carrying flag.
     if (me->HasAura(AURA_WARSONG_FLAG) ||
@@ -3032,6 +3048,8 @@ void BattleBotAI::OnEnterBattleGround()
 
     if (bg->GetStatus() != STATUS_WAIT_JOIN)
         return;
+
+    m_bgWaitJoinRecoveryDone = false;
 
     SummonPetIfNeeded();
 
@@ -7232,6 +7250,25 @@ void BattleBotAI::UpdateInCombatAI_Warlock()
 
 void BattleBotAI::UpdateOutOfCombatAI_Warrior()
 {
+    // Mounting wins the race against self-buffing right around the gates opening.
+    // Rage is normally 0 coming out of WAIT_JOIN, so the Battle Shout attempt below falls
+    // back to Bloodrage — and while that cast/GCD is in flight, UseMount()'s own CastSpell
+    // fails, delaying mounting by a couple of seconds for no benefit (buffs work fine once
+    // already mounted). Scoped to "still in the opening window" via !m_currentPath (hasn't
+    // picked/started a route to an objective yet) rather than elapsed time — BattleGround's
+    // GetStartTime() counts from BG object creation, i.e. it already includes the whole
+    // WAIT_JOIN countdown, so it's already well past any short "first N seconds" cutoff by
+    // the time STATUS_IN_PROGRESS begins and can't be used to detect "just opened" here.
+    if (!me->IsMounted())
+    {
+        if (BattleGround* bgForMount = me->GetBattleGround())
+        {
+            if ((bgForMount->GetStatus() == STATUS_WAIT_JOIN || !m_currentPath) &&
+                UseMount())
+                return;
+        }
+    }
+
     // Need Battle Stance for Charge; tank will switch to Defensive Stance in combat
     if (m_spells.warrior.pBattleStance &&
         CanTryToCastSpell(me, m_spells.warrior.pBattleStance))

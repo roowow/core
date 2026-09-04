@@ -167,6 +167,11 @@ public:
     bool m_temporary = false;
     bool m_wasDead = false;
     bool m_wasInBG = false;
+    // One-shot: DrinkAndEat() dismounts to recover during WAIT_JOIN staging at most once
+    // per waiting period. Paladin/Warlock class mounts cost 35-45% max mana to summon, so
+    // without this a bot would drink to full, mount (paying that cost), see mana below the
+    // 100% WAIT_JOIN threshold again, dismount to drink again, remount, and loop forever.
+    bool m_bgWaitJoinRecoveryDone = false;
 
     // Movement System
     void UpdateWaypointMovement();

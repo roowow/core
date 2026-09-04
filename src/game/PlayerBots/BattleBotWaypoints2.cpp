@@ -783,8 +783,14 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
     // once fewer than AB_GUARD_REQUIRED_BOTS + AB_MEAT_GRINDER_EXTRA_GUARDS bots are
     // already there/en route, so bots mass up into a bigger push instead of trickling
     // in solo.
+    // During the opening rush, capturing a neutral node only takes one bot physically
+    // there — a second one assigned before it's even captured just eats into the pool
+    // of free bots that could instead be grabbing a DIFFERENT node at the same time.
+    // Once the match is past the opening (someone owns something), go back to requiring
+    // AB_GUARD_REQUIRED_BOTS so a fresh capture attempt has backup against contest.
     bool const openingPhase = IsABOpeningPhase(bg);
-    uint8 bestCount = AB_GUARD_REQUIRED_BOTS;
+    uint8 const assaultThreshold = openingPhase ? 1 : AB_GUARD_REQUIRED_BOTS;
+    uint8 bestCount = assaultThreshold;
     std::vector<uint8> bestNodes;
     uint8 bestAmbushCount = AB_GUARD_REQUIRED_BOTS + AB_MEAT_GRINDER_EXTRA_GUARDS;
     std::vector<uint8> ambushNodes;
@@ -813,7 +819,7 @@ static bool FindABAssaultPosition(BattleBotAI* pAI, Position& outPosition)
             continue;
         }
 
-        if (count >= AB_GUARD_REQUIRED_BOTS)
+        if (count >= assaultThreshold)
             continue;
 
         if (count < bestCount)
