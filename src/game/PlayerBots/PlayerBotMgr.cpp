@@ -1032,15 +1032,16 @@ void PlayerBotMgr::AddBattleBot(BattleGroundQueueTypeId queueType, Team botTeam,
     if (queueType == BATTLEGROUND_QUEUE_WS)
     {
         // WSG class distribution. Hunter excluded (poor in indoor corridors). No tank specs.
-        // Tier 1 (6x): Warrior, Mage
-        // Tier 2 (4x): Rogue, Priest, Druid, Warlock, Paladin/Shaman
+        // Tier 1 (6x): Warrior, Mage, Rogue
+        // Tier 2 (4x): Paladin/Shaman
+        // Tier 3 (3x): Priest, Druid, Warlock
         availableClasses = {
             CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR, CLASS_WARRIOR,
             CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,    CLASS_MAGE,
-            CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
-            CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,
-            CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,
-            CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK,
+            CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,   CLASS_ROGUE,
+            CLASS_PRIEST,  CLASS_PRIEST,  CLASS_PRIEST,
+            CLASS_DRUID,   CLASS_DRUID,   CLASS_DRUID,
+            CLASS_WARLOCK, CLASS_WARLOCK, CLASS_WARLOCK,
         };
         if (botTeam == HORDE)
         {

@@ -101,6 +101,7 @@ static bool HasEnemyFlagAura(Player* player)
 
 // Classes that make effective home guards, ranked highest first.
 // Warrior: best sustained 1v1, defense-stance scaling.
+// Rogue (2026-09-05): fast opener/burst + Stealth to react to an incoming runner quickly.
 // Paladin/Shaman: off-heals + strong utility (HoJ / totems).
 // Priest: sustain support for the flag room.
 // Others assigned 0 — sent to run the flag instead.
@@ -109,6 +110,7 @@ static uint8 WSGHomeGuardClassPriority(uint8 cls)
     switch (cls)
     {
         case CLASS_WARRIOR: return 3;
+        case CLASS_ROGUE:   return 3;
         case CLASS_PALADIN: return 2;
         case CLASS_SHAMAN:  return 2;
         case CLASS_PRIEST:  return 1;
