@@ -5894,7 +5894,17 @@ void BattleBotAI::UpdateOutOfCombatAI()
     // in combat yet" on the very next tick and remount it mid-chase, which then gets
     // dismounted again to actually attack — repeat forever. User-reported: bots flickering
     // mount/dismount when they run into an enemy instead of engaging cleanly.
-    if (!me->IsMounted() && !me->GetVictim() && UseMount())
+    //
+    // !SelectRandomUnfriendlyTarget(...) (2026-09-04, see ABLogic.md 8.39): the above check
+    // only covers a target already latched onto (GetVictim() set); this function still runs
+    // BEFORE the caller's own attack-target selection, so on the very first tick a bot comes
+    // within range of an enemy it hasn't targeted yet, this mount check would win the race —
+    // mount, then get dismounted a tick (or the same tick, later) later once the real target
+    // selection catches up and calls AttackStart(). User-reported: bots mounting up right
+    // next to a visible enemy before dismounting again to actually fight it. Same radius as
+    // the existing "is there anyone to fight" checks elsewhere in this file (e.g.
+    // DoGraveyardJump's fallback) — cheap peek, no side effects, doesn't commit to a target.
+    if (!me->IsMounted() && !me->GetVictim() && !me->SelectRandomUnfriendlyTarget(nullptr, 30.0f) && UseMount())
         return;
 
     // Undead: Cannibalize - channel HP recovery from nearby corpse
@@ -6970,8 +6980,16 @@ void BattleBotAI::UpdateOutOfCombatAI_Priest()
     // opening instead of riding out, having never actually been "stuck on a mount" at all.
     // Stopping buff casts here preserves enough mana for Shadowform and the opening rush;
     // already-cast buffs on allies aren't undone, this only skips handing out MORE of them.
+    // 2026-09-04 (see ABLogic.md 8.38): missed this the first time around (8.34 only added
+    // the mana floor here; 8.36's mount check went to Shadowform/Inner Fire below and every
+    // OTHER class, but not back to this block) — DoCastSpell() force-dismounts before each
+    // of these casts same as everywhere else, so a priest that mounted during WAIT_JOIN
+    // (before finishing buffing everyone) would get yanked back off for the next ally,
+    // remount next tick, get yanked off for the one after that, etc. — buff/mount flicker
+    // for the rest of WAIT_JOIN, confirmed by the user. Buff while still dismounted; once
+    // mounted, this whole block simply stops running (nothing left to un-mount it for).
     bool const lowMana = me->GetPowerType() == POWER_MANA && me->GetPowerPercent(POWER_MANA) < 50.0f;
-    if (bg && bg->GetStatus() == STATUS_WAIT_JOIN && !lowMana)
+    if (bg && bg->GetStatus() == STATUS_WAIT_JOIN && !lowMana && !me->IsMounted())
     {
         if (m_spells.priest.pPrayerofFortitude)
         {
@@ -7274,9 +7292,10 @@ void BattleBotAI::UpdateOutOfCombatAI_Warlock()
     // Same mana-floor guard as Priest's WAIT_JOIN buffing (see ABLogic.md 8.34) — lower
     // risk here since it's only one buff type, but the same "one-shot WAIT_JOIN recovery
     // already spent, no other floor" trap applies in principle, so applied proactively
-    // rather than waiting for a log to prove it happens.
+    // rather than waiting for a log to prove it happens. Also gated on !IsMounted() (see
+    // ABLogic.md 8.38 — missed on the first pass, same as Priest's block).
     bool const lowMana = me->GetPowerType() == POWER_MANA && me->GetPowerPercent(POWER_MANA) < 50.0f;
-    if (bg && bg->GetStatus() == STATUS_WAIT_JOIN && !lowMana)
+    if (bg && bg->GetStatus() == STATUS_WAIT_JOIN && !lowMana && !me->IsMounted())
     {
         if (m_spells.warlock.pDetectInvisibility)
         {
