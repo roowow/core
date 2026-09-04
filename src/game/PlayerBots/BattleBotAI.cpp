@@ -1936,6 +1936,20 @@ bool BattleBotAI::DrinkAndEat()
     if (!needToEat && !needToDrink)
         return false;
 
+    // TEMP DEBUG (2026-09-04): tracing why some bots sit down to drink/eat right after
+    // the gates open instead of staying mounted and rushing an objective. Remove once
+    // confirmed fixed — see ABLogic.md 8.21.
+    if (sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG))
+        sLog.Out(LOG_BG, LOG_LVL_BASIC,
+                 "[DRINK_DEBUG] bot %s guid %u class %u bg %u status %u isMounted=%u isGuard=%u "
+                 "hp=%.0f%% mana=%.0f%% hpThresh=%.0f manaThresh=%.0f needToEat=%u needToDrink=%u.",
+                 me->GetName(), me->GetGUIDLow(), (uint32)me->GetClass(),
+                 bg ? bg->GetInstanceID() : 0u, bg ? (uint32)bg->GetStatus() : 0u,
+                 me->IsMounted(), isGuard,
+                 me->GetHealthPercent(),
+                 me->GetMaxPower(POWER_MANA) > 0 ? me->GetPowerPercent(POWER_MANA) : 0.0f,
+                 recoveryThreshold, manaRecoveryThreshold, needToEat, needToDrink);
+
     if (me->IsMounted())
     {
         // A bot that mounted early during WAIT_JOIN staging (see UseMount()'s

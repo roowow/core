@@ -981,6 +981,29 @@ static bool MoveToNearbyABOpenFlag(BattleBotAI* pAI)
     if (!pBestFlag)
         return false;
 
+    // Segment-boundary case: AB routes are stitched from multiple point-to-point recorded
+    // paths (e.g. reaching Blacksmith from a base requires hopping via Stables/Farm/Lumber
+    // Mill first), so m_currentPath legitimately goes null for a tick right where one
+    // segment ends and the next hasn't been assigned yet — often right next to that
+    // intermediate node's flag. Confirmed via log (Bg_2026-09-04_16-21-3.log): bots
+    // properly assigned to Blacksmith never arrived there at all, because every one of them
+    // got permanently absorbed by whichever intermediate node its route happened to pass
+    // within grabbing range of. Re-run the same objective logic that would normally fire
+    // next; only take this nearby flag if it's actually what that logic recommends (i.e.
+    // it's not secretly a "different, farther node" situation) — otherwise leave it alone
+    // so BattleBotSelectABObjective can assign the next leg toward the real target.
+    {
+        Position properTarget;
+        bool const hasProperTarget = FindABOwnedGuardPosition(pAI, properTarget) || FindABAssaultPosition(pAI, properTarget);
+        if (hasProperTarget)
+        {
+            float const dx = properTarget.x - pBestFlag->GetPositionX();
+            float const dy = properTarget.y - pBestFlag->GetPositionY();
+            if ((dx * dx + dy * dy) > (AB_GUARD_ASSIGN_RADIUS * AB_GUARD_ASSIGN_RADIUS))
+                return false;
+        }
+    }
+
     pAI->me->RemoveAurasDueToSpellByCancel(BB_SPELL_FOOD);
     pAI->me->RemoveAurasDueToSpellByCancel(BB_SPELL_DRINK);
     if (pAI->me->GetStandState() != UNIT_STAND_STATE_STAND)
