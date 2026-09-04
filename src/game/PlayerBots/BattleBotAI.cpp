@@ -1881,6 +1881,7 @@ bool BattleBotAI::UseMount()
     SpellCastResult const mountCastResult = me->CastSpell(me, pSpellEntry, false);
     if (mountCastResult == SPELL_CAST_OK)
     {
+        m_lastMountTime = WorldTimer::getMSTime();
         if (mountDebug)
             sLog.Out(LOG_BG, LOG_LVL_BASIC,
                      "[MOUNT_DEBUG] bot %s guid %u class %u bg %u status %u SUCCESS spell=%u.",
@@ -1952,21 +1953,44 @@ bool BattleBotAI::DrinkAndEat()
 
     if (me->IsMounted())
     {
-        // A bot that mounted early during WAIT_JOIN staging (see UseMount()'s
-        // STATUS_WAIT_JOIN handling) must not get permanently stuck unable to recover
-        // just because DrinkAndEat() used to refuse outright while mounted — there's no
-        // rush before the gates open, so dismount and drink/eat like normal. Outside
-        // WAIT_JOIN, staying mounted still wins (matches UseMount()'s own
-        // don't-interrupt-travel behavior for AV/WSG).
-        //
-        // Capped at one dismount-to-recover per waiting period (m_bgWaitJoinRecoveryDone):
-        // Paladin/Warlock class mounts cost 35-45% of max mana to summon. Without the cap,
-        // a bot would drink to full, mount (paying that cost), find itself back below the
-        // 100% WAIT_JOIN threshold, dismount to drink again, remount, and repeat forever.
-        if (!isWaiting || m_bgWaitJoinRecoveryDone)
+        if (isWaiting)
+        {
+            // A bot that mounted early during WAIT_JOIN staging (see UseMount()'s
+            // STATUS_WAIT_JOIN handling) must not get permanently stuck unable to recover
+            // just because DrinkAndEat() used to refuse outright while mounted — there's no
+            // rush before the gates open, so dismount and drink/eat like normal.
+            //
+            // Capped at one dismount-to-recover per waiting period (m_bgWaitJoinRecoveryDone):
+            // Paladin/Warlock class mounts cost 35-45% of max mana to summon. Without the cap,
+            // a bot would drink to full, mount (paying that cost), find itself back below the
+            // 100% WAIT_JOIN threshold, dismount to drink again, remount, and repeat forever.
+            if (m_bgWaitJoinRecoveryDone)
+                return false;
+            m_bgWaitJoinRecoveryDone = true;
+            me->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+        }
+        else if (me->IsMoving())
+        {
+            // Actively traveling toward an objective — don't interrupt (matches
+            // UseMount()'s own don't-interrupt-travel behavior for AV/WSG).
             return false;
-        m_bgWaitJoinRecoveryDone = true;
-        me->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+        }
+        else
+        {
+            // Mounted but stationary (e.g. between objectives, or just sitting at a
+            // guard position) — there's no travel to protect, so recover normally
+            // instead of idling on the mount waiting on slow natural regen (2026-09-04,
+            // reported: bots seen sitting motionless on their mount instead of eating).
+            // Guarded by the same cooldown idea as m_bgWaitJoinRecoveryDone: a
+            // Paladin/Warlock mount costs 35-45% mana, so a bot that just paid that and
+            // dropped back below threshold would otherwise dismount again the instant it
+            // remounts, oscillating forever. This isn't WAIT_JOIN-only though (a
+            // stationary bot can need to recover more than once per match), so it's a
+            // rolling cooldown off m_lastMountTime rather than a one-shot flag.
+            if (WorldTimer::getMSTime() - m_lastMountTime < 5000)
+                return false;
+            me->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+        }
     }
 
     // Do not stop while carrying flag.
@@ -3098,6 +3122,7 @@ void BattleBotAI::OnEnterBattleGround()
         return;
 
     m_bgWaitJoinRecoveryDone = false;
+    m_lastMountTime = 0;
 
     SummonPetIfNeeded();
 
@@ -7375,13 +7400,9 @@ void BattleBotAI::UpdateInCombatAI_Warlock()
 
 void BattleBotAI::UpdateOutOfCombatAI_Warrior()
 {
-    // Mount before self-buffing when not yet mounted and still in the opening window
-    // (!m_currentPath: hasn't picked/started a route to an objective yet). 2026-09-04 log
-    // data disproved the original theory that Battle Shout/Bloodrage's cast was delaying
-    // this (every UseMount() failure logged casting=0 — never actually mid-cast); the real
-    // blocker turned out to be bots stuck indoors during WAIT_JOIN (see the rescue in
-    // UpdateAI() and ABLogic.md 8.17/8.18). Kept as a harmless ordering improvement, but it
-    // isn't the fix for that issue.
+    // Mount before self-buffing when not yet mounted (see ABLogic.md 8.16/8.25 for the
+    // history: an earlier version of this gated on !m_currentPath, which backfired once
+    // objectives got assigned immediately on gate-open — see the comment below).
     // TEMP DEBUG (2026-09-04): remove once confirmed fixed — see ABLogic.md 8.16/8.18.
     bool const warriorMountDebug = sWorld.getConfig(CONFIG_BOOL_BATTLEGROUND_MOVEMENT_DEBUG);
     if (warriorMountDebug && !me->IsMounted())
@@ -7395,15 +7416,14 @@ void BattleBotAI::UpdateOutOfCombatAI_Warrior()
                  (m_spells.warrior.pBattleShout && me->HasAura(m_spells.warrior.pBattleShout->Id)));
     }
 
-    if (!me->IsMounted())
-    {
-        if (BattleGround* bgForMount = me->GetBattleGround())
-        {
-            if ((bgForMount->GetStatus() == STATUS_WAIT_JOIN || !m_currentPath) &&
-                UseMount())
-                return;
-        }
-    }
+    // No !m_currentPath gate here (see ABLogic.md 8.25): once BattleBotSelectABObjective()
+    // hands out a path the tick after gate-open, m_currentPath is set for the rest of that
+    // (now often single-segment, see 8.24's direct routes) leg — a warrior that hadn't
+    // mounted yet by then would never get another chance and just walk the whole route on
+    // foot, casting Battle Shout/Bloodrage instead. UseMount() already refuses to interrupt
+    // AV/WSG movement on its own; for AB it's safe to call every tick until it succeeds.
+    if (!me->IsMounted() && UseMount())
+        return;
 
     // Need Battle Stance for Charge; tank will switch to Defensive Stance in combat
     if (m_spells.warrior.pBattleStance &&

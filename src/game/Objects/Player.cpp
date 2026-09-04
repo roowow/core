@@ -16908,6 +16908,15 @@ InstancePlayerBind* Player::BindToInstance(DungeonPersistentState* state, bool p
         std::lock_guard<std::mutex> guard(m_boundInstancesMutex);
         InstancePlayerBind& bind = m_boundInstances[state->GetMapId()];
 
+        // Diagnostic logging (2026-09-04, see [InstanceBind] below): snapshot the pre-update
+        // state before anything below mutates `bind`, so the log can tell a genuine first-time
+        // bind apart from a rebind and show what changed - a character getting rebound more than
+        // once in a short window is the kind of pattern that's easy to grep for after the fact
+        // but invisible without this.
+        bool const wasBound = bind.state != nullptr;
+        uint32 const oldInstanceId = wasBound ? bind.state->GetInstanceId() : 0;
+        bool const oldPermanent = bind.perm;
+
         if (bind.state)
         {
             // update the state when the group kills a boss
@@ -16958,8 +16967,22 @@ InstancePlayerBind* Player::BindToInstance(DungeonPersistentState* state, bool p
         bind.state = state;
         bind.perm = permanent;
         if (!load)
-            sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Player::BindToInstance: %s(%d) is now bound to map %d, instance %d",
-                      GetName(), GetGUIDLow(), state->GetMapId(), state->GetInstanceId());
+        {
+            // Original (kept for reference, do not restore):
+            //   sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Player::BindToInstance: %s(%d) is now bound to map %d, instance %d",
+            //             GetName(), GetGUIDLow(), state->GetMapId(), state->GetInstanceId());
+            // Diagnostic logging (2026-09-04): was LOG_LVL_DEBUG, which is normally off in
+            // production (same visibility gap that hid the HonorMgr incident - see HonorMgr.cpp
+            // FlushRankPoints() diagnostics comment) - upgraded to LOG_LVL_MINIMAL so this is
+            // actually in Server.log to grep. `load` is deliberately excluded (that's just
+            // restoring existing binds from character_instance at login, not a new event).
+            if (wasBound)
+                sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[InstanceBind] Player %s (guid=%u) rebound to map=%u instance=%u permanent=%u (was instance=%u permanent=%u)",
+                          GetName(), GetGUIDLow(), state->GetMapId(), state->GetInstanceId(), permanent, oldInstanceId, oldPermanent);
+            else
+                sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[InstanceBind] Player %s (guid=%u) bound to map=%u instance=%u permanent=%u (new)",
+                          GetName(), GetGUIDLow(), state->GetMapId(), state->GetInstanceId(), permanent);
+        }
         return &bind;
     }
     else

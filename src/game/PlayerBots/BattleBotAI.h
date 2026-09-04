@@ -172,6 +172,13 @@ public:
     // without this a bot would drink to full, mount (paying that cost), see mana below the
     // 100% WAIT_JOIN threshold again, dismount to drink again, remount, and loop forever.
     bool m_bgWaitJoinRecoveryDone = false;
+    // Timestamp (WorldTimer::getMSTime()) of the last successful UseMount() cast. Used by
+    // DrinkAndEat()'s stationary-while-mounted recovery (see ABLogic.md 8.26) as a cooldown
+    // so a Paladin/Warlock that just paid its 35-45%-mana mount cost and dropped back below
+    // the recovery threshold doesn't immediately dismount again — same oscillation risk
+    // m_bgWaitJoinRecoveryDone guards against during WAIT_JOIN, but this applies for the
+    // whole match since a stationary bot can need to recover more than once.
+    uint32 m_lastMountTime = 0;
     // AB assault target the bot has committed to (AB_GuardPositions index, -1 = none).
     // vPaths_AB routes are stitched from multiple point-to-point segments, so a long
     // journey re-triggers FindABAssaultPosition() at every segment boundary — without this,

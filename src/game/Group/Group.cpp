@@ -2378,6 +2378,13 @@ InstanceGroupBind* Group::BindToInstance(DungeonPersistentState* state, bool per
         ASSERT(state->GetMapId() > 1);
 
         InstanceGroupBind& bind = m_boundInstances[state->GetMapId()];
+
+        // Diagnostic logging (2026-09-04) - see the matching comment in Player::BindToInstance()
+        // for why. Snapshot before `bind` gets mutated below.
+        bool const wasBound = bind.state != nullptr;
+        uint32 const oldInstanceId = wasBound ? bind.state->GetInstanceId() : 0;
+        bool const oldPermanent = bind.perm;
+
         if (bind.state)
         {
             // when a boss is killed or when copying the players's binds to the group
@@ -2420,8 +2427,26 @@ InstanceGroupBind* Group::BindToInstance(DungeonPersistentState* state, bool per
         bind.state = state;
         bind.perm = permanent;
         if (!load)
-            sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Group::BindToInstance: Group (Id: %d) is now bound to map %d, instance %d",
-                      GetId(), state->GetMapId(), state->GetInstanceId());
+        {
+            // Original (kept for reference, do not restore):
+            //   sLog.Out(LOG_BASIC, LOG_LVL_DEBUG, "Group::BindToInstance: Group (Id: %d) is now bound to map %d, instance %d",
+            //             GetId(), state->GetMapId(), state->GetInstanceId());
+            // Diagnostic logging (2026-09-04) - see Player::BindToInstance()'s comment for why
+            // (upgraded off LOG_LVL_DEBUG, distinguishes new vs rebind). No live Player object to
+            // read a name off here (this is keyed by the group leader's guid, who may be
+            // offline), so resolve it through ObjectMgr's cache instead - falls back to just the
+            // guid if the cache has nothing (shouldn't normally happen for a guid that's leading
+            // a live group, but this is a diagnostic log, not gameplay logic, so degrade quietly).
+            std::string leaderName;
+            if (!sObjectMgr.GetPlayerNameByGUID(GetLeaderGuid(), leaderName))
+                leaderName = "?";
+            if (wasBound)
+                sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[InstanceBind] Group led by %s (guid=%u) rebound to map=%u instance=%u permanent=%u (was instance=%u permanent=%u)",
+                          leaderName.c_str(), GetLeaderGuid().GetCounter(), state->GetMapId(), state->GetInstanceId(), permanent, oldInstanceId, oldPermanent);
+            else
+                sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "[InstanceBind] Group led by %s (guid=%u) bound to map=%u instance=%u permanent=%u (new)",
+                          leaderName.c_str(), GetLeaderGuid().GetCounter(), state->GetMapId(), state->GetInstanceId(), permanent);
+        }
         return &bind;
     }
     else
