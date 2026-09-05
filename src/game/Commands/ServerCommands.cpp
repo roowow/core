@@ -345,8 +345,8 @@ static void PrintDbOutboxStatus(ChatHandler* handler, char const* label, DbWrite
     else
         handler->PSendSysMessage("待处理(pending): 查询失败（Redis 连不上，或 consumer group 还没建立）");
 
-    handler->PSendSysMessage("累计(自服务器启动) - 入队: " UI64FMTD "，降级直写: " UI64FMTD "，成功落库: " UI64FMTD "，永久丢弃: " UI64FMTD,
-                     s.totalEnqueued, s.totalFallbackDirect, s.totalApplied, s.totalDropped);
+    handler->PSendSysMessage("累计(自服务器启动) - 入队: " UI64FMTD "，降级缓冲: " UI64FMTD "，降级直写: " UI64FMTD "，成功落库: " UI64FMTD "，永久丢弃: " UI64FMTD,
+                     s.totalEnqueued, s.totalFallbackBuffered, s.totalFallbackDirect, s.totalApplied, s.totalDropped);
 
     if (s.totalDropped > 0)
         handler->PSendSysMessage("|cFFFF0000有条目被永久丢弃过，去 DbOutbox.log 看详情。|r");

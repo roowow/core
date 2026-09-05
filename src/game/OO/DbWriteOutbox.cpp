@@ -145,88 +145,16 @@ void DbWriteOutbox::DisconnectEnqueueRedis()
     }
 }
 
-void DbWriteOutbox::Enqueue(std::string const& sql)
+bool DbWriteOutbox::TryXAdd(std::vector<std::string> const& sqls)
 {
-    // Defensive: m_targetDb is only ever set inside Initialize(), so a call here before
-    // Initialize() has run (shouldn't happen given callers only exist post-startup, but this
-    // is cheap insurance against a null-pointer crash instead of a graceful no-op if it ever
-    // does) has nowhere safe to send the write.
-    if (!m_targetDb)
-        return;
-
-    std::unique_lock<std::mutex> lock(m_redisMutex);
-
-    if (!EnsureEnqueueRedisConnected())
-    {
-        lock.unlock();
-        // Disabled/unavailable - fall straight back to today's exact behavior. This is the
-        // only fallback path: no silent no-op, the write always happens somewhere.
-        m_totalFallbackDirect.fetch_add(1, std::memory_order_relaxed);
-        sLog.Out(LOG_DB_OUTBOX, LOG_LVL_MINIMAL,
-                  "DbWriteOutbox[%s]: enqueue-side redis unreachable, falling back to direct MySQL write (single statement)",
-                  m_streamKey.c_str());
-        m_targetDb->Execute(sql.c_str());
-        return;
-    }
-
-    redisReply* reply = (redisReply*)redisCommand(m_redisCtx, "XADD %s * sql %b", m_streamKey.c_str(), sql.data(), sql.size());
-    bool const ok = reply && reply->type != REDIS_REPLY_ERROR;
-    if (reply)
-        freeReplyObject(reply);
-
-    if (ok)
-    {
-        m_totalEnqueued.fetch_add(1, std::memory_order_relaxed);
-    }
-    else
-    {
-        DisconnectEnqueueRedis();
-        m_redisLastFailTime = time(nullptr);
-        lock.unlock();
-        // Couldn't durably queue it - still don't want to just drop the write, fall back to
-        // the direct (non-durable, but no worse than pre-Outbox) path instead.
-        m_totalFallbackDirect.fetch_add(1, std::memory_order_relaxed);
-        sLog.Out(LOG_DB_OUTBOX, LOG_LVL_MINIMAL,
-                  "DbWriteOutbox[%s]: XADD failed, falling back to direct MySQL write (single statement)",
-                  m_streamKey.c_str());
-        m_targetDb->Execute(sql.c_str());
-    }
-}
-
-void DbWriteOutbox::Enqueue(std::vector<std::string> const& sqls)
-{
-    if (sqls.empty())
-        return;
-
     if (sqls.size() == 1)
     {
-        // Same wire format as always (a plain "sql" field) - no transaction wrapper needed for
-        // a single statement, so just reuse the existing path byte-for-byte.
-        Enqueue(sqls[0]);
-        return;
-    }
-
-    if (!m_targetDb)
-        return;
-
-    std::unique_lock<std::mutex> lock(m_redisMutex);
-
-    if (!EnsureEnqueueRedisConnected())
-    {
-        lock.unlock();
-        // Same fallback principle as the single-statement path (never just drop the write), but
-        // wrapped in a real transaction so "Redis briefly unavailable" doesn't turn an atomic
-        // group into a partially-applied one - this is exactly what the call site's code would
-        // have done pre-Outbox.
-        m_totalFallbackDirect.fetch_add(1, std::memory_order_relaxed);
-        sLog.Out(LOG_DB_OUTBOX, LOG_LVL_MINIMAL,
-                  "DbWriteOutbox[%s]: enqueue-side redis unreachable, falling back to direct MySQL write (%u statements)",
-                  m_streamKey.c_str(), (unsigned)sqls.size());
-        m_targetDb->BeginTransaction();
-        for (std::string const& sql : sqls)
-            m_targetDb->Execute(sql.c_str());
-        m_targetDb->CommitTransaction();
-        return;
+        redisReply* reply = (redisReply*)redisCommand(m_redisCtx, "XADD %s * sql %b",
+            m_streamKey.c_str(), sqls[0].data(), sqls[0].size());
+        bool const ok = reply && reply->type != REDIS_REPLY_ERROR;
+        if (reply)
+            freeReplyObject(reply);
+        return ok;
     }
 
     // Variable field count (count + sql0..sqlN-1), so the fixed-format redisCommand(fmt, ...)
@@ -259,25 +187,203 @@ void DbWriteOutbox::Enqueue(std::vector<std::string> const& sqls)
     bool const ok = reply && reply->type != REDIS_REPLY_ERROR;
     if (reply)
         freeReplyObject(reply);
+    return ok;
+}
 
-    if (ok)
+void DbWriteOutbox::BufferOrDirectWrite(std::vector<std::string> sqls, char const* reason)
+{
     {
-        m_totalEnqueued.fetch_add(1, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> lock(m_fallbackQueueMutex);
+        if (m_fallbackQueue.size() < FALLBACK_QUEUE_MAX)
+        {
+            std::size_t const depth = m_fallbackQueue.size() + 1;
+            std::size_t const count = sqls.size();
+            m_fallbackQueue.push_back({std::move(sqls), time(nullptr)});
+            m_totalFallbackBuffered.fetch_add(1, std::memory_order_relaxed);
+            sLog.Out(LOG_DB_OUTBOX, LOG_LVL_MINIMAL,
+                      "DbWriteOutbox[%s]: %s, buffering (%u statements, queue depth now %u)",
+                      m_streamKey.c_str(), reason, (unsigned)count, (unsigned)depth);
+            return;
+        }
     }
+
+    // Buffer itself is full - well past a brief blip. Fall back to the original immediate
+    // synchronous write so the data is never actually lost, at the cost of stalling this
+    // caller's thread same as before this fix.
+    m_totalFallbackDirect.fetch_add(1, std::memory_order_relaxed);
+    sLog.Out(LOG_DB_OUTBOX, LOG_LVL_ERROR,
+              "DbWriteOutbox[%s]: %s, fallback buffer full (%u), writing directly (%u statements)",
+              m_streamKey.c_str(), reason, (unsigned)FALLBACK_QUEUE_MAX, (unsigned)sqls.size());
+    if (sqls.size() == 1)
+        m_targetDb->Execute(sqls[0].c_str());
     else
     {
-        DisconnectEnqueueRedis();
-        m_redisLastFailTime = time(nullptr);
-        lock.unlock();
-        m_totalFallbackDirect.fetch_add(1, std::memory_order_relaxed);
-        sLog.Out(LOG_DB_OUTBOX, LOG_LVL_MINIMAL,
-                  "DbWriteOutbox[%s]: XADD failed, falling back to direct MySQL write (%u statements)",
-                  m_streamKey.c_str(), (unsigned)sqls.size());
         m_targetDb->BeginTransaction();
         for (std::string const& sql : sqls)
             m_targetDb->Execute(sql.c_str());
         m_targetDb->CommitTransaction();
     }
+}
+
+void DbWriteOutbox::ProcessFallbackQueue()
+{
+    std::deque<PendingFallbackEntry> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(m_fallbackQueueMutex);
+        if (m_fallbackQueue.empty())
+            return;
+        snapshot.swap(m_fallbackQueue);
+    }
+
+    time_t const now = time(nullptr);
+    for (PendingFallbackEntry& entry : snapshot)
+    {
+        {
+            std::unique_lock<std::mutex> lock(m_redisMutex);
+            if (EnsureEnqueueRedisConnected())
+            {
+                if (TryXAdd(entry.sqls))
+                {
+                    lock.unlock();
+                    m_totalEnqueued.fetch_add(1, std::memory_order_relaxed);
+                    continue;
+                }
+                // XADD itself failed on an apparently-live connection - same handling as
+                // Enqueue()'s own XADD-failure branch, so the next EnsureEnqueueRedisConnected()
+                // call (from here or a game thread) doesn't keep trying to reuse a dead context.
+                DisconnectEnqueueRedis();
+                m_redisLastFailTime = time(nullptr);
+            }
+        }
+
+        if (now - entry.queuedTime < time_t(FALLBACK_GRACE_SEC))
+        {
+            // Still within the grace window - Redis might still come back in time, leave it
+            // buffered and check again next pass (at least every ~2s, see FlusherThreadMain()).
+            std::lock_guard<std::mutex> lock(m_fallbackQueueMutex);
+            m_fallbackQueue.push_back(std::move(entry));
+            continue;
+        }
+
+        if (!EnsureFlusherMysqlConnected())
+        {
+            // Can't reach MariaDB from here either right now - keep it buffered, try again
+            // next pass rather than escalating to the game-thread-blocking path.
+            std::lock_guard<std::mutex> lock(m_fallbackQueueMutex);
+            m_fallbackQueue.push_back(std::move(entry));
+            continue;
+        }
+
+        sLog.Out(LOG_DB_OUTBOX, LOG_LVL_ERROR,
+                  "DbWriteOutbox[%s]: fallback entry buffered %llds with no Redis recovery, "
+                  "writing directly via Flusher connection (%u statements)",
+                  m_streamKey.c_str(), (long long)(now - entry.queuedTime), (unsigned)entry.sqls.size());
+
+        bool succeeded;
+        if (entry.sqls.size() == 1)
+            succeeded = m_flusherMysqlConn->Execute(entry.sqls[0]);
+        else
+        {
+            succeeded = m_flusherMysqlConn->BeginTransaction();
+            if (succeeded)
+            {
+                for (std::string const& sql : entry.sqls)
+                {
+                    if (!m_flusherMysqlConn->Execute(sql))
+                    {
+                        succeeded = false;
+                        break;
+                    }
+                }
+                if (succeeded)
+                    succeeded = m_flusherMysqlConn->CommitTransaction();
+                else
+                    m_flusherMysqlConn->RollbackTransaction();
+            }
+        }
+
+        if (succeeded)
+        {
+            m_totalFallbackDirect.fetch_add(1, std::memory_order_relaxed);
+            m_totalApplied.fetch_add(1, std::memory_order_relaxed);
+        }
+        else
+        {
+            // Query-level failure (connection itself was just confirmed alive by
+            // EnsureFlusherMysqlConnected()) - re-buffer for another attempt next pass rather
+            // than classifying transient-vs-permanent like ExecuteAndAck() does; acceptable for
+            // this fallback-only path, see class comment.
+            std::lock_guard<std::mutex> lock(m_fallbackQueueMutex);
+            m_fallbackQueue.push_back(std::move(entry));
+        }
+    }
+}
+
+void DbWriteOutbox::Enqueue(std::string const& sql)
+{
+    // Defensive: m_targetDb is only ever set inside Initialize(), so a call here before
+    // Initialize() has run (shouldn't happen given callers only exist post-startup, but this
+    // is cheap insurance against a null-pointer crash instead of a graceful no-op if it ever
+    // does) has nowhere safe to send the write.
+    if (!m_targetDb)
+        return;
+
+    std::unique_lock<std::mutex> lock(m_redisMutex);
+
+    if (!EnsureEnqueueRedisConnected())
+    {
+        lock.unlock();
+        BufferOrDirectWrite({sql}, "enqueue-side redis unreachable");
+        return;
+    }
+
+    if (TryXAdd({sql}))
+    {
+        m_totalEnqueued.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+
+    DisconnectEnqueueRedis();
+    m_redisLastFailTime = time(nullptr);
+    lock.unlock();
+    BufferOrDirectWrite({sql}, "XADD failed");
+}
+
+void DbWriteOutbox::Enqueue(std::vector<std::string> const& sqls)
+{
+    if (sqls.empty())
+        return;
+
+    if (sqls.size() == 1)
+    {
+        // Same wire format as always (a plain "sql" field) - no transaction wrapper needed for
+        // a single statement, so just reuse the existing path byte-for-byte.
+        Enqueue(sqls[0]);
+        return;
+    }
+
+    if (!m_targetDb)
+        return;
+
+    std::unique_lock<std::mutex> lock(m_redisMutex);
+
+    if (!EnsureEnqueueRedisConnected())
+    {
+        lock.unlock();
+        BufferOrDirectWrite(sqls, "enqueue-side redis unreachable");
+        return;
+    }
+
+    if (TryXAdd(sqls))
+    {
+        m_totalEnqueued.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+
+    DisconnectEnqueueRedis();
+    m_redisLastFailTime = time(nullptr);
+    lock.unlock();
+    BufferOrDirectWrite(sqls, "XADD failed");
 }
 
 DbWriteOutbox::Status DbWriteOutbox::GetStatus()
@@ -287,6 +393,7 @@ DbWriteOutbox::Status DbWriteOutbox::GetStatus()
     s.flusherRedisConnected  = m_flusherRedisConnectedFlag.load(std::memory_order_relaxed);
     s.flusherMysqlConnected  = m_flusherMysqlConnectedFlag.load(std::memory_order_relaxed);
     s.totalEnqueued          = m_totalEnqueued.load(std::memory_order_relaxed);
+    s.totalFallbackBuffered  = m_totalFallbackBuffered.load(std::memory_order_relaxed);
     s.totalFallbackDirect    = m_totalFallbackDirect.load(std::memory_order_relaxed);
     s.totalApplied           = m_totalApplied.load(std::memory_order_relaxed);
     s.totalDropped           = m_totalDropped.load(std::memory_order_relaxed);
@@ -397,7 +504,8 @@ bool DbWriteOutbox::EnsureFlusherMysqlConnected()
         // grep DbOutbox.log for m_streamKey the next time a heartbeat unexpectedly reads down -
         // from "this outbox has simply never had anything to flush yet" (the common case: the
         // flag defaults to false and this function is only reached from ExecuteAndAck(), i.e.
-        // only once the Stream actually has an entry to apply).
+        // only once the Stream actually has an entry to apply - or, since 2026-09-05, from
+        // ProcessFallbackQueue() once a buffered entry has waited out FALLBACK_GRACE_SEC).
         sLog.Out(LOG_DB_OUTBOX, LOG_LVL_MINIMAL,
                  "DbWriteOutbox[%s]: Flusher MySQL connection attempt failed, retrying in %us.",
                  m_streamKey.c_str(), RECONNECT_COOLDOWN_SEC);
@@ -714,12 +822,13 @@ void DbWriteOutbox::LogHeartbeatIfDue()
 
     sLog.Out(LOG_DB_OUTBOX, LOG_LVL_MINIMAL,
              "DbWriteOutbox[%s]: heartbeat - flusherRedis=%s flusherMysql=%s streamLen=%lld "
-             "enqueued=%llu fallbackDirect=%llu applied=%llu dropped=%llu",
+             "enqueued=%llu fallbackBuffered=%llu fallbackDirect=%llu applied=%llu dropped=%llu",
              m_streamKey.c_str(),
              m_flusherRedisConnectedFlag.load(std::memory_order_relaxed) ? "up" : "down",
              m_flusherMysqlConnectedFlag.load(std::memory_order_relaxed) ? "up" : "down",
              (long long)streamLen,
              (unsigned long long)m_totalEnqueued.load(std::memory_order_relaxed),
+             (unsigned long long)m_totalFallbackBuffered.load(std::memory_order_relaxed),
              (unsigned long long)m_totalFallbackDirect.load(std::memory_order_relaxed),
              (unsigned long long)m_totalApplied.load(std::memory_order_relaxed),
              (unsigned long long)m_totalDropped.load(std::memory_order_relaxed));
@@ -729,6 +838,13 @@ void DbWriteOutbox::FlusherThreadMain()
 {
     while (!m_stop)
     {
+        // Deliberately before the EnsureFlusherRedisConnected() check below: ProcessFallbackQueue()
+        // only needs the Enqueue-side connection (m_redisCtx/m_redisMutex), not the Flusher's own
+        // m_flusherRedisCtx, so buffered entries still get retried/escalated on schedule even if
+        // this thread's own stream-consuming connection happens to be down at the same time (the
+        // 500ms sleep below then means this actually runs *more* often during an outage, not less).
+        ProcessFallbackQueue();
+
         if (!EnsureFlusherRedisConnected())
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));

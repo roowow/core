@@ -7,6 +7,7 @@
 #include <mutex>
 #include <ctime>
 #include <memory>
+#include <deque>
 
 struct redisContext;
 class Database;
@@ -87,10 +88,17 @@ public:
         bool    flusherMysqlConnected = false;
         int64_t streamLength = -1;
         int64_t pendingCount = -1;
-        uint64_t totalEnqueued = 0;       // successfully XADD'd
-        uint64_t totalFallbackDirect = 0; // Enqueue() couldn't reach Redis, wrote straight to targetDb instead
-        uint64_t totalApplied = 0;        // Flusher successfully executed against targetDb
-        uint64_t totalDropped = 0;        // Flusher gave up on a permanently-failing entry (see DbOutbox.log)
+        uint64_t totalEnqueued = 0;         // successfully XADD'd
+        // 2026-09-05: split in two once Enqueue()'s fallback stopped writing directly on the
+        // caller's thread every time - see BufferOrDirectWrite()/ProcessFallbackQueue(). Almost
+        // all fallbacks land in totalFallbackBuffered now; totalFallbackDirect should stay near
+        // zero unless the buffer itself filled up or an outage genuinely outlasted the grace
+        // period (both real, both worth noticing - see DbOutbox.log for the ERROR-level line
+        // either one logs).
+        uint64_t totalFallbackBuffered = 0; // Enqueue() couldn't reach Redis, buffered instead of writing immediately
+        uint64_t totalFallbackDirect = 0;   // genuinely wrote straight to targetDb (buffer was full, or a buffered entry outlasted the grace period)
+        uint64_t totalApplied = 0;          // Flusher successfully executed against targetDb
+        uint64_t totalDropped = 0;          // Flusher gave up on a permanently-failing entry (see DbOutbox.log)
     };
     Status GetStatus();
 
@@ -131,6 +139,50 @@ private:
     // was left in the pending list is still sitting there unprocessed.
     bool ReplayPending();
 
+    // Bugfix (2026-09-05): Enqueue()'s fallback used to write straight to targetDb, synchronously,
+    // on the caller's (game/map) thread, every single time the enqueue-side Redis connection was
+    // down - a real production incident showed a brief local-Redis blip alone trigger 1700+ of
+    // these in a few seconds, each a real network round trip to the (remote) target database,
+    // stalling the map thread(s) that hit them. Fix: buffer instead of writing immediately - see
+    // BufferOrDirectWrite()/ProcessFallbackQueue().
+    //
+    // Caller must hold m_redisMutex and have already confirmed EnsureEnqueueRedisConnected()
+    // succeeded (m_redisCtx valid). Returns whether the XADD itself succeeded. Factored out of
+    // Enqueue() so ProcessFallbackQueue() (retrying a buffered entry once Redis looks back up)
+    // can share the exact same wire-format logic instead of duplicating it.
+    bool TryXAdd(std::vector<std::string> const& sqls);
+
+    // Common tail for both Enqueue() overloads' fallback paths (Redis unreachable, or the XADD
+    // itself failed): buffers sqls for ProcessFallbackQueue() to retry shortly, unless the buffer
+    // itself is already full (FALLBACK_QUEUE_MAX) - an extreme, sustained-outage case - in which
+    // case this does today's original immediate synchronous direct write as a last-resort escape
+    // hatch, so a write is never silently dropped. `reason` is just for the log line.
+    void BufferOrDirectWrite(std::vector<std::string> sqls, char const* reason);
+
+    // Flusher-thread-only (called once per FlusherThreadMain() loop iteration, so at least every
+    // ~2s - see the XREADGROUP BLOCK timeout there). For each buffered entry: try to push it into
+    // Redis now (cheap way to check "is it back yet" - if so, the entry rejoins the normal durable
+    // path with no special-casing needed downstream). If Redis is still down and the entry has
+    // been waiting less than FALLBACK_GRACE_SEC, leave it buffered and try again next pass - this
+    // is what makes a brief blip "smooth" (the calling game thread never blocked, and if Redis
+    // recovers within the grace window the entry never even touches MySQL directly). Only past
+    // that grace window does this fall through to writing the entry directly via the Flusher's own
+    // MySQL connection (never the game thread's) - a genuine outage still eventually gets applied,
+    // just off the hot path. Unlike ExecuteAndAck(), a query-level failure here just re-buffers for
+    // another attempt next pass rather than classifying transient-vs-permanent and dropping after N
+    // tries - acceptable for v1 since entries reaching this path are the same SQL the normal Outbox
+    // path already applies successfully day to day; a genuinely malformed statement would just sit
+    // here occupying one of FALLBACK_QUEUE_MAX slots rather than being surfaced loudly.
+    void ProcessFallbackQueue();
+
+    struct PendingFallbackEntry
+    {
+        std::vector<std::string> sqls;
+        time_t queuedTime;
+    };
+    std::mutex                        m_fallbackQueueMutex;
+    std::deque<PendingFallbackEntry>  m_fallbackQueue;      // guarded by m_fallbackQueueMutex
+
     Database*   m_targetDb = nullptr;
     std::string m_dbConnectionInfo;
     std::string m_streamKey;
@@ -165,12 +217,23 @@ private:
     std::atomic<bool>     m_flusherRedisConnectedFlag{false};
     std::atomic<bool>     m_flusherMysqlConnectedFlag{false};
     std::atomic<uint64_t> m_totalEnqueued{0};
+    std::atomic<uint64_t> m_totalFallbackBuffered{0};
     std::atomic<uint64_t> m_totalFallbackDirect{0};
     std::atomic<uint64_t> m_totalApplied{0};
     std::atomic<uint64_t> m_totalDropped{0};
 
     static uint32 const RECONNECT_COOLDOWN_SEC = 30;
     static uint32 const HEARTBEAT_LOG_INTERVAL_SEC = 300; // 5 minutes
+    // Sized off a real incident (2026-09-05): a few seconds of local-Redis blip alone produced
+    // ~1700 fallback entries. 10000 leaves comfortable headroom over that for a worse blip, at a
+    // negligible memory cost (SQL strings are a few hundred bytes each - low single-digit MB even
+    // completely full).
+    static std::size_t const FALLBACK_QUEUE_MAX = 10000;
+    // How long an entry waits in the fallback buffer for Redis to come back on its own before
+    // ProcessFallbackQueue() gives up and writes it directly. Same incident's blip resolved on its
+    // own within ~5s; 10s leaves margin so a slightly-longer blip still gets smoothed over instead
+    // of paying the direct-MySQL-write cost.
+    static uint32 const FALLBACK_GRACE_SEC = 10;
     // Max time Shutdown() will wait for the Stream to fully drain before giving up and stopping
     // the Flusher anyway (see Shutdown()'s comment). Generous enough to absorb a shutdown-time
     // burst (e.g. many players logging out at once) without hanging process shutdown forever if
