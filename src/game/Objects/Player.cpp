@@ -24458,7 +24458,12 @@ if (logFiles[logType] && m_fileLevel >= logLevel)                             \
     va_start(ap, format);                                                     \
     vfprintf(logFiles[logType], format, ap);                                  \
     fputs("\n", logFiles[logType]);                                           \
-    fflush(logFiles[logType]);                                                \
+    /* Bugfix (2026-09-05): see the matching fix in Log.cpp's own */          \
+    /* LOG_TO_FILE_HELPER - no level flushes immediately anymore, so many */  \
+    /* threads writing to the same shared log file don't serialize on */     \
+    /* real disk writes during a burst of activity. Normal libc buffering */ \
+    /* still flushes on a full buffer or a clean shutdown's fclose().  */    \
+    /* Original (kept for reference, do not restore): fflush(logFiles[logType]); */\
     va_end(ap);                                                               \
 }                                                                             \
 

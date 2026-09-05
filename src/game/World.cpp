@@ -1976,9 +1976,21 @@ void World::SetInitialWorldSettings()
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "==========================================================");
     sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "");
 
-    sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Initializing WebChatMgr...");
-    sWebChatMgr.Initialize(sConfig.GetStringDefault("WebChat.Redis.Host", "127.0.0.1"),
-                            sConfig.GetIntDefault("WebChat.Redis.Port", 6379), realmID);
+    // Bugfix (2026-09-05): there was no way to actually disable WebChat - removing
+    // WebChat.Redis.Host from the config just fell back to 127.0.0.1:6379, which
+    // silently connects instead of disabling if a local redis-server happens to be
+    // listening there too (eg. for LocalRedis.Socket's TCP port, if it has one). No
+    // default host now - an unset/empty Host means "disabled", full stop, independent
+    // of what else is running on that port - needed to rule WebChat in/out during
+    // troubleshooting without adding a second, redundant on/off switch.
+    std::string const webChatHost = sConfig.GetStringDefault("WebChat.Redis.Host", "");
+    if (!webChatHost.empty())
+    {
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "Initializing WebChatMgr...");
+        sWebChatMgr.Initialize(webChatHost, sConfig.GetIntDefault("WebChat.Redis.Port", 6379), realmID);
+    }
+    else
+        sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL, "WebChatMgr disabled (WebChat.Redis.Host not set).");
 
     // Separate from WebChatMgr's Redis (which may legitimately be remote, see WebChat.md) -
     // this one only ever talks to a local redis-server over a Unix socket, or is disabled

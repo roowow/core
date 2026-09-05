@@ -156,13 +156,22 @@ void WebChatMgr::Shutdown()
     // Loop up to 6 s: the thread may be in its reconnect sleep (m_subFd=-1)
     // when we first check.  If m_subFd stays -1 the whole time, the thread
     // will wake from its sleep, see m_stop=true, and exit on its own.
-    for (int w = 0; w < 60; ++w)
+    // Bugfix (2026-09-05): guarded on joinable() - Initialize() returns early without
+    // starting m_subThread at all whenever Redis wasn't reachable at startup (or now,
+    // WebChat.Enabled=0), and this loop used to run its full 6s wait regardless, since
+    // m_subFd defaults to -1 whether the thread ran and gave up or never existed. Added
+    // 6 needless seconds to every such shutdown - only worth waiting if there's an actual
+    // thread on the other end to interrupt.
+    if (m_subThread.joinable())
     {
-        int fd = m_subFd.load(std::memory_order_acquire);
-        if (fd >= 0) { ::shutdown(fd, SHUT_RDWR); break; }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        for (int w = 0; w < 60; ++w)
+        {
+            int fd = m_subFd.load(std::memory_order_acquire);
+            if (fd >= 0) { ::shutdown(fd, SHUT_RDWR); break; }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        m_subThread.join();
     }
-    if (m_subThread.joinable()) m_subThread.join();
     // Wake m_pubThread out of its condition_variable wait (setting m_stop above doesn't,
     // by itself, wake a thread already parked in wait()) and let it exit; it may finish
     // whatever single task it's mid-flight on first (bounded by RedisConnectTimeout()/

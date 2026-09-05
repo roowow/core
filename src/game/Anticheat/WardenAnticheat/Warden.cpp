@@ -87,7 +87,11 @@ void Log::OutWarden(Warden const* warden, LogLevel logLevel, char const* format,
         va_end(ap);
 
         fprintf(logFiles[LOG_ANTICHEAT], "\n");
-        fflush(logFiles[LOG_ANTICHEAT]);
+        // Bugfix (2026-09-05): same fix as Log::OutFile()/LOG_TO_FILE_HELPER - fflush()
+        // on every line let many threads writing to the same shared log file serialize
+        // on the real disk write. Normal libc buffering still flushes on a full buffer
+        // or a clean shutdown.
+        // Original (kept for reference, do not restore): fflush(logFiles[LOG_ANTICHEAT]);
     }
 }
 

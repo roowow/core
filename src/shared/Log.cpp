@@ -352,7 +352,19 @@ if (logFiles[logType] && m_fileLevel >= logLevel)                             \
     va_start(ap, format);                                                     \
     vfprintf(logFiles[logType], format, ap);                                  \
     fputs("\n", logFiles[logType]);                                           \
-    fflush(logFiles[logType]);                                                \
+    /* Bugfix (2026-09-05): fflush() on every single line forced every */     \
+    /* thread writing to a shared log file (eg. all map threads writing to */ \
+    /* Perf.log at once) to serialize on the real fsync-ish write, not just */\
+    /* libc's internal per-stream lock - during a burst of "Slow ..." lines */\
+    /* from many maps at once this became a genuine cross-thread stall */    \
+    /* (low CPU, everyone just waiting their turn to flush). No level flushes*/\
+    /* immediately anymore, ERROR included - a hard crash can lose whatever */\
+    /* is still sitting in a log file's buffer (there is no in-process */    \
+    /* crash handler that flushes on the way down), accepted as worth it */  \
+    /* to never let logging I/O itself become a cross-thread stall. Normal */\
+    /* libc buffering still flushes automatically when a buffer fills or */  \
+    /* the file is closed on a clean shutdown.                     */        \
+    /* Original (kept for reference, do not restore): fflush(logFiles[logType]); */\
     va_end(ap);                                                               \
 }                                                                             \
 
@@ -445,7 +457,10 @@ void Log::OutFile(LogType logType, LogLevel logLevel, std::string const& str) co
 
     fputs(str.c_str(), logFiles[logType]);
     fputs("\n", logFiles[logType]);
-    fflush(logFiles[logType]);
+    // Bugfix (2026-09-05): same fix as LOG_TO_FILE_HELPER above - fflush() on every line
+    // let many threads writing to the same shared log file serialize on the real disk
+    // write. Normal libc buffering still flushes on a full buffer or a clean shutdown.
+    // Original (kept for reference, do not restore): fflush(logFiles[logType]);
 }
 
 bool Log::IsSmartLog(uint32 entry, uint32 guid) const
