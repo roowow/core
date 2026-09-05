@@ -1252,16 +1252,21 @@ void Player::Update(uint32 update_diff, uint32 p_time)
     // thing else is charged to "other" by subtraction. Only logged past the same 20ms threshold
     // Map.cpp already uses, so this line shows up alongside "Slow player update" for the same
     // event, and the cost of the timers themselves stays negligible on the fast path.
+    // areaCheck added 2026-09-05: first round of data showed "other" dominating (avg 38ms of a
+    // 41ms total, 99% of it on continents out of combat) - this times the periodic
+    // UpdateTerainEnvironmentFlags/CheckAreaExploreAndOutdoor/LoadMapCellsAround block (grid
+    // loading around the player), the leading suspect given it's continent-relevant and only
+    // runs occasionally rather than every tick.
     uint32 const updateStartTime = WorldTimer::getMSTime();
-    uint32 unitUpdateTime = 0, stealthDetectTime = 0, saveToDBTime = 0;
+    uint32 unitUpdateTime = 0, stealthDetectTime = 0, saveToDBTime = 0, areaCheckTime = 0;
     auto logBreakdownIfSlow = [&]()
     {
         uint32 const totalTime = WorldTimer::getMSTimeDiffToNow(updateStartTime);
         if (totalTime >= 20)
             sLog.Out(LOG_PERFORMANCE, LOG_LVL_BASIC,
-                      "Player update breakdown: %ums. Player '%s' (GUID: %u) [unitUpdate %ums|stealthDetect %ums|saveToDB %ums|other %ums]",
-                      totalTime, GetName(), GetGUIDLow(), unitUpdateTime, stealthDetectTime, saveToDBTime,
-                      totalTime - unitUpdateTime - stealthDetectTime - saveToDBTime);
+                      "Player update breakdown: %ums. Player '%s' (GUID: %u) [unitUpdate %ums|stealthDetect %ums|saveToDB %ums|areaCheck %ums|other %ums]",
+                      totalTime, GetName(), GetGUIDLow(), unitUpdateTime, stealthDetectTime, saveToDBTime, areaCheckTime,
+                      totalTime - unitUpdateTime - stealthDetectTime - saveToDBTime - areaCheckTime);
     };
 
     UpdateMirrorTimers(update_diff);
@@ -1508,9 +1513,11 @@ void Player::Update(uint32 update_diff, uint32 p_time)
         {
             if (m_areaCheckTimer <= p_time)
             {
+                uint32 const areaCheckStart = WorldTimer::getMSTime();
                 UpdateTerainEnvironmentFlags();
                 CheckAreaExploreAndOutdoor();
                 LoadMapCellsAround(GetMap()->GetGridActivationDistance());
+                areaCheckTime = WorldTimer::getMSTimeDiffToNow(areaCheckStart);
                 m_areaCheckTimer = 0;
             }
             else

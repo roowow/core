@@ -1076,7 +1076,9 @@ struct go_ai_suppression : public GameObjectAI
             me->SetLootState(GO_READY);
 
             // Courtesy cleanup: clear the debuff from players/pets in range now that this device
-            // has gone quiet, instead of waiting out its remaining duration.
+            // has gone quiet, instead of waiting out its remaining duration. Deliberately kept
+            // wider than the 20y application radius below (removal is a harmless no-op on anyone
+            // who doesn't have the aura, so casting a wider net here is just extra safety margin).
             float radius = float(me->GetGOInfo()->trap.radius);
             if (radius < 1.0f) radius = 30.0f;
             std::list<Player*> players;
@@ -1105,12 +1107,25 @@ struct go_ai_suppression : public GameObjectAI
                     // Cast only on players (and their pets) - creatures must not be slowed by
                     // suppression devices.
                     uint32 spellId = me->GetGOInfo()->trap.spellId;
+                    // 2026-09-05 bugfix: gameobject_template.data2 (trap.radius) is 0 for this GO,
+                    // so this fallback is what's actually in effect - sniff data (see
+                    // scriptdev2-classic#32) puts spell 22247's real radius at 20y, not 30y.
                     float radius = float(me->GetGOInfo()->trap.radius);
-                    if (radius < 1.0f) radius = 30.0f;
+                    if (radius < 1.0f) radius = 20.0f;
                     std::list<Player*> players;
                     me->GetAlivePlayerListInRange(me, players, radius);
                     for (Player* pPlayer : players)
                     {
+                        // 2026-09-05 bugfix: AddAura() bypasses the whole spell-cast pipeline
+                        // (no target checks, no LOS) - it's a raw "attach this aura" call, so the
+                        // BWLSuppressionAuraScript::OnCheckTarget stealth check below never runs
+                        // for this application path. Stealth immunity (wowpedia "Suppression
+                        // Device") and the wall-blocking behavior (azerothcore#11293) both have to
+                        // be enforced here instead.
+                        if (pPlayer->HasStealthAura())
+                            continue;
+                        if (!me->IsWithinLOSInMap(pPlayer))
+                            continue;
                         pPlayer->AddAura(spellId);
                         if (Pet* pet = pPlayer->GetPet())
                             pet->AddAura(spellId);
