@@ -5862,8 +5862,21 @@ void BattleBotAI::UpdateOutOfCombatAI()
     // next to a visible enemy before dismounting again to actually fight it. Same radius as
     // the existing "is there anyone to fight" checks elsewhere in this file (e.g.
     // DoGraveyardJump's fallback) — cheap peek, no side effects, doesn't commit to a target.
-    if (!me->IsMounted() && !me->GetVictim() && !me->SelectRandomUnfriendlyTarget(nullptr, 30.0f) && UseMount())
-        return;
+    //
+    // Flag carriers are excluded from that check (2026-09-05, see ABLogic.md 8.40): a nearby
+    // enemy flag carrier isn't "about to be melee'd this tick", they're running away — the
+    // right response is to mount up and close the distance, not stay on foot waiting to
+    // engage. Without this a Rogue especially would sit there stealthed at walking speed,
+    // never catching a flag runner (stealth grants no speed bonus and blocks its own attempt
+    // to mount, see UpdateOutOfCombatAI_Rogue()'s stealth gate below for the same fix).
+    if (!me->IsMounted() && !me->GetVictim())
+    {
+        Unit* pNearbyEnemy = me->SelectRandomUnfriendlyTarget(nullptr, 30.0f);
+        bool const nearbyEnemyIsFlagCarrier = pNearbyEnemy &&
+            (pNearbyEnemy->HasAura(AURA_WARSONG_FLAG) || pNearbyEnemy->HasAura(AURA_SILVERWING_FLAG));
+        if ((!pNearbyEnemy || nearbyEnemyIsFlagCarrier) && UseMount())
+            return;
+    }
 
     // Undead: Cannibalize - channel HP recovery from nearby corpse
     if (m_racialSpells.pCannibalize && me->GetHealthPercent() < 70.0f &&
@@ -7874,10 +7887,17 @@ void BattleBotAI::UpdateOutOfCombatAI_Rogue()
        !me->HasAura(AURA_SILVERWING_FLAG))
     {
         // In WSG, only stealth when an enemy is nearby — running stealthed is
-        // too slow and blocks mounting for the cross-map sprint.
+        // too slow and blocks mounting for the cross-map sprint. But not when that
+        // "nearby enemy" is a flag carrier (2026-09-05, see ABLogic.md 8.40): they're
+        // running, not about to be ambushed — stealthing here only slows this bot down
+        // (no speed bonus) and blocks the mount attempt that would actually catch them,
+        // so a rogue that spots a runner would uselessly shadow them on foot forever.
         bool const inWSG = me->GetBattleGround() &&
                            me->GetBattleGround()->GetTypeID() == BATTLEGROUND_WS;
-        bool const enemyNearby = !inWSG || me->SelectRandomUnfriendlyTarget(nullptr, 40.0f);
+        Unit* pNearbyEnemy = inWSG ? me->SelectRandomUnfriendlyTarget(nullptr, 40.0f) : nullptr;
+        bool const nearbyEnemyIsFlagCarrier = pNearbyEnemy &&
+            (pNearbyEnemy->HasAura(AURA_WARSONG_FLAG) || pNearbyEnemy->HasAura(AURA_SILVERWING_FLAG));
+        bool const enemyNearby = !inWSG || (pNearbyEnemy && !nearbyEnemyIsFlagCarrier);
         if (enemyNearby && DoCastSpell(me, m_spells.rogue.pStealth) == SPELL_CAST_OK)
             return;
     }
