@@ -75,14 +75,14 @@ static timeval RedisConnectTimeout()
 // Bounds redisGetReply() on the *established* publisher connection (m_pubCtx). Without this,
 // RedisConnectTimeout() above only protects the initial TCP handshake - once connected, a
 // socket that goes quiet (packet loss, half-open connection, no clean RST) has no application-
-// level timeout at all. Publish()/ReconnectPub() now run on m_pubThread (see PublishThread()),
-// not the main game thread - WriteWebChat() et al. only build the JSON/args there and hand the
-// actual send off via EnqueuePublish() - so a stuck socket no longer stalls every player.
-// NotifyBgAfkViaJianJia() is the one deliberate exception still calling these inline on the
-// main thread (see its declaration in WebChatMgr.h for why); this timeout is what bounds *that*
-// call's worst case. WebChat messages are not worth protecting for reliability (losing one is
-// fine), so this is deliberately short - it only needs to bound the stall, Publish()'s existing
-// reconnect-and-retry-once already covers the "just missed one message" case.
+// level timeout at all. Publish()/ReconnectPub() only ever run on m_pubThread (see
+// PublishThread()) - every public method, NotifyBgAfkViaJianJia() included as of 2026-09-05,
+// only builds the JSON/args on the caller's thread and hands the actual send off via
+// EnqueuePublish() - so a stuck socket stalls m_pubThread's own queue draining, never a map's
+// player-update thread. WebChat messages are not worth protecting for reliability (losing one
+// is fine), so this is deliberately short - it only needs to bound m_pubThread's own stall,
+// Publish()'s existing reconnect-and-retry-once already covers the "just missed one message"
+// case.
 static timeval RedisRuntimeTimeout()
 {
     timeval tv;
@@ -657,11 +657,26 @@ void WebChatMgr::ForwardChannelChatToJianJia(std::string const& senderName, std:
 bool WebChatMgr::NotifyBgAfkViaJianJia(Player* player, BattleGround* /*bg*/, uint8 stage, uint8 afkLevel,
     char const* noticeType)
 {
-    // Deliberately synchronous - see the comment on this declaration in WebChatMgr.h.
+    // Bugfix (2026-09-05): this used to be the one deliberately-synchronous exception in this
+    // class, calling redisCommand() straight from whatever thread the battleground's own AFK
+    // check happens to run on (a per-map worker thread - continent or instance). When the far
+    // side Redis link (different datacenter) hiccups, ReconnectPub()'s up-to-2s
+    // RedisConnectTimeout() blocked that thread - and since it holds m_pubMutex meanwhile,
+    // every other caller on every other map that touches WebChat queued up behind it too,
+    // producing a multi-second stall on several unrelated maps at once (observed 2026-09-05
+    // 14:04:27: three unrelated maps each froze ~2.4-2.7s simultaneously).
+    //
+    // Fixed by adopting the same pattern every other method in this class already uses: a fast
+    // lock-free pre-check on m_pubCtx (only m_pubThread ever writes it - see its declaration),
+    // then hand the actual publish off to m_pubThread via EnqueuePublish() instead of doing it
+    // inline here. The trade-off: the return value used to mean "the publish definitely
+    // succeeded"; now it means "WebChat was known-up a moment ago" (same signal WriteWebChat()
+    // et al. already rely on). Concretely, a caller here can now get true back and then have the
+    // async publish itself fail moments later, silently losing that one AFK notice - same
+    // "losing one is fine" trade-off already accepted everywhere else in this class (see
+    // MAX_PUB_QUEUE), and a minor one here since a still-AFK player gets re-checked next
+    // interval anyway. Clearly preferable to blocking a shared map thread for up to 2 seconds.
     if (!m_pubCtx || m_jianJiaName.empty() || !player) return false;
-    SigpipeGuard guard;
-    std::lock_guard<std::mutex> lock(m_pubMutex);
-    if (!m_pubCtx) return false;
     std::string zoneName;
     if (AreaEntry const* zoneEntry = AreaEntry::GetById(player->GetZoneId()))
     {
@@ -687,11 +702,17 @@ bool WebChatMgr::NotifyBgAfkViaJianJia(Player* player, BattleGround* /*bg*/, uin
     j += ",\"zone\":\"";
     j += EscapeJson(zoneName);
     j += "\"}";
-    redisReply* r = (redisReply*)redisCommand(m_pubCtx, "PUBLISH %s %b",
-        m_keyJianJiaIn.c_str(), j.data(), j.size());
-    if (r) { freeReplyObject(r); return true; }
-    ReconnectPub();
-    return false;
+    EnqueuePublish([this, j = std::move(j)]()
+    {
+        SigpipeGuard guard;
+        std::lock_guard<std::mutex> lock(m_pubMutex);
+        if (!m_pubCtx) return;
+        redisReply* r = (redisReply*)redisCommand(m_pubCtx, "PUBLISH %s %b",
+            m_keyJianJiaIn.c_str(), j.data(), j.size());
+        if (r) freeReplyObject(r);
+        else ReconnectPub();
+    });
+    return true;
 }
 
 void WebChatMgr::NotifyWorldBroadcastToJianJia(std::string const& broadcastMsg, std::string const& sender)

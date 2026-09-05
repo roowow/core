@@ -57,11 +57,14 @@ public:
                     uint32 contextId = 0, bool hardcore = false, bool tianxuan = false,
                     uint32 createTime = 0, uint8 gender = 2,  // gender: see GENDER_NONE note above
                     std::string const& guildName = "", bool turtle = false);  // chatContext: "world"/"guild"; contextId: guild_id for guild
-    // Deliberately still synchronous (unlike the rest of this class) - the return value
-    // gates an immediate fallback notice (see BattleGroundAfkMgr.cpp), which an async
-    // fire-and-forget publish could not provide without silently dropping the player's
-    // notice on a Redis outage. Low frequency (periodic AFK checks, not per chat message),
-    // so it wasn't part of the CMSG_MESSAGECHAT stall this async conversion targets.
+    // Bugfix (2026-09-05): used to be deliberately synchronous (unlike the rest of this class)
+    // so its return value could gate an immediate fallback notice (see BattleGroundAfkMgr.cpp)
+    // - but that meant a Redis reconnect stall (up to RedisConnectTimeout(), 2s) blocked
+    // whatever per-map thread the caller's battleground happened to run on, and other WebChat
+    // callers queued up behind it on m_pubMutex, stalling several unrelated maps at once. Now
+    // async like everything else in this class (see .cpp): the return value means "WebChat was
+    // known-up a moment ago", not "the publish definitely succeeded" - a lost notice on a
+    // genuine race is acceptable (see MAX_PUB_QUEUE), the player gets re-checked next interval.
     bool        NotifyBgAfkViaJianJia(Player* player, BattleGround* bg, uint8 stage, uint8 afkLevel,
                     char const* noticeType);   // returns false → caller should use fallback
     void        NotifyWorldBroadcastToJianJia(std::string const& broadcastMsg, std::string const& sender = "");
