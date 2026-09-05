@@ -34,6 +34,9 @@
 #include "BattleGround.h"
 #include "ThreadPool.h"
 #include "IO/Multithreading/CreateThread.h"
+#include "Config/Config.h"
+#include <sstream>
+#include <set>
 
 typedef MaNGOS::ClassLevelLockable<MapManager, std::recursive_mutex> MapManagerLock;
 INSTANTIATE_SINGLETON_2(MapManager, MapManagerLock);
@@ -64,12 +67,27 @@ MapManager::Initialize()
 {
     InitStateMachine();
     InitMaxInstanceId();
+
+    // 2026-09-05: lets specific instanceable maps (raids/BGs/dungeons players hit often) be
+    // preloaded+pinned individually, without paying for Terrain.Preload.Instances' all-~30-maps
+    // cost. Space-separated map ids, same parsing convention as Smartlog.ExtraEntries/
+    // ExtraGuids (Log.cpp) - whitespace-delimited via istringstream, not comma-delimited.
+    std::set<uint32> preloadMapList;
+    {
+        std::istringstream ss(sConfig.GetStringDefault("Terrain.Preload.MapList", ""));
+        uint32 mapId;
+        while (ss >> mapId)
+            preloadMapList.insert(mapId);
+    }
+
     for (auto itr = sMapStorage.begin<MapEntry>(); itr < sMapStorage.end<MapEntry>(); ++itr)
     {
         bool load = false;
         if (itr->IsContinent() && sWorld.getConfig(CONFIG_BOOL_TERRAIN_PRELOAD_CONTINENTS))
             load = true;
         if (itr->Instanceable() && sWorld.getConfig(CONFIG_BOOL_TERRAIN_PRELOAD_INSTANCES))
+            load = true;
+        if (preloadMapList.count(itr->id))
             load = true;
         if (!load)
             continue;

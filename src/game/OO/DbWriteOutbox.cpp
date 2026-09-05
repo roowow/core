@@ -162,6 +162,9 @@ void DbWriteOutbox::Enqueue(std::string const& sql)
         // Disabled/unavailable - fall straight back to today's exact behavior. This is the
         // only fallback path: no silent no-op, the write always happens somewhere.
         m_totalFallbackDirect.fetch_add(1, std::memory_order_relaxed);
+        sLog.Out(LOG_DB_OUTBOX, LOG_LVL_MINIMAL,
+                  "DbWriteOutbox[%s]: enqueue-side redis unreachable, falling back to direct MySQL write (single statement)",
+                  m_streamKey.c_str());
         m_targetDb->Execute(sql.c_str());
         return;
     }
@@ -183,6 +186,9 @@ void DbWriteOutbox::Enqueue(std::string const& sql)
         // Couldn't durably queue it - still don't want to just drop the write, fall back to
         // the direct (non-durable, but no worse than pre-Outbox) path instead.
         m_totalFallbackDirect.fetch_add(1, std::memory_order_relaxed);
+        sLog.Out(LOG_DB_OUTBOX, LOG_LVL_MINIMAL,
+                  "DbWriteOutbox[%s]: XADD failed, falling back to direct MySQL write (single statement)",
+                  m_streamKey.c_str());
         m_targetDb->Execute(sql.c_str());
     }
 }
@@ -213,6 +219,9 @@ void DbWriteOutbox::Enqueue(std::vector<std::string> const& sqls)
         // group into a partially-applied one - this is exactly what the call site's code would
         // have done pre-Outbox.
         m_totalFallbackDirect.fetch_add(1, std::memory_order_relaxed);
+        sLog.Out(LOG_DB_OUTBOX, LOG_LVL_MINIMAL,
+                  "DbWriteOutbox[%s]: enqueue-side redis unreachable, falling back to direct MySQL write (%u statements)",
+                  m_streamKey.c_str(), (unsigned)sqls.size());
         m_targetDb->BeginTransaction();
         for (std::string const& sql : sqls)
             m_targetDb->Execute(sql.c_str());
@@ -261,6 +270,9 @@ void DbWriteOutbox::Enqueue(std::vector<std::string> const& sqls)
         m_redisLastFailTime = time(nullptr);
         lock.unlock();
         m_totalFallbackDirect.fetch_add(1, std::memory_order_relaxed);
+        sLog.Out(LOG_DB_OUTBOX, LOG_LVL_MINIMAL,
+                  "DbWriteOutbox[%s]: XADD failed, falling back to direct MySQL write (%u statements)",
+                  m_streamKey.c_str(), (unsigned)sqls.size());
         m_targetDb->BeginTransaction();
         for (std::string const& sql : sqls)
             m_targetDb->Execute(sql.c_str());
