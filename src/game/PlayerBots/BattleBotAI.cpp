@@ -2278,7 +2278,19 @@ bool BattleBotAI::AttackStart(Unit* pVictim)
 
     m_isBuffing = false;
 
-    if (me->IsMounted())
+    // 2026-09-06 (see ABLogic.md 8.41): this used to unconditionally dismount here, before
+    // BeginChasing() even started closing the distance — fine for a target already in melee
+    // range, but for a WSG flag carrier (who's running, often first "selected" while still
+    // far away) it threw away the whole point of 8.40 letting the bot mount up to chase:
+    // it got yanked back onto its feet the instant it decided to fight, then walked the
+    // rest of the way. Stay mounted while a flag-carrier target is still far off; dismount
+    // as soon as it's close enough that continuing to ride wouldn't actually help (melee
+    // needs to swing, and by 10y most casters are within their own spell range too). Every
+    // other target keeps the original instant-dismount — you can't fight mounted, and
+    // there's no equivalent "still need to catch up" case for a target that isn't fleeing.
+    bool const isFlagCarrierTarget = pVictim->HasAura(AURA_WARSONG_FLAG) || pVictim->HasAura(AURA_SILVERWING_FLAG);
+    bool const stayMountedToChase = isFlagCarrierTarget && me->GetDistance(pVictim) > 10.0f;
+    if (me->IsMounted() && !stayMountedToChase)
         me->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
 
     if (me->Attack(pVictim, true))

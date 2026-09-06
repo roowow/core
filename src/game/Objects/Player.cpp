@@ -19913,6 +19913,18 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
     if (!pItem)
         return false;
 
+    // Bugfix: unlike every other money+item transaction (trade/mail/auction house/petitions -
+    // see their handlers' own SaveInventoryAndGoldToDB() calls), a vendor purchase never forced
+    // an immediate save here. Gold is part of Player::SaveToDB()'s big `characters` REPLACE INTO,
+    // which (since the Phase3 async-outbox migration, see HPHA.md) only queues the write instead
+    // of blocking until it's actually applied - so relogging fast enough after a purchase could
+    // load a `characters` row from before the money was deducted while the item (already
+    // committed synchronously by _SaveInventory()) stays in the inventory: a real gold dupe, not
+    // just a display lag. SaveGoldToDB()'s own comment already warned about exactly this
+    // ("relogging before the query completes") - this was the one transaction type missing the
+    // fast-save that closes it.
+    SaveInventoryAndGoldToDB();
+
     uint32 new_count = pCreature->UpdateVendorItemCurrentCount(crItem, totalCount);
 
     // SMSG_LIST_INVENTORY numbers only visible rows. Report that same

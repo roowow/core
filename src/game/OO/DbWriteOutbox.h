@@ -102,6 +102,15 @@ public:
     };
     Status GetStatus();
 
+    // One entry as delivered by an XREADGROUP call - public only so the file-local
+    // ParseStreamEntries() in DbWriteOutbox.cpp (a free function, matching this class's existing
+    // parser-function style) can build a vector of these; not meant to be used by outside callers.
+    struct StreamEntry
+    {
+        std::string id;
+        std::vector<std::string> sqls;
+    };
+
 private:
     void FlusherThreadMain();
     // Periodically (see HEARTBEAT_LOG_INTERVAL_SEC) writes a one-line status summary to
@@ -131,6 +140,25 @@ private:
     // in BeginTransaction()/CommitTransaction() on the Flusher's own connection, all-or-nothing -
     // any statement failing rolls back and the whole group is treated as one retry/drop unit.
     bool ExecuteAndAck(std::string const& entryId, std::vector<std::string> const& sqls);
+
+    // New-server-migration incident (2026-09-06, see HPHA.md): the Flusher's per-entry MySQL
+    // round trip (~14ms measured against a remote target after moving to a farther-away host)
+    // caps single-entry throughput at roughly 70/s - nowhere near enough for a busy characters
+    // table, so the Stream backlog only ever grew. Fix: read a batch of entries per XREADGROUP
+    // call, and for however many of them are plain single-statement entries (the overwhelming
+    // majority - character saves etc.), join their SQL with ';' and send them as ONE
+    // MySQLConnection::ExecuteMultiBatch() call - one round trip pays for the whole run instead
+    // of one per entry. Group entries (sqls.size()>1, e.g. DeleteInstanceFromDB's all-or-nothing
+    // multi-statement units) are deliberately excluded from this combining and still go through
+    // ExecuteAndAck() one at a time, unchanged - correctness of their atomicity guarantee matters
+    // more than the (rare) throughput they'd otherwise contribute. Whatever a batch's
+    // ExecuteMultiBatch() call didn't get to (MySQL stops a multi-statement batch at the first
+    // error) falls back to the same proven ExecuteAndAck() retry/backoff/drop path, one at a
+    // time, starting from the statement that failed - so a single bad entry mid-batch still only
+    // costs that one entry (and whatever ran after it in the same batch, which just got slightly
+    // delayed, not lost) exactly like it would outside of batching.
+    void ExecuteAndAckBatch(std::vector<StreamEntry> const& entries);
+
     // Drains anything left pending for our (fixed) consumer from a previous crash/restart,
     // executing each in order before moving on to genuinely new entries. Returns true if the
     // backlog was fully drained (caller can stop worrying about it until the next reconnect),
@@ -234,6 +262,14 @@ private:
     // own within ~5s; 10s leaves margin so a slightly-longer blip still gets smoothed over instead
     // of paying the direct-MySQL-write cost.
     static uint32 const FALLBACK_GRACE_SEC = 10;
+    // How many Stream entries the Flusher pulls per XREADGROUP call and, for the plain single-
+    // statement ones among them, combines into one ExecuteMultiBatch() round trip - see
+    // ExecuteAndAckBatch(). Sized from a real measurement (2026-09-06, see HPHA.md): ~14ms
+    // measured per round trip against this deployment's target DB gives diminishing returns past
+    // ~50 (14ms/50 + ~1ms server-side execution per statement is already close to the per-
+    // statement floor that no amount of batching can remove) - larger batches buy little more
+    // throughput while increasing how many entries a single mid-batch failure delays.
+    static std::size_t const FLUSHER_BATCH_SIZE = 50;
     // Max time Shutdown() will wait for the Stream to fully drain before giving up and stopping
     // the Flusher anyway (see Shutdown()'s comment). Generous enough to absorb a shutdown-time
     // burst (e.g. many players logging out at once) without hanging process shutdown forever if

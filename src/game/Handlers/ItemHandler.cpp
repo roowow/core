@@ -769,6 +769,14 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem const& pack
     }
 
     _player->LogModifyMoney(money, "SellItem", pCreature->GetObjectGuid(), pItem->GetEntry());
+
+    // Bugfix: same class of issue as BuyItemFromVendor() (see its own comment) - without an
+    // immediate save here, a fast relog could load a `characters` row saved before the gold from
+    // this sale was applied (money is async via sCharactersOutbox since Phase3) while the item is
+    // already gone (RemoveItem()/DestroyItemCount() above is followed by a synchronous
+    // _SaveInventory() on the next SaveToDB()) - net effect: the item is lost and the gold never
+    // arrives. Not a dupe in this direction, but a real, reproducible loss for the player.
+    _player->SaveInventoryAndGoldToDB();
 }
 
 void WorldSession::HandleBuybackItem(WorldPackets::Item::BuybackItem const& packet)
@@ -818,6 +826,12 @@ void WorldSession::HandleBuybackItem(WorldPackets::Item::BuybackItem const& pack
     _player->RemoveItemFromBuyBackSlot(slot, false);
     _player->ItemAddedQuestCheck(pItem->GetEntry(), pItem->GetCount());
     _player->StoreItem(dest, pItem, true);
+
+    // Bugfix: same class of issue as BuyItemFromVendor() (see its own comment) - buying back a
+    // sold item spends gold and grants an item exactly like a normal vendor purchase, so it needs
+    // the same immediate save to close the "relog before the async gold write lands, keep the
+    // item" dupe window.
+    _player->SaveInventoryAndGoldToDB();
 }
 
 void WorldSession::HandleBuyItemInSlotOpcode(WorldPackets::Item::BuyItemInSlot const& packet)

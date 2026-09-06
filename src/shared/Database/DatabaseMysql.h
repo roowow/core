@@ -119,6 +119,29 @@ class MySQLConnection : public SqlConnection
         // poisoned entry out of Redis. Set only on that dedicated connection.
         void SetTolerateQueryErrors(bool tolerate) { m_tolerateQueryErrors = tolerate; }
 
+        // Opt-in only, off by default - must be called before Initialize()/OpenConnection() (it
+        // only takes effect via the CLIENT_MULTI_STATEMENTS flag passed to mysql_real_connect(),
+        // which can't be changed on an already-open connection). Enables ExecuteMultiBatch()
+        // below on this connection. Set only on DbWriteOutbox's dedicated Flusher connection (see
+        // its Enqueue()/ExecuteAndAckBatch() in DbWriteOutbox.cpp) - never on a connection that
+        // might ever run a query built from unescaped/uncontrolled input, since a multi-statement-
+        // enabled connection executes anything after a literal ';' as a second statement instead
+        // of erroring on it.
+        void SetMultiStatementsEnabled(bool enabled) { m_multiStatementsEnabled = enabled; }
+
+        // Sends `count` already-complete, independent statements joined with ';' as a single
+        // mysql_query() (one network round trip for all of them) - requires
+        // SetMultiStatementsEnabled(true) to have been set before this connection was opened.
+        // Autocommit is on (see OpenConnection()), so each statement still commits individually
+        // as the server works through them - this is NOT an atomic all-or-nothing unit like
+        // BeginTransaction()/CommitTransaction(), just a way to amortize one network round trip
+        // over many statements. MySQL stops executing a multi-statement batch at the first
+        // statement that errors - so the return value is how many of the `count` statements (in
+        // order, starting from the first) actually completed; the caller must retry the
+        // statement at that index and everything after it (they never ran at all), see
+        // DbWriteOutbox::ExecuteAndAckBatch().
+        size_t ExecuteMultiBatch(std::string const& combinedSql, size_t count);
+
     protected:
         SqlPreparedStatement* CreateStatement(std::string const& fmt) override;
         void OnPreparedStatementFailure() override;
@@ -129,6 +152,7 @@ class MySQLConnection : public SqlConnection
 
         MYSQL* mMysql;
         bool m_tolerateQueryErrors = false;
+        bool m_multiStatementsEnabled = false;
 };
 
 class DatabaseMysql : public Database

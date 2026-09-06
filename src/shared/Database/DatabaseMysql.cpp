@@ -95,8 +95,13 @@ bool MySQLConnection::OpenConnection(bool reconnect)
         mysql_options(mysqlInit, MYSQL_OPT_PROTOCOL, (char const*)&opt);
     }
 
+    // Original: client_flag was always 0 here.
+    // client_flag 0 unless this connection opted into CLIENT_MULTI_STATEMENTS via
+    // SetMultiStatementsEnabled() before Initialize() ran - see that method's declaration in
+    // DatabaseMysql.h for why this is opt-in per-connection rather than a global default.
+    unsigned long const clientFlag = m_multiStatementsEnabled ? CLIENT_MULTI_STATEMENTS : 0;
     mMysql = mysql_real_connect(mysqlInit, m_host.c_str(), m_user.c_str(),
-        m_password.c_str(), m_database.c_str(), m_port, nullptr, 0);
+        m_password.c_str(), m_database.c_str(), m_port, nullptr, clientFlag);
 
     if (mMysql)
     {
@@ -298,6 +303,57 @@ bool MySQLConnection::Execute(std::string const& sql)
     }
 
     return true;
+}
+
+size_t MySQLConnection::ExecuteMultiBatch(std::string const& combinedSql, size_t count)
+{
+    if (!mMysql)
+        return 0;
+
+    uint32 _s = WorldTimer::getMSTime();
+
+    if (mysql_query(mMysql, combinedSql.c_str()))
+    {
+        uint32 lErrno = mysql_errno(mMysql);
+        sLog.Out(LOG_DBERROR, LOG_LVL_MINIMAL, "SQL (multi-batch, %u statements, failed on statement 1): %s",
+                 (uint32)count, combinedSql.c_str());
+        sLog.Out(LOG_DBERROR, LOG_LVL_MINIMAL, "[%u] %s", lErrno, mysql_error(mMysql));
+        // Deliberately no HandleMySQLError()/retry here (unlike Execute()) - the caller
+        // (DbWriteOutbox::ExecuteAndAckBatch()) already has its own connectivity-vs-query-error
+        // diagnosis and retry/backoff loop (ExecuteAndAck()) that every statement not reported
+        // as completed here falls back into; duplicating that logic here would just diverge from
+        // it over time.
+        return 0; // statement 1 itself failed - nothing in this batch completed
+    }
+
+    // mysql_query() returning 0 means statement 1 already ran - consume its result (none
+    // expected for INSERT/REPLACE/DELETE, but mysql_store_result() must still be called to keep
+    // the connection in a valid state before mysql_next_result() can move to statement 2).
+    if (MYSQL_RES* firstResult = mysql_store_result(mMysql))
+        mysql_free_result(firstResult);
+    size_t completed = 1;
+
+    while (completed < count)
+    {
+        int const status = mysql_next_result(mMysql);
+        if (status < 0)
+            break; // no more results than expected - shouldn't normally happen if count is accurate, but safe
+        if (status > 0)
+        {
+            uint32 lErrno = mysql_errno(mMysql);
+            sLog.Out(LOG_DBERROR, LOG_LVL_MINIMAL, "SQL (multi-batch, statement %u/%u failed): [%u] %s",
+                     (uint32)(completed + 1), (uint32)count, lErrno, mysql_error(mMysql));
+            break; // this statement (and everything after it) did not run
+        }
+
+        if (MYSQL_RES* result = mysql_store_result(mMysql))
+            mysql_free_result(result);
+        ++completed;
+    }
+
+    DEBUG_FILTER_LOG(LOG_FILTER_SQL_TEXT, "[%u ms] SQL (multi-batch): %u/%u statements completed",
+                      WorldTimer::getMSTimeDiff(_s, WorldTimer::getMSTime()), (uint32)completed, (uint32)count);
+    return completed;
 }
 
 bool MySQLConnection::_TransactionCmd(std::string const& sql)

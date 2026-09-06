@@ -495,6 +495,14 @@ bool DbWriteOutbox::EnsureFlusherMysqlConnected()
     // enqueued statement (bad SQL, stale schema, ...) would ASSERT(false) and take the whole
     // server down instead of letting ExecuteAndAck()'s own retry-then-drop logic handle it.
     conn->SetTolerateQueryErrors(true);
+    // 2026-09-06 (see HPHA.md, new-server-migration throughput incident): lets
+    // ExecuteAndAckBatch() combine many entries into one MySQLConnection::ExecuteMultiBatch()
+    // round trip. Must be set before Initialize() (which calls OpenConnection()) - the
+    // underlying CLIENT_MULTI_STATEMENTS flag only takes effect at connect time. Safe here and
+    // only here: every statement ever sent on this connection is SQL this class itself built
+    // from already-escaped/internally-controlled values (see class comment), never raw
+    // uncontrolled input that a stray ';' could turn into a smuggled second statement.
+    conn->SetMultiStatementsEnabled(true);
     if (!conn->Initialize(m_dbConnectionInfo))
     {
         // MySQLConnection::OpenConnection() already logs the actual mysql_error() detail to
@@ -525,16 +533,17 @@ void DbWriteOutbox::DisconnectFlusherMysql()
     m_flusherMysqlConn.reset();
 }
 
-// Parses the first (and, given COUNT 1, only) delivered entry out of an XREADGROUP reply.
-// Returns false if the reply is empty/nil (nothing delivered) or malformed.
+// Parses every entry delivered by an XREADGROUP reply (COUNT N, N>=1) into `out`, in delivery
+// order. Returns false if the reply is empty/nil (nothing delivered) or the top-level shape is
+// malformed; a single malformed entry within an otherwise-valid batch is just skipped (logged
+// nowhere - shouldn't happen, we control the producer) rather than failing the whole batch.
 //
-// Two wire formats, both produced by this class (see the two Enqueue() overloads):
+// Two wire formats, both produced by this class (see the two Enqueue() overloads), and a batch
+// can contain a mix of both (entries from different Enqueue() overloads, or written by a
+// different build across a rolling restart, can be interleaved in the same stream):
 //   - legacy/single-statement: one field named "sql".
 //   - multi-statement group: a "count" field plus N fields named "sql0".."sql{count-1}".
-// Both are supported here (not just the format the currently-running binary's Enqueue() would
-// produce) so that entries written by an older build, still sitting in the Stream across a
-// rolling restart, remain readable instead of silently stuck unparseable forever.
-static bool ParseFirstStreamEntry(redisReply* reply, std::string& outId, std::vector<std::string>& outSqls)
+static bool ParseStreamEntries(redisReply* reply, std::vector<DbWriteOutbox::StreamEntry>& out)
 {
     if (!reply || reply->type != REDIS_REPLY_ARRAY || reply->elements < 1)
         return false;
@@ -547,70 +556,75 @@ static bool ParseFirstStreamEntry(redisReply* reply, std::string& outId, std::ve
     if (!entries || entries->type != REDIS_REPLY_ARRAY || entries->elements < 1)
         return false;
 
-    redisReply* entry = entries->element[0]; // [id, fields[]]
-    if (!entry || entry->type != REDIS_REPLY_ARRAY || entry->elements < 2)
-        return false;
-
-    redisReply* idReply = entry->element[0];
-    redisReply* fields   = entry->element[1];
-    if (!idReply || idReply->type != REDIS_REPLY_STRING || !fields || fields->type != REDIS_REPLY_ARRAY)
-        return false;
-
-    outId.assign(idReply->str, idReply->len);
-
-    bool haveCount = false;
-    size_t count = 0;
-    std::vector<std::string> indexed; // indexed[i] <- field "sql<i>", only meaningful if haveCount
-    std::string legacySql;
-    bool haveLegacySql = false;
-
-    for (size_t i = 0; i + 1 < fields->elements; i += 2)
+    for (size_t e = 0; e < entries->elements; ++e)
     {
-        redisReply* fname = fields->element[i];
-        redisReply* fval   = fields->element[i + 1];
-        if (!fname || fname->type != REDIS_REPLY_STRING || !fval || fval->type != REDIS_REPLY_STRING)
+        redisReply* entry = entries->element[e]; // [id, fields[]]
+        if (!entry || entry->type != REDIS_REPLY_ARRAY || entry->elements < 2)
             continue;
 
-        std::string const name(fname->str, fname->len);
-        if (name == "count")
+        redisReply* idReply = entry->element[0];
+        redisReply* fields   = entry->element[1];
+        if (!idReply || idReply->type != REDIS_REPLY_STRING || !fields || fields->type != REDIS_REPLY_ARRAY)
+            continue;
+
+        DbWriteOutbox::StreamEntry parsed;
+        parsed.id.assign(idReply->str, idReply->len);
+
+        bool haveCount = false;
+        size_t count = 0;
+        std::vector<std::string> indexed; // indexed[i] <- field "sql<i>", only meaningful if haveCount
+        std::string legacySql;
+        bool haveLegacySql = false;
+
+        for (size_t i = 0; i + 1 < fields->elements; i += 2)
         {
-            haveCount = true;
-            count = size_t(strtoul(fval->str, nullptr, 10));
-            indexed.resize(count);
-        }
-        else if (name == "sql")
-        {
-            haveLegacySql = true;
-            legacySql.assign(fval->str, fval->len);
-        }
-        else if (name.size() > 3 && name.compare(0, 3, "sql") == 0)
-        {
-            char* endPtr = nullptr;
-            unsigned long idx = strtoul(name.c_str() + 3, &endPtr, 10);
-            if (endPtr && *endPtr == '\0')
+            redisReply* fname = fields->element[i];
+            redisReply* fval   = fields->element[i + 1];
+            if (!fname || fname->type != REDIS_REPLY_STRING || !fval || fval->type != REDIS_REPLY_STRING)
+                continue;
+
+            std::string const name(fname->str, fname->len);
+            if (name == "count")
             {
-                if (idx >= indexed.size())
-                    indexed.resize(idx + 1);
-                indexed[idx].assign(fval->str, fval->len);
+                haveCount = true;
+                count = size_t(strtoul(fval->str, nullptr, 10));
+                indexed.resize(count);
+            }
+            else if (name == "sql")
+            {
+                haveLegacySql = true;
+                legacySql.assign(fval->str, fval->len);
+            }
+            else if (name.size() > 3 && name.compare(0, 3, "sql") == 0)
+            {
+                char* endPtr = nullptr;
+                unsigned long idx = strtoul(name.c_str() + 3, &endPtr, 10);
+                if (endPtr && *endPtr == '\0')
+                {
+                    if (idx >= indexed.size())
+                        indexed.resize(idx + 1);
+                    indexed[idx].assign(fval->str, fval->len);
+                }
             }
         }
+
+        if (haveCount)
+        {
+            if (count == 0 || indexed.size() != count)
+                continue; // malformed - shouldn't happen, we control the producer
+            parsed.sqls = std::move(indexed);
+        }
+        else if (haveLegacySql)
+        {
+            parsed.sqls.assign(1, std::move(legacySql));
+        }
+        else
+            continue; // delivered, but neither format matched - shouldn't happen, we control the producer
+
+        out.push_back(std::move(parsed));
     }
 
-    if (haveCount)
-    {
-        if (count == 0 || indexed.size() != count)
-            return false; // malformed - shouldn't happen, we control the producer
-        outSqls = std::move(indexed);
-        return true;
-    }
-
-    if (haveLegacySql)
-    {
-        outSqls.assign(1, std::move(legacySql));
-        return true;
-    }
-
-    return false; // delivered, but neither format matched - shouldn't happen, we control the producer
+    return !out.empty();
 }
 
 // Best-effort ack, not retried: whoever calls this has either successfully applied the SQL,
@@ -763,6 +777,68 @@ bool DbWriteOutbox::ExecuteAndAck(std::string const& entryId, std::vector<std::s
     return false; // shutting down mid-retry - entry stays unacked, replayed on next startup
 }
 
+void DbWriteOutbox::ExecuteAndAckBatch(std::vector<StreamEntry> const& entries)
+{
+    size_t i = 0;
+    while (i < entries.size())
+    {
+        // A "group" entry (multi-statement, all-or-nothing) - deliberately never combined into
+        // the multi-batch round trip below, see this method's declaration comment. Handled alone,
+        // exactly as before batching existed.
+        if (entries[i].sqls.size() > 1)
+        {
+            ExecuteAndAck(entries[i].id, entries[i].sqls);
+            ++i;
+            continue;
+        }
+
+        // Accumulate a contiguous run of plain single-statement entries (bounded by
+        // FLUSHER_BATCH_SIZE, though in practice the whole vector never exceeds that anyway
+        // since it came from one COUNT FLUSHER_BATCH_SIZE read).
+        size_t const runStart = i;
+        std::string combined = entries[i].sqls[0];
+        size_t runCount = 1;
+        ++i;
+        while (i < entries.size() && entries[i].sqls.size() == 1 && runCount < FLUSHER_BATCH_SIZE)
+        {
+            combined += ';';
+            combined += entries[i].sqls[0];
+            ++runCount;
+            ++i;
+        }
+
+        if (runCount == 1)
+        {
+            // Not worth a multi-statement round trip for just one entry - identical to the
+            // pre-batching path.
+            ExecuteAndAck(entries[runStart].id, entries[runStart].sqls);
+            continue;
+        }
+
+        if (!EnsureFlusherMysqlConnected())
+        {
+            // Connection down - fall through to ExecuteAndAck() per entry, which already owns
+            // the connect/retry/backoff loop for exactly this situation.
+            for (size_t k = runStart; k < runStart + runCount; ++k)
+                ExecuteAndAck(entries[k].id, entries[k].sqls);
+            continue;
+        }
+
+        size_t const completed = m_flusherMysqlConn->ExecuteMultiBatch(combined, runCount);
+        for (size_t k = 0; k < completed; ++k)
+        {
+            Ack(entries[runStart + k].id);
+            m_totalApplied.fetch_add(1, std::memory_order_relaxed);
+        }
+        // Whatever didn't complete (multi-statement execution stops at the first error) falls
+        // back to the proven single-entry path, starting from the statement that failed - isolates
+        // and retries/drops exactly like today, just for the un-run tail of this run instead of
+        // the whole batch.
+        for (size_t k = runStart + completed; k < runStart + runCount; ++k)
+            ExecuteAndAck(entries[k].id, entries[k].sqls);
+    }
+}
+
 bool DbWriteOutbox::ReplayPending()
 {
     for (;;)
@@ -772,8 +848,8 @@ bool DbWriteOutbox::ReplayPending()
         if (!EnsureFlusherRedisConnected())
             return false; // DisconnectFlusherRedis() (called on the way here) already re-armed m_needReplayPending
 
-        redisReply* reply = (redisReply*)redisCommand(m_flusherRedisCtx, "XREADGROUP GROUP %s %s COUNT 1 STREAMS %s 0",
-            m_groupName.c_str(), m_consumerName.c_str(), m_streamKey.c_str());
+        redisReply* reply = (redisReply*)redisCommand(m_flusherRedisCtx, "XREADGROUP GROUP %s %s COUNT %u STREAMS %s 0",
+            m_groupName.c_str(), m_consumerName.c_str(), (unsigned)FLUSHER_BATCH_SIZE, m_streamKey.c_str());
         if (!reply)
         {
             DisconnectFlusherRedis();
@@ -781,16 +857,16 @@ bool DbWriteOutbox::ReplayPending()
             return false;
         }
 
-        std::string id;
-        std::vector<std::string> sqls;
-        bool const got = ParseFirstStreamEntry(reply, id, sqls);
+        std::vector<StreamEntry> entries;
+        bool const got = ParseStreamEntries(reply, entries);
         freeReplyObject(reply);
 
         if (!got)
             return true; // backlog fully drained
 
-        if (!ExecuteAndAck(id, sqls))
-            return false; // shutting down
+        ExecuteAndAckBatch(entries);
+        if (m_stop)
+            return false;
     }
 }
 
@@ -864,8 +940,8 @@ void DbWriteOutbox::FlusherThreadMain()
 
         LogHeartbeatIfDue();
 
-        redisReply* reply = (redisReply*)redisCommand(m_flusherRedisCtx, "XREADGROUP GROUP %s %s COUNT 1 BLOCK 2000 STREAMS %s >",
-            m_groupName.c_str(), m_consumerName.c_str(), m_streamKey.c_str());
+        redisReply* reply = (redisReply*)redisCommand(m_flusherRedisCtx, "XREADGROUP GROUP %s %s COUNT %u BLOCK 2000 STREAMS %s >",
+            m_groupName.c_str(), m_consumerName.c_str(), (unsigned)FLUSHER_BATCH_SIZE, m_streamKey.c_str());
         if (!reply)
         {
             DisconnectFlusherRedis();
@@ -873,14 +949,13 @@ void DbWriteOutbox::FlusherThreadMain()
             continue;
         }
 
-        std::string id;
-        std::vector<std::string> sqls;
-        bool const got = ParseFirstStreamEntry(reply, id, sqls);
+        std::vector<StreamEntry> entries;
+        bool const got = ParseStreamEntries(reply, entries);
         freeReplyObject(reply);
 
         if (!got)
             continue; // BLOCK timed out, nothing new - loop back and check m_stop
 
-        ExecuteAndAck(id, sqls);
+        ExecuteAndAckBatch(entries);
     }
 }
