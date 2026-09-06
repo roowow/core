@@ -17804,15 +17804,31 @@ void Player::SaveInventoryAndGoldToDB()
 
 // Must be serialized in a transaction with the player GUID, or it can lead to duping by
 // relogging before the query completes
+//
+// Bugfix (2026-09-06, see HPHA.md 十三): "serialized in a transaction" above turned out not to
+// be the guarantee the original comment assumed. CharacterDatabase.CreateStatement()/PExecute()
+// (like plain Execute()) queues onto Database's own async delay thread pool
+// (CharacterDatabase.WorkerThreads, only 2 configured) instead of blocking - a real production
+// incident (two players trading gold, one relogging immediately after) showed this queue can
+// itself develop a backlog under load, especially on a higher-latency-to-DB deployment, which is
+// exactly the "relogging before the query completes" race this function's own comment warned
+// about - just via a different, older async mechanism than the one Phase3's sCharactersOutbox
+// was built to fix. Routed through sCharactersOutbox instead: same durable-queue-plus-batching
+// machinery already fixed for this class of problem, and (via DbOutboxGuidContext - see
+// DbWriteOutbox.h) automatically covered by HasPendingWrites()'s login-time check, closing the
+// window the original comment could only warn about but not actually prevent.
+// Original (kept for reference, do not restore):
+//     static SqlStatementID updateGold;
+//     SqlStatement stmt = CharacterDatabase.CreateStatement(updateGold, "UPDATE `characters` SET `money` = ? WHERE `guid` = ?");
+//     stmt.PExecute(GetMoney(), GetGUIDLow());
 void Player::SaveGoldToDB()
 {
     if (IsSavingDisabled())
         return;
 
-    static SqlStatementID updateGold ;
-
-    SqlStatement stmt = CharacterDatabase.CreateStatement(updateGold, "UPDATE `characters` SET `money` = ? WHERE `guid` = ?");
-    stmt.PExecute(GetMoney(), GetGUIDLow());
+    std::ostringstream sql;
+    sql << "UPDATE `characters` SET `money` = " << GetMoney() << " WHERE `guid` = " << GetGUIDLow();
+    sCharactersOutbox.Enqueue(sql.str());
 }
 
 void Player::_SaveAuras()
