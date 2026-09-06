@@ -294,7 +294,14 @@ Player::Player(WorldSession* session) : Unit(),
 
 Player::~Player()
 {
-    sCustomTaxiMgr.DiscardRecording(GetObjectGuid());
+    // Bugfix (crash log, vmangos-dev): guarded the same way CleanupsBeforeDelete() already is
+    // ("only for fully created Object") - if LoadFromDB() fails early enough during login
+    // (HandlePlayerLogin() then does `delete pCurrChar` to clean up), Object::_Create() may never
+    // have run, leaving m_uint32Values null. GetObjectGuid() reads through that array
+    // unconditionally, so calling it here on a not-fully-created object segfaulted instead of
+    // just skipping a recording this object could never have started.
+    if (m_uint32Values)
+        sCustomTaxiMgr.DiscardRecording(GetObjectGuid());
 
     DeletePacketBroadcaster();
 
