@@ -8,10 +8,49 @@
 #include <ctime>
 #include <memory>
 #include <deque>
+#include <unordered_map>
+#include <utility>
 
 struct redisContext;
 class Database;
 class MySQLConnection;
+
+// Ambient "which player guid is executing right now" context - read by DbWriteOutbox::Enqueue()
+// so each queued write can be tagged with the guid it's for, without touching every one of the
+// several dozen Enqueue() call sites across the codebase (see HPHA.md 十三 "方案C"). Set by
+// WorldSession::Update() (around packet processing) and Player::Update() (around the periodic
+// tick) - together these cover the overwhelming majority of writes, since almost everything that
+// enqueues a characters-table write does so as a direct consequence of a player's own packet or
+// their own tick. A handful of call sites act on an OFFLINE player (e.g. mail with COD delivered
+// while the recipient isn't logged in) - those are simply untracked (guid stays 0), which is an
+// acceptable gap since the player can't control the timing of those from outside their own
+// session anyway (see HasPendingWrites()'s own comment for what guid 0 means downstream).
+class DbOutboxGuidContext
+{
+public:
+    static uint32 GetCurrent() { return s_current; }
+    static void SetCurrent(uint32 guid) { s_current = guid; }
+private:
+    static thread_local uint32 s_current;
+};
+
+// RAII helper - sets the ambient guid context for the scope's lifetime, restoring whatever was
+// there before on exit (so a nested scope - e.g. code reached from within a player's tick that
+// briefly touches another player - never leaks the wrong guid onto its own writes). Prefer this
+// over calling DbOutboxGuidContext::SetCurrent() directly.
+class ScopedDbOutboxGuidContext
+{
+public:
+    explicit ScopedDbOutboxGuidContext(uint32 guid) : m_previous(DbOutboxGuidContext::GetCurrent())
+    {
+        DbOutboxGuidContext::SetCurrent(guid);
+    }
+    ~ScopedDbOutboxGuidContext() { DbOutboxGuidContext::SetCurrent(m_previous); }
+    ScopedDbOutboxGuidContext(ScopedDbOutboxGuidContext const&) = delete;
+    ScopedDbOutboxGuidContext& operator=(ScopedDbOutboxGuidContext const&) = delete;
+private:
+    uint32 m_previous;
+};
 
 // Generic, reusable local-Redis-backed durable write queue in front of a target Database.
 // See HPHA.md "彻底解耦：数据库 Redis 化" for the full design rationale - short version:
@@ -108,8 +147,20 @@ public:
     struct StreamEntry
     {
         std::string id;
+        uint32 guid = 0; // 0 = untracked, see DbOutboxGuidContext's class comment
         std::vector<std::string> sqls;
     };
+
+    // True if `guid` has at least one write (tagged via the ambient DbOutboxGuidContext at
+    // Enqueue() time) that this Flusher hasn't finished resolving yet - "resolved" meaning
+    // applied to targetDb OR permanently dropped as an unrecoverable query error (either way,
+    // nothing more is coming for it, so it can't leave the DB in a half-updated state - see
+    // MarkGuidResolved()'s call sites for the exhaustive list of "resolved" moments). Used at
+    // login (see CharacterHandler.cpp) to delay loading a character's data until any of their own
+    // still-in-flight writes have landed, closing the "buy something, relog before the async
+    // write lands, still have the item" class of bug (see HPHA.md 十三). guid 0 always returns
+    // false - untracked writes (see DbOutboxGuidContext) must never make every login look pending.
+    bool HasPendingWrites(uint32 guid);
 
 private:
     void FlusherThreadMain();
@@ -131,15 +182,25 @@ private:
     bool EnsureFlusherMysqlConnected();
     void DisconnectFlusherMysql();
     void Ack(std::string const& entryId);
-    // Executes one already-fetched (id, sqls) entry against MariaDB, retrying with backoff
-    // until it succeeds, or until it's identified as a permanent query-level error rather
-    // than MariaDB being unreachable (see .cpp) - either way it's ack'd once resolved. Returns
-    // false only if m_stop was set mid-retry (shutdown), in which case the entry is left
-    // unacked for next startup.
+    // Increments/decrements the (enqueued, applied) counters HasPendingWrites() reads - a no-op
+    // for guid 0 (untracked). MarkGuidEnqueued() is called once per Enqueue() call that accepted
+    // responsibility for a guid-tagged write (regardless of which path it ends up taking);
+    // MarkGuidResolved() is called at every point downstream where this class is done with that
+    // write one way or another - see its call sites for the exhaustive list (applied, permanently
+    // dropped, or forced through the buffer-full/grace-period-expired direct-write escape
+    // hatches). Stale (guid, count, count) entries where both sides match are left in the map
+    // rather than pruned - cheap enough (a character-count-sized map of small ints) not to bother.
+    void MarkGuidEnqueued(uint32 guid);
+    void MarkGuidResolved(uint32 guid);
+    // Executes one already-fetched entry against MariaDB, retrying with backoff until it
+    // succeeds, or until it's identified as a permanent query-level error rather than MariaDB
+    // being unreachable (see .cpp) - either way it's ack'd and MarkGuidResolved()'d once resolved.
+    // Returns false only if m_stop was set mid-retry (shutdown), in which case the entry is left
+    // unacked (and unresolved) for next startup.
     // sqls.size()==1: plain Execute(), exactly the pre-grouping behavior. sqls.size()>1: wrapped
     // in BeginTransaction()/CommitTransaction() on the Flusher's own connection, all-or-nothing -
     // any statement failing rolls back and the whole group is treated as one retry/drop unit.
-    bool ExecuteAndAck(std::string const& entryId, std::vector<std::string> const& sqls);
+    bool ExecuteAndAck(StreamEntry const& entry);
 
     // New-server-migration incident (2026-09-06, see HPHA.md): the Flusher's per-entry MySQL
     // round trip (~14ms measured against a remote target after moving to a farther-away host)
@@ -177,15 +238,22 @@ private:
     // Caller must hold m_redisMutex and have already confirmed EnsureEnqueueRedisConnected()
     // succeeded (m_redisCtx valid). Returns whether the XADD itself succeeded. Factored out of
     // Enqueue() so ProcessFallbackQueue() (retrying a buffered entry once Redis looks back up)
-    // can share the exact same wire-format logic instead of duplicating it.
-    bool TryXAdd(std::vector<std::string> const& sqls);
+    // can share the exact same wire-format logic instead of duplicating it. `guid` (0 = untracked)
+    // is written into the entry as an extra field so a Flusher restart replaying the Stream from
+    // scratch (ParseStreamEntries()) still recovers it for MarkGuidResolved() bookkeeping - the
+    // in-memory m_guidPendingCounts map itself does NOT survive a restart, but that's fine: a
+    // restart is exactly the "logins should wait anyway" case, and by the time this process comes
+    // back up with a fresh (empty) map, ReplayPending() re-resolves every carried-over entry
+    // before FlusherThreadMain() ever reports anything as caught up.
+    bool TryXAdd(std::vector<std::string> const& sqls, uint32 guid);
 
     // Common tail for both Enqueue() overloads' fallback paths (Redis unreachable, or the XADD
     // itself failed): buffers sqls for ProcessFallbackQueue() to retry shortly, unless the buffer
     // itself is already full (FALLBACK_QUEUE_MAX) - an extreme, sustained-outage case - in which
     // case this does today's original immediate synchronous direct write as a last-resort escape
-    // hatch, so a write is never silently dropped. `reason` is just for the log line.
-    void BufferOrDirectWrite(std::vector<std::string> sqls, char const* reason);
+    // hatch, so a write is never silently dropped (and MarkGuidResolved()s it either way, since
+    // this call is the last thing that will ever happen to it). `reason` is just for the log line.
+    void BufferOrDirectWrite(std::vector<std::string> sqls, uint32 guid, char const* reason);
 
     // Flusher-thread-only (called once per FlusherThreadMain() loop iteration, so at least every
     // ~2s - see the XREADGROUP BLOCK timeout there). For each buffered entry: try to push it into
@@ -206,10 +274,25 @@ private:
     struct PendingFallbackEntry
     {
         std::vector<std::string> sqls;
+        uint32 guid; // 0 = untracked, see DbOutboxGuidContext - no default initializer here
+                     // (unlike StreamEntry's) since this project targets C++14: a default member
+                     // initializer would make this type a non-aggregate, breaking the brace-init
+                     // construction at its one call site (BufferOrDirectWrite()) under C++14's
+                     // (pre-C++17) aggregate rules. Always fully brace-initialized there with an
+                     // explicit guid, so no default value is actually needed.
         time_t queuedTime;
     };
     std::mutex                        m_fallbackQueueMutex;
     std::deque<PendingFallbackEntry>  m_fallbackQueue;      // guarded by m_fallbackQueueMutex
+
+    // guid -> (times MarkGuidEnqueued() called, times MarkGuidResolved() called). "Pending" means
+    // the two differ - see HasPendingWrites(). Its own mutex since Enqueue() (any thread) writes
+    // the enqueued side while the Flusher thread (and BufferOrDirectWrite(), also any thread)
+    // write the resolved side - deliberately separate from every other lock in this class so a
+    // login-path HasPendingWrites() call never has to wait on whatever the Flusher happens to be
+    // doing (a blocking XREADGROUP, a slow retry).
+    std::mutex                                              m_guidTrackingMutex;
+    std::unordered_map<uint32, std::pair<uint64_t, uint64_t>> m_guidPendingCounts;
 
     Database*   m_targetDb = nullptr;
     std::string m_dbConnectionInfo;

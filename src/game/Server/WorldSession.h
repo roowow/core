@@ -501,6 +501,23 @@ class WorldSession
         void HandlePlayerLogin(LoginQueryHolder* holder);
         void HandlePlayedTime(NullClientPacket const& packet);
 
+        // See HPHA.md 十三 "方案C" - shared by HandlePlayerLoginOpcode() and LoginPlayer(), the
+        // two entry points that used to build+dispatch a LoginQueryHolder directly. Checks
+        // DbWriteOutbox::HasPendingWrites() for this guid first; if the character has one of
+        // their own writes still in flight, defers to CheckPendingLogin() instead of starting the
+        // load immediately.
+        void RequestPlayerLogin(ObjectGuid guid);
+        // The actual "build a LoginQueryHolder and dispatch it" logic (was inline in
+        // HandlePlayerLoginOpcode()/LoginPlayer() before this class existed) - only ever reached
+        // once RequestPlayerLogin() has confirmed there's nothing of this guid's own left pending.
+        void StartPlayerLoginQuery(ObjectGuid guid);
+        // Called every WorldSession::Update() tick (a natural, already-existing per-session poll
+        // loop, so this needs no dedicated timer/thread) while m_pendingLoginGuid is set - reuses
+        // the same HasPendingWrites() check to see if the wait is over, and forces the login
+        // through anyway once LOGIN_PENDING_WRITES_TIMEOUT_SEC elapses (logged) so a stuck
+        // Flusher can never strand a login forever.
+        void CheckPendingLogin();
+
         // Movement
         void HandleMoveRootAck(WorldPackets::Movement::MoveRootAck const& packet);
         void HandleMoveKnockBackAck(WorldPackets::Movement::MoveKnockBackAck const& packet);
@@ -896,6 +913,12 @@ class WorldSession
         time_t m_logoutTime;                                // when its time to log out character
         bool m_inQueue;                                     // session wait in auth.queue
         bool m_playerLoading;                               // code processed in LoginPlayer
+        // See HPHA.md 十三 "方案C" / RequestPlayerLogin()'s comment. Zero guid / zero deadline
+        // both mean "no login is currently being deferred" - CheckPendingLogin() no-ops in that
+        // state, so a session with no pending-write wait ever in progress pays nothing beyond one
+        // ObjectGuid comparison per tick.
+        ObjectGuid m_pendingLoginGuid;
+        time_t     m_pendingLoginDeadline = 0;
         bool m_playerLogout;                                // code processed in LogoutPlayer
         bool m_playerRecentlyLogout;
         bool m_playerSave;

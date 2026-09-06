@@ -21,6 +21,7 @@
 
 #include "Common.h"
 #include "Database/DatabaseEnv.h"
+#include "OO/DbWriteOutbox.h"
 #include "WorldPacket.h"
 #include "SharedDefines.h"
 #include "WorldSession.h"
@@ -421,6 +422,13 @@ void WorldSession::HandleCharDeleteOpcode(WorldPackets::Character::CharDelete co
     sendResponse(CHAR_DELETE_SUCCESS);
 }
 
+// See HPHA.md 十三 "方案C" / RequestPlayerLogin()'s comment - max time CheckPendingLogin() will
+// keep deferring a login that has DbWriteOutbox writes still pending before forcing it through
+// anyway. Generous relative to the batched Flusher's normal catch-up time (see HPHA.md 十二 -
+// low seconds even under a real backlog) so this should essentially never be hit in practice;
+// exists purely so a stuck/unreachable MariaDB can never stall a login forever.
+static uint32 const LOGIN_PENDING_WRITES_TIMEOUT_SEC = 5;
+
 void WorldSession::HandlePlayerLoginOpcode(WorldPackets::Character::PlayerLogin const& packet)
 {
     if ((!sWorld.getConfig(CONFIG_BOOL_WORLD_AVAILABLE) && GetSecurity() == SEC_PLAYER) ||
@@ -432,27 +440,92 @@ void WorldSession::HandlePlayerLoginOpcode(WorldPackets::Character::PlayerLogin 
         return;
     }
 
-    LoginQueryHolder* holder = new LoginQueryHolder(GetAccountId(), packet.guid);
-    if (!holder->Initialize())
-    {
-        delete holder;                                      // delete all unprocessed queries
-        return;
-    }
-    m_playerLoading = true;
-    CharacterDatabase.DelayQueryHolderUnsafe(&chrHandler, &CharacterHandler::HandlePlayerLoginCallback, holder);
+    // Original (kept for reference, do not restore): this function used to build and dispatch
+    // the LoginQueryHolder inline, unconditionally -
+    //     LoginQueryHolder* holder = new LoginQueryHolder(GetAccountId(), packet.guid);
+    //     if (!holder->Initialize())
+    //     {
+    //         delete holder;                                      // delete all unprocessed queries
+    //         return;
+    //     }
+    //     m_playerLoading = true;
+    //     CharacterDatabase.DelayQueryHolderUnsafe(&chrHandler, &CharacterHandler::HandlePlayerLoginCallback, holder);
+    // Moved into StartPlayerLoginQuery() (called from RequestPlayerLogin() below, once it has
+    // confirmed there's nothing of this guid's own left pending in DbWriteOutbox - see HPHA.md
+    // 十三 "方案C") so both this and LoginPlayer() below share the same gating logic instead of
+    // duplicating it.
+    m_playerLoading = true; // reserved now (before the possible pending-write wait below) so a
+                             // second login packet for this session is rejected by the
+                             // PlayerLoading() check above instead of racing in
+    RequestPlayerLogin(packet.guid);
 }
 
 void WorldSession::LoginPlayer(ObjectGuid loginPlayerGuid)
 {
     ASSERT(loginPlayerGuid.IsPlayer());
-    LoginQueryHolder* holder = new LoginQueryHolder(GetAccountId(), loginPlayerGuid);
+    // Original (kept for reference, do not restore): same inline holder-building/dispatch as
+    // HandlePlayerLoginOpcode() used to have (see its own comment above) -
+    //     LoginQueryHolder* holder = new LoginQueryHolder(GetAccountId(), loginPlayerGuid);
+    //     if (!holder->Initialize())
+    //     {
+    //         delete holder;                                      // delete all unprocessed queries
+    //         return;
+    //     }
+    //     m_playerLoading = true;
+    //     CharacterDatabase.DelayQueryHolderUnsafe(&chrHandler, &CharacterHandler::HandlePlayerLoginCallback, holder);
+    m_playerLoading = true;
+    RequestPlayerLogin(loginPlayerGuid);
+}
+
+void WorldSession::RequestPlayerLogin(ObjectGuid guid)
+{
+    // See HPHA.md 十三 "方案C". guid's own last session may still have writes in flight (async
+    // via sCharactersOutbox since Phase3) - loading now would risk reading a `characters` row
+    // from before those applied, while anything saved synchronously (inventory) is already
+    // up to date - the exact "item shows up, gold/quest-status/etc. doesn't" class of bug this
+    // whole mechanism exists to close. Defer instead of loading immediately; CheckPendingLogin()
+    // (called every WorldSession::Update() tick) retries until it clears or times out.
+    if (sCharactersOutbox.HasPendingWrites(guid.GetCounter()))
+    {
+        m_pendingLoginGuid = guid;
+        m_pendingLoginDeadline = time(nullptr) + time_t(LOGIN_PENDING_WRITES_TIMEOUT_SEC);
+        return;
+    }
+
+    StartPlayerLoginQuery(guid);
+}
+
+void WorldSession::StartPlayerLoginQuery(ObjectGuid guid)
+{
+    LoginQueryHolder* holder = new LoginQueryHolder(GetAccountId(), guid);
     if (!holder->Initialize())
     {
         delete holder;                                      // delete all unprocessed queries
+        m_playerLoading = false;
         return;
     }
-    m_playerLoading = true;
     CharacterDatabase.DelayQueryHolderUnsafe(&chrHandler, &CharacterHandler::HandlePlayerLoginCallback, holder);
+}
+
+void WorldSession::CheckPendingLogin()
+{
+    if (!m_pendingLoginGuid)
+        return;
+
+    bool const stillPending = sCharactersOutbox.HasPendingWrites(m_pendingLoginGuid.GetCounter());
+    if (stillPending && time(nullptr) < m_pendingLoginDeadline)
+        return; // keep waiting, CheckPendingLogin() tries again next tick
+
+    if (stillPending)
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
+                 "WorldSession::CheckPendingLogin: guid %u still has DbWriteOutbox writes pending "
+                 "after %us, proceeding with login anyway (see HPHA.md 十三).",
+                 m_pendingLoginGuid.GetCounter(), LOGIN_PENDING_WRITES_TIMEOUT_SEC);
+
+    ObjectGuid const guid = m_pendingLoginGuid;
+    m_pendingLoginGuid.Clear();
+    m_pendingLoginDeadline = 0;
+    StartPlayerLoginQuery(guid);
 }
 
 void WorldSession::HandlePlayerLogin(LoginQueryHolder *holder)

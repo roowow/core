@@ -10,6 +10,8 @@ DbWriteOutbox sLogsOutbox;
 DbWriteOutbox sWorldOutbox;
 DbWriteOutbox sCharactersOutbox;
 
+thread_local uint32 DbOutboxGuidContext::s_current = 0;
+
 DbWriteOutbox::DbWriteOutbox() = default;
 
 // Defined here (not defaulted in the header) because m_flusherMysqlConn is a
@@ -145,12 +147,12 @@ void DbWriteOutbox::DisconnectEnqueueRedis()
     }
 }
 
-bool DbWriteOutbox::TryXAdd(std::vector<std::string> const& sqls)
+bool DbWriteOutbox::TryXAdd(std::vector<std::string> const& sqls, uint32 guid)
 {
     if (sqls.size() == 1)
     {
-        redisReply* reply = (redisReply*)redisCommand(m_redisCtx, "XADD %s * sql %b",
-            m_streamKey.c_str(), sqls[0].data(), sqls[0].size());
+        redisReply* reply = (redisReply*)redisCommand(m_redisCtx, "XADD %s * guid %u sql %b",
+            m_streamKey.c_str(), guid, sqls[0].data(), sqls[0].size());
         bool const ok = reply && reply->type != REDIS_REPLY_ERROR;
         if (reply)
             freeReplyObject(reply);
@@ -161,10 +163,12 @@ bool DbWriteOutbox::TryXAdd(std::vector<std::string> const& sqls)
     // helper used by the single-statement path doesn't fit - build the argv manually instead.
     // Binary-safe (length-prefixed), same as the %b used for the single-statement "sql" field.
     std::vector<std::string> args;
-    args.reserve(3 + 2 + sqls.size() * 2);
+    args.reserve(3 + 2 + 2 + sqls.size() * 2);
     args.push_back("XADD");
     args.push_back(m_streamKey);
     args.push_back("*");
+    args.push_back("guid");
+    args.push_back(std::to_string(guid));
     args.push_back("count");
     args.push_back(std::to_string(sqls.size()));
     for (size_t i = 0; i < sqls.size(); ++i)
@@ -190,7 +194,43 @@ bool DbWriteOutbox::TryXAdd(std::vector<std::string> const& sqls)
     return ok;
 }
 
-void DbWriteOutbox::BufferOrDirectWrite(std::vector<std::string> sqls, char const* reason)
+void DbWriteOutbox::MarkGuidEnqueued(uint32 guid)
+{
+    if (!guid)
+        return;
+    std::lock_guard<std::mutex> lock(m_guidTrackingMutex);
+    ++m_guidPendingCounts[guid].first;
+}
+
+void DbWriteOutbox::MarkGuidResolved(uint32 guid)
+{
+    if (!guid)
+        return;
+    std::lock_guard<std::mutex> lock(m_guidTrackingMutex);
+    auto& counts = m_guidPendingCounts[guid];
+    // Clamped, not unconditionally incremented: m_guidPendingCounts does NOT survive a restart,
+    // but the Redis Stream does - ReplayPending() can resolve entries this fresh process never
+    // saw MarkGuidEnqueued() called for (they were enqueued by the previous process before it
+    // restarted). Incrementing unconditionally would push `second` past `first` and make
+    // HasPendingWrites() see a permanent (non-catching-up) mismatch for that guid - i.e. every
+    // future login for that one character would wait out the full timeout, forever, for no
+    // reason. Resolving something this process has no enqueued record of is a no-op instead.
+    if (counts.second < counts.first)
+        ++counts.second;
+}
+
+bool DbWriteOutbox::HasPendingWrites(uint32 guid)
+{
+    if (!guid)
+        return false;
+    std::lock_guard<std::mutex> lock(m_guidTrackingMutex);
+    auto it = m_guidPendingCounts.find(guid);
+    if (it == m_guidPendingCounts.end())
+        return false;
+    return it->second.first != it->second.second;
+}
+
+void DbWriteOutbox::BufferOrDirectWrite(std::vector<std::string> sqls, uint32 guid, char const* reason)
 {
     {
         std::lock_guard<std::mutex> lock(m_fallbackQueueMutex);
@@ -198,7 +238,7 @@ void DbWriteOutbox::BufferOrDirectWrite(std::vector<std::string> sqls, char cons
         {
             std::size_t const depth = m_fallbackQueue.size() + 1;
             std::size_t const count = sqls.size();
-            m_fallbackQueue.push_back({std::move(sqls), time(nullptr)});
+            m_fallbackQueue.push_back({std::move(sqls), guid, time(nullptr)});
             m_totalFallbackBuffered.fetch_add(1, std::memory_order_relaxed);
             sLog.Out(LOG_DB_OUTBOX, LOG_LVL_MINIMAL,
                       "DbWriteOutbox[%s]: %s, buffering (%u statements, queue depth now %u)",
@@ -209,7 +249,9 @@ void DbWriteOutbox::BufferOrDirectWrite(std::vector<std::string> sqls, char cons
 
     // Buffer itself is full - well past a brief blip. Fall back to the original immediate
     // synchronous write so the data is never actually lost, at the cost of stalling this
-    // caller's thread same as before this fix.
+    // caller's thread same as before this fix. Either way this is the last thing that will ever
+    // happen to this write, so resolve it now regardless of success/failure - it must not be
+    // able to leave a guid stuck "pending" forever if this direct write itself fails.
     m_totalFallbackDirect.fetch_add(1, std::memory_order_relaxed);
     sLog.Out(LOG_DB_OUTBOX, LOG_LVL_ERROR,
               "DbWriteOutbox[%s]: %s, fallback buffer full (%u), writing directly (%u statements)",
@@ -223,6 +265,7 @@ void DbWriteOutbox::BufferOrDirectWrite(std::vector<std::string> sqls, char cons
             m_targetDb->Execute(sql.c_str());
         m_targetDb->CommitTransaction();
     }
+    MarkGuidResolved(guid);
 }
 
 void DbWriteOutbox::ProcessFallbackQueue()
@@ -242,7 +285,7 @@ void DbWriteOutbox::ProcessFallbackQueue()
             std::unique_lock<std::mutex> lock(m_redisMutex);
             if (EnsureEnqueueRedisConnected())
             {
-                if (TryXAdd(entry.sqls))
+                if (TryXAdd(entry.sqls, entry.guid))
                 {
                     lock.unlock();
                     m_totalEnqueued.fetch_add(1, std::memory_order_relaxed);
@@ -306,13 +349,14 @@ void DbWriteOutbox::ProcessFallbackQueue()
         {
             m_totalFallbackDirect.fetch_add(1, std::memory_order_relaxed);
             m_totalApplied.fetch_add(1, std::memory_order_relaxed);
+            MarkGuidResolved(entry.guid);
         }
         else
         {
             // Query-level failure (connection itself was just confirmed alive by
             // EnsureFlusherMysqlConnected()) - re-buffer for another attempt next pass rather
             // than classifying transient-vs-permanent like ExecuteAndAck() does; acceptable for
-            // this fallback-only path, see class comment.
+            // this fallback-only path, see class comment. Still pending - do not resolve.
             std::lock_guard<std::mutex> lock(m_fallbackQueueMutex);
             m_fallbackQueue.push_back(std::move(entry));
         }
@@ -328,16 +372,24 @@ void DbWriteOutbox::Enqueue(std::string const& sql)
     if (!m_targetDb)
         return;
 
+    // See HPHA.md 十三 "方案C" - tags this write with whatever guid is ambient right now
+    // (DbOutboxGuidContext, set by WorldSession::Update()/Player::Update()) so HasPendingWrites()
+    // can answer "does this character have anything of their own still in flight" at login. 0 if
+    // nothing set the context (an offline-player write, or a write from a non-player-driven
+    // thread) - simply untracked, see that class's comment.
+    uint32 const guid = DbOutboxGuidContext::GetCurrent();
+    MarkGuidEnqueued(guid);
+
     std::unique_lock<std::mutex> lock(m_redisMutex);
 
     if (!EnsureEnqueueRedisConnected())
     {
         lock.unlock();
-        BufferOrDirectWrite({sql}, "enqueue-side redis unreachable");
+        BufferOrDirectWrite({sql}, guid, "enqueue-side redis unreachable");
         return;
     }
 
-    if (TryXAdd({sql}))
+    if (TryXAdd({sql}, guid))
     {
         m_totalEnqueued.fetch_add(1, std::memory_order_relaxed);
         return;
@@ -346,7 +398,7 @@ void DbWriteOutbox::Enqueue(std::string const& sql)
     DisconnectEnqueueRedis();
     m_redisLastFailTime = time(nullptr);
     lock.unlock();
-    BufferOrDirectWrite({sql}, "XADD failed");
+    BufferOrDirectWrite({sql}, guid, "XADD failed");
 }
 
 void DbWriteOutbox::Enqueue(std::vector<std::string> const& sqls)
@@ -365,16 +417,19 @@ void DbWriteOutbox::Enqueue(std::vector<std::string> const& sqls)
     if (!m_targetDb)
         return;
 
+    uint32 const guid = DbOutboxGuidContext::GetCurrent();
+    MarkGuidEnqueued(guid);
+
     std::unique_lock<std::mutex> lock(m_redisMutex);
 
     if (!EnsureEnqueueRedisConnected())
     {
         lock.unlock();
-        BufferOrDirectWrite(sqls, "enqueue-side redis unreachable");
+        BufferOrDirectWrite(sqls, guid, "enqueue-side redis unreachable");
         return;
     }
 
-    if (TryXAdd(sqls))
+    if (TryXAdd(sqls, guid))
     {
         m_totalEnqueued.fetch_add(1, std::memory_order_relaxed);
         return;
@@ -383,7 +438,7 @@ void DbWriteOutbox::Enqueue(std::vector<std::string> const& sqls)
     DisconnectEnqueueRedis();
     m_redisLastFailTime = time(nullptr);
     lock.unlock();
-    BufferOrDirectWrite(sqls, "XADD failed");
+    BufferOrDirectWrite(sqls, guid, "XADD failed");
 }
 
 DbWriteOutbox::Status DbWriteOutbox::GetStatus()
@@ -584,7 +639,11 @@ static bool ParseStreamEntries(redisReply* reply, std::vector<DbWriteOutbox::Str
                 continue;
 
             std::string const name(fname->str, fname->len);
-            if (name == "count")
+            if (name == "guid")
+            {
+                parsed.guid = uint32(strtoul(fval->str, nullptr, 10));
+            }
+            else if (name == "count")
             {
                 haveCount = true;
                 count = size_t(strtoul(fval->str, nullptr, 10));
@@ -667,8 +726,10 @@ void DbWriteOutbox::Ack(std::string const& entryId)
         freeReplyObject(delReply);
 }
 
-bool DbWriteOutbox::ExecuteAndAck(std::string const& entryId, std::vector<std::string> const& sqls)
+bool DbWriteOutbox::ExecuteAndAck(StreamEntry const& entry)
 {
+    std::string const& entryId = entry.id;
+    std::vector<std::string> const& sqls = entry.sqls;
     // Separate, much smaller budget for "connection is fine but this specific statement keeps
     // failing" (see below) - deliberately not unbounded like the connectivity-retry path.
     static uint32 const MAX_QUERY_ERROR_ATTEMPTS = 5;
@@ -716,6 +777,7 @@ bool DbWriteOutbox::ExecuteAndAck(std::string const& entryId, std::vector<std::s
         {
             Ack(entryId);
             m_totalApplied.fetch_add(1, std::memory_order_relaxed);
+            MarkGuidResolved(entry.guid);
             return true;
         }
 
@@ -762,6 +824,7 @@ bool DbWriteOutbox::ExecuteAndAck(std::string const& entryId, std::vector<std::s
                      queryErrorAttempts, sqlJoined.c_str());
             Ack(entryId);
             m_totalDropped.fetch_add(1, std::memory_order_relaxed);
+            MarkGuidResolved(entry.guid);
             return true;
         }
 
@@ -787,7 +850,7 @@ void DbWriteOutbox::ExecuteAndAckBatch(std::vector<StreamEntry> const& entries)
         // exactly as before batching existed.
         if (entries[i].sqls.size() > 1)
         {
-            ExecuteAndAck(entries[i].id, entries[i].sqls);
+            ExecuteAndAck(entries[i]);
             ++i;
             continue;
         }
@@ -811,7 +874,7 @@ void DbWriteOutbox::ExecuteAndAckBatch(std::vector<StreamEntry> const& entries)
         {
             // Not worth a multi-statement round trip for just one entry - identical to the
             // pre-batching path.
-            ExecuteAndAck(entries[runStart].id, entries[runStart].sqls);
+            ExecuteAndAck(entries[runStart]);
             continue;
         }
 
@@ -820,7 +883,7 @@ void DbWriteOutbox::ExecuteAndAckBatch(std::vector<StreamEntry> const& entries)
             // Connection down - fall through to ExecuteAndAck() per entry, which already owns
             // the connect/retry/backoff loop for exactly this situation.
             for (size_t k = runStart; k < runStart + runCount; ++k)
-                ExecuteAndAck(entries[k].id, entries[k].sqls);
+                ExecuteAndAck(entries[k]);
             continue;
         }
 
@@ -829,13 +892,14 @@ void DbWriteOutbox::ExecuteAndAckBatch(std::vector<StreamEntry> const& entries)
         {
             Ack(entries[runStart + k].id);
             m_totalApplied.fetch_add(1, std::memory_order_relaxed);
+            MarkGuidResolved(entries[runStart + k].guid);
         }
         // Whatever didn't complete (multi-statement execution stops at the first error) falls
         // back to the proven single-entry path, starting from the statement that failed - isolates
         // and retries/drops exactly like today, just for the un-run tail of this run instead of
         // the whole batch.
         for (size_t k = runStart + completed; k < runStart + runCount; ++k)
-            ExecuteAndAck(entries[k].id, entries[k].sqls);
+            ExecuteAndAck(entries[k]);
     }
 }
 

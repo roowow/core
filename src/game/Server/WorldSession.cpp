@@ -473,6 +473,18 @@ bool WorldSession::Update(PacketFilter& updater)
     for (uint32 & i : m_floodPacketsCount)
         i = 0;
 
+    // See HPHA.md 十三 "方案C" - tags any DbWriteOutbox::Enqueue() reached from inside a packet
+    // handler with this session's player guid, so HasPendingWrites() can later tell whether this
+    // character has one of their own writes still in flight. 0 (untracked) while no player is
+    // attached yet (still on the character-select/login screen).
+    ScopedDbOutboxGuidContext const guidContext(_player ? _player->GetGUIDLow() : 0);
+
+    // See HPHA.md 十三 "方案C" - retries a login deferred by RequestPlayerLogin() because the
+    // target guid had writes still in flight. No-ops instantly (one ObjectGuid check) unless a
+    // login is actually being deferred right now. Before ProcessPackets() so a login that clears
+    // this tick still gets to run its actual DB load in the same tick, same as before this change.
+    CheckPendingLogin();
+
     // Retrieve packets from the receive queue and call the appropriate handlers
     ProcessPackets(updater);
 
@@ -687,6 +699,17 @@ bool WorldSession::UpdateDisconnected(uint32 diff)
 // %Log the player out
 void WorldSession::LogoutPlayer(bool Save)
 {
+    // See HPHA.md 十三 "方案C". Deliberately set HERE, not relying on whatever context the caller
+    // happens to already have - WorldSession::Update()'s own guidContext only covers the branches
+    // that call LogoutPlayer() directly (graceful logout, forced bot logout); the OTHER caller,
+    // ~WorldSession()'s destructor fallback for an abruptly-dropped connection (socket error/
+    // timeout), runs from World::UpdateSessions()'s session-cleanup code, entirely outside any
+    // packet-processing or player-tick scope - exactly the "player force-closed the client"
+    // scenario this whole mechanism was chosen to cover (see HPHA.md's "根治方案讨论"). Captured
+    // into the RAII guard's own storage now, before anything below can touch _player, so it stays
+    // correct for this whole call regardless of what _player is reassigned to further down.
+    ScopedDbOutboxGuidContext const guidContext(_player ? _player->GetGUIDLow() : 0);
+
     // finish pending transfers before starting the logout
     /* while(_player && _player->IsBeingTeleportedFar())
         HandleMoveWorldportAckOpcode(); */

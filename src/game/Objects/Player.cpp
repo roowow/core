@@ -1245,6 +1245,13 @@ void Player::Update(uint32 update_diff, uint32 p_time)
     if (!IsInWorld())
         return;
 
+    // See HPHA.md 十三 "方案C" - tags any DbWriteOutbox::Enqueue() reached from this player's own
+    // tick (most notably the periodic autosave's SaveToDB()) with their guid, same purpose as the
+    // equivalent guard in WorldSession::Update() (packet handlers) - together the two cover
+    // writes triggered either by this player's own packets or their own tick, which is the
+    // overwhelming majority of characters-table writes.
+    ScopedDbOutboxGuidContext const guidContext(GetGUIDLow());
+
     // Diagnostic sub-timers (2026-09-04): Map.cpp's "Slow player update" log only reports the
     // total time spent here, with no breakdown - unlike Map::Update()'s own "Update single map"
     // sub-timers. These buckets cover the few pieces suspected of causing occasional big spikes
