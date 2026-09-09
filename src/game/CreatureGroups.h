@@ -22,6 +22,7 @@
 #include "Common.h"
 #include "ObjectGuid.h"
 #include <map>
+#include <mutex>
 
 class Map;
 class Unit;
@@ -114,10 +115,25 @@ class CreatureGroupsManager
                 delete itr.second;
         }
         void LoadCreatureGroup(ObjectGuid guid, CreatureGroup*& group);
-        void RegisterNewGroup(CreatureGroup* group) { m_groups[group->GetOriginalLeaderGuid()] = group; }
-        void EraseCreatureGroup(ObjectGuid leaderGuid) { m_groups.erase(leaderGuid); }
+        void RegisterNewGroup(CreatureGroup* group)
+        {
+            std::lock_guard<std::mutex> lock(m_lock);
+            m_groups[group->GetOriginalLeaderGuid()] = group;
+        }
+        void EraseCreatureGroup(ObjectGuid leaderGuid)
+        {
+            std::lock_guard<std::mutex> lock(m_lock);
+            m_groups.erase(leaderGuid);
+        }
         static ObjectGuid ConvertDBGuid(uint32 guidlow);
     protected:
+        // Guards m_groups: one instance lives per Map, and Creature::JoinCreatureGroup() ->
+        // RegisterNewGroup() is called from creature AI scripts (formation summon/reset handlers)
+        // reachable from Map's per-cell worker-thread pool - same concurrency model as
+        // m_creatureSummonCountLock in Map.h. Plain mutex is enough here: none of
+        // LoadCreatureGroup/RegisterNewGroup/EraseCreatureGroup call back into each other or
+        // themselves.
+        mutable std::mutex m_lock;
         std::map<ObjectGuid, CreatureGroup*> m_groups;
 };
 

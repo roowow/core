@@ -37,6 +37,7 @@
 
 #include "Common.h"
 #include "ObjectGuid.h"
+#include <mutex>
 
 class Unit;
 class Creature;
@@ -194,6 +195,17 @@ private:
     HolderMap m_holderGuidMap;
     // boss_entry, guid for reverse action triggering and check alive
     BossGuidMap m_masterGuid;
+
+    // Guards m_holderMap/m_holderGuidMap/m_masterGuid: one instance of this class lives per Map
+    // and is reached from Creature::UpdateAI() (aggro/evade/die/respawn/despawn -> DoCreatureLinkingEvent,
+    // creature creation -> AddSlaveToHolder/AddMasterToHolder), which runs on Map's per-cell
+    // worker-thread pool (see m_creatureSummonCountLock in Map.h for the same underlying
+    // concurrency model). Recursive because CanSpawn() and its private uint32 overload call each
+    // other/themselves by design (see the private overload's doc comment: "used directly from
+    // above function, and for recursive use"), and DoCreatureLinkingEvent()'s slave processing
+    // can synchronously trigger further linking events (e.g. ForcedDespawn()/Respawn() on a slave
+    // re-entering this same holder) - a plain mutex would self-deadlock on either path.
+    mutable std::recursive_mutex m_lock;
 };
 
 #define sCreatureLinkingMgr MaNGOS::Singleton<CreatureLinkingMgr>::Instance()

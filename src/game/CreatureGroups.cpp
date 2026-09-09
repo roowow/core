@@ -553,6 +553,7 @@ void CreatureGroupsLoadingManager::LoadFromDB()
 
 void CreatureGroupsManager::LoadCreatureGroup(ObjectGuid guid, CreatureGroup*& group)
 {
+    std::lock_guard<std::mutex> lock(m_lock);
     group = nullptr;
     for (const auto& itr : m_groups)
     {

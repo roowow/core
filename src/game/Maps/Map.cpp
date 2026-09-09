@@ -821,8 +821,11 @@ inline void Map::UpdateActiveCellsAsynch(uint32 now, uint32 diff)
     for (m_mapRefIter = m_mapRefManager.begin(); m_mapRefIter != m_mapRefManager.end(); ++m_mapRefIter)
         MarkCellsAroundObject(m_mapRefIter->getSource());
 
-    for (m_activeNonPlayersIter = m_activeNonPlayers.begin(); m_activeNonPlayersIter != m_activeNonPlayers.end(); ++m_activeNonPlayersIter)
-        MarkCellsAroundObject(*m_activeNonPlayersIter);
+    {
+        std::lock_guard<std::mutex> lock(m_activeNonPlayersLock);
+        for (m_activeNonPlayersIter = m_activeNonPlayers.begin(); m_activeNonPlayersIter != m_activeNonPlayers.end(); ++m_activeNonPlayersIter)
+            MarkCellsAroundObject(*m_activeNonPlayersIter);
+    }
 
     const int nthreads = m_cellThreads->size();
     for (int step = 0; step < 2; step++)
@@ -850,14 +853,28 @@ inline void Map::UpdateActiveCellsSynch(uint32 now, uint32 diff)
     }
 
     // non-player active objects
-    for (m_activeNonPlayersIter = m_activeNonPlayers.begin(); m_activeNonPlayersIter != m_activeNonPlayers.end();)
+    // Lock scope deliberately excludes UpdateCellsAroundObject() below: it can synchronously
+    // reach Map::Remove()/RemoveFromActive() (e.g. the object dying mid-update), which takes
+    // m_activeNonPlayersLock itself - holding it across that call would self-deadlock on this
+    // same thread (std::mutex isn't recursive).
     {
-        // skip not in world
-        WorldObject* obj = *m_activeNonPlayersIter;
+        std::lock_guard<std::mutex> lock(m_activeNonPlayersLock);
+        m_activeNonPlayersIter = m_activeNonPlayers.begin();
+    }
+    for (;;)
+    {
+        WorldObject* obj;
+        {
+            std::lock_guard<std::mutex> lock(m_activeNonPlayersLock);
+            if (m_activeNonPlayersIter == m_activeNonPlayers.end())
+                break;
 
-        // step before processing, in this case if Map::Remove remove next object we correctly
-        // step to next-next, and if we step to end() then newly added objects can wait next update.
-        ++m_activeNonPlayersIter;
+            obj = *m_activeNonPlayersIter;
+
+            // step before processing, in this case if Map::Remove remove next object we correctly
+            // step to next-next, and if we step to end() then newly added objects can wait next update.
+            ++m_activeNonPlayersIter;
+        }
         UpdateCellsAroundObject(now, diff, obj);
     }
 }
@@ -1701,6 +1718,7 @@ void Map::UpdateActiveObjectVisibility(Player* player)
 // Not compressed
 void Map::UpdateActiveObjectVisibility(Player* player, ObjectGuidSet& visibleGuids)
 {
+    std::lock_guard<std::mutex> lock(m_activeNonPlayersLock);
     for (const auto obj : m_activeNonPlayers)
     {
         if (obj->IsInWorld())
@@ -1714,6 +1732,7 @@ void Map::UpdateActiveObjectVisibility(Player* player, ObjectGuidSet& visibleGui
 // Support for compressed data packet
 void Map::UpdateActiveObjectVisibility(Player* player, ObjectGuidSet& visibleGuids, UpdateData& data)
 {
+    std::lock_guard<std::mutex> lock(m_activeNonPlayersLock);
     for (const auto obj : m_activeNonPlayers)
     {
         if (obj->IsInWorld())
@@ -1949,12 +1968,15 @@ bool Map::ActiveObjectsNearGrid(uint32 x, uint32 y) const
             return true;
     }
 
-    for (const auto obj : m_activeNonPlayers)
     {
-        CellPair p = MaNGOS::ComputeCellPair(obj->GetPositionX(), obj->GetPositionY());
-        if ((cell_min.x_coord <= p.x_coord && p.x_coord <= cell_max.x_coord) &&
-                (cell_min.y_coord <= p.y_coord && p.y_coord <= cell_max.y_coord))
-            return true;
+        std::lock_guard<std::mutex> lock(m_activeNonPlayersLock);
+        for (const auto obj : m_activeNonPlayers)
+        {
+            CellPair p = MaNGOS::ComputeCellPair(obj->GetPositionX(), obj->GetPositionY());
+            if ((cell_min.x_coord <= p.x_coord && p.x_coord <= cell_max.x_coord) &&
+                    (cell_min.y_coord <= p.y_coord && p.y_coord <= cell_max.y_coord))
+                return true;
+        }
     }
 
     return false;
@@ -1962,7 +1984,10 @@ bool Map::ActiveObjectsNearGrid(uint32 x, uint32 y) const
 
 void Map::AddToActive(WorldObject* obj)
 {
-    m_activeNonPlayers.insert(obj);
+    {
+        std::lock_guard<std::mutex> lock(m_activeNonPlayersLock);
+        m_activeNonPlayers.insert(obj);
+    }
 
     // also not allow unloading spawn grid to prevent creating creature clone at load
     if (obj->GetTypeId() == TYPEID_UNIT)
@@ -1990,15 +2015,22 @@ void Map::RemoveFromActive(WorldObject* obj)
 {
     // Map::Update for active object in proccess. Only erase and dec grid active lock if the
     // obj is actually active
-    ActiveNonPlayers::iterator itr = m_activeNonPlayers.find(obj);
-    if (itr != m_activeNonPlayers.end())
+    bool wasActive = false;
     {
-        if (m_activeNonPlayersIter != m_activeNonPlayers.end() && itr == m_activeNonPlayersIter)
-            ++m_activeNonPlayersIter;
+        std::lock_guard<std::mutex> lock(m_activeNonPlayersLock);
+        ActiveNonPlayers::iterator itr = m_activeNonPlayers.find(obj);
+        if (itr != m_activeNonPlayers.end())
+        {
+            if (m_activeNonPlayersIter != m_activeNonPlayers.end() && itr == m_activeNonPlayersIter)
+                ++m_activeNonPlayersIter;
 
-        m_activeNonPlayers.erase(itr);
+            m_activeNonPlayers.erase(itr);
+            wasActive = true;
+        }
+    }
 
-
+    if (wasActive)
+    {
         // also allow unloading spawn grid
         if (obj->GetTypeId() == TYPEID_UNIT)
         {
@@ -3626,7 +3658,10 @@ void Map::BindToInstanceOrRaid(Player* player, time_t objectResetTime, bool perm
 void Map::PrintInfos(ChatHandler& handler)
 {
     handler.PSendSysMessage("Performance infos on Map (%u, %u)", GetId(), GetInstanceId());
-    handler.PSendSysMessage("%u non player active", m_activeNonPlayers.size());
+    {
+        std::lock_guard<std::mutex> lock(m_activeNonPlayersLock);
+        handler.PSendSysMessage("%u non player active", m_activeNonPlayers.size());
+    }
     handler.PSendSysMessage("%u objects to client update [%u threads]", m_objectsToClientUpdate.size(), m_objUpdatesThreads);
     handler.PSendSysMessage("%u objects relocated [%u threads]", m_unitsRelocated.size(), m_unitRelocationThreads);
     handler.PSendSysMessage("%u scripts scheduled", m_scriptSchedule.size());

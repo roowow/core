@@ -328,6 +328,7 @@ CreatureLinkingInfo const* CreatureLinkingMgr::GetLinkedTriggerInformation(uint3
 // Function to add slave-NPCs to the holder
 void CreatureLinkingHolder::AddSlaveToHolder(Creature* pCreature)
 {
+    std::lock_guard<std::recursive_mutex> lock(m_lock);
     CreatureLinkingInfo const* pInfo = sCreatureLinkingMgr.GetLinkedTriggerInformation(pCreature);
     if (!pInfo)
         return;
@@ -383,6 +384,7 @@ void CreatureLinkingHolder::AddSlaveToHolder(Creature* pCreature)
 // Function to add master-NPCs to the holder
 void CreatureLinkingHolder::AddMasterToHolder(Creature* pCreature)
 {
+    std::lock_guard<std::recursive_mutex> lock(m_lock);
     if (pCreature->IsPet())
         return;
 
@@ -402,6 +404,7 @@ void CreatureLinkingHolder::AddMasterToHolder(Creature* pCreature)
 // Function to process actions for linked NPCs
 void CreatureLinkingHolder::DoCreatureLinkingEvent(CreatureLinkingEvent eventType, Creature* pSource, Unit* pEnemy /* = nullptr*/)
 {
+    std::lock_guard<std::recursive_mutex> lock(m_lock);
     // This check will be needed in reload case
     if (!sCreatureLinkingMgr.IsLinkedEventTrigger(pSource))
         return;
@@ -638,6 +641,7 @@ bool CreatureLinkingHolder::IsRespawnReady(uint32 dbLowGuid, Map* _map) const
 // Function to check if a passive spawning condition is met
 bool CreatureLinkingHolder::CanSpawn(Creature* pCreature) const
 {
+    std::lock_guard<std::recursive_mutex> lock(m_lock);
     CreatureLinkingInfo const*  pInfo = sCreatureLinkingMgr.GetLinkedTriggerInformation(pCreature);
     if (!pInfo)
         return true;
@@ -710,6 +714,7 @@ bool CreatureLinkingHolder::CanSpawn(uint32 lowGuid, Map* _map, CreatureLinkingI
 // This function lets a slave refollow his master
 bool CreatureLinkingHolder::TryFollowMaster(Creature* pCreature)
 {
+    std::lock_guard<std::recursive_mutex> lock(m_lock);
     CreatureLinkingInfo const*  pInfo = sCreatureLinkingMgr.GetLinkedTriggerInformation(pCreature);
     if (!pInfo || !(pInfo->linkingFlag & FLAG_FOLLOW))
         return false;

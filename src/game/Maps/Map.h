@@ -706,6 +706,15 @@ class Map : public GridRefManager<NGridType>
         MapRefManager m_mapRefManager;
         MapRefManager::iterator m_mapRefIter;
 
+        // Guarded by m_activeNonPlayersLock: WorldObject::SummonCreature() -> Map::Add<Creature>()
+        // -> AddToActive() (same worker-thread-reachable hot path as m_creatureSummonCountLock
+        // above) inserts into this set with no protection against another cell's worker thread
+        // doing the same at the same time; SetActiveObjectState() toggling an already-in-world
+        // object off can likewise call RemoveFromActive() from a worker thread. Every access
+        // point (including the iterator-stepping loops that mark/visit cells) is guarded so none
+        // of them can race with a concurrent insert/erase from a summon/deactivate happening on
+        // another worker thread mid-pass.
+        mutable std::mutex m_activeNonPlayersLock;
         typedef std::set<WorldObject*> ActiveNonPlayers;
         ActiveNonPlayers m_activeNonPlayers;
         ActiveNonPlayers::iterator m_activeNonPlayersIter;
