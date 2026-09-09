@@ -209,6 +209,15 @@ class Creature : public Unit
 
         bool IsInEvadeMode() const;
 
+        // Opt-in, script-driven counterpart to the timer-based evade paths above: lets a script
+        // force MELEE_HIT_EVADE/SPELL_MISS_EVADE (and every other IsInEvadeMode() consumer) on
+        // without going through m_targetNotReachableTimer, which Creature::Update() also uses to
+        // freeze UpdateAI() and eventually force a real EnterEvadeMode() reset. A script that
+        // wants "immune while it can't reach anyone, but keep ticking so it can pick a new
+        // target" (e.g. mob_fireswornAI/mob_shade_of_jindoAI) needs that decoupling - otherwise
+        // it can't get the timer's immunity without also getting its side effects.
+        void SetForceEvadeImmune(bool apply) { m_bForceEvadeImmune = apply; }
+
         bool AIM_Initialize();
         void SetAI(CreatureAI * ai) { m_AI = ai; }
 
@@ -513,6 +522,7 @@ class Creature : public Unit
         // Tested on retail 5.4.0: Creatures evade after 3 seconds (but does not return to home position)
         bool IsEvadeBecauseTargetNotReachable() const { return m_targetNotReachableTimer > 3000; }
         uint32 m_targetNotReachableTimer;
+        bool m_bForceEvadeImmune = false;
 
         std::shared_ptr<time_t> const& GetLastLeashExtensionTimePtr() const;
         void SetLastLeashExtensionTimePtr(std::shared_ptr<time_t> const& timer);

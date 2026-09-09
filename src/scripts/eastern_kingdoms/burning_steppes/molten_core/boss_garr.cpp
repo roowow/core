@@ -298,6 +298,7 @@ struct mob_fireswornAI : ScriptedAI
         m_uiUnreachableTimer = 0;
         m_bPurging = false;
         m_blacklist.clear();
+        m_creature->SetForceEvadeImmune(false);
     }
 
     void Aggro(Unit* /*pWho*/) override
@@ -394,6 +395,11 @@ struct mob_fireswornAI : ScriptedAI
 
         if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
         {
+            // Nobody to fight - force the same MELEE_HIT_EVADE/SPELL_MISS_EVADE immunity real
+            // evade grants (see Creature::IsInEvadeMode()), so a player who kites every
+            // Firesworn out of engagement range can't just plink this one down for free with
+            // ranged/spell damage while it stands there unable to hit back.
+            m_creature->SetForceEvadeImmune(true);
             return;
         }
 
@@ -404,10 +410,13 @@ struct mob_fireswornAI : ScriptedAI
         {
             if (m_blacklist.count(pVictim->GetObjectGuid()))
             {
+                m_creature->SetForceEvadeImmune(true);
                 m_creature->GetThreatManager().modifyThreatPercent(pVictim, -101);
                 return;
             }
         }
+
+        m_creature->SetForceEvadeImmune(false);
 
         // Players can use LOS/terrain to keep this specific Firesworn's current top-threat
         // target permanently out of reach while it's still winning the threat race (e.g.

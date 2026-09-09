@@ -3272,6 +3272,9 @@ Unit* Creature::SelectAttackingTarget(AttackingTarget target, uint32 position, S
 
 bool Creature::IsInEvadeMode() const
 {
+    if (m_bForceEvadeImmune)
+        return true;
+
     if (IsEvadeBecauseTargetNotReachable())
         return true;
 
