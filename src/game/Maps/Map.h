@@ -780,6 +780,14 @@ class Map : public GridRefManager<NGridType>
         WeatherSystem* m_weatherSystem;
 
         // Creature summon limit
+        // Guarded by m_creatureSummonCountLock: UpdateActiveCellsCallback() shards Map updates
+        // across multiple worker threads by cell (see the threadId/totalThreads/step partitioning
+        // there), and its "safe distance" scheme only serializes spatially adjacent cells -
+        // creatures in two far-apart cells can call WorldObject::SummonCreature() (which reads
+        // then writes these maps, the write via operator[] potentially rehashing) at the same
+        // time on different threads. Found via a SIGSEGV inside std::_Hashtable::find() on
+        // m_mCreatureSummonCount from a "MapCell[0]" worker thread (2026-09-09 crash log).
+        mutable std::mutex m_creatureSummonCountLock;
         std::unordered_map<uint64, uint32> m_mCreatureSummonLimit;
         std::unordered_map<uint64, uint32> m_mCreatureSummonCount;
 

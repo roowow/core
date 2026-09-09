@@ -1250,8 +1250,11 @@ void Map::Remove(Player* player, bool remove)
     if (m_data)
         m_data->OnPlayerLeave(player);
 
-    m_mCreatureSummonCount.erase(player->GetGUID());
-    m_mCreatureSummonLimit.erase(player->GetGUID());
+    {
+        std::lock_guard<std::mutex> lock(m_creatureSummonCountLock);
+        m_mCreatureSummonCount.erase(player->GetGUID());
+        m_mCreatureSummonLimit.erase(player->GetGUID());
+    }
 
     if (remove)
         player->CleanupsBeforeDelete();
@@ -1333,8 +1336,11 @@ Map::Remove(T* obj, bool remove)
     NGridType* grid = getNGrid(cell.GridX(), cell.GridY());
     MANGOS_ASSERT(grid != nullptr);
 
-    m_mCreatureSummonCount.erase(obj->GetGUID());
-    m_mCreatureSummonLimit.erase(obj->GetGUID());
+    {
+        std::lock_guard<std::mutex> lock(m_creatureSummonCountLock);
+        m_mCreatureSummonCount.erase(obj->GetGUID());
+        m_mCreatureSummonLimit.erase(obj->GetGUID());
+    }
 
     if (obj->IsActiveObject())
         RemoveFromActive(obj);

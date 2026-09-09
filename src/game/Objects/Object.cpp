@@ -2495,6 +2495,7 @@ void WorldObject::AddObjectToRemoveList()
 
 uint32 Map::GetSummonLimitForObject(uint64 guid) const
 {
+    std::lock_guard<std::mutex> lock(m_creatureSummonCountLock);
     const auto itr = m_mCreatureSummonLimit.find(guid);
     if (itr != m_mCreatureSummonLimit.end())
         return itr->second;
@@ -2511,6 +2512,7 @@ uint32 WorldObject::GetCreatureSummonLimit() const
 
 void Map::SetSummonLimitForObject(uint64 guid, uint32 limit)
 {
+    std::lock_guard<std::mutex> lock(m_creatureSummonCountLock);
     m_mCreatureSummonLimit[guid] = limit;
 }
 
@@ -2524,6 +2526,7 @@ void WorldObject::SetCreatureSummonLimit(uint32 limit)
 
 uint32 Map::GetSummonCountForObject(uint64 guid) const
 {
+    std::lock_guard<std::mutex> lock(m_creatureSummonCountLock);
     const auto itr = m_mCreatureSummonCount.find(guid);
     if (itr != m_mCreatureSummonCount.end())
         return itr->second;
@@ -2541,6 +2544,7 @@ uint32 WorldObject::GetCreatureSummonCount() const
 
 void Map::DecrementSummonCountForObject(uint64 guid)
 {
+    std::lock_guard<std::mutex> lock(m_creatureSummonCountLock);
     auto itr = m_mCreatureSummonCount.find(guid);
     if (itr != m_mCreatureSummonCount.end())
         if (itr->second != 0)
@@ -2563,6 +2567,7 @@ void WorldObject::DecrementSummonCounter()
 
 void Map::IncrementSummonCountForObject(uint64 guid)
 {
+    std::lock_guard<std::mutex> lock(m_creatureSummonCountLock);
     m_mCreatureSummonCount[guid]++;
 }
 
