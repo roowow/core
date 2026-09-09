@@ -3519,7 +3519,13 @@ void BattleBotAI::UpdateAI(uint32 const diff)
         // 单独固定走满荣誉军衔的随机装备路线，保证不比现在的PvE前置装差，见BattleRoyale.md
         // 「BR机器人装备策略」。UpdateVisualHonorRankBasedOnItems()是AutoEquipGear内部
         // 自己也会调的收尾步骤，这里手动补上。
-        if (m_isBattleRoyaleBot)
+        //
+        // WSG/AB机器人按20%概率复用同一条"军装"路线（跟BR机器人视觉呼应），其余80%仍走
+        // 原有的全局AutoEquip配置，不影响其它战场/组队机器人。
+        bool const wsgOrAb = m_battlegroundId == BATTLEGROUND_QUEUE_WS || m_battlegroundId == BATTLEGROUND_QUEUE_AB;
+        bool const rolledMilitaryGear = wsgOrAb && urand(0, 99) < 20;
+
+        if (m_isBattleRoyaleBot || rolledMilitaryGear)
         {
             EquipRandomGearInEmptySlots(true);
             UpdateVisualHonorRankBasedOnItems();
