@@ -4777,7 +4777,10 @@ void Player::_SaveSpellCooldowns() const
         }
     }
 
-    sCharactersOutbox.Enqueue(sqls);
+    // Phase 3 再续 (see HPHA.md): reverted off sCharactersOutbox/Redis onto CharacterDatabase's own
+    // in-memory delay queue - see _SaveAuras()'s equivalent comment for why looping is fine here.
+    for (std::string const& s : sqls)
+        CharacterDatabase.Execute(s.c_str(), GetGUIDLow());
 }
 
 void Player::UpdateResetTalentsMultiplier() const
@@ -17747,7 +17750,10 @@ void Player::SaveToDB(bool online, bool force)
         << ',' << uint32(GetByteValue(PLAYER_FIELD_BYTES, PLAYER_FIELD_BYTES_OFFSET_ACTION_BARS))
         << ',' << GetWorldMask() << ',' << uint64(m_createTime) << ')';
 
-    sCharactersOutbox.Enqueue(sql.str());
+    // Phase 3 再续 (see HPHA.md): reverted off sCharactersOutbox/Redis onto CharacterDatabase's own
+    // in-memory delay queue - see the section's rationale for why, and Database::MarkGuidEnqueued/
+    // MarkGuidResolved for how login-gating still catches an in-flight write from this call.
+    CharacterDatabase.Execute(sql.str().c_str(), GetGUIDLow());
 
     _SaveBGData();
     _SaveQuestStatus();
@@ -17757,13 +17763,15 @@ void Player::SaveToDB(bool online, bool force)
     _SaveSkills();
     m_reputationMgr.SaveToDB();
 
-    // _SaveInventory()/m_honorMgr.Save() are the only two pieces of this save still synchronous
-    // and transactional - see HPHA.md "Phase 3 续" for why (inventory: BeginTransaction(GetGUIDLow())
+    // _SaveInventory()/m_honorMgr.Save() are the only two pieces of this save that stay wrapped in
+    // an explicit transaction - see HPHA.md "Phase 3 续" for why (inventory: BeginTransaction(GetGUIDLow())
     // is a concurrency-control lock against SaveInventoryAndGoldToDB()'s racing fast-save path, not
-    // just crash-atomicity, and moving it to the async Outbox would drop that mutual exclusion;
-    // honor: character_honor_cp is an append-only log, the "delete-then-reinsert" idempotency
-    // technique used everywhere else in this function doesn't apply to it without a separate
-    // dedup-key design). Everything above is now durable via sCharactersOutbox instead.
+    // just crash-atomicity; honor: character_honor_cp is an append-only log, the "delete-then-reinsert"
+    // idempotency technique used everywhere else in this function doesn't apply to it without a
+    // separate dedup-key design). Everything in this function - this transaction included - now
+    // goes through CharacterDatabase's own in-memory delay queue (see "Phase 3 再续"); Commit
+    // Transaction() tags this transaction's pending-write tracking with its own serialId (this
+    // guid), same as every plain Execute(sql, guid) call above.
     CharacterDatabase.BeginTransaction(GetGUIDLow());
     _SaveInventory();
     m_honorMgr.Save();
@@ -17897,7 +17905,11 @@ void Player::_SaveAuras()
         sqls.push_back(ins.str());
     }
 
-    sCharactersOutbox.Enqueue(sqls);
+    // Phase 3 再续 (see HPHA.md): reverted off sCharactersOutbox/Redis onto CharacterDatabase's own
+    // in-memory delay queue. No longer batched into one call - a plain queue push is cheap enough
+    // that looping costs nothing worth avoiding (unlike the Redis round-trip this replaces).
+    for (std::string const& s : sqls)
+        CharacterDatabase.Execute(s.c_str(), GetGUIDLow());
 }
 
 bool Player::SaveAura(SpellAuraHolder const* holder, AuraSaveStruct& saveStruct)
@@ -18103,7 +18115,10 @@ void Player::_SaveInventory()
 
 void Player::_SaveQuestStatus()
 {
-    // Phase3 continuation (see HPHA.md "Phase 3 续") - routed through sCharactersOutbox.
+    // Phase 3 再续 (see HPHA.md): reverted off sCharactersOutbox/Redis onto CharacterDatabase's own
+    // in-memory delay queue - each Execute(sql, guid) call below is tracked the same way an
+    // Outbox Enqueue() was (see Database::MarkGuidEnqueued/MarkGuidResolved), so the login-gating
+    // that motivated ON DUPLICATE KEY UPDATE below still applies unchanged.
     // "we don't need transactions here" (below) was already true pre-Outbox; each row is an
     // independent statement, no grouping needed. DELETE/UPDATE are already idempotent (absolute
     // WHERE guid=?+quest=? scoped writes). The QUEST_NEW INSERT is the only unsafe-to-replay one
@@ -18129,7 +18144,7 @@ void Player::_SaveQuestStatus()
         {
             char sql[256];
             snprintf(sql, sizeof(sql), "DELETE FROM `character_queststatus` WHERE `guid` = %u AND `quest` = %u", GetGUIDLow(), i->first);
-            sCharactersOutbox.Enqueue(sql);
+            CharacterDatabase.Execute(sql, GetGUIDLow());
             i = mQuestStatus.erase(i);
             continue;
         }
@@ -18159,7 +18174,7 @@ void Player::_SaveQuestStatus()
                     i->second.m_creatureOrGOcount[0], i->second.m_creatureOrGOcount[1], i->second.m_creatureOrGOcount[2], i->second.m_creatureOrGOcount[3],
                     i->second.m_itemcount[0], i->second.m_itemcount[1], i->second.m_itemcount[2], i->second.m_itemcount[3],
                     i->second.m_reward_choice);
-                sCharactersOutbox.Enqueue(sql);
+                CharacterDatabase.Execute(sql, GetGUIDLow());
             }
             break;
             case QUEST_CHANGED :
@@ -18172,7 +18187,7 @@ void Player::_SaveQuestStatus()
                     i->second.m_creatureOrGOcount[0], i->second.m_creatureOrGOcount[1], i->second.m_creatureOrGOcount[2], i->second.m_creatureOrGOcount[3],
                     i->second.m_itemcount[0], i->second.m_itemcount[1], i->second.m_itemcount[2], i->second.m_itemcount[3],
                     GetGUIDLow(), i->first);
-                sCharactersOutbox.Enqueue(sql);
+                CharacterDatabase.Execute(sql, GetGUIDLow());
             }
             break;
             case QUEST_UNCHANGED:
@@ -18185,8 +18200,9 @@ void Player::_SaveQuestStatus()
 
 void Player::_SaveSkills()
 {
-    // Phase3 continuation (see HPHA.md "Phase 3 续") - routed through sCharactersOutbox. Same
-    // reasoning as _SaveQuestStatus(): "we don't need transactions here" was already true,
+    // Phase 3 再续 (see HPHA.md): reverted off sCharactersOutbox/Redis, same as _SaveQuestStatus()
+    // above - see its comment for the login-gating tracking this preserves.
+    // "we don't need transactions here" was already true,
     // DELETE/UPDATE stay as independent idempotent statements, only SKILL_NEW's plain INSERT
     // needs `ON DUPLICATE KEY UPDATE` to survive an at-least-once replay.
     // was:
@@ -18212,7 +18228,7 @@ void Player::_SaveSkills()
         {
             char sql[256];
             snprintf(sql, sizeof(sql), "DELETE FROM `character_skills` WHERE `guid` = %u AND `skill` = %u", GetGUIDLow(), itr->first);
-            sCharactersOutbox.Enqueue(sql);
+            CharacterDatabase.Execute(sql, GetGUIDLow());
             m_skillStatusMap.erase(itr++);
             continue;
         }
@@ -18229,7 +18245,7 @@ void Player::_SaveSkills()
                 snprintf(sql, sizeof(sql), "INSERT INTO `character_skills` (`guid`, `skill`, `value`, `max`) VALUES (%u, %u, %u, %u) "
                     "ON DUPLICATE KEY UPDATE `value`=VALUES(`value`), `max`=VALUES(`max`)",
                     GetGUIDLow(), itr->first, uint32(value), uint32(max));
-                sCharactersOutbox.Enqueue(sql);
+                CharacterDatabase.Execute(sql, GetGUIDLow());
             }
             break;
             case SKILL_CHANGED:
@@ -18237,7 +18253,7 @@ void Player::_SaveSkills()
                 char sql[128];
                 snprintf(sql, sizeof(sql), "UPDATE `character_skills` SET `value` = %u, `max` = %u WHERE `guid` = %u AND `skill` = %u",
                     uint32(value), uint32(max), GetGUIDLow(), itr->first);
-                sCharactersOutbox.Enqueue(sql);
+                CharacterDatabase.Execute(sql, GetGUIDLow());
             }
             break;
             case SKILL_UNCHANGED:
@@ -18261,7 +18277,7 @@ void Player::_SaveSkills()
             char sql[128];
             snprintf(sql, sizeof(sql), "REPLACE INTO `character_forgotten_skills` (`guid`, `skill`, `value`) VALUES (%u, %u, %u)",
                 GetGUIDLow(), itr.first, itr.second);
-            sCharactersOutbox.Enqueue(sql);
+            CharacterDatabase.Execute(sql, GetGUIDLow());
         }
     }
 #endif
@@ -18269,8 +18285,9 @@ void Player::_SaveSkills()
 
 void Player::_SaveSpells()
 {
-    // Phase3 continuation (see HPHA.md "Phase 3 续") - routed through sCharactersOutbox, each row
-    // an independent statement (no grouping needed). DELETE is already idempotent; the INSERT
+    // Phase 3 再续 (see HPHA.md): reverted off sCharactersOutbox/Redis, same as _SaveQuestStatus()
+    // above - see its comment for the login-gating tracking this preserves. DELETE is already
+    // idempotent; the INSERT
     // (fired for both PLAYERSPELL_NEW and PLAYERSPELL_CHANGED - the latter always paired with a
     // preceding DELETE of the same row, same net effect) needs `ON DUPLICATE KEY UPDATE` to
     // survive an at-least-once replay without colliding on the `(guid,spell)` PRIMARY KEY.
@@ -18288,7 +18305,7 @@ void Player::_SaveSpells()
         {
             char sql[256];
             snprintf(sql, sizeof(sql), "DELETE FROM `character_spell` WHERE `guid` = %u and `spell` = %u", GetGUIDLow(), itr->first);
-            sCharactersOutbox.Enqueue(sql);
+            CharacterDatabase.Execute(sql, GetGUIDLow());
         }
 
         // add only changed/new not dependent spells
@@ -18298,7 +18315,7 @@ void Player::_SaveSpells()
             snprintf(sql, sizeof(sql), "INSERT INTO `character_spell` (`guid`, `spell`, `active`, `disabled`) VALUES (%u, %u, %u, %u) "
                 "ON DUPLICATE KEY UPDATE `active`=VALUES(`active`), `disabled`=VALUES(`disabled`)",
                 GetGUIDLow(), itr->first, uint32(itr->second.active ? 1 : 0), uint32(itr->second.disabled ? 1 : 0));
-            sCharactersOutbox.Enqueue(sql);
+            CharacterDatabase.Execute(sql, GetGUIDLow());
         }
 
         if (itr->second.state == PLAYERSPELL_REMOVED)
@@ -22805,7 +22822,10 @@ void Player::_SaveBGData()
         sqls.push_back(ins.str());
     }
 
-    sCharactersOutbox.Enqueue(sqls);
+    // Phase 3 再续 (see HPHA.md): reverted off sCharactersOutbox/Redis onto CharacterDatabase's own
+    // in-memory delay queue - see _SaveAuras()'s equivalent comment for why looping is fine here.
+    for (std::string const& s : sqls)
+        CharacterDatabase.Execute(s.c_str(), GetGUIDLow());
 
     m_bgData.m_needSave = false;
 }

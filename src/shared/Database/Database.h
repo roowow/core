@@ -242,6 +242,26 @@ class Database
         bool PExecute(DbExecMode executionMode, char const* format,...) ATTR_PRINTF(3,4);
         bool PExecute(char const* format,...) ATTR_PRINTF(2,3);
 
+        // Same as Execute(sql), but tags the queued operation with trackedGuid (0 = untracked) for
+        // MarkGuidEnqueued/MarkGuidResolved/HasPendingWrites below - see HPHA.md "Phase 3 再续".
+        // Takes the SQL as a plain pointer (not a printf format string) so a large already-built
+        // statement can't be silently truncated by PExecute()'s fixed-size vsnprintf buffer (see
+        // the 2026-08-29 character_queststatus incident this avoids repeating).
+        bool Execute(char const* sql, uint32 trackedGuid);
+
+        // Per-guid pending-write tracking for this Database's own async delay queue (mirrors
+        // DbWriteOutbox::MarkGuidEnqueued/MarkGuidResolved/HasPendingWrites, see HPHA.md
+        // "Phase 3 再续"). Only ever populated for guids explicitly passed in via Execute(sql, guid)
+        // or a committed transaction started with BeginTransaction(guid) - WorldDatabase/
+        // LoginDatabase/LogsDatabase never get any tracked entries in practice, so this stays an
+        // always-empty, near-zero-cost no-op for them. Unlike DbWriteOutbox's version, resolution
+        // doesn't need clamping: this queue is pure in-memory and never survives a restart, so
+        // there's no cross-process replay that could resolve something this process never marked
+        // enqueued.
+        void MarkGuidEnqueued(uint32 guid);
+        void MarkGuidResolved(uint32 guid);
+        bool HasPendingWrites(uint32 guid);
+
         // Writes SQL commands to a LOG file (see mangosd.conf "LogSQL")
         bool PExecuteLog(char const* format,...) ATTR_PRINTF(2,3);
 
@@ -351,6 +371,10 @@ class Database
         PreparedStmtRegistry m_stmtRegistry;
 
         int m_iStmtIndex;
+
+        // See MarkGuidEnqueued/MarkGuidResolved/HasPendingWrites above.
+        mutable std::mutex m_guidTrackingMutex;
+        std::unordered_map<uint32, std::pair<uint64, uint64>> m_guidPendingCounts;
 
     private:
 

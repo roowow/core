@@ -417,6 +417,58 @@ bool Database::Execute(char const* sql)
     return Execute(DbExecMode::CanBeAsync, sql);
 }
 
+bool Database::Execute(char const* sql, uint32 trackedGuid)
+{
+    if (!m_pAsyncConn)
+        return false;
+
+    SqlTransaction* pTrans = m_currentTransaction.get();
+    if (pTrans)
+    {
+        // Part of an already-open transaction - that transaction's own serialId (set by
+        // BeginTransaction(guid)) is what gets tracked at CommitTransaction() time, not this
+        // individual statement.
+        pTrans->DelayExecute(new SqlPlainRequest(sql));
+        return true;
+    }
+
+    // if async execution is not available - executes synchronously, nothing to track as pending
+    if (!m_bAllowAsyncTransactions)
+        return DirectExecute(sql);
+
+    if (trackedGuid)
+        MarkGuidEnqueued(trackedGuid);
+    AddToDelayQueue(new SqlPlainRequest(sql, trackedGuid));
+    return true;
+}
+
+void Database::MarkGuidEnqueued(uint32 guid)
+{
+    if (!guid)
+        return;
+    std::lock_guard<std::mutex> lock(m_guidTrackingMutex);
+    ++m_guidPendingCounts[guid].first;
+}
+
+void Database::MarkGuidResolved(uint32 guid)
+{
+    if (!guid)
+        return;
+    std::lock_guard<std::mutex> lock(m_guidTrackingMutex);
+    ++m_guidPendingCounts[guid].second;
+}
+
+bool Database::HasPendingWrites(uint32 guid)
+{
+    if (!guid)
+        return false;
+    std::lock_guard<std::mutex> lock(m_guidTrackingMutex);
+    auto it = m_guidPendingCounts.find(guid);
+    if (it == m_guidPendingCounts.end())
+        return false;
+    return it->second.first != it->second.second;
+}
+
 bool Database::Execute(DbExecMode mode, char const* sql)
 {
     if (!m_pAsyncConn)
@@ -539,8 +591,14 @@ bool Database::CommitTransaction()
     // add SqlTransaction to the async queue
     // if serial ID > 0, add to the serial delay queue
     SqlTransaction* trans = m_currentTransaction.release();
+    // serialId doubles as the guid tag here (see HPHA.md "Phase 3 再续") - BeginTransaction(guid)
+    // callers (e.g. Player::_SaveInventory()) get the same pending-write tracking as a plain
+    // Execute(sql, guid) call, for free.
     if (trans->GetSerialId() > 0)
+    {
+        MarkGuidEnqueued(trans->GetSerialId());
         AddToSerialDelayQueue(trans);
+    }
     else
         AddToDelayQueue(trans);
     return true;

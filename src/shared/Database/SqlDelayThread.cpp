@@ -86,6 +86,10 @@ void SqlDelayThread::ProcessRequests()
     while (m_dbEngine->NextDelayedOperation(s))
     {
         s->Execute(m_dbConnection);
+        // See Database::MarkGuidEnqueued/MarkGuidResolved (HPHA.md "Phase 3 再续") - a no-op for
+        // any operation not explicitly tagged with a guid (GetSerialId() == 0), which covers the
+        // overwhelming majority of non-character writes through this same shared code path.
+        m_dbEngine->MarkGuidResolved(s->GetSerialId());
         delete s;
     }
 
@@ -93,6 +97,7 @@ void SqlDelayThread::ProcessRequests()
     while (m_serialDelayQueue.next(s))
     {
         s->Execute(m_dbConnection);
+        m_dbEngine->MarkGuidResolved(s->GetSerialId());
         delete s;
     }
 }

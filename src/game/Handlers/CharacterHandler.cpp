@@ -479,13 +479,16 @@ void WorldSession::LoginPlayer(ObjectGuid loginPlayerGuid)
 
 void WorldSession::RequestPlayerLogin(ObjectGuid guid)
 {
-    // See HPHA.md 十三 "方案C". guid's own last session may still have writes in flight (async
-    // via sCharactersOutbox since Phase3) - loading now would risk reading a `characters` row
-    // from before those applied, while anything saved synchronously (inventory) is already
-    // up to date - the exact "item shows up, gold/quest-status/etc. doesn't" class of bug this
-    // whole mechanism exists to close. Defer instead of loading immediately; CheckPendingLogin()
-    // (called every WorldSession::Update() tick) retries until it clears or times out.
-    if (sCharactersOutbox.HasPendingWrites(guid.GetCounter()))
+    // See HPHA.md 十三 "方案C" and "Phase 3 再续". guid's own last session may still have writes in
+    // flight - either async via sCharactersOutbox (SaveGoldToDB()/trade/mail path, still on Redis)
+    // or via CharacterDatabase's own in-memory delay queue (SaveToDB()'s periodic full save and
+    // _SaveInventory(), reverted off Redis for performance - see HPHA.md) - loading now would risk
+    // reading a `characters`/inventory row from before those applied, the exact "item shows up,
+    // gold/quest-status/etc. doesn't" class of bug this whole mechanism exists to close. Both
+    // sources must be clear, not just one. Defer instead of loading immediately;
+    // CheckPendingLogin() (called every WorldSession::Update() tick) retries until it clears or
+    // times out.
+    if (sCharactersOutbox.HasPendingWrites(guid.GetCounter()) || CharacterDatabase.HasPendingWrites(guid.GetCounter()))
     {
         m_pendingLoginGuid = guid;
         m_pendingLoginDeadline = time(nullptr) + time_t(LOGIN_PENDING_WRITES_TIMEOUT_SEC);
@@ -512,14 +515,15 @@ void WorldSession::CheckPendingLogin()
     if (!m_pendingLoginGuid)
         return;
 
-    bool const stillPending = sCharactersOutbox.HasPendingWrites(m_pendingLoginGuid.GetCounter());
+    bool const stillPending = sCharactersOutbox.HasPendingWrites(m_pendingLoginGuid.GetCounter()) ||
+                               CharacterDatabase.HasPendingWrites(m_pendingLoginGuid.GetCounter());
     if (stillPending && time(nullptr) < m_pendingLoginDeadline)
         return; // keep waiting, CheckPendingLogin() tries again next tick
 
     if (stillPending)
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR,
-                 "WorldSession::CheckPendingLogin: guid %u still has DbWriteOutbox writes pending "
-                 "after %us, proceeding with login anyway (see HPHA.md 十三).",
+                 "WorldSession::CheckPendingLogin: guid %u still has writes pending "
+                 "after %us, proceeding with login anyway (see HPHA.md 十三 / Phase 3 再续).",
                  m_pendingLoginGuid.GetCounter(), LOGIN_PENDING_WRITES_TIMEOUT_SEC);
 
     ObjectGuid const guid = m_pendingLoginGuid;

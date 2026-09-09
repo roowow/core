@@ -58,6 +58,10 @@ class SqlPlainRequest : public SqlOperation
         char const* m_sql;
     public:
         SqlPlainRequest(char const* sql) : m_sql(mangos_strdup(sql)){}
+        // guid: tags this operation for Database's guid-pending tracking (see
+        // Database::MarkGuidEnqueued/MarkGuidResolved) - reuses SqlOperation's existing serialId
+        // field, same one BeginTransaction(GetGUIDLow()) already uses for worker-affinity routing.
+        SqlPlainRequest(char const* sql, uint32 guid) : SqlOperation(guid), m_sql(mangos_strdup(sql)){}
         ~SqlPlainRequest() { char* tofree = const_cast<char*>(m_sql); delete [] tofree; }
         bool Execute(SqlConnection* conn);
 };

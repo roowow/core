@@ -25,6 +25,7 @@
 #include "ObjectMgr.h"
 #include "Packets/Misc.h"
 #include "OO/DbWriteOutbox.h"
+#include "Database/DatabaseEnv.h"
 
 #include <numeric>
 
@@ -431,9 +432,9 @@ void ReputationMgr::LoadFromDB(std::unique_ptr<QueryResult> result)
 
 void ReputationMgr::SaveToDB()
 {
-    // Phase3 continuation (see HPHA.md "Phase 3 续") - routed through sCharactersOutbox, each
-    // faction an independent statement (no grouping needed, matches _SaveQuestStatus()/
-    // _SaveSpells()'s same per-row delta shape).
+    // Phase 3 再续 (see HPHA.md): reverted off sCharactersOutbox/Redis onto CharacterDatabase's own
+    // in-memory delay queue - see Player::_SaveQuestStatus()'s equivalent comment for why (each
+    // Execute(sql, guid) call below is tracked the same way an Outbox Enqueue() was).
     //
     // 2026-08-28 production incident: this used to also enqueue a separate `DELETE FROM
     // character_reputation WHERE guid=? AND faction=?` right before the INSERT below (removed
@@ -467,7 +468,7 @@ void ReputationMgr::SaveToDB()
             snprintf(sql, sizeof(sql), "INSERT INTO character_reputation (guid,faction,standing,flags) VALUES (%u, %u, %d, %u) "
                 "ON DUPLICATE KEY UPDATE `standing`=VALUES(`standing`), `flags`=VALUES(`flags`)",
                 m_player->GetGUIDLow(), faction.ID, faction.Standing, faction.Flags);
-            sCharactersOutbox.Enqueue(sql);
+            CharacterDatabase.Execute(sql, m_player->GetGUIDLow());
 
             faction.needSave = false;
         }
