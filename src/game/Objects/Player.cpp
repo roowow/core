@@ -19821,8 +19821,12 @@ bool Player::BuyItemFromVendor(ObjectGuid vendorGuid, uint32 item, uint8 count, 
         return false;
     }
 
-    auto playerRank = (sWorld.GetWowPatch() < WOW_PATCH_107) && sWorld.getConfig(CONFIG_BOOL_ACCURATE_PVP_PURCHASE_REQUIREMENTS) ?
-        m_honorMgr.GetHighestRank().rank : m_honorMgr.GetRank().rank;
+    // 2026-09-09（用户拍板，全局生效）：不再按"1.7版本前后"仿真真实暴雪规则切换，军衔类购买
+    // 一律检查历史最高军衔，不看当前军衔——玩家反馈过军衔后来掉了导致买不了之前够格的装备。
+    // Original (kept for reference, do not restore):
+    //     auto playerRank = (sWorld.GetWowPatch() < WOW_PATCH_107) && sWorld.getConfig(CONFIG_BOOL_ACCURATE_PVP_PURCHASE_REQUIREMENTS) ?
+    //         m_honorMgr.GetHighestRank().rank : m_honorMgr.GetRank().rank;
+    auto playerRank = m_honorMgr.GetHighestRank().rank;
 
     // do not check level requirement for normal items (PvP related bonus items is another case)
     if (pProto->RequiredHonorRank && (playerRank < (uint8)pProto->RequiredHonorRank || GetLevel() < pProto->RequiredLevel))
