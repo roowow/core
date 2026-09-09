@@ -22,6 +22,7 @@ EndScriptData */
 
 #include "scriptPCH.h"
 #include "zulgurub.h"
+#include <unordered_map>
 
 enum
 {
@@ -316,10 +317,22 @@ struct mob_shade_of_jindoAI : public ScriptedAI
 
     uint32 ShadowShock_Timer;
 
+    // Anti-kite state, mirrors mob_fireswornAI (boss_garr.cpp) - players can use LOS/terrain to
+    // keep this Shade permanently unable to reach its current target, stalling the Delusions of
+    // Jin'do punishment indefinitely. Purge the unreachable target's threat and blacklist it
+    // briefly so SelectHostileTarget() below picks someone else from the threat table (copied
+    // wholesale from Jin'do at JustSummoned via AddThreatsOf) instead of staying stuck forever.
+    uint32 m_uiUnreachableTimer = 0;
+    bool m_bPurging = false;
+    std::unordered_map<ObjectGuid, uint32> m_blacklist;
+
     void Reset() override
     {
         ShadowShock_Timer = 1000;
         m_creature->AddAura(SPELL_INVISIBLE, ADD_AURA_PERMANENT);
+        m_uiUnreachableTimer = 0;
+        m_bPurging = false;
+        m_blacklist.clear();
     }
 
     void DamageTaken(Unit *done_by, uint32 &damage) override
@@ -330,8 +343,57 @@ struct mob_shade_of_jindoAI : public ScriptedAI
 
     void UpdateAI(uint32 const diff) override
     {
+        // Neutralize the engine's own "stuck too long" watchdog - our own purge logic below is
+        // what should resolve a stuck target, not a silent evade (same reasoning as
+        // mob_fireswornAI::UpdateAI() in boss_garr.cpp).
+        m_creature->m_targetNotReachableTimer = 0;
+
+        for (auto it = m_blacklist.begin(); it != m_blacklist.end(); )
+        {
+            if (diff >= it->second)
+                it = m_blacklist.erase(it);
+            else
+            {
+                it->second -= diff;
+                ++it;
+            }
+        }
+
         if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             return;
+
+        // Still-blacklisted target wormed back onto the threat table before their cooldown
+        // expired - kick them again immediately.
+        if (Unit* pVictim = m_creature->GetVictim())
+        {
+            if (m_blacklist.count(pVictim->GetObjectGuid()))
+            {
+                m_creature->GetThreatManager().modifyThreatPercent(pVictim, -101);
+                return;
+            }
+        }
+
+        // First strike waits 1s so a brief, normal pathing hiccup doesn't strip real threat;
+        // once confirmed stuck, keep purging every tick without re-arming the wait.
+        if (m_creature->CantPathToVictim())
+        {
+            m_uiUnreachableTimer += diff;
+            if (m_uiUnreachableTimer > (m_bPurging ? 0u : 1000u))
+            {
+                if (Unit* pVictim = m_creature->GetVictim())
+                {
+                    m_creature->GetThreatManager().modifyThreatPercent(pVictim, -101);
+                    m_blacklist[pVictim->GetObjectGuid()] = 8000;   // tunable
+                }
+                m_bPurging = true;
+                m_uiUnreachableTimer = 0;
+            }
+        }
+        else
+        {
+            m_uiUnreachableTimer = 0;
+            m_bPurging = false;
+        }
 
         if (m_creature->GetVictim()->HasAura(SPELL_HEX))
             m_creature->GetThreatManager().modifyThreatPercent(m_creature->GetVictim(), -100);
