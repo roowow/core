@@ -187,6 +187,12 @@ struct boss_maexxnaAI : public ScriptedAI
         m_bEnraged = false;
         wraps.clear();
         wraps2.clear();
+
+        // Room extends ~90yd from spawn (web wrap corners), inner entrance door ~82yd from spawn.
+        // mmap pathing does not respect the door's runtime open/closed state, so without a leash
+        // Maexxna can chase a target straight through the closed door into the corridor outside.
+        // 100yd covers the whole room with margin while still cutting off chasing far past the door.
+        m_creature->SetLeashDistance(100.0f);
     }
 
     void Aggro(Unit* pWho) override
@@ -219,6 +225,16 @@ struct boss_maexxnaAI : public ScriptedAI
                 }
             }
         }
+    }
+
+    // Inner entrance door (GO_ARAC_MAEX_INNER_DOOR) sits on the room's diagonal
+    // exit axis, where X-Y ~= 7316 at the door itself and higher (~7327-7453)
+    // for every point inside the room. mmap pathing does not respect the door's
+    // closed state, so without this check Maexxna can chase a target standing
+    // just outside the door straight through it (players kiting at the door).
+    static bool IsBeyondEntranceDoor(Unit const* pWho)
+    {
+        return (pWho->GetPositionX() - pWho->GetPositionY()) < 7316.0f;
     }
 
     void JustReachedHome() override
@@ -359,6 +375,15 @@ struct boss_maexxnaAI : public ScriptedAI
     {
         if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             return;
+
+        // Current target has ended up outside the entrance door (players fighting
+        // right at the doorway) - reset instead of letting mmap pathing carry
+        // Maexxna through the closed door to reach them.
+        if (IsBeyondEntranceDoor(m_creature->GetVictim()))
+        {
+            EnterEvadeMode();
+            return;
+        }
 
         UpdateWraps(uiDiff);
 
