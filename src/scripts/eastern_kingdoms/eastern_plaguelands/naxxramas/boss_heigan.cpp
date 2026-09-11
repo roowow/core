@@ -129,6 +129,7 @@ struct boss_heiganAI : public ScriptedAI
     std::vector<ObjectGuid> _eruptTiles[numSections];
     uint32 killCooldown;
     std::vector<ObjectGuid> portedPlayersThisPhase;
+    uint32 m_uiUnreachableTimer;
 
     void Reset() override
     {
@@ -137,6 +138,7 @@ struct boss_heiganAI : public ScriptedAI
         m_events.Reset();
         killCooldown = 10000;
         currentPhase = PHASE_FIGHT;
+        m_uiUnreachableTimer = 0;
     }
 
     void Aggro(Unit* pWho) override
@@ -427,6 +429,27 @@ struct boss_heiganAI : public ScriptedAI
                 return;
             if (!m_pInstance->HandleEvadeOutOfHome(m_creature))
                 return;
+
+            // Player using terrain within the room to block melee/LOS. The engine's own
+            // "unreachable target" handling (Creature::Update()) only kicks in after 3s, and once
+            // it does it stops calling UpdateAI() at all until it force-evades at 24s - so by the
+            // time that fires we'd have no code running to act on it. Use our own shorter timer to
+            // pull the player back into the fight before the engine takes UpdateAI away from us,
+            // instead of letting the whole encounter freeze then reset.
+            Unit* victim = m_creature->GetVictim();
+            if (!m_creature->CanReachWithMeleeAutoAttack(victim) || !m_creature->IsWithinLOSInMap(victim))
+            {
+                m_uiUnreachableTimer += uiDiff;
+                if (m_uiUnreachableTimer >= 2000)
+                {
+                    victim->NearTeleportTo(m_creature->GetPositionX() + float(urand(0, 4)) - 2.0f,
+                        m_creature->GetPositionY() + float(urand(0, 4)) - 2.0f,
+                        m_creature->GetPositionZ(), victim->GetOrientation());
+                    m_uiUnreachableTimer = 0;
+                }
+            }
+            else
+                m_uiUnreachableTimer = 0;
         }
         else
         {
