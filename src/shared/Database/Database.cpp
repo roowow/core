@@ -438,7 +438,14 @@ bool Database::Execute(char const* sql, uint32 trackedGuid)
 
     if (trackedGuid)
         MarkGuidEnqueued(trackedGuid);
-    AddToDelayQueue(new SqlPlainRequest(sql, trackedGuid));
+    // Route via the guid-affinitized serial queue (same one CommitTransaction() uses via
+    // AddToSerialDelayQueue), not the plain shared queue - otherwise, with WorkerThreads > 1,
+    // consecutive Execute() calls for the same guid (e.g. _SaveAuras()'s DELETE followed by
+    // several INSERTs) can be picked up by different worker threads and run out of order,
+    // producing spurious duplicate-key errors when an INSERT beats the DELETE that should
+    // have preceded it. AddToSerialDelayQueue() already falls back to the shared queue when
+    // trackedGuid is 0, so untracked calls are unaffected.
+    AddToSerialDelayQueue(new SqlPlainRequest(sql, trackedGuid));
     return true;
 }
 
