@@ -130,10 +130,15 @@ struct boss_heiganAI : public ScriptedAI
     uint32 killCooldown;
     std::vector<ObjectGuid> portedPlayersThisPhase;
     uint32 m_uiUnreachableTimer;
+    // guid -> remaining ms of exemption from the room-boundary pull-back below, so players
+    // punished by EventPortPlayer() (which drops them well past that same boundary, into the
+    // gauntlet) actually get to experience the punishment instead of being yanked straight back.
+    std::map<ObjectGuid, uint32> m_boundaryGraceTimers;
 
     void Reset() override
     {
         portedPlayersThisPhase.clear();
+        m_boundaryGraceTimers.clear();
 
         m_events.Reset();
         killCooldown = 10000;
@@ -383,6 +388,7 @@ struct boss_heiganAI : public ScriptedAI
             }
             target->SendSpellGo(target, 30211);
             target->NearTeleportTo(2917.43f, -3769.18f, 273.62f, 3.1415f);
+            m_boundaryGraceTimers[target->GetObjectGuid()] = 120000;
         }
     }
 
@@ -420,8 +426,44 @@ struct boss_heiganAI : public ScriptedAI
             m_events.Repeat(Seconds(1));
     }
 
+    // Players dragging Heigan past the room boundary (towards the bat/grub/beast gauntlet) used
+    // to just make him evade and go home while the player kept walking - letting the raid force
+    // their way through/past the room without fighting him at all. Pull anyone on our threat
+    // list who crosses that same boundary back to his home spot instead of letting them leave
+    // it. Runs in both phases - during PHASE_DANCE he's passive and never chases anyone, so
+    // without this players could just walk straight out unimpeded then too. Exempt anyone still
+    // serving their EventPortPlayer() punishment (dropped well past this same boundary on
+    // purpose) - otherwise they'd get yanked straight back before ever reaching the gauntlet.
+    void PullPlayersBackFromBoundary()
+    {
+        const ThreatList& tl = m_creature->GetThreatManager().getThreatList();
+        for (const auto& ref : tl)
+        {
+            if (Player* p = ref->getTarget()->ToPlayer())
+            {
+                if (p->IsAlive() && (p->GetPositionX() > 2825.0f || p->GetPositionY() < -3737.0f)
+                    && m_boundaryGraceTimers.find(p->GetObjectGuid()) == m_boundaryGraceTimers.end())
+                    p->NearTeleportTo(m_creature->GetHomePosition());
+            }
+        }
+    }
+
     void UpdateAI(uint32 const uiDiff) override
     {
+        // Decay the EventPortPlayer() punishment's boundary-pull-back exemption. Runs regardless
+        // of phase so a grace period spanning a dance phase isn't affected by which branch below
+        // happens to run that tick.
+        for (auto it = m_boundaryGraceTimers.begin(); it != m_boundaryGraceTimers.end();)
+        {
+            if (it->second <= uiDiff)
+                it = m_boundaryGraceTimers.erase(it);
+            else
+            {
+                it->second -= uiDiff;
+                ++it;
+            }
+        }
+
         // This will avoid him running off the platform during dance phase.
         if (currentPhase == PHASE_FIGHT)
         {
@@ -430,6 +472,8 @@ struct boss_heiganAI : public ScriptedAI
             if (!m_pInstance->HandleEvadeOutOfHome(m_creature))
                 return;
 
+            PullPlayersBackFromBoundary();
+
             // Player using terrain within the room to block melee/LOS. The engine's own
             // "unreachable target" handling (Creature::Update()) only kicks in after 3s, and once
             // it does it stops calling UpdateAI() at all until it force-evades at 24s - so by the
@@ -437,7 +481,12 @@ struct boss_heiganAI : public ScriptedAI
             // pull the player back into the fight before the engine takes UpdateAI away from us,
             // instead of letting the whole encounter freeze then reset.
             Unit* victim = m_creature->GetVictim();
-            if (!m_creature->CanReachWithMeleeAutoAttack(victim) || !m_creature->IsWithinLOSInMap(victim))
+            // Same EventPortPlayer() punishment exemption as the boundary pull-back above - a
+            // punished player sitting far off in the gauntlet is exactly the kind of "unreachable"
+            // this block is meant to catch, so without this check it would drag them straight
+            // back too and defeat the grace period from the other side.
+            bool const inPunishmentGrace = m_boundaryGraceTimers.find(victim->GetObjectGuid()) != m_boundaryGraceTimers.end();
+            if (!inPunishmentGrace && (!m_creature->CanReachWithMeleeAutoAttack(victim) || !m_creature->IsWithinLOSInMap(victim)))
             {
                 m_uiUnreachableTimer += uiDiff;
                 if (m_uiUnreachableTimer >= 2000)
@@ -453,6 +502,8 @@ struct boss_heiganAI : public ScriptedAI
         }
         else
         {
+            PullPlayersBackFromBoundary();
+
             // If wipe, we force the dance phase to end so above code runs and he evades.
             if (m_creature->GetThreatManager().isThreatListEmpty())
                 EventDanceEnd();
