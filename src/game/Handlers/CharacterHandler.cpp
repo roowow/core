@@ -383,10 +383,11 @@ void WorldSession::HandleCharDeleteOpcode(WorldPackets::Character::CharDelete co
         return;
     }
 
-    // 一命角色：软删除——仅解除账号绑定，保留角色名占用，防止名字被重用
+    // 一命角色：20 级及以下走下面的彻底删除（跟普通角色一样，名字可被重用）；
+    // 大于 20 级走软删除——仅解除账号绑定，保留角色名占用，防止名字被重用
     std::unique_ptr<QueryResult> hcResult = CharacterDatabase.PQuery(
         "SELECT guid FROM character_hardcore WHERE guid = %u", lowguid);
-    if (hcResult)
+    if (hcResult && cacheData->uiLevel > 20)
     {
         sLog.Player(this, LOG_CHAR, "Delete", LOG_LVL_BASIC,
             "Hardcore character %s guid %u unbound from account (soft delete)", name.c_str(), packet.guid);
