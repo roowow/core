@@ -40,9 +40,15 @@ enum OptionFlags
     OPTION_RESPAWN_ALL_ON_ANY_EVADE     = 0x020,
     OPTION_INFORM_LEADER_ON_MEMBER_DIED = 0x040,
     OPTION_INFORM_MEMBERS_ON_ANY_DIED   = 0x080,
+    // Opt-in anti-split safeguard: if a member of the group hasn't taken any damage while in
+    // combat for a while (threat dropped, e.g. via Feign Death, while something else keeps it
+    // passively engaged), force it to evade. Combined with OPTION_EVADE_TOGETHER this cascades
+    // to the whole group, defeating "isolate one member and solo-kill it" tricks. Only meaningful
+    // together with OPTION_EVADE_TOGETHER. See Creature::Update().
+    OPTION_STRICT_EVADE_TOGETHER        = 0x100,
 };
 
-#define ALL_CREATURE_GROUP_OPTIONS (OPTION_FORMATION_MOVE | OPTION_AGGRO_TOGETHER | OPTION_EVADE_TOGETHER | OPTION_RESPAWN_TOGETHER | OPTION_RESPAWN_ALL_ON_MASTER_EVADE | OPTION_RESPAWN_ALL_ON_ANY_EVADE | OPTION_INFORM_LEADER_ON_MEMBER_DIED | OPTION_INFORM_MEMBERS_ON_ANY_DIED)
+#define ALL_CREATURE_GROUP_OPTIONS (OPTION_FORMATION_MOVE | OPTION_AGGRO_TOGETHER | OPTION_EVADE_TOGETHER | OPTION_RESPAWN_TOGETHER | OPTION_RESPAWN_ALL_ON_MASTER_EVADE | OPTION_RESPAWN_ALL_ON_ANY_EVADE | OPTION_INFORM_LEADER_ON_MEMBER_DIED | OPTION_INFORM_MEMBERS_ON_ANY_DIED | OPTION_STRICT_EVADE_TOGETHER)
 
 struct CreatureGroupMember
 {

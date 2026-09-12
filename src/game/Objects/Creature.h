@@ -524,6 +524,9 @@ class Creature : public Unit
         uint32 m_targetNotReachableTimer;
         bool m_bForceEvadeImmune = false;
 
+        // ms since last damage taken while in combat; used by creature_groups' OPTION_STRICT_EVADE_TOGETHER
+        uint32 m_noDamageEvadeTimer = 0;
+
         std::shared_ptr<time_t> const& GetLastLeashExtensionTimePtr() const;
         void SetLastLeashExtensionTimePtr(std::shared_ptr<time_t> const& timer);
         void ClearLastLeashExtensionTimePtr();
@@ -558,6 +561,8 @@ class Creature : public Unit
                 m_playerDamageTaken += damage;
             else
                 m_nonPlayerDamageTaken += damage;
+
+            m_noDamageEvadeTimer = 0;
         }
 
         void CountHardcoreGrayAssistDamage(Unit const* attacker, uint32 damage);

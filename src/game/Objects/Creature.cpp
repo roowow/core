@@ -997,6 +997,29 @@ void Creature::Update(uint32 update_diff, uint32 diff)
                         SetInCombatWithZone(false);
                 }
 
+                // Anti-split safeguard (opt-in via creature_groups.flags): if this member hasn't
+                // taken any damage while in combat for a while -- e.g. its only threat source
+                // Feigned Death while something else (a pet) keeps it passively engaged -- force
+                // it to evade. Combined with OPTION_EVADE_TOGETHER this cascades to the rest of
+                // the group, defeating "isolate one member and solo-kill it" tricks.
+                // Paused (not reset) while under crowd control (poly/fear/stun/root), same as the
+                // leash-extension check above -- legitimate CC-and-burn tactics on grouped packs
+                // must keep working; sustained CC just keeps postponing the timer indefinitely.
+                // Threshold is deliberately well above normal melee-close time: this timer starts
+                // the instant a member enters combat (OnEnterCombat), including members who were
+                // only dragged in via OPTION_AGGRO_TOGETHER assist and still have to run over from
+                // a ranged pull -- too short a threshold would evade a perfectly normal pull just
+                // because a member hasn't reached melee range yet.
+                // Must go through OnLeaveCombat() (not AI()->EnterEvadeMode() directly): the group
+                // cascade to OPTION_EVADE_TOGETHER members only happens inside OnLeaveCombat().
+                if (m_creatureGroup && m_creatureGroup->HasGroupFlag(OPTION_STRICT_EVADE_TOGETHER) &&
+                    !HasUnitState(UNIT_STATE_NO_FREE_MOVE))
+                {
+                    m_noDamageEvadeTimer += update_diff;
+                    if (m_noDamageEvadeTimer > 15000)
+                        OnLeaveCombat();
+                }
+
                 if (GetVictim())
                 {
                     if (m_callForHelpTimer <= update_diff)
@@ -3752,6 +3775,7 @@ void Creature::OnEnterCombat(Unit* pWho, bool notInCombat)
         HandleEmoteState(0);
         SetStandState(UNIT_STAND_STATE_STAND);
         m_pacifiedTimer = 0;
+        m_noDamageEvadeTimer = 0;
 
         if (m_zoneScript)
             m_zoneScript->OnCreatureEnterCombat(this);
