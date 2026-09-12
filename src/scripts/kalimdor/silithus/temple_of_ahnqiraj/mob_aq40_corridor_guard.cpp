@@ -81,7 +81,13 @@ namespace
     float const CORRIDOR_TOLERANCE = 15.0f;   // yards; needs field-testing
     float const LEASH_ON_PATH = 999.0f;       // effectively "don't leash" while target tracks the corridor
     float const LEASH_DEFAULT = 120.0f;       // matches creature_template.leash_range (see Fix.sql)
-    float const CHAIN_ATTACK_RADIUS = 40.0f;  // yards; needs field-testing
+    // Field report 2026-09-XX: guard evaded after killing several players even though many were
+    // still nearby - all three guards focus the same single target at a time (creature_linking
+    // flag=15, see CorridorGuard.md), and after a kill the rest of the raid is realistically
+    // hanging back further than a tight radius once they've watched someone die. Raised from the
+    // original 40 (still just an estimate, not measured against the new diagnostic below - retune
+    // again if reports keep coming in once we have real logged distances).
+    float const CHAIN_ATTACK_RADIUS = 80.0f;  // yards; needs field-testing
     float const MOUNT_STRIP_RADIUS = 40.0f;   // yards; needs field-testing - groups ride through
                                                // together, not just whoever's tanking the guard
 
@@ -185,6 +191,17 @@ struct aq40_corridor_guardAI : public CreatureEventAI
                 AttackStart(pNext);
                 return;
             }
+
+            // Temporary diagnostic (same purpose as the leash-evade one below, but this branch
+            // had none before - the exact case a 2026-09 field report ("killed several players
+            // then evaded despite many still nearby") needs data on). Logs at a much wider radius
+            // than the search itself used, so we can see how far away the nearest real players
+            // actually were when the chain-search radius above failed to find anyone.
+            std::list<Player*> nearbyAfterKill;
+            m_creature->GetAlivePlayerListInRange(m_creature, nearbyAfterKill, 150.0f);
+            sLog.Out(LOG_BASIC, LOG_LVL_MINIMAL,
+                     "[CorridorGuard] guid=%u chain-search found nobody within %.0fyd, nearbyPlayers(150yd)=%zu",
+                     m_creature->GetGUIDLow(), CHAIN_ATTACK_RADIUS, nearbyAfterKill.size());
         }
 
         // Temporary diagnostic (see m_lastDistToPath's comment above) - only fires for the
