@@ -151,6 +151,11 @@ struct boss_maexxnaAI : public ScriptedAI
     }
     instance_naxxramas* m_pInstance;
 
+    // Kept as a named constant (rather than a bare literal) since it's used both to arm the
+    // engine's own leash/evade check below and to pull players back before they'd ever cause it -
+    // both need to agree on the same range.
+    static constexpr float LEASH_DISTANCE = 100.0f;
+
     uint32 m_uiWebWrapTimer;
     uint32 m_uiWebSprayTimer;
     uint32 m_uiPoisonShockTimer;
@@ -192,7 +197,7 @@ struct boss_maexxnaAI : public ScriptedAI
         // mmap pathing does not respect the door's runtime open/closed state, so without a leash
         // Maexxna can chase a target straight through the closed door into the corridor outside.
         // 100yd covers the whole room with margin while still cutting off chasing far past the door.
-        m_creature->SetLeashDistance(100.0f);
+        m_creature->SetLeashDistance(LEASH_DISTANCE);
     }
 
     void Aggro(Unit* pWho) override
@@ -235,6 +240,30 @@ struct boss_maexxnaAI : public ScriptedAI
     static bool IsBeyondEntranceDoor(Unit const* pWho)
     {
         return (pWho->GetPositionX() - pWho->GetPositionY()) < 7316.0f;
+    }
+
+    // Players kiting Maexxna away from where the pull started would otherwise eventually push
+    // her past LEASH_DISTANCE from that spot (Creature::Update() checks her own position against
+    // m_combatStart*, see SetLeashDistance() above) and force an evade/reset while she's still
+    // mid-fight chasing them. Pull anyone on the threat list back to her current spot instead of
+    // letting them ride that all the way out to a leash-triggered evade.
+    void PullPlayersBackFromLeashRange()
+    {
+        float startX, startY, startZ;
+        m_creature->GetCombatStartPosition(startX, startY, startZ);
+
+        const ThreatList& tl = m_creature->GetThreatManager().getThreatList();
+        for (const auto& ref : tl)
+        {
+            if (Player* p = ref->getTarget()->ToPlayer())
+            {
+                if (p->IsAlive() && !p->IsWithinDist3d(startX, startY, startZ, LEASH_DISTANCE))
+                {
+                    p->NearTeleportTo(m_creature->GetPositionX(), m_creature->GetPositionY(),
+                        m_creature->GetPositionZ(), p->GetOrientation());
+                }
+            }
+        }
     }
 
     void JustReachedHome() override
@@ -375,6 +404,8 @@ struct boss_maexxnaAI : public ScriptedAI
     {
         if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             return;
+
+        PullPlayersBackFromLeashRange();
 
         // Current target has ended up outside the entrance door (players fighting
         // right at the doorway) - reset instead of letting mmap pathing carry
