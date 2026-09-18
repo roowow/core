@@ -130,6 +130,11 @@ struct boss_heiganAI : public ScriptedAI
     uint32 killCooldown;
     std::vector<ObjectGuid> portedPlayersThisPhase;
     uint32 m_uiUnreachableTimer;
+    // ms elapsed since Aggro(); used to suppress the unreachable-target teleport below for the
+    // opening moments of the pull, so a raid still getting into position doesn't immediately
+    // start getting yanked around before the fight has really started.
+    uint32 m_uiCombatTimer;
+    static uint32 const OPENING_GRACE_PERIOD = 10000;
     // guid -> remaining ms of exemption from the room-boundary pull-back below, so players
     // punished by EventPortPlayer() (which drops them well past that same boundary, into the
     // gauntlet) actually get to experience the punishment instead of being yanked straight back.
@@ -144,6 +149,7 @@ struct boss_heiganAI : public ScriptedAI
         killCooldown = 10000;
         currentPhase = PHASE_FIGHT;
         m_uiUnreachableTimer = 0;
+        m_uiCombatTimer = 0;
     }
 
     void Aggro(Unit* pWho) override
@@ -152,6 +158,7 @@ struct boss_heiganAI : public ScriptedAI
 
         eruptionPhase = 0;
         currentPhase = PHASE_FIGHT;
+        m_uiCombatTimer = 0; // explicit, in case Aggro() ever fires without an intervening Reset()
         m_events.ScheduleEvent(EVENT_FEVER,      Seconds(30), 0, PHASE_FIGHT);
         m_events.ScheduleEvent(EVENT_DANCE,      Seconds(90), 0, PHASE_FIGHT);
         m_events.ScheduleEvent(EVENT_ERUPT,      Seconds(15), 0, PHASE_FIGHT);
@@ -472,6 +479,8 @@ struct boss_heiganAI : public ScriptedAI
             if (!m_pInstance->HandleEvadeOutOfHome(m_creature))
                 return;
 
+            m_uiCombatTimer += uiDiff;
+
             PullPlayersBackFromBoundary();
 
             // Player using terrain within the room to block melee/LOS. The engine's own
@@ -480,25 +489,38 @@ struct boss_heiganAI : public ScriptedAI
             // time that fires we'd have no code running to act on it. Use our own shorter timer to
             // pull the player back into the fight before the engine takes UpdateAI away from us,
             // instead of letting the whole encounter freeze then reset.
+            //
+            // Suppressed for the opening OPENING_GRACE_PERIOD of the pull: right after Aggro the
+            // raid is often still running in/positioning and hasn't actually engaged in melee yet,
+            // which looks identical to "unreachable" - teleporting people mid-run-in makes the
+            // opening of the fight feel janky. Give them a few seconds to actually get in range
+            // before this mechanic starts watching.
             Unit* victim = m_creature->GetVictim();
-            // Same EventPortPlayer() punishment exemption as the boundary pull-back above - a
-            // punished player sitting far off in the gauntlet is exactly the kind of "unreachable"
-            // this block is meant to catch, so without this check it would drag them straight
-            // back too and defeat the grace period from the other side.
-            bool const inPunishmentGrace = m_boundaryGraceTimers.find(victim->GetObjectGuid()) != m_boundaryGraceTimers.end();
-            if (!inPunishmentGrace && (!m_creature->CanReachWithMeleeAutoAttack(victim) || !m_creature->IsWithinLOSInMap(victim)))
+            if (m_uiCombatTimer < OPENING_GRACE_PERIOD)
             {
-                m_uiUnreachableTimer += uiDiff;
-                if (m_uiUnreachableTimer >= 2000)
-                {
-                    victim->NearTeleportTo(m_creature->GetPositionX() + float(urand(0, 4)) - 2.0f,
-                        m_creature->GetPositionY() + float(urand(0, 4)) - 2.0f,
-                        m_creature->GetPositionZ(), victim->GetOrientation());
-                    m_uiUnreachableTimer = 0;
-                }
+                m_uiUnreachableTimer = 0;
             }
             else
-                m_uiUnreachableTimer = 0;
+            {
+                // Same EventPortPlayer() punishment exemption as the boundary pull-back above - a
+                // punished player sitting far off in the gauntlet is exactly the kind of "unreachable"
+                // this block is meant to catch, so without this check it would drag them straight
+                // back too and defeat the grace period from the other side.
+                bool const inPunishmentGrace = m_boundaryGraceTimers.find(victim->GetObjectGuid()) != m_boundaryGraceTimers.end();
+                if (!inPunishmentGrace && (!m_creature->CanReachWithMeleeAutoAttack(victim) || !m_creature->IsWithinLOSInMap(victim)))
+                {
+                    m_uiUnreachableTimer += uiDiff;
+                    if (m_uiUnreachableTimer >= 2000)
+                    {
+                        victim->NearTeleportTo(m_creature->GetPositionX() + float(urand(0, 4)) - 2.0f,
+                            m_creature->GetPositionY() + float(urand(0, 4)) - 2.0f,
+                            m_creature->GetPositionZ(), victim->GetOrientation());
+                        m_uiUnreachableTimer = 0;
+                    }
+                }
+                else
+                    m_uiUnreachableTimer = 0;
+            }
         }
         else
         {
