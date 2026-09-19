@@ -527,7 +527,7 @@ struct boss_gothikAI : public ScriptedAI
                     m_bJustTeleported = false;
                 }
 
-                // 核心防穿门 1：将所有隔壁房间的玩家彻底从仇恨列表中抹除（removeThreat）
+                // 核心防穿门 1：把隔壁房间所有玩家的仇恨清零
                 if (!gatesOpened && m_pInstance)
                 {
                     MapRefManager const& lPlayers = m_pInstance->GetMap()->GetPlayers();
@@ -536,7 +536,8 @@ struct boss_gothikAI : public ScriptedAI
                         Player* p = playerRef.getSource();
                         if (p && m_pInstance->IsInRightSideGothArea(p) != m_bRightSide)
                         {
-                            m_creature->GetThreatManager().removeThreat(p);
+                            // 使用 vmangos 标准接口扣除 100% 仇恨
+                            m_creature->modifyThreatPercent(p, -100);
                         }
                     }
 
@@ -551,7 +552,7 @@ struct boss_gothikAI : public ScriptedAI
                     }
                 }
 
-                // 核心防穿门 2：如果同侧没有任何可攻击玩家（如全员化石/无敌/假死/死亡），强制挂机并清空仇恨
+                // 核心防穿门 2：如果同侧没有任何可攻击玩家（全员化石/无敌/假死/死亡），强制挂机并清空仇恨
                 if (!gatesOpened && !HasAttackablePlayerOnSameSide())
                 {
                     m_creature->ClearTarget();
