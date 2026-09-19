@@ -198,7 +198,7 @@ struct boss_gothikAI : public ScriptedAI
             m_pInstance->SetData(TYPE_GOTHIK, FAIL);
     }
 
-    // 辅助函数：判断同侧是否有任何可以被攻击的玩家（过滤死亡、假死、化石合剂/无敌）
+    // 辅助函数：判断同侧是否有任何可以被攻击的玩家（过滤死亡、假死、无敌/化石合剂）
     bool HasAttackablePlayerOnSameSide()
     {
         if (!m_pInstance)
@@ -211,7 +211,7 @@ struct boss_gothikAI : public ScriptedAI
             if (!p)
                 continue;
 
-            // 过滤不可攻击状态
+            // 过滤不可攻击状态（包含化石合剂/无敌/假死/死亡）
             if (p->IsDead() || p->IsFeigningDeathSuccessfully() || p->HasAura(SPELL_AURA_MOD_UNATTACKABLE))
                 continue;
 
@@ -428,7 +428,7 @@ struct boss_gothikAI : public ScriptedAI
             {
                 if (m_uiSpeechTimer < uiDiff)
                 {
-                    if (HasLessPlayersPerSide(1))
+                    if (HasLessPlayersPerSide(10))
                     {
                         EnterEvadeMode();
                         return;
@@ -527,7 +527,7 @@ struct boss_gothikAI : public ScriptedAI
                     m_bJustTeleported = false;
                 }
 
-                // 核心防穿门 1：把隔壁房间所有玩家的仇恨清零
+                // 核心防穿门 1：隔壁房间所有玩家的仇恨强制清零
                 if (!gatesOpened && m_pInstance)
                 {
                     MapRefManager const& lPlayers = m_pInstance->GetMap()->GetPlayers();
@@ -536,7 +536,6 @@ struct boss_gothikAI : public ScriptedAI
                         Player* p = playerRef.getSource();
                         if (p && m_pInstance->IsInRightSideGothArea(p) != m_bRightSide)
                         {
-                            // 通过 ThreatManager 正确地把仇恨降低 100%
                             m_creature->GetThreatManager().modifyThreatPercent(p, -100);
                         }
                     }
@@ -552,7 +551,7 @@ struct boss_gothikAI : public ScriptedAI
                     }
                 }
 
-                // 核心防穿门 2：如果同侧没有任何可攻击玩家（全员化石/无敌/假死/死亡），强制挂机并清空仇恨
+                // 核心防穿门 2：如果大门未开且同侧没有任何可攻击玩家（吃化石/假死/无敌/全灭），挂起 Boss AI 并冻结传送机制
                 if (!gatesOpened && !HasAttackablePlayerOnSameSide())
                 {
                     m_creature->ClearTarget();
@@ -560,37 +559,12 @@ struct boss_gothikAI : public ScriptedAI
                     m_creature->GetMotionMaster()->Clear();
                     m_creature->GetMotionMaster()->MoveIdle();
                     DoResetThreat();
-
-                    // 挂机期间保持传送计时器倒计时
-                    if (m_uiTeleportTimer <= uiDiff)
-                    {
-                        uint32 uiTeleportSpell = m_bRightSide ? SPELL_TELEPORT_LEFT : SPELL_TELEPORT_RIGHT;
-
-                        if (DoCastSpellIfCan(m_creature, uiTeleportSpell) == CAST_OK)
-                        {
-                            m_uiTeleportTimer = urand(15000, 20000);
-                            m_uiShadowboltTimer = 1000;
-                            m_uiTeleportCastDelay = 300;
-                            if (++m_uiNumTP >= 4 && !gatesOpened)
-                                OpenTheGate();
-
-                            m_creature->ClearTarget();
-                            m_creature->StopMoving();
-                            m_creature->GetMotionMaster()->Clear();
-                            m_creature->SetTempPacified(TELEPORT_PACIFY_TIMER);
-                            m_bJustTeleported = true;
-                            return;
-                        }
-                    }
-                    else
-                    {
-                        m_uiTeleportTimer -= uiDiff;
-                    }
-
-                    return; // 强制打断本帧后续逻辑
+                    
+                    // 彻底阻断传送：化石期间直接 return，倒计时停止更新，防止 Boss 触发传送
+                    return; 
                 }
 
-                // 如果之前因为无有效目标而挂机，当有可用目标时恢复攻击
+                // 如果之前因为全员化石/无有效目标而原地挂机，当有人解除化石/恢复攻击时恢复寻路
                 if (!m_creature->GetVictim())
                 {
                     ResetThreatAndAttackNearestTarget();
@@ -610,6 +584,7 @@ struct boss_gothikAI : public ScriptedAI
                 else
                     m_checkAllPlayersOneSideTimer -= uiDiff;
 
+                // 传送逻辑：只有在大门未开且同侧有可攻击目标时，传送倒计时才会被执行
                 if (m_uiTeleportTimer < uiDiff && !gatesOpened)
                 {
                     uint32 uiTeleportSpell = m_bRightSide ? SPELL_TELEPORT_LEFT : SPELL_TELEPORT_RIGHT;
