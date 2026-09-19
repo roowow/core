@@ -335,6 +335,39 @@ struct boss_gothikAI : public ScriptedAI
         }
     }
 
+    // 检测是否有任意一侧玩家“全灭”（仅检测死亡，化石/无敌等仍视为活着）
+    void CheckSideAllDeadAndOpenGate()
+    {
+        if (gatesOpened || !m_pInstance)
+            return;
+
+        bool hasLiveSideAlivePlayer = false;
+        bool hasRightSideAlivePlayer = false;
+
+        MapRefManager const& lPlayers = m_pInstance->GetMap()->GetPlayers();
+        for (auto& playerRef : lPlayers)
+        {
+            Player* p = playerRef.getSource();
+            if (!p) continue;
+
+            // 仅判断玩家是否死亡（化石合剂、无敌、假死等均算活着）
+            if (p->IsDead())
+                continue;
+
+            // 区分左侧(Live)与右侧(Dead)
+            if (m_pInstance->IsInRightSideGothArea(p))
+                hasRightSideAlivePlayer = true;
+            else
+                hasLiveSideAlivePlayer = true;
+        }
+
+        // 只要任意一侧没有活着的人，立即开门
+        if (!hasLiveSideAlivePlayer || !hasRightSideAlivePlayer)
+        {
+            OpenTheGate();
+        }
+    }
+
     bool HasLessPlayersPerSide(uint32 count)
     {
         MapRefManager const& lPlayers = m_pInstance->GetMap()->GetPlayers();
@@ -428,6 +461,9 @@ struct boss_gothikAI : public ScriptedAI
             }
             case PHASE_BALCONY:
             {
+                // P1 阶段实时检测：若任意侧玩家死光，立即开门
+                CheckSideAllDeadAndOpenGate();
+
                 if (m_uiSummonTimer < uiDiff)
                 {
                     if (m_uiSummonCount >= MAX_WAVES)
@@ -498,6 +534,9 @@ struct boss_gothikAI : public ScriptedAI
                     m_bJustTeleported = false;
                 }
 
+                // 核心改动：实时检测任意一侧玩家是否全部死亡，全灭则开门
+                CheckSideAllDeadAndOpenGate();
+
                 // Prevent units in the other side of the room getting aggro from dots
                 if (!gatesOpened)
                 {
@@ -517,6 +556,10 @@ struct boss_gothikAI : public ScriptedAI
                     OpenTheGate();
                 }
 
+                /*
+                 * 【改动注释】：原 1 秒定时器检测单侧全灭逻辑已保留并注释。
+                 * 现已改用上面的 CheckSideAllDeadAndOpenGate() 进行每帧实时检测。
+                 *
                 // We check if a side has wiped every 1 sec. If it's the case, we open the gates
                 if (!gatesOpened && m_checkAllPlayersOneSideTimer < uiDiff)
                 {
@@ -526,6 +569,7 @@ struct boss_gothikAI : public ScriptedAI
                 }
                 else
                     m_checkAllPlayersOneSideTimer -= uiDiff;
+                */
 
                 if (m_uiTeleportTimer < uiDiff && !gatesOpened) // stop teleporting after gates open
                 {
@@ -662,7 +706,13 @@ bool EffectDummyCreature_spell_anchor(WorldObject* /*pCaster*/, uint32 uiSpellId
 
                     if (uiSpellId == SPELL_B_TO_ANCHOR_2)
                         uiTriggered = SPELL_B_TO_SKULL;
+                    /*
+                     * 【Bug 修复备注】：原代码写成了 else if (uiSpellId == SPELL_C_TO_SKULL)
+                     * 错把目标法术当作判断条件，导致高级小怪死亡后产生的飞弹永远匹配失败。
+                     * 现修正为判断 SPELL_C_TO_ANCHOR_2，以正确赋值并触发 SPELL_C_TO_SKULL。
+                     */
                     else if (uiSpellId == SPELL_C_TO_ANCHOR_2)
+                    // else if (uiSpellId == SPELL_C_TO_SKULL) // 原有 Bug 代码保留并注释
                         uiTriggered = SPELL_C_TO_SKULL;
 
                     pCreatureTarget->CastSpell(pTarget, uiTriggered, true);
