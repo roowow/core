@@ -44,14 +44,24 @@ enum GothikData
 
     MAX_WAVES                   = 18,
 
-    SPELL_TELEPORT_LEFT         = 28025,                    // guesswork
-    SPELL_TELEPORT_RIGHT        = 28026,                    // could be defined as dead or live side, left or right facing north
-
     SPELL_HARVESTSOUL           = 28679,
     SPELL_SHADOWBOLT            = 29317,
 
     SPELL_IMMUNE_ALL            = 29230,
     TELEPORT_PACIFY_TIMER       = 1200
+};
+
+// 哥特里克两侧房间的固定传送坐标 (根据你的地图实际坐标微调)
+struct TeleportPosition
+{
+    float x, y, z, o;
+};
+
+// 示例坐标：左侧(Live)与右侧(Dead)的阳台/地面中心点
+static const TeleportPosition PosGothikSide[2] = 
+{
+    { 2688.3f, -3412.3f, 267.68f, 1.57f }, // Left / Live Side
+    { 2688.3f, -3322.3f, 267.68f, 4.71f }  // Right / Dead Side
 };
 
 enum eSpellDummy
@@ -148,7 +158,6 @@ struct boss_gothikAI : public ScriptedAI
             m_creature->CastSpell(m_creature, SPELL_IMMUNE_ALL, true);
     }
 
-    // 重写 AttackStart 拦截底层自动追击
     void AttackStart(Unit* pWho) override
     {
         if (!pWho)
@@ -157,7 +166,7 @@ struct boss_gothikAI : public ScriptedAI
         if (m_creature->HasAura(SPELL_IMMUNE_ALL))
             return;
 
-        // 核心防穿门：大门未开启时，如果目标在隔壁，直接禁止发起寻路追击
+        // 大门未开启时，跨半区绝不寻路
         if (!gatesOpened && m_pInstance)
         {
             bool targetIsRight = m_pInstance->IsInRightSideGothArea(pWho);
@@ -198,8 +207,8 @@ struct boss_gothikAI : public ScriptedAI
             m_pInstance->SetData(TYPE_GOTHIK, FAIL);
     }
 
-    // 辅助函数：精准判断同侧是否有可攻击的有效玩家
-    bool HasAttackablePlayerOnSameSide()
+    // 严苛校验：检查【指定半区】是否有有效（非化石/非假死/非死亡/非无敌）的玩家
+    bool HasAttackablePlayerOnSide(bool checkRightSide)
     {
         if (!m_pInstance)
             return false;
@@ -211,12 +220,13 @@ struct boss_gothikAI : public ScriptedAI
             if (!p)
                 continue;
 
-            // 过滤死亡、假死、无敌、化石合剂状态
+            // 过滤化石、无敌、假死、死亡
             if (p->IsDead() || p->IsFeigningDeathSuccessfully() || 
                 p->HasAura(SPELL_AURA_MOD_UNATTACKABLE) || p->HasAura(SPELL_AURA_SCHOOL_IMMUNITY))
                 continue;
 
-            if (m_pInstance->IsInRightSideGothArea(p) == m_bRightSide)
+            // 检查玩家是否处于指定的半区
+            if (m_pInstance->IsInRightSideGothArea(p) == checkRightSide)
                 return true;
         }
         return false;
@@ -408,8 +418,8 @@ struct boss_gothikAI : public ScriptedAI
         {
             if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             {
-                // 防干涉：P2大门没开且同侧没有有效目标时，避免因仇恨重置误触脱战返回
-                if (m_uiPhase != PHASE_GROUND || gatesOpened || !HasAttackablePlayerOnSameSide())
+                // 如果在 P2 且门未开，且同侧没活着的人，暂停脱战校验
+                if (m_uiPhase != PHASE_GROUND || gatesOpened || !HasAttackablePlayerOnSide(m_bRightSide))
                     return;
             }
             if (!m_pInstance->HandleEvadeOutOfHome(m_creature))
@@ -429,7 +439,7 @@ struct boss_gothikAI : public ScriptedAI
             {
                 if (m_uiSpeechTimer < uiDiff)
                 {
-                    if (HasLessPlayersPerSide(1))
+                    if (HasLessPlayersPerSide(10))
                     {
                         EnterEvadeMode();
                         return;
@@ -467,7 +477,10 @@ struct boss_gothikAI : public ScriptedAI
                     {
                         DoScriptText(SAY_TELEPORT, m_creature);
                         DoScriptText(EMOTE_TO_FRAY, m_creature);
-                        DoCastSpellIfCan(m_creature, SPELL_TELEPORT_RIGHT);
+                        
+                        // 下场首次传送：使用坐标强传
+                        m_bRightSide = true;
+                        m_creature->NearTeleportTo(PosGothikSide[1].x, PosGothikSide[1].y, PosGothikSide[1].z, PosGothikSide[1].o);
 
                         m_bJustTeleported = true;
                         m_creature->SetTempPacified(TELEPORT_PACIFY_TIMER);
@@ -528,7 +541,7 @@ struct boss_gothikAI : public ScriptedAI
                     m_bJustTeleported = false;
                 }
 
-                // 核心防穿门 1：隔壁房间所有玩家的仇恨彻底剥离
+                // 核心控制 1：大门未开时，清理隔壁玩家的仇恨
                 if (!gatesOpened && m_pInstance)
                 {
                     MapRefManager const& lPlayers = m_pInstance->GetMap()->GetPlayers();
@@ -540,35 +553,22 @@ struct boss_gothikAI : public ScriptedAI
                             m_creature->GetThreatManager().modifyThreatPercent(p, -100);
                         }
                     }
-
-                    if (Unit* victim = m_creature->GetVictim())
-                    {
-                        if (m_pInstance->IsInRightSideGothArea(victim) != m_bRightSide)
-                        {
-                            m_creature->ClearTarget();
-                            m_creature->StopMoving();
-                            m_creature->GetMotionMaster()->MoveIdle();
-                        }
-                    }
                 }
 
-                // 核心防穿门 2：如果同侧没有任何可攻击玩家（吃化石/假死/无敌），完全挂起 Boss，重置并冻结传送计时器
-                if (!gatesOpened && !HasAttackablePlayerOnSameSide())
+                // 核心控制 2：同侧全员不可攻击（化石/死光/无敌）时的挂起处理
+                if (!gatesOpened && !HasAttackablePlayerOnSide(m_bRightSide))
                 {
                     m_creature->ClearTarget();
                     m_creature->StopMoving();
                     m_creature->GetMotionMaster()->Clear();
                     m_creature->GetMotionMaster()->MoveIdle();
-                    
-                    // 彻底清空仇恨列表，防止底层将隔壁玩家当作隐式目标
                     m_creature->GetThreatManager().clearReferences();
-                    
-                    // 将传送计时保持在至少 10 秒以上，绝对不给它归零触发传送的机会
+
+                    // 强行锁定传送计时，不让它归零！
                     m_uiTeleportTimer = 15000;
-                    return; 
+                    return;
                 }
 
-                // 解除化石/出现可攻击目标后恢复战况
                 if (!m_creature->GetVictim())
                 {
                     ResetThreatAndAttackNearestTarget();
@@ -588,33 +588,44 @@ struct boss_gothikAI : public ScriptedAI
                 else
                     m_checkAllPlayersOneSideTimer -= uiDiff;
 
-                // 核心防穿门 3：传送前硬核双重校验
+                // 核心控制 3：传送触发逻辑 (放弃原来的 SPELL 传送，改用严格的目标校验 + 坐标传送)
                 if (m_uiTeleportTimer < uiDiff && !gatesOpened)
                 {
-                    // 在真正传送的前一刻再次校验：如果同侧没活人/全化石，决不传送！
-                    if (!HasAttackablePlayerOnSameSide())
+                    bool targetSideIsRight = !m_bRightSide;
+
+                    // 关键检查：如果准备传过去的【对面半区】没有任何活着的/可攻击的玩家，拒绝传送！
+                    if (!HasAttackablePlayerOnSide(targetSideIsRight))
                     {
-                        m_uiTeleportTimer = 10000; // 延后 10 秒再试
+                        // 对面没人可打，延后 5 秒重新检测
+                        m_uiTeleportTimer = 5000;
                         return;
                     }
 
-                    uint32 uiTeleportSpell = m_bRightSide ? SPELL_TELEPORT_LEFT : SPELL_TELEPORT_RIGHT;
-                        
-                    if (DoCastSpellIfCan(m_creature, uiTeleportSpell) == CAST_OK)
-                    {
-                        m_uiTeleportTimer = urand(15000, 20000);
-                        m_uiShadowboltTimer = 1000;
-                        m_uiTeleportCastDelay = 300;
-                        if (++m_uiNumTP >= 4 && !gatesOpened)
-                            OpenTheGate();
+                    // 确认对面有活人，才允许切换半区传送
+                    m_bRightSide = targetSideIsRight;
+                    uint8 sideIndex = m_bRightSide ? 1 : 0;
+                    
+                    // 使用 NearTeleportTo 避开 DBC 法术底层的寻路 Bug
+                    m_creature->NearTeleportTo(
+                        PosGothikSide[sideIndex].x, 
+                        PosGothikSide[sideIndex].y, 
+                        PosGothikSide[sideIndex].z, 
+                        PosGothikSide[sideIndex].o
+                    );
 
-                        m_creature->ClearTarget();
-                        m_creature->StopMoving();
-                        m_creature->GetMotionMaster()->Clear();
-                        m_creature->SetTempPacified(TELEPORT_PACIFY_TIMER);
-                        m_bJustTeleported = true;
-                        return;
-                    }
+                    m_uiTeleportTimer = urand(15000, 20000);
+                    m_uiShadowboltTimer = 1000;
+                    m_uiTeleportCastDelay = 300;
+
+                    if (++m_uiNumTP >= 4 && !gatesOpened)
+                        OpenTheGate();
+
+                    m_creature->ClearTarget();
+                    m_creature->StopMoving();
+                    m_creature->GetMotionMaster()->Clear();
+                    m_creature->SetTempPacified(TELEPORT_PACIFY_TIMER);
+                    m_bJustTeleported = true;
+                    return;
                 }
                 else 
                 {
