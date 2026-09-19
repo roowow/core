@@ -198,7 +198,7 @@ struct boss_gothikAI : public ScriptedAI
             m_pInstance->SetData(TYPE_GOTHIK, FAIL);
     }
 
-    // 辅助函数：判断同侧是否有任何可以被攻击的玩家（过滤死亡、假死、无敌/化石合剂）
+    // 辅助函数：精准判断同侧是否有可攻击的有效玩家
     bool HasAttackablePlayerOnSameSide()
     {
         if (!m_pInstance)
@@ -211,8 +211,9 @@ struct boss_gothikAI : public ScriptedAI
             if (!p)
                 continue;
 
-            // 过滤不可攻击状态（包含化石合剂/无敌/假死/死亡）
-            if (p->IsDead() || p->IsFeigningDeathSuccessfully() || p->HasAura(SPELL_AURA_MOD_UNATTACKABLE))
+            // 过滤死亡、假死、无敌、化石合剂状态
+            if (p->IsDead() || p->IsFeigningDeathSuccessfully() || 
+                p->HasAura(SPELL_AURA_MOD_UNATTACKABLE) || p->HasAura(SPELL_AURA_SCHOOL_IMMUNITY))
                 continue;
 
             if (m_pInstance->IsInRightSideGothArea(p) == m_bRightSide)
@@ -407,7 +408,7 @@ struct boss_gothikAI : public ScriptedAI
         {
             if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             {
-                // 防干涉：P2大门没开且同侧依然有有效目标时，避免因仇恨重置误触返回
+                // 防干涉：P2大门没开且同侧没有有效目标时，避免因仇恨重置误触脱战返回
                 if (m_uiPhase != PHASE_GROUND || gatesOpened || !HasAttackablePlayerOnSameSide())
                     return;
             }
@@ -428,7 +429,7 @@ struct boss_gothikAI : public ScriptedAI
             {
                 if (m_uiSpeechTimer < uiDiff)
                 {
-                    if (HasLessPlayersPerSide(10))
+                    if (HasLessPlayersPerSide(1))
                     {
                         EnterEvadeMode();
                         return;
@@ -527,7 +528,7 @@ struct boss_gothikAI : public ScriptedAI
                     m_bJustTeleported = false;
                 }
 
-                // 核心防穿门 1：隔壁房间所有玩家的仇恨强制清零
+                // 核心防穿门 1：隔壁房间所有玩家的仇恨彻底剥离
                 if (!gatesOpened && m_pInstance)
                 {
                     MapRefManager const& lPlayers = m_pInstance->GetMap()->GetPlayers();
@@ -551,20 +552,23 @@ struct boss_gothikAI : public ScriptedAI
                     }
                 }
 
-                // 核心防穿门 2：如果大门未开且同侧没有任何可攻击玩家（吃化石/假死/无敌/全灭），挂起 Boss AI 并冻结传送机制
+                // 核心防穿门 2：如果同侧没有任何可攻击玩家（吃化石/假死/无敌），完全挂起 Boss，重置并冻结传送计时器
                 if (!gatesOpened && !HasAttackablePlayerOnSameSide())
                 {
                     m_creature->ClearTarget();
                     m_creature->StopMoving();
                     m_creature->GetMotionMaster()->Clear();
                     m_creature->GetMotionMaster()->MoveIdle();
-                    DoResetThreat();
                     
-                    // 彻底阻断传送：化石期间直接 return，倒计时停止更新，防止 Boss 触发传送
+                    // 彻底清空仇恨列表，防止底层将隔壁玩家当作隐式目标
+                    m_creature->GetThreatManager().clearReferences();
+                    
+                    // 将传送计时保持在至少 10 秒以上，绝对不给它归零触发传送的机会
+                    m_uiTeleportTimer = 15000;
                     return; 
                 }
 
-                // 如果之前因为全员化石/无有效目标而原地挂机，当有人解除化石/恢复攻击时恢复寻路
+                // 解除化石/出现可攻击目标后恢复战况
                 if (!m_creature->GetVictim())
                 {
                     ResetThreatAndAttackNearestTarget();
@@ -584,9 +588,16 @@ struct boss_gothikAI : public ScriptedAI
                 else
                     m_checkAllPlayersOneSideTimer -= uiDiff;
 
-                // 传送逻辑：只有在大门未开且同侧有可攻击目标时，传送倒计时才会被执行
+                // 核心防穿门 3：传送前硬核双重校验
                 if (m_uiTeleportTimer < uiDiff && !gatesOpened)
                 {
+                    // 在真正传送的前一刻再次校验：如果同侧没活人/全化石，决不传送！
+                    if (!HasAttackablePlayerOnSameSide())
+                    {
+                        m_uiTeleportTimer = 10000; // 延后 10 秒再试
+                        return;
+                    }
+
                     uint32 uiTeleportSpell = m_bRightSide ? SPELL_TELEPORT_LEFT : SPELL_TELEPORT_RIGHT;
                         
                     if (DoCastSpellIfCan(m_creature, uiTeleportSpell) == CAST_OK)
