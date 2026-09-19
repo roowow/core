@@ -428,7 +428,7 @@ struct boss_gothikAI : public ScriptedAI
             {
                 if (m_uiSpeechTimer < uiDiff)
                 {
-                    if (HasLessPlayersPerSide(10))
+                    if (HasLessPlayersPerSide(1))
                     {
                         EnterEvadeMode();
                         return;
@@ -536,8 +536,8 @@ struct boss_gothikAI : public ScriptedAI
                         Player* p = playerRef.getSource();
                         if (p && m_pInstance->IsInRightSideGothArea(p) != m_bRightSide)
                         {
-                            // 使用 vmangos 标准接口扣除 100% 仇恨
-                            m_creature->modifyThreatPercent(p, -100);
+                            // 通过 ThreatManager 正确地把仇恨降低 100%
+                            m_creature->GetThreatManager().modifyThreatPercent(p, -100);
                         }
                     }
 
@@ -739,7 +739,7 @@ bool EffectDummyCreature_spell_anchor(WorldObject* /*pCaster*/, uint32 uiSpellId
 
                     if (uiSpellId == SPELL_B_TO_ANCHOR_2)
                         uiTriggered = SPELL_B_TO_SKULL;
-                    else if (uiSpellId == SPELL_C_TO_ANCHOR_2)
+                    else if (uiSpellId == SPELL_C_TO_SKULL)
                         uiTriggered = SPELL_C_TO_SKULL;
 
                     pCreatureTarget->CastSpell(pTarget, uiTriggered, true);
