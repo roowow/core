@@ -148,10 +148,27 @@ struct boss_gothikAI : public ScriptedAI
             m_creature->CastSpell(m_creature, SPELL_IMMUNE_ALL, true);
     }
 
+    // 重写 AttackStart 拦截底层自动追击
     void AttackStart(Unit* pWho) override
     {
-        if (!m_creature->HasAura(SPELL_IMMUNE_ALL))
-            ScriptedAI::AttackStart(pWho);
+        if (!pWho)
+            return;
+
+        if (m_creature->HasAura(SPELL_IMMUNE_ALL))
+            return;
+
+        // 核心防穿门：大门未开启时，如果目标在隔壁，直接禁止发起寻路追击
+        if (!gatesOpened && m_pInstance)
+        {
+            bool targetIsRight = m_pInstance->IsInRightSideGothArea(pWho);
+            if (m_bRightSide != targetIsRight)
+            {
+                m_creature->GetMotionMaster()->MoveIdle();
+                return;
+            }
+        }
+
+        ScriptedAI::AttackStart(pWho);
     }
 
     void EnterEvadeMode() override
@@ -181,6 +198,7 @@ struct boss_gothikAI : public ScriptedAI
             m_pInstance->SetData(TYPE_GOTHIK, FAIL);
     }
 
+    // 辅助函数：判断同侧是否有任何可以被攻击的玩家（过滤死亡、假死、化石合剂/无敌）
     bool HasAttackablePlayerOnSameSide()
     {
         if (!m_pInstance)
@@ -193,11 +211,10 @@ struct boss_gothikAI : public ScriptedAI
             if (!p)
                 continue;
 
-            // 过滤死亡、假死以及处于无敌/化石合剂不可攻击状态的玩家
+            // 过滤不可攻击状态
             if (p->IsDead() || p->IsFeigningDeathSuccessfully() || p->HasAura(SPELL_AURA_MOD_UNATTACKABLE))
                 continue;
 
-            // 判断玩家是否和当前 Boss 处在同一侧房间
             if (m_pInstance->IsInRightSideGothArea(p) == m_bRightSide)
                 return true;
         }
@@ -390,7 +407,7 @@ struct boss_gothikAI : public ScriptedAI
         {
             if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             {
-                // 如果当前由于跨门/无有效目标导致仇恨空，但在 P2 阶段，避免立刻退出
+                // 防干涉：P2大门没开且同侧依然有有效目标时，避免因仇恨重置误触返回
                 if (m_uiPhase != PHASE_GROUND || gatesOpened || !HasAttackablePlayerOnSameSide())
                     return;
             }
@@ -503,7 +520,6 @@ struct boss_gothikAI : public ScriptedAI
             }
             case PHASE_GROUND:
             {
-                // 如果刚完成传送，更新当前所在侧并重新攻击最近的目标
                 if (m_bJustTeleported)
                 {
                     m_bRightSide = m_pInstance->IsInRightSideGothArea(m_creature);
@@ -511,30 +527,40 @@ struct boss_gothikAI : public ScriptedAI
                     m_bJustTeleported = false;
                 }
 
-                // 大门未开启时：如果当前目标在隔壁，清理对该目标的仇恨
-                if (!gatesOpened)
+                // 核心防穿门 1：将所有隔壁房间的玩家彻底从仇恨列表中抹除（removeThreat）
+                if (!gatesOpened && m_pInstance)
                 {
+                    MapRefManager const& lPlayers = m_pInstance->GetMap()->GetPlayers();
+                    for (auto& playerRef : lPlayers)
+                    {
+                        Player* p = playerRef.getSource();
+                        if (p && m_pInstance->IsInRightSideGothArea(p) != m_bRightSide)
+                        {
+                            m_creature->GetThreatManager().removeThreat(p);
+                        }
+                    }
+
                     if (Unit* victim = m_creature->GetVictim())
                     {
-                        bool unitIsRight = m_pInstance->IsInRightSideGothArea(victim);
-                        if (m_bRightSide != unitIsRight)
+                        if (m_pInstance->IsInRightSideGothArea(victim) != m_bRightSide)
                         {
-                            m_creature->GetThreatManager().modifyThreatPercent(victim, -100);
-                            m_creature->SelectHostileTarget();
+                            m_creature->ClearTarget();
+                            m_creature->StopMoving();
+                            m_creature->GetMotionMaster()->MoveIdle();
                         }
                     }
                 }
 
-                // **核心防穿门逻辑**：当大门未开启，且同侧没有任何可攻击玩家（如全员化石/无敌/死亡）时
+                // 核心防穿门 2：如果同侧没有任何可攻击玩家（如全员化石/无敌/假死/死亡），强制挂机并清空仇恨
                 if (!gatesOpened && !HasAttackablePlayerOnSameSide())
                 {
                     m_creature->ClearTarget();
                     m_creature->StopMoving();
                     m_creature->GetMotionMaster()->Clear();
                     m_creature->GetMotionMaster()->MoveIdle();
-                    DoResetThreat(); // 彻底清空仇恨，防止底层强制追击跨门目标
+                    DoResetThreat();
 
-                    // 在挂机等待期间，传送倒计时依然生效
+                    // 挂机期间保持传送计时器倒计时
                     if (m_uiTeleportTimer <= uiDiff)
                     {
                         uint32 uiTeleportSpell = m_bRightSide ? SPELL_TELEPORT_LEFT : SPELL_TELEPORT_RIGHT;
@@ -560,10 +586,10 @@ struct boss_gothikAI : public ScriptedAI
                         m_uiTeleportTimer -= uiDiff;
                     }
 
-                    return; // 直接中断本帧后续攻击和施法逻辑
+                    return; // 强制打断本帧后续逻辑
                 }
 
-                // 如果 Boss 之前因为没有目标而停止了攻击，当恢复有目标时重新锁定最近的目标
+                // 如果之前因为无有效目标而挂机，当有可用目标时恢复攻击
                 if (!m_creature->GetVictim())
                 {
                     ResetThreatAndAttackNearestTarget();
@@ -574,7 +600,6 @@ struct boss_gothikAI : public ScriptedAI
                     OpenTheGate();
                 }
 
-                // 检查团灭开门逻辑
                 if (!gatesOpened && m_checkAllPlayersOneSideTimer < uiDiff)
                 {
                     if(HasLessPlayersPerSide(1))
@@ -584,7 +609,7 @@ struct boss_gothikAI : public ScriptedAI
                 else
                     m_checkAllPlayersOneSideTimer -= uiDiff;
 
-                if (m_uiTeleportTimer < uiDiff && !gatesOpened) // 正常传送逻辑
+                if (m_uiTeleportTimer < uiDiff && !gatesOpened)
                 {
                     uint32 uiTeleportSpell = m_bRightSide ? SPELL_TELEPORT_LEFT : SPELL_TELEPORT_RIGHT;
                         
