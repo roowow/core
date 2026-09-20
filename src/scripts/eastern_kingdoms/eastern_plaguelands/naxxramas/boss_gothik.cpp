@@ -297,10 +297,6 @@ struct boss_gothikAI : public ScriptedAI
         if (!pTempTrigger)
             return;
 
-        // Wrong caster, it expected to be pSummoned.
-        // Mangos deletes the spell event at caster death, so for delayed spell like this
-        // it's just a workaround. Does not affect other than the visual though (+ spell takes longer to "travel")
-        // Elysium: we use a temp creature to handle this issue
         switch (pSummoned->GetEntry())
         {
             case NPC_UNREL_TRAINEE:
@@ -335,39 +331,6 @@ struct boss_gothikAI : public ScriptedAI
         }
     }
 
-    // 检测是否有任意一侧玩家“全灭”（仅检测死亡，化石/无敌等仍视为活着）
-    void CheckSideAllDeadAndOpenGate()
-    {
-        if (gatesOpened || !m_pInstance)
-            return;
-
-        bool hasLiveSideAlivePlayer = false;
-        bool hasRightSideAlivePlayer = false;
-
-        MapRefManager const& lPlayers = m_pInstance->GetMap()->GetPlayers();
-        for (auto& playerRef : lPlayers)
-        {
-            Player* p = playerRef.getSource();
-            if (!p) continue;
-
-            // 仅判断玩家是否死亡（化石合剂、无敌、假死等均算活着）
-            if (p->IsDead())
-                continue;
-
-            // 区分左侧(Live)与右侧(Dead)
-            if (m_pInstance->IsInRightSideGothArea(p))
-                hasRightSideAlivePlayer = true;
-            else
-                hasLiveSideAlivePlayer = true;
-        }
-
-        // 只要任意一侧没有活着的人，立即开门
-        if (!hasLiveSideAlivePlayer || !hasRightSideAlivePlayer)
-        {
-            OpenTheGate();
-        }
-    }
-
     bool HasLessPlayersPerSide(uint32 count)
     {
         MapRefManager const& lPlayers = m_pInstance->GetMap()->GetPlayers();
@@ -377,18 +340,15 @@ struct boss_gothikAI : public ScriptedAI
         {
             if (Player const* p = playerRef.getSource())
             {
-                // Don't count dead players, including those that are feigned
-                // Otherwise we could have a bunch of feigned players sitting on one side
+                // 自动排除死亡及成功假死的玩家
                 if (p->IsDead() || p->IsFeigningDeathSuccessfully())
                     continue;
 
                 if (GameObject* pCombatGate = m_pInstance->GetSingleGameObjectFromStorage(GO_MILI_GOTH_COMBAT_GATE))
                 {
-                    // Do not count players outside the room.
                     if (!pCombatGate->IsWithinDist(p, 100))
                         continue;
 
-                    // Do not count players stacked inside the gate.
                     if (std::abs(p->GetPositionY() - pCombatGate->GetPositionY()) < 0.5f)
                         continue;
 
@@ -399,10 +359,6 @@ struct boss_gothikAI : public ScriptedAI
                 }
             }
         }
-        // if there are less than 10 people on one of the sides we consider it as
-        // "everyone is on the same side". That to avoid the whole raid afking on spectral
-        // side, waiting for gothik to TP down, in which case they have 40 sec to kill him
-        // before the gates would ordinarily open.
         return (numLeft < count || numRight < count);
     }
 
@@ -451,6 +407,7 @@ struct boss_gothikAI : public ScriptedAI
                             break;
                         case 4:
                             m_uiPhase = PHASE_BALCONY;
+                            m_checkAllPlayersOneSideTimer = 1000; // 确保进入 P1 阶段初始化定时器
                             break;
                     }
                 }
@@ -461,8 +418,19 @@ struct boss_gothikAI : public ScriptedAI
             }
             case PHASE_BALCONY:
             {
-                // P1 阶段实时检测：若任意侧玩家死光，立即开门
-                CheckSideAllDeadAndOpenGate();
+                // P1 阳台阶段每秒轮询检测单侧团灭/假死，立即开门防卡死
+                if (!gatesOpened)
+                {
+                    if (m_checkAllPlayersOneSideTimer < uiDiff)
+                    {
+                        if (HasLessPlayersPerSide(1))
+                            OpenTheGate();
+
+                        m_checkAllPlayersOneSideTimer = 1000;
+                    }
+                    else
+                        m_checkAllPlayersOneSideTimer -= uiDiff;
+                }
 
                 if (m_uiSummonTimer < uiDiff)
                 {
@@ -475,7 +443,6 @@ struct boss_gothikAI : public ScriptedAI
                         m_bJustTeleported = true;
                         m_creature->SetTempPacified(TELEPORT_PACIFY_TIMER);
 
-                        // opening the gates when TPing down if all players are considered on the same side
                         if (!gatesOpened && HasLessPlayersPerSide(1))
                             OpenTheGate();
 
@@ -485,7 +452,6 @@ struct boss_gothikAI : public ScriptedAI
                         return;
                     }
 
-                    // npc, npc, npc, timer
                     static uint32 const auiSummonData[MAX_WAVES][4] =
                     {
                         {NPC_UNREL_TRAINEE, 0, 0, 20000},
@@ -526,7 +492,6 @@ struct boss_gothikAI : public ScriptedAI
             }
             case PHASE_GROUND:
             {
-                // If we just teleported
                 if (m_bJustTeleported)
                 {
                     m_bRightSide = m_pInstance->IsInRightSideGothArea(m_creature);
@@ -534,10 +499,6 @@ struct boss_gothikAI : public ScriptedAI
                     m_bJustTeleported = false;
                 }
 
-                // 核心改动：实时检测任意一侧玩家是否全部死亡，全灭则开门
-                CheckSideAllDeadAndOpenGate();
-
-                // Prevent units in the other side of the room getting aggro from dots
                 if (!gatesOpened)
                 {
                     if (Unit* victim = m_creature->GetVictim())
@@ -556,11 +517,7 @@ struct boss_gothikAI : public ScriptedAI
                     OpenTheGate();
                 }
 
-                /*
-                 * 【改动注释】：原 1 秒定时器检测单侧全灭逻辑已保留并注释。
-                 * 现已改用上面的 CheckSideAllDeadAndOpenGate() 进行每帧实时检测。
-                 *
-                // We check if a side has wiped every 1 sec. If it's the case, we open the gates
+                // P2 地面阶段每秒轮询检测
                 if (!gatesOpened && m_checkAllPlayersOneSideTimer < uiDiff)
                 {
                     if(HasLessPlayersPerSide(1))
@@ -569,9 +526,8 @@ struct boss_gothikAI : public ScriptedAI
                 }
                 else
                     m_checkAllPlayersOneSideTimer -= uiDiff;
-                */
 
-                if (m_uiTeleportTimer < uiDiff && !gatesOpened) // stop teleporting after gates open
+                if (m_uiTeleportTimer < uiDiff && !gatesOpened)
                 {
                     uint32 uiTeleportSpell = m_bRightSide ? SPELL_TELEPORT_LEFT : SPELL_TELEPORT_RIGHT;
                         
@@ -579,11 +535,10 @@ struct boss_gothikAI : public ScriptedAI
                     {
                         m_uiTeleportTimer = urand(15000, 20000);
                         m_uiShadowboltTimer = 1000;
-                        m_uiTeleportCastDelay = 300; // delay spell timers for ~2s after teleport (inc pacify)
+                        m_uiTeleportCastDelay = 300;
                         if (++m_uiNumTP >= 4 && !gatesOpened)
                             OpenTheGate();
 
-                        // Clear the target and temporarily pacify after the teleport
                         m_creature->ClearTarget();
                         m_creature->StopMoving();
                         m_creature->GetMotionMaster()->Clear();
@@ -597,11 +552,6 @@ struct boss_gothikAI : public ScriptedAI
                     m_uiTeleportTimer -= std::min(m_uiTeleportTimer, uiDiff);
                 }
 
-                // Delay any other casts if they will occur within 3 seconds of the teleport.
-                // We need this to avoid a client issue where the teleport animation will
-                // break and Gothik will slow walk to the teleport location. This is in place
-                // of having proper recovery times on spells to prevent casts occuring too
-                // close to one another
                 if (!gatesOpened && m_uiTeleportTimer <= 3000)
                     m_uiTeleportCastDelay = 3000;
 
@@ -669,7 +619,7 @@ bool EffectDummyCreature_spell_anchor(WorldObject* /*pCaster*/, uint32 uiSpellId
 
     switch (uiSpellId)
     {
-        case SPELL_A_TO_ANCHOR_1:                           // trigger mobs at high right side
+        case SPELL_A_TO_ANCHOR_1:
         case SPELL_B_TO_ANCHOR_1:
         case SPELL_C_TO_ANCHOR_1:
         {
@@ -687,7 +637,7 @@ bool EffectDummyCreature_spell_anchor(WorldObject* /*pCaster*/, uint32 uiSpellId
 
             return true;
         }
-        case SPELL_A_TO_ANCHOR_2:                           // trigger mobs at high left side
+        case SPELL_A_TO_ANCHOR_2:
         case SPELL_B_TO_ANCHOR_2:
         case SPELL_C_TO_ANCHOR_2:
         {
@@ -706,13 +656,7 @@ bool EffectDummyCreature_spell_anchor(WorldObject* /*pCaster*/, uint32 uiSpellId
 
                     if (uiSpellId == SPELL_B_TO_ANCHOR_2)
                         uiTriggered = SPELL_B_TO_SKULL;
-                    /*
-                     * 【Bug 修复备注】：原代码写成了 else if (uiSpellId == SPELL_C_TO_SKULL)
-                     * 错把目标法术当作判断条件，导致高级小怪死亡后产生的飞弹永远匹配失败。
-                     * 现修正为判断 SPELL_C_TO_ANCHOR_2，以正确赋值并触发 SPELL_C_TO_SKULL。
-                     */
-                    else if (uiSpellId == SPELL_C_TO_ANCHOR_2)
-                    // else if (uiSpellId == SPELL_C_TO_SKULL) // 原有 Bug 代码保留并注释
+                    else if (uiSpellId == SPELL_C_TO_ANCHOR_2) // 已修复：原错写为 SPELL_C_TO_SKULL
                         uiTriggered = SPELL_C_TO_SKULL;
 
                     pCreatureTarget->CastSpell(pTarget, uiTriggered, true);
@@ -720,7 +664,7 @@ bool EffectDummyCreature_spell_anchor(WorldObject* /*pCaster*/, uint32 uiSpellId
             }
             return true;
         }
-        case SPELL_A_TO_SKULL:                              // final destination trigger mob
+        case SPELL_A_TO_SKULL:
         case SPELL_B_TO_SKULL:
         case SPELL_C_TO_SKULL:
         {
