@@ -868,12 +868,28 @@ struct boss_thaddiusAI : public ScriptedAI
             RemoveDebuffsFromPlayer(pPlayer);
             pPlayer->CastSpell(pPlayer, SPELL_POSITIVE_CHARGE_APPLY, true);
         }
+        
+        // =========================================================================================
+        // BUGFIX: 修复极性转换导致所有玩家都只有负极的问题。
+        // 修复说明：原代码第二个循环条件错写成了 i = 0，导致从头覆盖了前半部分已赋予正极的玩家，
+        //           致使全场所有玩家都被洗成了负极。现修正为从 i = firstHalf 开始遍历后半部分玩家。
+        // =========================================================================================
+        /* 原有错误代码 (已注释保留):
         for (size_t i = 0; i < playerVec.size(); i++)
         {
             Player* pPlayer = playerVec[i];
             RemoveDebuffsFromPlayer(pPlayer);
             pPlayer->CastSpell(pPlayer, SPELL_NEGATIVE_CHARGE_APPLY, true);
         }
+        */
+        // 修正后的代码如下:
+        for (size_t i = firstHalf; i < playerVec.size(); i++) // BUGFIX: i 改为从 firstHalf 开始
+        {
+            Player* pPlayer = playerVec[i];
+            RemoveDebuffsFromPlayer(pPlayer);
+            pPlayer->CastSpell(pPlayer, SPELL_NEGATIVE_CHARGE_APPLY, true);
+        }
+        // =========================================================================================
     }
 
     void DoSpellChain()
