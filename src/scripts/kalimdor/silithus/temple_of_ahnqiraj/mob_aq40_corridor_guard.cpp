@@ -199,7 +199,7 @@ struct aq40_corridor_guardAI : public CreatureEventAI
             m_creature->GetAlivePlayerListInRange(m_creature, nearbyPlayers, CHAIN_ATTACK_RADIUS);
 
             Player* pNext = nullptr;
-            float minDistSq = std::numeric_limits<float>::max();
+            float minDist = std::numeric_limits<float>::max();
 
             for (Player* pPlayer : nearbyPlayers)
             {
@@ -210,10 +210,11 @@ struct aq40_corridor_guardAI : public CreatureEventAI
                 float distToPath = DistanceToPath(*m_pPath, pPlayer->GetPositionX(), pPlayer->GetPositionY(), pPlayer->GetPositionZ());
                 if (distToPath <= CORRIDOR_TOLERANCE)
                 {
-                    float distSq = m_creature->GetDistance2dSq(pPlayer);
-                    if (distSq < minDistSq)
+                    // [BUG FIX 4]: 改用 vmangos 支持的 GetDistance2d() 替换未定义的 GetDistance2dSq()
+                    float dist = m_creature->GetDistance2d(pPlayer);
+                    if (dist < minDist)
                     {
-                        minDistSq = distSq;
+                        minDist = dist;
                         pNext = pPlayer;
                     }
                 }
