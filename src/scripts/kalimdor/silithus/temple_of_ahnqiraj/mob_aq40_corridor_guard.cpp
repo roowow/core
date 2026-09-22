@@ -78,16 +78,17 @@ namespace
         { 88025, { &s_path_88064, false } },
     };
 
-    float const CORRIDOR_TOLERANCE = 15.0f;   // yards; needs field-testing
+    // [BUG FIX 1]: 将过道容差从 15.0f 提高至 25.0f，防止玩家在过道墙边站位或被击飞时因微小偏离导致怪物误脱战
+    // float const CORRIDOR_TOLERANCE = 15.0f;   // yards; needs field-testing
+    float const CORRIDOR_TOLERANCE = 25.0f;   // yards; widened to prevent premature evade during normal raid movement
+
     float const LEASH_ON_PATH = 999.0f;       // effectively "don't leash" while target tracks the corridor
     float const LEASH_DEFAULT = 120.0f;       // matches creature_template.leash_range (see Fix.sql)
-    // Field report 2026-09-XX: guard evaded after killing several players even though many were
-    // still nearby - all three guards focus the same single target at a time (creature_linking
-    // flag=15, see CorridorGuard.md), and after a kill the rest of the raid is realistically
-    // hanging back further than a tight radius once they've watched someone die. Raised from the
-    // original 40 (still just an estimate, not measured against the new diagnostic below - retune
-    // again if reports keep coming in once we have real logged distances).
-    float const CHAIN_ATTACK_RADIUS = 80.0f;  // yards; needs field-testing
+    
+    // [BUG FIX 2]: 续杀扫描半径由 80 码适度缩小至 40 码，搭配路径容差校验，精准锁定过道内目标
+    // float const CHAIN_ATTACK_RADIUS = 80.0f;  // yards; needs field-testing
+    float const CHAIN_ATTACK_RADIUS = 40.0f;  // yards; narrowed to match effective corridor engagement range
+    
     float const MOUNT_STRIP_RADIUS = 40.0f;   // yards; needs field-testing - groups ride through
                                                // together, not just whoever's tanking the guard
 
@@ -143,33 +144,32 @@ struct aq40_corridor_guardAI : public CreatureEventAI
         if (!m_pPath)
             return;
 
+        // [BUG FIX 3]: 将下马逻辑移出 GetVictim() 条件限制。只要怪物处于战斗状态，即使玩家开无敌药水导致丢失 Victim，也能持续剥离周围玩家坐骑
+        if (m_bStripMounts && m_creature->IsInCombat())
+        {
+            std::list<Player*> nearbyPlayers;
+            m_creature->GetAlivePlayerListInRange(m_creature, nearbyPlayers, MOUNT_STRIP_RADIUS);
+            for (Player* pNearby : nearbyPlayers)
+                if (pNearby->IsMounted())
+                    pNearby->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+        }
+
         if (Unit* pVictim = m_creature->GetVictim())
         {
             float dist = DistanceToPath(*m_pPath, pVictim->GetPositionX(), pVictim->GetPositionY(), pVictim->GetPositionZ());
             m_lastDistToPath = dist;
             m_creature->SetLeashDistance(dist <= CORRIDOR_TOLERANCE ? LEASH_ON_PATH : LEASH_DEFAULT);
 
+            /* 原下马逻辑，现已移至上方战斗状态判定中以防隐身/无敌药水卡机制
             if (!m_bStripMounts)
                 return;
 
-            // Mounted players just outrun this guard's normal run speed - the leash override
-            // above never even trips (they can stay perfectly on the recorded path the whole
-            // time), but the guard can never land a hit either, so the "chase forces a fight"
-            // premise this whole script exists for is defeated regardless of how leash/evade is
-            // tuned. A group rides through together, not just whoever the guard happens to be
-            // fighting - only stripping GetVictim() would leave everyone riding alongside free
-            // to sail past untouched, so this hits every mounted player in range, not just the
-            // current combat target. RemoveSpellsCausingAura(), not Unit::Unmount() directly -
-            // Unmount() only clears the display id/creature move speed, the mount aura's own
-            // speed bonus stays active unless the aura itself is removed (see
-            // Aura::HandleAuraMounted's apply=false branch, which is what actually calls
-            // Unmount() - this is the same idiom used everywhere else in the codebase, e.g.
-            // MovementHandler.cpp/CustomTaxiMgr.cpp).
             std::list<Player*> nearbyPlayers;
             m_creature->GetAlivePlayerListInRange(m_creature, nearbyPlayers, MOUNT_STRIP_RADIUS);
             for (Player* pNearby : nearbyPlayers)
                 if (pNearby->IsMounted())
                     pNearby->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+            */
         }
     }
 
@@ -181,10 +181,43 @@ struct aq40_corridor_guardAI : public CreatureEventAI
         // through to the normal reset below, so the anti-pet-drag fix stays intact.
         if (m_pPath && !m_creature->GetVictim())
         {
+            /* 原续杀逻辑：无路径容差限制，容易锁定隔墙或远处挂机玩家，导致下一帧触发 Leash 误脱战
             Player* pNext = nullptr;
             MaNGOS::NearestAlivePlayerCheck check(m_creature, CHAIN_ATTACK_RADIUS);
             MaNGOS::PlayerSearcher<MaNGOS::NearestAlivePlayerCheck> searcher(pNext, check);
             Cell::VisitWorldObjects(m_creature, searcher, CHAIN_ATTACK_RADIUS);
+
+            if (pNext)
+            {
+                AttackStart(pNext);
+                return;
+            }
+            */
+
+            // [BUG FIX 2]: 重构续杀逻辑。筛选范围内的活人，且【必须位于过道路径容差内】才进行续杀接敌
+            std::list<Player*> nearbyPlayers;
+            m_creature->GetAlivePlayerListInRange(m_creature, nearbyPlayers, CHAIN_ATTACK_RADIUS);
+
+            Player* pNext = nullptr;
+            float minDistSq = std::numeric_limits<float>::max();
+
+            for (Player* pPlayer : nearbyPlayers)
+            {
+                if (!pPlayer->IsAlive() || pPlayer->IsGameMaster())
+                    continue;
+
+                // 核心校验：只有站在过道路径容差内的玩家，才允许被续杀锁定！
+                float distToPath = DistanceToPath(*m_pPath, pPlayer->GetPositionX(), pPlayer->GetPositionY(), pPlayer->GetPositionZ());
+                if (distToPath <= CORRIDOR_TOLERANCE)
+                {
+                    float distSq = m_creature->GetDistance2dSq(pPlayer);
+                    if (distSq < minDistSq)
+                    {
+                        minDistSq = distSq;
+                        pNext = pPlayer;
+                    }
+                }
+            }
 
             if (pNext)
             {
