@@ -49,6 +49,7 @@ enum GothikData
 
     SPELL_HARVESTSOUL           = 28679,
     SPELL_SHADOWBOLT            = 29317,
+    SPELL_PETRIFICATION          = 17624,
 
     SPELL_IMMUNE_ALL            = 29230,
     TELEPORT_PACIFY_TIMER       = 1200
@@ -340,8 +341,8 @@ struct boss_gothikAI : public ScriptedAI
         {
             if (Player const* p = playerRef.getSource())
             {
-                // 自动排除死亡及成功假死的玩家
-                if (p->IsDead() || p->IsFeigningDeathSuccessfully())
+                // 自动排除死亡、成功假死及石化的玩家
+                if (p->IsDead() || p->IsFeigningDeathSuccessfully() || p->HasAura(SPELL_PETRIFICATION))
                     continue;
 
                 if (GameObject* pCombatGate = m_pInstance->GetSingleGameObjectFromStorage(GO_MILI_GOTH_COMBAT_GATE))
