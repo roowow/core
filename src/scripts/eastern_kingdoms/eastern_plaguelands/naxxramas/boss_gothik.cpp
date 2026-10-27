@@ -49,7 +49,8 @@ enum GothikData
 
     SPELL_HARVESTSOUL           = 28679,
     SPELL_SHADOWBOLT            = 29317,
-    SPELL_PETRIFICATION          = 17624,
+    SPELL_PETRIFICATION         = 17624,
+    SPELL_INTERVENTION          = 19753,
 
     SPELL_IMMUNE_ALL            = 29230,
     TELEPORT_PACIFY_TIMER       = 1200
@@ -201,6 +202,13 @@ struct boss_gothikAI : public ScriptedAI
             {
                 Player* p = playerRef.getSource();
                 {
+                    // 检查玩家是否在房间内（距离大门100码以内），不在则跳过，不让小怪寻找/攻击房间外的玩家
+                    if (GameObject* pCombatGate = m_pInstance->GetSingleGameObjectFromStorage(GO_MILI_GOTH_COMBAT_GATE))
+                    {
+                        if (!pCombatGate->IsWithinDist(p, 100))
+                            continue;
+                    }
+
                     bool isRightSide = m_pInstance->IsInRightSideGothArea(p);
                     switch (entry)
                     {
@@ -341,8 +349,8 @@ struct boss_gothikAI : public ScriptedAI
         {
             if (Player const* p = playerRef.getSource())
             {
-                // 自动排除死亡、成功假死及石化的玩家
-                if (p->IsDead() || p->IsFeigningDeathSuccessfully() || p->HasAura(SPELL_PETRIFICATION))
+                // 自动排除死亡、假死、石化和干涉的玩家
+                if (p->IsDead() || p->IsFeigningDeathSuccessfully() || p->HasAura(SPELL_PETRIFICATION) || p->HasAura(SPELL_INTERVENTION))
                     continue;
 
                 if (GameObject* pCombatGate = m_pInstance->GetSingleGameObjectFromStorage(GO_MILI_GOTH_COMBAT_GATE))
