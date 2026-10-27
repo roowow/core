@@ -375,6 +375,13 @@ struct boss_four_horsemen_shared : public ScriptedAI
         {
             if (Unit* pVictim = m_creature->GetVictim())
             {
+                // 如果目标玩家距离太远，则boss退出战斗
+                if (!m_creature->IsWithinDistInMap(pVictim, VISIBILITY_DISTANCE_GIGANTIC))
+                {
+                    EnterEvadeMode();
+                    return;
+                }
+
                 if (!m_creature->IsWithinDistInMap(pVictim, VISIBILITY_DISTANCE_NORMAL) && m_creature->IsWithinDistInMap(pVictim, VISIBILITY_DISTANCE_LARGE))
                     m_creature->CastSpell(pVictim, SPELL_SUMMON_PLAYER, true);
             }
