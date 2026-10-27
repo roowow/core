@@ -295,6 +295,37 @@ struct boss_four_horsemen_shared : public ScriptedAI
             m_pInstance->SetData(TYPE_FOUR_HORSEMEN, FAIL);
     }
 
+    void EnterEvadeMode() override
+    {
+        if (m_pInstance)
+        {
+            if (m_pInstance->GetData(TYPE_FOUR_HORSEMEN) == FAIL)
+            {
+                ScriptedAI::EnterEvadeMode();
+                return;
+            }
+            m_pInstance->SetData(TYPE_FOUR_HORSEMEN, FAIL);
+        }
+
+        ScriptedAI::EnterEvadeMode();
+
+        if (m_creature->GetMapId() != MAP_NAXXRAMAS)
+            return;
+
+        if (m_creature->GetEntry() != NPC_THANE)
+            if (Creature* pC = m_pInstance->GetSingleCreatureFromStorage(NPC_THANE))
+                pC->AI()->EnterEvadeMode();
+        if (m_creature->GetEntry() != NPC_MOGRAINE)
+            if (Creature* pC = m_pInstance->GetSingleCreatureFromStorage(NPC_MOGRAINE))
+                pC->AI()->EnterEvadeMode();
+        if (m_creature->GetEntry() != NPC_ZELIEK)
+            if (Creature* pC = m_pInstance->GetSingleCreatureFromStorage(NPC_ZELIEK))
+                pC->AI()->EnterEvadeMode();
+        if (m_creature->GetEntry() != NPC_BLAUMEUX)
+            if (Creature* pC = m_pInstance->GetSingleCreatureFromStorage(NPC_BLAUMEUX))
+                pC->AI()->EnterEvadeMode();
+    }
+
     void JustDied(Unit* Killer) override
     {
         if (m_uiGhostId)
@@ -344,7 +375,7 @@ struct boss_four_horsemen_shared : public ScriptedAI
         {
             if (Unit* pVictim = m_creature->GetVictim())
             {
-                if (!m_creature->IsWithinDistInMap(pVictim, VISIBILITY_DISTANCE_NORMAL))
+                if (!m_creature->IsWithinDistInMap(pVictim, VISIBILITY_DISTANCE_NORMAL) && m_creature->IsWithinDistInMap(pVictim, VISIBILITY_DISTANCE_LARGE))
                     m_creature->CastSpell(pVictim, SPELL_SUMMON_PLAYER, true);
             }
         }
