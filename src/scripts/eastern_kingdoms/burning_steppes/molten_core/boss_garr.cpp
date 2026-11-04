@@ -32,11 +32,13 @@ struct boss_garrAI : ScriptedAI
     EventMap m_CombatEvents;
     ScriptedInstance* m_pInstance;
     std::vector<ObjectGuid> m_lFiresworn;
+    bool m_hasEvaded = false; // 已在此处声明防重入变量
 
     void Reset() override
     {
         m_CombatEvents.Reset();
         m_lFiresworn.clear();
+        m_hasEvaded = false; // 重置时清除状态
 
         if (m_creature->IsAlive() && m_pInstance && m_pInstance->GetData(TYPE_GARR) != DONE)
         {
@@ -80,7 +82,7 @@ struct boss_garrAI : ScriptedAI
     // 联动重置机制：当 Boss 触发脱战时，同步让所有存活的小怪一起脱战
     void EnterEvadeMode() override
     {
-        if (m_hasEvaded) // 防止重复触发
+        if (m_hasEvaded) // 防止重复触发递归
             return;
         m_hasEvaded = true;
 
@@ -95,7 +97,6 @@ struct boss_garrAI : ScriptedAI
             GetCreatureListWithEntryInGrid(adds, m_creature, NPC_FIRESWORN, 150.0f);
             for (Creature* pAdd : adds)
             {
-                // 已修复：使用 pAdd->AI() 代替原先错误的 pAdd->GetAI()
                 if (pAdd && pAdd->IsAlive() && pAdd->AI() && !pAdd->IsInEvadeMode())
                 {
                     pAdd->AI()->EnterEvadeMode();
@@ -134,6 +135,12 @@ struct boss_garrAI : ScriptedAI
 
     void UpdateAI(uint32 const diff) override
     {
+        // 如果已经处于脱战状态，不再执行战斗逻辑
+        if (m_creature->IsInEvadeMode())
+        {
+            return;
+        }
+
         if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
         {
             return;
@@ -160,34 +167,26 @@ struct boss_garrAI : ScriptedAI
             {
                 case EVENT_ANTIMAGICPULSE:
                 {
-                    // Garr lets out anti-magic pulses, removing a beneficial effect from players in the raid.
                     if (DoCastSpellIfCan(m_creature, SPELL_ANTIMAGICPULSE) == CAST_OK)
                     {
                         m_CombatEvents.Repeat(Seconds(urand(15, 20)));
                         return;
                     }
-
-                    // Cast Failed: Try again in 1s
                     m_CombatEvents.Repeat(Seconds(1));
                     return;
                 }
                 case EVENT_MAGMASHACKLES:
                 {
-                    // Garr reduces the movement speed of nearby enemies by 60% for 15 seconds.
                     if (DoCastSpellIfCan(m_creature, SPELL_MAGMASHACKLES) == CAST_OK)
                     {
                         m_CombatEvents.Repeat(Seconds(urand(10, 15)));
                         return;
                     }
-
-                    // Cast Failed: Try again in 1s
                     m_CombatEvents.Repeat(Seconds(1));
                     return;
                 }
                 case EVENT_MASSIVE_ERUPTION:
                 {
-                    // After 6 minutes, Garr will let his adds explode and deal massive damage.
-                    // Every further 20s in fight, another add will explode.
                     if (!m_lFiresworn.empty())
                     {
                         uint32 const randomIndex = urand(0, m_lFiresworn.size() - 1);
@@ -237,11 +236,13 @@ struct mob_fireswornAI : ScriptedAI
     ScriptedInstance* m_pInstance;
 
     bool m_bForceExplosion;
-    uint32 m_uiUnreachableTimer; // 用于检测小怪被台阶/地形卡住的时间统计
+    bool m_hasEvaded = false; // 小怪同样增加防重入保护
+    uint32 m_uiUnreachableTimer;
 
     void Reset() override
     {
         m_bForceExplosion = false;
+        m_hasEvaded = false;
         m_uiUnreachableTimer = 0;
         m_CombatEvents.Reset();
     }
@@ -261,7 +262,6 @@ struct mob_fireswornAI : ScriptedAI
             // 1. 让 Boss Garr 联动脱战
             if (Creature* pGarr = m_pInstance->GetSingleCreatureFromStorage(NPC_GARR))
             {
-                // 已修复：使用 pGarr->AI() 代替原先错误的 pGarr->GetAI()
                 if (pGarr && pGarr->IsAlive() && pGarr->AI() && !pGarr->IsInEvadeMode())
                 {
                     pGarr->AI()->EnterEvadeMode();
@@ -273,26 +273,27 @@ struct mob_fireswornAI : ScriptedAI
             GetCreatureListWithEntryInGrid(adds, m_creature, NPC_FIRESWORN, 150.0f);
             for (Creature* pAdd : adds)
             {
-                // 已修复：使用 pAdd->AI() 代替原先错误的 pAdd->GetAI()
                 if (pAdd && pAdd->IsAlive() && pAdd->AI() && !pAdd->IsInEvadeMode())
                 {
                     pAdd->AI()->EnterEvadeMode();
                 }
             }
         }
-
-        // 3. 自身执行标准 Evade
-        ScriptedAI::EnterEvadeMode();
     }
 
     void EnterEvadeMode() override
     {
+        if (m_hasEvaded) // 防止小怪自身反复递归
+            return;
+        m_hasEvaded = true;
+
         if (m_creature->IsInEvadeMode())
         {
             return;
         }
 
         TriggerGroupEvade();
+        ScriptedAI::EnterEvadeMode();
     }
 
     void JustDied(Unit*) override
@@ -302,7 +303,6 @@ struct mob_fireswornAI : ScriptedAI
             return;
         }
 
-        // Garr gains 9% attack speed for every Firesworn slain.
         if (Creature* pGarr = m_pInstance->GetSingleCreatureFromStorage(NPC_GARR))
         {
             if (pGarr->IsAlive())
@@ -317,7 +317,6 @@ struct mob_fireswornAI : ScriptedAI
 
         if (!m_bForceExplosion)
         {
-            // On death, Firesworns will explode, dealing massive Fire damage and knocking players back.
             m_creature->CastSpell(m_creature, SPELL_ADD_ERUPTION, true);
         }
     }
@@ -333,6 +332,11 @@ struct mob_fireswornAI : ScriptedAI
 
     void UpdateAI(uint32 const diff) override
     {
+        if (m_creature->IsInEvadeMode())
+        {
+            return;
+        }
+
         if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
         {
             return;
@@ -342,9 +346,9 @@ struct mob_fireswornAI : ScriptedAI
         if (m_creature->CantPathToVictim())
         {
             m_uiUnreachableTimer += diff;
-            if (m_uiUnreachableTimer > 3000u) // 持续卡住超过 3 秒，判定为被台阶/地形卡死
+            if (m_uiUnreachableTimer > 3000u) 
             {
-                TriggerGroupEvade();
+                EnterEvadeMode(); // 直接走统一的脱战入口
                 return;
             }
         }
@@ -377,8 +381,6 @@ struct mob_fireswornAI : ScriptedAI
                         m_CombatEvents.Repeat(Seconds(20));
                         return;
                     }
-
-                    // Cast Failed: Try again in 1s
                     m_CombatEvents.Repeat(Seconds(1));
                     return;
                 }
