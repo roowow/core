@@ -468,7 +468,7 @@ struct boss_mandokirAI : public ScriptedAI
         if (!m_VilebranchDead || !m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             return;
 
-        // 【优化后的防抖动卡台阶检测与调试日志】
+        // 【多维卡位卡台阶检测与调试日志】
         Unit* pVictim = m_creature->GetVictim();
         bool isStuck = false;
 
@@ -757,15 +757,18 @@ struct mob_ohganAI : public ScriptedAI
     void TriggerGroupEvade()
     {
         sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: mob_ohganAI::TriggerGroupEvade called. Forcing Mandokir to Evade.");
+        
+        // 双重保险：优先通过实例存储找，如果为空则通过视野/最近单位找 Boss
+        Creature* pMandokir = nullptr;
         if (m_pInstance)
+            pMandokir = m_pInstance->GetSingleCreatureFromStorage(NPC_MANDOKIR);
+        
+        if (!pMandokir)
+            pMandokir = m_creature->FindNearestCreature(NPC_MANDOKIR, 200.0f);
+
+        if (pMandokir && pMandokir->IsAlive() && pMandokir->AI() && !pMandokir->IsInEvadeMode())
         {
-            if (Creature* pMandokir = m_pInstance->GetSingleCreatureFromStorage(NPC_MANDOKIR))
-            {
-                if (pMandokir && pMandokir->IsAlive() && pMandokir->AI() && !pMandokir->IsInEvadeMode())
-                {
-                    pMandokir->AI()->EnterEvadeMode();
-                }
-            }
+            pMandokir->AI()->EnterEvadeMode();
         }
     }
 
@@ -805,7 +808,7 @@ struct mob_ohganAI : public ScriptedAI
         if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             return;
 
-        // 【优化后的防抖动宠物卡台阶检测与调试日志】
+        // 【宠物卡台阶检测与调试日志】
         Unit* pVictim = m_creature->GetVictim();
         bool isStuck = false;
 
