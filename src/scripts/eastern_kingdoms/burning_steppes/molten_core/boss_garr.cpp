@@ -80,6 +80,10 @@ struct boss_garrAI : ScriptedAI
     // 联动重置机制：当 Boss 触发脱战时，同步让所有存活的小怪一起脱战
     void EnterEvadeMode() override
     {
+        if (m_hasEvaded) // 防止重复触发
+            return;
+        m_hasEvaded = true;
+
         if (m_creature->IsInEvadeMode())
         {
             return;
