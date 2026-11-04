@@ -199,12 +199,12 @@ struct boss_mandokirAI : public ScriptedAI
 
         CheckVilebranchState(true);
 
-        sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: boss_mandokirAI::Reset called.");
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: boss_mandokirAI::Reset called.");
     }
 
     void TriggerGroupEvade()
     {
-        sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: boss_mandokirAI::TriggerGroupEvade triggered. Notifying Ohgan and Spirits.");
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: boss_mandokirAI::TriggerGroupEvade triggered. Notifying Ohgan and Spirits.");
 
         if (m_pInstance)
         {
@@ -212,7 +212,7 @@ struct boss_mandokirAI : public ScriptedAI
             {
                 if (pRaptor && pRaptor->IsAlive() && pRaptor->AI() && !pRaptor->IsInEvadeMode())
                 {
-                    sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Mandokir forcing Ohgan to Evade.");
+                    sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Mandokir forcing Ohgan to Evade.");
                     pRaptor->AI()->EnterEvadeMode();
                 }
             }
@@ -241,7 +241,7 @@ struct boss_mandokirAI : public ScriptedAI
             return;
         }
 
-        sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: boss_mandokirAI::EnterEvadeMode executing.");
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: boss_mandokirAI::EnterEvadeMode executing.");
         TriggerGroupEvade();
         ScriptedAI::EnterEvadeMode();
     }
@@ -279,7 +279,7 @@ struct boss_mandokirAI : public ScriptedAI
         m_creature->SetInCombatWithZone();
 
         SpawnSpirits();
-        sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: boss_mandokirAI::Aggro initiated.");
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: boss_mandokirAI::Aggro initiated.");
 
         //At combat start Mandokir is mounted so we must unmount it first, and set his flags for attackable
         //m_creature->RemoveAurasDueToSpell(SPELL_MOUNT);
@@ -299,7 +299,7 @@ struct boss_mandokirAI : public ScriptedAI
             {
                 DoScriptText(EMOTE_RAGE, m_creature);
                 m_bRaptorDead = true;
-                sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Mandokir enraging because Ohgan is dead.");
+                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Mandokir enraging because Ohgan is dead.");
             }
         }
     }
@@ -475,22 +475,22 @@ struct boss_mandokirAI : public ScriptedAI
         if (m_creature->CantPathToVictim())
         {
             isStuck = true;
-            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Mandokir triggered CantPathToVictim() == true.");
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Mandokir triggered CantPathToVictim() == true.");
         }
         else if (pVictim && m_creature->GetDistance(pVictim) < 5.0f && !m_creature->IsWithinDistInMap(pVictim, ATTACK_DISTANCE))
         {
             isStuck = true;
-            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Mandokir is close (<5.0f) but out of attack distance (Stuck on stairs).");
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Mandokir is close (<5.0f) but out of attack distance (Stuck on stairs).");
         }
 
         if (isStuck)
         {
             m_uiUnreachableTimer += diff;
-            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Mandokir unreachable timer accumulating: %u ms", m_uiUnreachableTimer);
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Mandokir unreachable timer accumulating: %u ms", m_uiUnreachableTimer);
 
             if (m_uiUnreachableTimer > 3000u) // 持续卡住超过 3 秒，强制触发脱战
             {
-                sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Mandokir stuck > 3000ms. Forcing EvadeMode.");
+                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Mandokir stuck > 3000ms. Forcing EvadeMode.");
                 EnterEvadeMode();
                 return;
             }
@@ -498,7 +498,7 @@ struct boss_mandokirAI : public ScriptedAI
         else
         {
             if (m_uiUnreachableTimer > 0)
-                sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Mandokir path recovered, resetting unreachable timer.");
+                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Mandokir path recovered, resetting unreachable timer.");
             m_uiUnreachableTimer = 0;
         }
 
@@ -754,7 +754,7 @@ struct mob_ohganAI : public ScriptedAI
 
     void TriggerGroupEvade()
     {
-        sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: mob_ohganAI::TriggerGroupEvade called. Forcing Mandokir to Evade.");
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: mob_ohganAI::TriggerGroupEvade called. Forcing Mandokir to Evade.");
         if (m_pInstance)
         {
             if (Creature* pMandokir = m_pInstance->GetSingleCreatureFromStorage(NPC_MANDOKIR))
@@ -776,7 +776,7 @@ struct mob_ohganAI : public ScriptedAI
         if (m_creature->IsInEvadeMode())
             return;
 
-        sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: mob_ohganAI::EnterEvadeMode executing.");
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: mob_ohganAI::EnterEvadeMode executing.");
         TriggerGroupEvade();
         ScriptedAI::EnterEvadeMode();
     }
@@ -810,22 +810,22 @@ struct mob_ohganAI : public ScriptedAI
         if (m_creature->CantPathToVictim())
         {
             isStuck = true;
-            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Ohgan triggered CantPathToVictim() == true.");
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Ohgan triggered CantPathToVictim() == true.");
         }
         else if (pVictim && m_creature->GetDistance(pVictim) < 5.0f && !m_creature->IsWithinDistInMap(pVictim, ATTACK_DISTANCE))
         {
             isStuck = true;
-            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Ohgan is close (<5.0f) but out of attack distance (Stuck).");
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Ohgan is close (<5.0f) but out of attack distance (Stuck).");
         }
 
         if (isStuck)
         {
             m_uiUnreachableTimer += diff;
-            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Ohgan unreachable timer accumulating: %u ms", m_uiUnreachableTimer);
+            sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Ohgan unreachable timer accumulating: %u ms", m_uiUnreachableTimer);
 
             if (m_uiUnreachableTimer > 3000u) // 持续卡住超过 3 秒，触发联动脱战
             {
-                sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Ohgan stuck > 3000ms. Forcing EvadeMode.");
+                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Ohgan stuck > 3000ms. Forcing EvadeMode.");
                 EnterEvadeMode();
                 return;
             }
@@ -914,7 +914,7 @@ struct mob_chainedSpiritsAI : public ScriptedAI
         if (m_creature->IsInEvadeMode())
             return;
 
-        sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: ChainedSpirit entering EvadeMode.");
+        sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: ChainedSpirit entering EvadeMode.");
         ScriptedAI::EnterEvadeMode();
     }
 
