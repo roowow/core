@@ -91,7 +91,8 @@ struct boss_garrAI : ScriptedAI
             GetCreatureListWithEntryInGrid(adds, m_creature, NPC_FIRESWORN, 150.0f);
             for (Creature* pAdd : adds)
             {
-                if (pAdd && pAdd->IsAlive() && pAdd->GetAI() && !pAdd->IsInEvadeMode())
+                // 已修复：使用 pAdd->AI() 代替原先错误的 pAdd->GetAI()
+                if (pAdd && pAdd->IsAlive() && pAdd->AI() && !pAdd->IsInEvadeMode())
                 {
                     pAdd->AI()->EnterEvadeMode();
                 }
@@ -256,7 +257,8 @@ struct mob_fireswornAI : ScriptedAI
             // 1. 让 Boss Garr 联动脱战
             if (Creature* pGarr = m_pInstance->GetSingleCreatureFromStorage(NPC_GARR))
             {
-                if (pGarr->IsAlive() && !pGarr->IsInEvadeMode())
+                // 已修复：使用 pGarr->AI() 代替原先错误的 pGarr->GetAI()
+                if (pGarr && pGarr->IsAlive() && pGarr->AI() && !pGarr->IsInEvadeMode())
                 {
                     pGarr->AI()->EnterEvadeMode();
                 }
@@ -267,7 +269,8 @@ struct mob_fireswornAI : ScriptedAI
             GetCreatureListWithEntryInGrid(adds, m_creature, NPC_FIRESWORN, 150.0f);
             for (Creature* pAdd : adds)
             {
-                if (pAdd && pAdd->IsAlive() && pAdd->GetAI() && !pAdd->IsInEvadeMode())
+                // 已修复：使用 pAdd->AI() 代替原先错误的 pAdd->GetAI()
+                if (pAdd && pAdd->IsAlive() && pAdd->AI() && !pAdd->IsInEvadeMode())
                 {
                     pAdd->AI()->EnterEvadeMode();
                 }
