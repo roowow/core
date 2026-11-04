@@ -198,11 +198,15 @@ struct boss_mandokirAI : public ScriptedAI
         DespawnSpirits();
 
         CheckVilebranchState(true);
+
+        sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: boss_mandokirAI::Reset called.");
     }
 
     // 联动重置核心：当 Boss 触发脱战时，同步让宠物及所有灵魂一起脱战
     void TriggerGroupEvade()
     {
+        sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: boss_mandokirAI::TriggerGroupEvade triggered. Notifying Ohgan and Spirits.");
+
         if (m_pInstance)
         {
             // 1. 让宠物 Ohgan 联动脱战
@@ -210,6 +214,7 @@ struct boss_mandokirAI : public ScriptedAI
             {
                 if (pRaptor && pRaptor->IsAlive() && pRaptor->AI() && !pRaptor->IsInEvadeMode())
                 {
+                    sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Mandokir forcing Ohgan to Evade.");
                     pRaptor->AI()->EnterEvadeMode();
                 }
             }
@@ -239,6 +244,7 @@ struct boss_mandokirAI : public ScriptedAI
             return;
         }
 
+        sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: boss_mandokirAI::EnterEvadeMode executing.");
         TriggerGroupEvade();
         ScriptedAI::EnterEvadeMode();
     }
@@ -276,7 +282,8 @@ struct boss_mandokirAI : public ScriptedAI
         m_creature->SetInCombatWithZone();
 
         SpawnSpirits();
-
+        sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: boss_mandokirAI::Aggro initiated.");
+        
         //At combat start Mandokir is mounted so we must unmount it first, and set his flags for attackable
         //m_creature->RemoveAurasDueToSpell(SPELL_MOUNT);
         //SpawnRaptor();
@@ -288,21 +295,19 @@ struct boss_mandokirAI : public ScriptedAI
         if (!m_bRaptorDead)
             SpawnRaptor();
 
-        //Checking if Ohgan is dead. If yes Mandokir will enrage.
         if (!m_bRaptorDead && m_pInstance && m_pInstance->GetData(TYPE_OHGAN) == DONE)
         {
             if (DoCastSpellIfCan(m_creature, SPELL_ENRAGE) == CAST_OK)
             {
                 DoScriptText(EMOTE_RAGE, m_creature);
                 m_bRaptorDead = true;
+                sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Mandokir enraging because Ohgan is dead.");
             }
         }
     }
 
     void CheckVilebranchState(bool reset = false)
     {
-        // If Vilebranch dies and group wipes, boss should start at the bottom of the stairs
-        // Video: https://www.youtube.com/watch?v=joaWY0wjOXI
         Creature* vileBranch = m_creature->FindNearestCreature(11391, 100.0f, true);
         bool isVilebranchDead = !vileBranch || !vileBranch->IsAlive();
         if (reset || m_VilebranchDead != isVilebranchDead)
@@ -318,7 +323,6 @@ struct boss_mandokirAI : public ScriptedAI
                 m_creature->ResetHomePosition();
             }
             m_creature->GetMotionMaster()->MoveTargetedHome();
-
             m_VilebranchDead = isVilebranchDead;
         }
     }
@@ -331,10 +335,8 @@ struct boss_mandokirAI : public ScriptedAI
 
             if (pWatchTarget && pWatchTarget->IsAlive())
             {
-                // Pendant le debuff
                 if (pWatchTarget->HasAura(SPELL_WATCH))
                 {
-                    // La cible ne doit pas bouger.
                     if (pWatchTarget->HasAura(SPELL_FEAR))
                     {
                         m_fWatchedTargetAllowedMoveRange = 8.0;
@@ -348,11 +350,9 @@ struct boss_mandokirAI : public ScriptedAI
                         m_fWatchedTargetAllowedMoveRange = 2.0;
                     }
 
-                    // Ni attaquer.
                     if ((!m_bTargetActed) && (m_creature->GetThreatManager().getThreat(pWatchTarget) > m_fTargetThreat))
                         m_bTargetActed = true;
                 }
-                // Le debuff est termine
                 else
                 {
                     if (m_bTargetMoved || m_bTargetActed)
@@ -394,7 +394,6 @@ struct boss_mandokirAI : public ScriptedAI
 
     void DespawnRaptor()
     {
-
         if (!m_uiRaptorGUID.IsEmpty())
         {
             if (Creature* pRaptor = m_creature->GetMap()->GetCreature(m_uiRaptorGUID))
@@ -406,7 +405,6 @@ struct boss_mandokirAI : public ScriptedAI
 
     void SpawnRaptor()
     {
-        //And summon his raptor
         if (m_uiRaptorGUID.IsEmpty())
         {
             Creature* pRaptor = m_creature->SummonCreature(NPC_OHGAN, 0.0f, 0.0f, 0.0f, 0.0f, TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT, 35000);
@@ -463,38 +461,56 @@ struct boss_mandokirAI : public ScriptedAI
         if (!m_VilebranchDead || !m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             return;
 
-        // 检测 Boss 自身是否因台阶或地形卡住无法寻路攻击目标 (CantPathToVictim)
+        // 【多维卡位卡台阶检测与调试日志】
+        Unit* pVictim = m_creature->GetVictim();
+        bool isStuck = false;
+
         if (m_creature->CantPathToVictim())
         {
+            isStuck = true;
+            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Mandokir triggered CantPathToVictim() == true.");
+        }
+        else if (pVictim && !m_creature->IsWithinMeleeRange(pVictim) && m_creature->GetDistance(pVictim) < 5.0f)
+        {
+            // 距离小于5码但由于台阶高低差导致无法进入近战，判定为卡楼梯
+            isStuck = true;
+            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Mandokir is close (<5.0f) but not in melee range (Stuck on stairs).");
+        }
+
+        if (isStuck)
+        {
             m_uiUnreachableTimer += diff;
-            if (m_uiUnreachableTimer > 3000u) // 持续卡住超过 3 秒，判定为卡地形
+            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Mandokir unreachable timer accumulating: %u ms", m_uiUnreachableTimer);
+
+            if (m_uiUnreachableTimer > 3000u) // 持续卡住超过 3 秒，强制触发脱战
             {
+                sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Mandokir stuck > 3000ms. Forcing EvadeMode.");
                 EnterEvadeMode();
                 return;
             }
         }
         else
         {
+            if (m_uiUnreachableTimer > 0)
+                sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Mandokir path recovered, resetting unreachable timer.");
             m_uiUnreachableTimer = 0;
         }
 
         CheckRaptor();
         CheckWatchedPlayer();
-        // Check player to rez
+
         if (m_uiPlayerToRez)
         {
             if (Player* killedPlayer = m_creature->GetMap()->GetPlayer(m_uiPlayerToRez))
             {
                 if (killedPlayer->GetDeathState() == CORPSE && !killedPlayer->IsRessurectRequested())
                 {
-                    // Find nearest spirit ready to resurrect
                     Creature* spirit = nullptr;
                     float spiritDist = 0.0f;
                     for (const auto& guid : m_lSpirits)
                     {
                         if (Creature* current = m_creature->GetMap()->GetCreature(guid))
                         {
-                            // Ready to resurrect ?
                             if (current->AI() && current->AI()->GetData(0))
                             {
                                 float currentDist = current->GetDistance(killedPlayer);
@@ -516,7 +532,6 @@ struct boss_mandokirAI : public ScriptedAI
             m_uiPlayerToRez = 0;
         }
 
-        // GlobalCD non ecoule.
         if (m_uiGlobalCooldown > diff)
             m_uiGlobalCooldown -= diff;
         else
@@ -526,7 +541,6 @@ struct boss_mandokirAI : public ScriptedAI
             else
                 m_uiGlobalCooldown = 0;
         }
-
 
         // WATCH
         if (m_uiWatch_Timer < diff)
@@ -572,12 +586,10 @@ struct boss_mandokirAI : public ScriptedAI
                         m_creature->GetThreatManager().addThreat(pTargetToKill, (addAggro + 2000));
                         m_creature->SelectHostileTarget();
 
-
                         if (pTargetToKill->IsInRange(m_creature, 0.0f, 40.0f, true))
                         {
                             if (DoCastSpellIfCan(pTargetToKill, SPELL_DECAPITATE) == CAST_OK)
                                 bTargetKilled = true;
-                            // TODO: Mandokir should also cast a sound explosion, after charging the player
                         }
                         if (!bTargetKilled)
                             m_creature->DoKillUnit(pTargetToKill);
@@ -603,7 +615,6 @@ struct boss_mandokirAI : public ScriptedAI
                         {
                             m_uiCharge_Timer = urand(30000, 35000);
                             m_uiGlobalCooldown = 1000;
-                            // Fear imminent
                             m_uiFear_Timer = 100;
                             m_bFearAfterCharge = true;
                             m_bChargeCasted = true;
@@ -629,7 +640,6 @@ struct boss_mandokirAI : public ScriptedAI
                 }
             }
         }
-
 
         // FEAR
         if (m_uiFear_Timer < diff)
@@ -659,7 +669,6 @@ struct boss_mandokirAI : public ScriptedAI
                             m_uiGlobalCooldown = 500;
                             m_bFearAfterCharge = false;
                             m_uiChargedPlayerGUID.Clear();
-
                         }
                     }
                 }
@@ -702,7 +711,7 @@ struct boss_mandokirAI : public ScriptedAI
     }
 };
 
-//Ohgan
+// Ohgan (宠物迅猛龙)
 struct mob_ohganAI : public ScriptedAI
 {
     mob_ohganAI(Creature* pCreature) : ScriptedAI(pCreature)
@@ -728,9 +737,9 @@ struct mob_ohganAI : public ScriptedAI
         m_uiUnreachableTimer = 0;
     }
 
-    // 宠物卡地形或脱战时，联动 Boss Mandokir 一起脱战
     void TriggerGroupEvade()
     {
+        sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: mob_ohganAI::TriggerGroupEvade called. Forcing Mandokir to Evade.");
         if (m_pInstance)
         {
             if (Creature* pMandokir = m_pInstance->GetSingleCreatureFromStorage(NPC_MANDOKIR))
@@ -752,6 +761,7 @@ struct mob_ohganAI : public ScriptedAI
         if (m_creature->IsInEvadeMode())
             return;
 
+        sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: mob_ohganAI::EnterEvadeMode executing.");
         TriggerGroupEvade();
         ScriptedAI::EnterEvadeMode();
     }
@@ -778,12 +788,29 @@ struct mob_ohganAI : public ScriptedAI
         if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             return;
 
-        // 检测宠物奥罕是否被台阶或地形卡住无法攻击目标
+        // 【宠物卡台阶检测与调试日志】
+        Unit* pVictim = m_creature->GetVictim();
+        bool isStuck = false;
+
         if (m_creature->CantPathToVictim())
         {
+            isStuck = true;
+            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Ohgan triggered CantPathToVictim() == true.");
+        }
+        else if (pVictim && !m_creature->IsWithinMeleeRange(pVictim) && m_creature->GetDistance(pVictim) < 5.0f)
+        {
+            isStuck = true;
+            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Ohgan is close (<5.0f) but not in melee range (Stuck).");
+        }
+
+        if (isStuck)
+        {
             m_uiUnreachableTimer += diff;
+            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Ohgan unreachable timer accumulating: %u ms", m_uiUnreachableTimer);
+
             if (m_uiUnreachableTimer > 3000u) // 持续卡住超过 3 秒，触发联动脱战
             {
+                sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Ohgan stuck > 3000ms. Forcing EvadeMode.");
                 EnterEvadeMode();
                 return;
             }
@@ -801,7 +828,6 @@ struct mob_ohganAI : public ScriptedAI
         else
             SunderArmor_Timer -= diff;
 
-        // Thrash_Timer
         if (Thrash_Timer <= diff)
         {
             DoCast(me, SPELL_THRASH);
@@ -810,8 +836,7 @@ struct mob_ohganAI : public ScriptedAI
         else
             Thrash_Timer -= diff;
 
-        // Execute_Timer
-        if (me->GetVictim()->GetHealth() <= me->GetVictim()->GetMaxHealth() * 0.2f)  // check health first
+        if (me->GetVictim()->GetHealth() <= me->GetVictim()->GetMaxHealth() * 0.2f)
         {
             if (Execute_Timer <= diff)
             {
@@ -838,12 +863,7 @@ CreatureAI* GetAI_mob_ohgan(Creature* pCreature)
     return new mob_ohganAI(pCreature);
 }
 
-
-// Chained Spirits
-/*
-Lorsqu'un joueur meurt, un esprit doit le ressussiter. Si le joueur accepte, alors le mob doit despawn.
-Sinon, l'esprit devient dispo pour les autres joueurs, sachant qu'ils sont spawn en nombre limite.
-*/
+// Chained Spirits (被缚的灵魂)
 struct mob_chainedSpiritsAI : public ScriptedAI
 {
     mob_chainedSpiritsAI(Creature* pCreature) : ScriptedAI(pCreature)
@@ -871,6 +891,7 @@ struct mob_chainedSpiritsAI : public ScriptedAI
         if (m_creature->IsInEvadeMode())
             return;
 
+        sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: ChainedSpirit entering EvadeMode.");
         ScriptedAI::EnterEvadeMode();
     }
 
@@ -910,10 +931,9 @@ struct mob_chainedSpiritsAI : public ScriptedAI
         {
             if (m_uiRezTimer <= diff)
             {
-                // Attempt to rez player
                 Player* target = m_creature->GetMap()->GetPlayer(m_uiTargetRezGUID);
                 if (target && target->GetDeathState() == CORPSE && !target->IsRessurectRequested())
-                    m_creature->CastSpell(target, SPELL_REVIVE, true); // Will despawn at SpellHit
+                    m_creature->CastSpell(target, SPELL_REVIVE, true);
                 else
                     m_creature->AddObjectToRemoveList();
             }
@@ -927,37 +947,6 @@ CreatureAI* GetAI_mob_chained_spirit(Creature* pCreature)
 {
     return new mob_chainedSpiritsAI(pCreature);
 }
-
-// Vilebranche
-/*struct mob_vilebrancheAI : public ScriptedAI
-{
-    mob_vilebrancheAI(Creature* pCreature) : ScriptedAI(pCreature)
-    {
-        Reset();
-    }
-
-    void Reset() override
-    {
-    }
-
-    void JustDied(Unit* Killer) override
-    {
-        //
-    }
-
-    void UpdateAI(uint32 const diff) override
-    {
-        if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
-            return;
-
-        DoMeleeAttackIfReady();
-    }
-};
-
-CreatureAI* GetAI_mob_vilebranche(Creature* pCreature)
-{
-    return new mob_vilebrancheAI(pCreature);
-}*/
 
 void AddSC_boss_mandokir()
 {
@@ -977,11 +966,4 @@ void AddSC_boss_mandokir()
     newscript->Name = "mob_chained_spirit";
     newscript->GetAI = &GetAI_mob_chained_spirit;
     newscript->RegisterSelf();
-    /*
-    newscript = new Script;
-    newscript->Name = "mob_vilebranche";
-    newscript->GetAI = &GetAI_mob_vilebranche;
-    newscript->RegisterSelf();
-    */
 }
-
