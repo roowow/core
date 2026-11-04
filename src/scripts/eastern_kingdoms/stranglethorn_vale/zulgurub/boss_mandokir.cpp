@@ -136,6 +136,8 @@ struct boss_mandokirAI : public ScriptedAI
     uint32 m_uiMortalStrike_Timer;
 
     bool m_bRaptorDead;
+    bool m_hasEvaded; // 防重入脱战保护
+    uint32 m_uiUnreachableTimer; // 地形卡住检测计时器
     ObjectGuid m_uiRaptorGUID;
     ObjectGuid m_uiChargedPlayerGUID;
 
@@ -160,6 +162,8 @@ struct boss_mandokirAI : public ScriptedAI
     void Reset() override
     {
         m_uiGlobalCooldown = 0;
+        m_hasEvaded = false;
+        m_uiUnreachableTimer = 0;
 
         m_uiChargedPlayerGUID.Clear();
         m_bFearAfterCharge = false;
@@ -194,6 +198,49 @@ struct boss_mandokirAI : public ScriptedAI
         DespawnSpirits();
 
         CheckVilebranchState(true);
+    }
+
+    // 联动重置核心：当 Boss 触发脱战时，同步让宠物及所有灵魂一起脱战
+    void TriggerGroupEvade()
+    {
+        if (m_pInstance)
+        {
+            // 1. 让宠物 Ohgan 联动脱战
+            if (Creature* pRaptor = m_creature->GetMap()->GetCreature(m_uiRaptorGUID))
+            {
+                if (pRaptor && pRaptor->IsAlive() && pRaptor->AI() && !pRaptor->IsInEvadeMode())
+                {
+                    pRaptor->AI()->EnterEvadeMode();
+                }
+            }
+
+            // 2. 让所有被缚的灵魂（Chained Spirit）也联动脱战/重置
+            for (const auto& guid : m_lSpirits)
+            {
+                if (Creature* pSpirit = m_creature->GetMap()->GetCreature(guid))
+                {
+                    if (pSpirit && pSpirit->IsAlive() && pSpirit->AI() && !pSpirit->IsInEvadeMode())
+                    {
+                        pSpirit->AI()->EnterEvadeMode();
+                    }
+                }
+            }
+        }
+    }
+
+    void EnterEvadeMode() override
+    {
+        if (m_hasEvaded) // 防止重复触发递归
+            return;
+        m_hasEvaded = true;
+
+        if (m_creature->IsInEvadeMode())
+        {
+            return;
+        }
+
+        TriggerGroupEvade();
+        ScriptedAI::EnterEvadeMode();
     }
 
     void KilledUnit(Unit* pVictim) override
@@ -407,11 +454,29 @@ struct boss_mandokirAI : public ScriptedAI
 
     void UpdateAI(uint32 const diff) override
     {
+        if (m_creature->IsInEvadeMode())
+            return;
+
         if (!m_VilebranchDead)
             CheckVilebranchState();
 
         if (!m_VilebranchDead || !m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             return;
+
+        // 检测 Boss 自身是否因台阶或地形卡住无法寻路攻击目标 (CantPathToVictim)
+        if (m_creature->CantPathToVictim())
+        {
+            m_uiUnreachableTimer += diff;
+            if (m_uiUnreachableTimer > 3000u) // 持续卡住超过 3 秒，判定为卡地形
+            {
+                EnterEvadeMode();
+                return;
+            }
+        }
+        else
+        {
+            m_uiUnreachableTimer = 0;
+        }
 
         CheckRaptor();
         CheckWatchedPlayer();
@@ -590,10 +655,10 @@ struct boss_mandokirAI : public ScriptedAI
                         }
                         else
                         {
-                                    m_uiFear_Timer = 24000;
-                                    m_uiGlobalCooldown = 500;
-                                    m_bFearAfterCharge = false;
-                                    m_uiChargedPlayerGUID.Clear();
+                            m_uiFear_Timer = 24000;
+                            m_uiGlobalCooldown = 500;
+                            m_bFearAfterCharge = false;
+                            m_uiChargedPlayerGUID.Clear();
 
                         }
                     }
@@ -651,12 +716,44 @@ struct mob_ohganAI : public ScriptedAI
     uint32 SunderArmor_Timer;
     uint32 Thrash_Timer;
     uint32 Execute_Timer;
+    bool m_hasEvaded;
+    uint32 m_uiUnreachableTimer;
 
     void Reset() override
     {
         SunderArmor_Timer = 5000;
         Thrash_Timer = urand(5000, 9000);
         Execute_Timer = 1000;
+        m_hasEvaded = false;
+        m_uiUnreachableTimer = 0;
+    }
+
+    // 宠物卡地形或脱战时，联动 Boss Mandokir 一起脱战
+    void TriggerGroupEvade()
+    {
+        if (m_pInstance)
+        {
+            if (Creature* pMandokir = m_pInstance->GetSingleCreatureFromStorage(NPC_MANDOKIR))
+            {
+                if (pMandokir && pMandokir->IsAlive() && pMandokir->AI() && !pMandokir->IsInEvadeMode())
+                {
+                    pMandokir->AI()->EnterEvadeMode();
+                }
+            }
+        }
+    }
+
+    void EnterEvadeMode() override
+    {
+        if (m_hasEvaded)
+            return;
+        m_hasEvaded = true;
+
+        if (m_creature->IsInEvadeMode())
+            return;
+
+        TriggerGroupEvade();
+        ScriptedAI::EnterEvadeMode();
     }
 
     void JustDied(Unit* pKiller) override
@@ -675,10 +772,27 @@ struct mob_ohganAI : public ScriptedAI
 
     void UpdateAI(uint32 const diff) override
     {
+        if (m_creature->IsInEvadeMode())
+            return;
+
         if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             return;
 
-        // SunderArmor_Timer
+        // 检测宠物奥罕是否被台阶或地形卡住无法攻击目标
+        if (m_creature->CantPathToVictim())
+        {
+            m_uiUnreachableTimer += diff;
+            if (m_uiUnreachableTimer > 3000u) // 持续卡住超过 3 秒，触发联动脱战
+            {
+                EnterEvadeMode();
+                return;
+            }
+        }
+        else
+        {
+            m_uiUnreachableTimer = 0;
+        }
+
         if (SunderArmor_Timer <= diff)
         {
             DoCast(me->GetVictim(), SPELL_SUNDERARMOR);
@@ -740,13 +854,26 @@ struct mob_chainedSpiritsAI : public ScriptedAI
 
     uint64 m_uiTargetRezGUID;
     uint32 m_uiRezTimer;
+    bool m_hasEvaded;
 
     void Reset() override
     {
         m_uiRezTimer = 0;
+        m_hasEvaded = false;
     }
 
-    // Ready to revive someone ?
+    void EnterEvadeMode() override
+    {
+        if (m_hasEvaded)
+            return;
+        m_hasEvaded = true;
+
+        if (m_creature->IsInEvadeMode())
+            return;
+
+        ScriptedAI::EnterEvadeMode();
+    }
+
     uint32 GetData(uint32) override
     {
         if (m_uiTargetRezGUID)
@@ -773,8 +900,12 @@ struct mob_chainedSpiritsAI : public ScriptedAI
             if (Player* pPlayer = m_creature->GetMap()->GetPlayer(m_uiTargetRezGUID))
                 m_uiRezTimer = 2500;
     }
+
     void UpdateAI(uint32 const diff) override
     {
+        if (m_creature->IsInEvadeMode())
+            return;
+
         if (m_uiRezTimer)
         {
             if (m_uiRezTimer <= diff)
@@ -798,7 +929,7 @@ CreatureAI* GetAI_mob_chained_spirit(Creature* pCreature)
 }
 
 // Vilebranche
-struct mob_vilebrancheAI : public ScriptedAI
+/*struct mob_vilebrancheAI : public ScriptedAI
 {
     mob_vilebrancheAI(Creature* pCreature) : ScriptedAI(pCreature)
     {
@@ -826,7 +957,7 @@ struct mob_vilebrancheAI : public ScriptedAI
 CreatureAI* GetAI_mob_vilebranche(Creature* pCreature)
 {
     return new mob_vilebrancheAI(pCreature);
-}
+}*/
 
 void AddSC_boss_mandokir()
 {
