@@ -468,7 +468,7 @@ struct boss_mandokirAI : public ScriptedAI
         if (!m_VilebranchDead || !m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             return;
 
-        // 【多维卡位卡台阶检测与调试日志】
+        // 【优化后的防抖动卡台阶检测与调试日志】
         Unit* pVictim = m_creature->GetVictim();
         bool isStuck = false;
 
@@ -488,18 +488,20 @@ struct boss_mandokirAI : public ScriptedAI
             m_uiUnreachableTimer += diff;
             sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Mandokir unreachable timer accumulating: %u ms", m_uiUnreachableTimer);
 
-            if (m_uiUnreachableTimer > 3000u) // 持续卡住超过 3 秒，强制触发脱战
+            if (m_uiUnreachableTimer > 2000u) // 持续卡住超过 2 秒，强制触发脱战
             {
-                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Mandokir stuck > 3000ms. Forcing EvadeMode.");
+                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Mandokir stuck > 2000ms. Forcing EvadeMode.");
                 EnterEvadeMode();
                 return;
             }
         }
         else
         {
-            if (m_uiUnreachableTimer > 0)
-                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Mandokir path recovered, resetting unreachable timer.");
-            m_uiUnreachableTimer = 0;
+            // 防抖动平滑扣减，避免因一两帧寻路状态波动导致计时器归零
+            if (m_uiUnreachableTimer > diff)
+                m_uiUnreachableTimer -= diff;
+            else
+                m_uiUnreachableTimer = 0;
         }
 
         CheckRaptor();
@@ -803,7 +805,7 @@ struct mob_ohganAI : public ScriptedAI
         if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             return;
 
-        // 【宠物卡台阶检测与调试日志】
+        // 【优化后的防抖动宠物卡台阶检测与调试日志】
         Unit* pVictim = m_creature->GetVictim();
         bool isStuck = false;
 
@@ -823,16 +825,19 @@ struct mob_ohganAI : public ScriptedAI
             m_uiUnreachableTimer += diff;
             sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Ohgan unreachable timer accumulating: %u ms", m_uiUnreachableTimer);
 
-            if (m_uiUnreachableTimer > 3000u) // 持续卡住超过 3 秒，触发联动脱战
+            if (m_uiUnreachableTimer > 2000u) // 持续卡住超过 2 秒，触发联动脱战
             {
-                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Ohgan stuck > 3000ms. Forcing EvadeMode.");
+                sLog.Out(LOG_BASIC, LOG_LVL_ERROR, "DEBUG: Ohgan stuck > 2000ms. Forcing EvadeMode.");
                 EnterEvadeMode();
                 return;
             }
         }
         else
         {
-            m_uiUnreachableTimer = 0;
+            if (m_uiUnreachableTimer > diff)
+                m_uiUnreachableTimer -= diff;
+            else
+                m_uiUnreachableTimer = 0;
         }
 
         // SunderArmor_Timer
