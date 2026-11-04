@@ -1,7 +1,6 @@
 #include "scriptPCH.h"
 #include "molten_core.h"
 #include "Utilities/EventMap.h"
-#include <unordered_map>
 
 enum Garr : uint32
 {
@@ -17,10 +16,9 @@ enum Garr : uint32
     EMOTE_MASSIVE_ERUPTION  = 8254,
 
     // Events
-    EVENT_ANTIMAGICPULSE        = 1,
-    EVENT_MAGMASHACKLES         = 2,
-    EVENT_MASSIVE_ERUPTION      = 3,
-    EVENT_FIRESWORN_LEASH_CHECK = 4
+    EVENT_ANTIMAGICPULSE    = 1,
+    EVENT_MAGMASHACKLES     = 2,
+    EVENT_MASSIVE_ERUPTION  = 3
 };
 
 struct boss_garrAI : ScriptedAI
@@ -79,6 +77,30 @@ struct boss_garrAI : ScriptedAI
         ScheduleCombatEvents();
     }
 
+    // 联动重置机制：当 Boss 触发脱战时，同步让所有存活的小怪一起脱战
+    void EnterEvadeMode() override
+    {
+        if (m_creature->IsInEvadeMode())
+        {
+            return;
+        }
+
+        if (m_pInstance)
+        {
+            std::list<Creature*> adds;
+            GetCreatureListWithEntryInGrid(adds, m_creature, NPC_FIRESWORN, 150.0f);
+            for (Creature* pAdd : adds)
+            {
+                if (pAdd && pAdd->IsAlive() && pAdd->GetAI() && !pAdd->IsInEvadeMode())
+                {
+                    pAdd->AI()->EnterEvadeMode();
+                }
+            }
+        }
+
+        ScriptedAI::EnterEvadeMode();
+    }
+
     void JustDied(Unit* /*pKiller*/) override
     {
         if (m_pInstance)
@@ -120,36 +142,9 @@ struct boss_garrAI : ScriptedAI
 
     void ScheduleCombatEvents()
     {
-        m_CombatEvents.RescheduleEvent(EVENT_ANTIMAGICPULSE,        Seconds(15));
-        m_CombatEvents.RescheduleEvent(EVENT_MAGMASHACKLES,         Seconds(10));
-        m_CombatEvents.RescheduleEvent(EVENT_MASSIVE_ERUPTION,      Minutes(6));
-        m_CombatEvents.RescheduleEvent(EVENT_FIRESWORN_LEASH_CHECK, Seconds(5));
-    }
-
-    // Finds the closest valid attack target for pFor anywhere in the instance - used to force
-    // a Firesworn that has never aggroed anyone onto somebody, since it has no threat list of
-    // its own to pick from yet.
-    Player* FindNearestValidAttackTarget(Unit* pFor)
-    {
-        Player* pNearest = nullptr;
-        float nearestDist = 0.0f;
-        Map::PlayerList const& players = m_creature->GetMap()->GetPlayers();
-        for (const auto& itr : players)
-        {
-            Player* pPlayer = itr.getSource();
-            if (!pPlayer || !pPlayer->IsAlive() || !pFor->IsValidAttackTarget(pPlayer))
-            {
-                continue;
-            }
-
-            float const dist = pFor->GetDistance(pPlayer);
-            if (!pNearest || dist < nearestDist)
-            {
-                pNearest = pPlayer;
-                nearestDist = dist;
-            }
-        }
-        return pNearest;
+        m_CombatEvents.RescheduleEvent(EVENT_ANTIMAGICPULSE,   Seconds(15));
+        m_CombatEvents.RescheduleEvent(EVENT_MAGMASHACKLES,    Seconds(10));
+        m_CombatEvents.RescheduleEvent(EVENT_MASSIVE_ERUPTION, Minutes(6));
     }
 
     void UpdateEvents()
@@ -158,45 +153,6 @@ struct boss_garrAI : ScriptedAI
         {
             switch (eventId)
             {
-                case EVENT_FIRESWORN_LEASH_CHECK:
-                {
-                    // Players can use LOS/terrain/positioning to keep every Firesworn
-                    // permanently out of its own aggro range while zerging Garr down - since
-                    // the add then never enters combat, mob_fireswornAI::UpdateAI()'s own
-                    // EVENT_THREAT_CHECK safety net (which only runs once
-                    // Creature::SelectHostileTarget() succeeds, i.e. the add already has a
-                    // threat list) never gets a chance to run either - it can maintain
-                    // aggro, not bootstrap it from zero. This is Garr's own catch-all:
-                    // periodically force any known Firesworn that currently isn't in combat
-                    // onto the nearest player in the instance.
-                    //
-                    // Deliberately unconditional on history (checks live IsInCombat() every
-                    // time, not a one-shot "has it ever fought" flag): an earlier version tried
-                    // to spare an add that fought once and then legitimately evaded (e.g. its
-                    // attacker died mid-wipe) by permanently exempting anything that had ever
-                    // triggered Aggro() once - but Aggro() itself calls SetInCombatWithZone(),
-                    // which fires from literally any trigger (even a hunter's pet grazing it),
-                    // so a raid could deliberately manufacture one throwaway engagement to
-                    // permanently launder an add out of this safety net, defeating the whole
-                    // point. Re-checking live combat state every 5s instead means there's no
-                    // one-shot flag to launder - the only cost is that a genuinely evaded add
-                    // gets re-engaged even if Garr is still being fought solo by a lone
-                    // survivor after most of the raid has wiped, which is a far narrower and
-                    // more acceptable edge case than a repeatable exploit.
-                    for (ObjectGuid const& addGuid : m_lFiresworn)
-                    {
-                        Creature* pAdd = m_creature->GetMap()->GetCreature(addGuid);
-                        if (pAdd && pAdd->IsAlive() && !pAdd->IsInCombat())
-                        {
-                            if (Player* pNearest = FindNearestValidAttackTarget(pAdd))
-                            {
-                                pAdd->EnterCombatWithTarget(pNearest);
-                            }
-                        }
-                    }
-                    m_CombatEvents.Repeat(Seconds(5));
-                    return;
-                }
                 case EVENT_ANTIMAGICPULSE:
                 {
                     // Garr lets out anti-magic pulses, removing a beneficial effect from players in the raid.
@@ -261,8 +217,7 @@ enum GarrAdds : uint32
     SPELL_MASSIVE_ERUPTION  = 20483,
 
     // Events
-    EVENT_IMMOLATE     = 1,
-    EVENT_THREAT_CHECK = 2
+    EVENT_IMMOLATE = 1
 };
 
 struct mob_fireswornAI : ScriptedAI
@@ -277,28 +232,13 @@ struct mob_fireswornAI : ScriptedAI
     ScriptedInstance* m_pInstance;
 
     bool m_bForceExplosion;
-
-    // Anti-kite state, mirrors mob_razorgore_add_antikiteAI (boss_razorgore.cpp) - see
-    // UpdateAI() below for why this is needed on top of the EnterEvadeMode() override above.
-    uint32 m_uiUnreachableTimer = 0;
-    bool m_bPurging = false;
-    // Guid -> ms remaining before this player can be picked as a target again. A pure
-    // "remove from threat table" purge is not enough on its own: a healer who keeps casting
-    // can regenerate threat on this add (healing threat is shared across a healed target's
-    // attackers) faster than a single purge cycle clears them, causing an endless
-    // "purge -> healed back to top -> purge" loop that never actually settles on a reachable
-    // target. The cooldown keeps a just-purged player ineligible for a while regardless of how
-    // fast their threat climbs back.
-    std::unordered_map<ObjectGuid, uint32> m_blacklist;
+    uint32 m_uiUnreachableTimer; // 用于检测小怪被台阶/地形卡住的时间统计
 
     void Reset() override
     {
         m_bForceExplosion = false;
-        m_CombatEvents.Reset();
         m_uiUnreachableTimer = 0;
-        m_bPurging = false;
-        m_blacklist.clear();
-        m_creature->SetForceEvadeImmune(false);
+        m_CombatEvents.Reset();
     }
 
     void Aggro(Unit* /*pWho*/) override
@@ -308,30 +248,44 @@ struct mob_fireswornAI : ScriptedAI
         ScheduleCombatEvents();
     }
 
-    // A Firesworn must not be allowed to evade home while Garr is being actively fought
-    // (IN_PROGRESS) or already dead (DONE) - only while Garr hasn't been engaged yet, or has
-    // fully reset himself after a wipe (NOT_STARTED), is it acceptable for a stuck add to reset
-    // too. Otherwise players could use terrain/LOS to keep an add permanently out of reach mid-
-    // fight (not just after Garr dies) and let the engine's own 24s "target unreachable" timer
-    // (Creature::Update(), independent of Garr's state) quietly remove it from the fight instead
-    // of having to kill it. This intercepts every evade trigger unconditionally (stuck timer,
-    // leash distance, empty threat list from SelectHostileTarget), not just the stuck-timer case,
-    // since the intent is "never let it leave combat while Garr is engaged or dead", not one
-    // specific cause. Checking TYPE_GARR (already used elsewhere in this file for the same
-    // purpose) instead of querying Garr's Creature object directly also means a genuine wipe
-    // resolves itself correctly: once Garr has no reachable/alive targets left he evades too,
-    // boss_garrAI::Reset() sets TYPE_GARR back to NOT_STARTED, and stuck adds are then allowed to
-    // reset right along with him. Harmless if this fires during map/grid teardown (Map::UnloadAll
-    // etc.) - the creature object is being destroyed either way, this only skips clearing
-    // gameplay state nobody will observe.
+    // 全团联动脱战核心：当任意小怪因卡地形、仇恨丢失等原因触发 Evade 时，同步拉动 Boss 以及其他小怪一起脱战
+    void TriggerGroupEvade()
+    {
+        if (m_pInstance)
+        {
+            // 1. 让 Boss Garr 联动脱战
+            if (Creature* pGarr = m_pInstance->GetSingleCreatureFromStorage(NPC_GARR))
+            {
+                if (pGarr->IsAlive() && !pGarr->IsInEvadeMode())
+                {
+                    pGarr->AI()->EnterEvadeMode();
+                }
+            }
+
+            // 2. 让同组的其他小怪也联动脱战
+            std::list<Creature*> adds;
+            GetCreatureListWithEntryInGrid(adds, m_creature, NPC_FIRESWORN, 150.0f);
+            for (Creature* pAdd : adds)
+            {
+                if (pAdd && pAdd->IsAlive() && pAdd->GetAI() && !pAdd->IsInEvadeMode())
+                {
+                    pAdd->AI()->EnterEvadeMode();
+                }
+            }
+        }
+
+        // 3. 自身执行标准 Evade
+        ScriptedAI::EnterEvadeMode();
+    }
+
     void EnterEvadeMode() override
     {
-        if (m_pInstance && m_pInstance->GetData(TYPE_GARR) != NOT_STARTED)
+        if (m_creature->IsInEvadeMode())
         {
             return;
         }
 
-        ScriptedAI::EnterEvadeMode();
+        TriggerGroupEvade();
     }
 
     void JustDied(Unit*) override
@@ -372,77 +326,24 @@ struct mob_fireswornAI : ScriptedAI
 
     void UpdateAI(uint32 const diff) override
     {
-        // Neutralize the engine's own "stuck too long" watchdog (Creature.cpp): once
-        // m_targetNotReachableTimer exceeds 3s, Creature::Update() stops calling UpdateAI()
-        // entirely (IsEvadeBecauseTargetNotReachable()) - and since EnterEvadeMode() above is
-        // deliberately a no-op while Garr is engaged/dead, that freeze would otherwise be
-        // permanent (nothing else ever resolves it), silently killing this add's own combat
-        // logic - EVENT_THREAT_CHECK included - for as long as a player keeps it wedged behind
-        // terrain. Reset unconditionally, before the early-return below, so it always runs
-        // while this add is ever ticked at all.
-        m_creature->m_targetNotReachableTimer = 0;
-
-        for (auto it = m_blacklist.begin(); it != m_blacklist.end(); )
-        {
-            if (diff >= it->second)
-                it = m_blacklist.erase(it);
-            else
-            {
-                it->second -= diff;
-                ++it;
-            }
-        }
-
         if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
         {
-            // Nobody to fight - force the same MELEE_HIT_EVADE/SPELL_MISS_EVADE immunity real
-            // evade grants (see Creature::IsInEvadeMode()), so a player who kites every
-            // Firesworn out of engagement range can't just plink this one down for free with
-            // ranged/spell damage while it stands there unable to hit back.
-            m_creature->SetForceEvadeImmune(true);
             return;
         }
 
-        // Still-blacklisted player wormed back onto the threat table via fresh threat (e.g.
-        // rapid healing) before their cooldown expired - kick them again immediately, no need
-        // to re-confirm CantPathToVictim() first.
-        if (Unit* pVictim = m_creature->GetVictim())
-        {
-            if (m_blacklist.count(pVictim->GetObjectGuid()))
-            {
-                m_creature->SetForceEvadeImmune(true);
-                m_creature->GetThreatManager().modifyThreatPercent(pVictim, -101);
-                return;
-            }
-        }
-
-        m_creature->SetForceEvadeImmune(false);
-
-        // Players can use LOS/terrain to keep this specific Firesworn's current top-threat
-        // target permanently out of reach while it's still winning the threat race (e.g.
-        // tanking from atop a rock it can't climb) - CantPathToVictim() catches that even
-        // though EVENT_THREAT_CHECK above only helps players who aren't on the threat list
-        // yet. First strike waits 1s so a brief, normal pathing hiccup doesn't strip real
-        // threat; once confirmed stuck, keep purging every tick without re-arming the wait, so
-        // SelectHostileTarget() gets to cycle through the rest of the threat table quickly.
+        // 检测小怪是否被台阶或地形卡住无法攻击目标 (CantPathToVictim)
         if (m_creature->CantPathToVictim())
         {
             m_uiUnreachableTimer += diff;
-            if (m_uiUnreachableTimer > (m_bPurging ? 0u : 1000u))
+            if (m_uiUnreachableTimer > 3000u) // 持续卡住超过 3 秒，判定为被台阶/地形卡死
             {
-                if (Unit* pVictim = m_creature->GetVictim())
-                {
-                    m_creature->GetThreatManager().modifyThreatPercent(pVictim, -101);
-                    m_blacklist[pVictim->GetObjectGuid()] = 8000;   // tunable
-                }
-                m_bPurging = true;
-                m_uiUnreachableTimer = 0;
+                TriggerGroupEvade();
+                return;
             }
         }
         else
         {
             m_uiUnreachableTimer = 0;
-            m_bPurging = false;
         }
 
         m_CombatEvents.Update(diff);
@@ -454,7 +355,6 @@ struct mob_fireswornAI : ScriptedAI
     void ScheduleCombatEvents()
     {
         m_CombatEvents.RescheduleEvent(EVENT_IMMOLATE, Seconds(10));
-        m_CombatEvents.RescheduleEvent(EVENT_THREAT_CHECK, Seconds(3));
     }
 
     void UpdateEvents()
@@ -473,30 +373,6 @@ struct mob_fireswornAI : ScriptedAI
 
                     // Cast Failed: Try again in 1s
                     m_CombatEvents.Repeat(Seconds(1));
-                    return;
-                }
-                case EVENT_THREAT_CHECK:
-                {
-                    // 玩家会卡视线/地形把 Firesworn 拉住，同时贴脸打 Garr 的近战完全不在
-                    // 这只小怪的仇恨表里，导致小怪永远不会转去打近战。这里每3秒给附近
-                    // （20码内，对齐 Separation Anxiety 要求 Firesworn 离 Garr 不超过20码的范围）
-                    // 还没上仇恨表的玩家一笔保底仇恨，让小怪迟早会注意到他们。
-                    std::list<Player*> nearby;
-                    GetPlayersWithinRange(nearby, 20.0f);
-                    for (Player* pPlayer : nearby)
-                    {
-                        if (!pPlayer->IsAlive() || !m_creature->IsValidAttackTarget(pPlayer))
-                        {
-                            continue;
-                        }
-
-                        if (m_creature->GetThreatManager().getThreat(pPlayer) <= 0.0f)
-                        {
-                            m_creature->AddThreat(pPlayer, 50.0f);
-                        }
-                    }
-
-                    m_CombatEvents.Repeat(Seconds(3));
                     return;
                 }
             }
