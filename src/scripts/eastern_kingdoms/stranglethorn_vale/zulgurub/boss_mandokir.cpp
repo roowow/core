@@ -34,7 +34,7 @@ enum
     // Mandokir's spells
     // -----------------
 
-    // Charge - Charge regulierement le membre du raid le plus �loigne dans le range 8-40m.
+    // Charge - Charge regulierement le membre du raid le plus loigne dans le range 8-40m.
     // OK
     SPELL_CHARGE        = 24408,
 
@@ -136,8 +136,8 @@ struct boss_mandokirAI : public ScriptedAI
     uint32 m_uiMortalStrike_Timer;
 
     bool m_bRaptorDead;
-    bool m_hasEvaded; // 防重入脱战保护
-    uint32 m_uiUnreachableTimer; // 地形卡住检测计时器
+    bool m_hasEvaded;
+    uint32 m_uiUnreachableTimer;
     ObjectGuid m_uiRaptorGUID;
     ObjectGuid m_uiChargedPlayerGUID;
 
@@ -202,14 +202,12 @@ struct boss_mandokirAI : public ScriptedAI
         sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: boss_mandokirAI::Reset called.");
     }
 
-    // 联动重置核心：当 Boss 触发脱战时，同步让宠物及所有灵魂一起脱战
     void TriggerGroupEvade()
     {
         sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: boss_mandokirAI::TriggerGroupEvade triggered. Notifying Ohgan and Spirits.");
 
         if (m_pInstance)
         {
-            // 1. 让宠物 Ohgan 联动脱战
             if (Creature* pRaptor = m_creature->GetMap()->GetCreature(m_uiRaptorGUID))
             {
                 if (pRaptor && pRaptor->IsAlive() && pRaptor->AI() && !pRaptor->IsInEvadeMode())
@@ -219,7 +217,6 @@ struct boss_mandokirAI : public ScriptedAI
                 }
             }
 
-            // 2. 让所有被缚的灵魂（Chained Spirit）也联动脱战/重置
             for (const auto& guid : m_lSpirits)
             {
                 if (Creature* pSpirit = m_creature->GetMap()->GetCreature(guid))
@@ -235,7 +232,7 @@ struct boss_mandokirAI : public ScriptedAI
 
     void EnterEvadeMode() override
     {
-        if (m_hasEvaded) // 防止重复触发递归
+        if (m_hasEvaded)
             return;
         m_hasEvaded = true;
 
@@ -283,7 +280,7 @@ struct boss_mandokirAI : public ScriptedAI
 
         SpawnSpirits();
         sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: boss_mandokirAI::Aggro initiated.");
-        
+
         //At combat start Mandokir is mounted so we must unmount it first, and set his flags for attackable
         //m_creature->RemoveAurasDueToSpell(SPELL_MOUNT);
         //SpawnRaptor();
@@ -295,6 +292,7 @@ struct boss_mandokirAI : public ScriptedAI
         if (!m_bRaptorDead)
             SpawnRaptor();
 
+        //Checking if Ohgan is dead. If yes Mandokir will enrage.
         if (!m_bRaptorDead && m_pInstance && m_pInstance->GetData(TYPE_OHGAN) == DONE)
         {
             if (DoCastSpellIfCan(m_creature, SPELL_ENRAGE) == CAST_OK)
@@ -308,6 +306,8 @@ struct boss_mandokirAI : public ScriptedAI
 
     void CheckVilebranchState(bool reset = false)
     {
+        // If Vilebranch dies and group wipes, boss should start at the bottom of the stairs
+        // Video: https://www.youtube.com/watch?v=joaWY0wjOXI
         Creature* vileBranch = m_creature->FindNearestCreature(11391, 100.0f, true);
         bool isVilebranchDead = !vileBranch || !vileBranch->IsAlive();
         if (reset || m_VilebranchDead != isVilebranchDead)
@@ -323,6 +323,7 @@ struct boss_mandokirAI : public ScriptedAI
                 m_creature->ResetHomePosition();
             }
             m_creature->GetMotionMaster()->MoveTargetedHome();
+
             m_VilebranchDead = isVilebranchDead;
         }
     }
@@ -335,8 +336,10 @@ struct boss_mandokirAI : public ScriptedAI
 
             if (pWatchTarget && pWatchTarget->IsAlive())
             {
+                // Pendant le debuff
                 if (pWatchTarget->HasAura(SPELL_WATCH))
                 {
+                    // La cible ne doit pas bouger.
                     if (pWatchTarget->HasAura(SPELL_FEAR))
                     {
                         m_fWatchedTargetAllowedMoveRange = 8.0;
@@ -350,9 +353,11 @@ struct boss_mandokirAI : public ScriptedAI
                         m_fWatchedTargetAllowedMoveRange = 2.0;
                     }
 
+                    // Ni attaquer.
                     if ((!m_bTargetActed) && (m_creature->GetThreatManager().getThreat(pWatchTarget) > m_fTargetThreat))
                         m_bTargetActed = true;
                 }
+                // Le debuff est termine
                 else
                 {
                     if (m_bTargetMoved || m_bTargetActed)
@@ -394,6 +399,7 @@ struct boss_mandokirAI : public ScriptedAI
 
     void DespawnRaptor()
     {
+
         if (!m_uiRaptorGUID.IsEmpty())
         {
             if (Creature* pRaptor = m_creature->GetMap()->GetCreature(m_uiRaptorGUID))
@@ -405,6 +411,7 @@ struct boss_mandokirAI : public ScriptedAI
 
     void SpawnRaptor()
     {
+        //And summon his raptor
         if (m_uiRaptorGUID.IsEmpty())
         {
             Creature* pRaptor = m_creature->SummonCreature(NPC_OHGAN, 0.0f, 0.0f, 0.0f, 0.0f, TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT, 35000);
@@ -470,11 +477,10 @@ struct boss_mandokirAI : public ScriptedAI
             isStuck = true;
             sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Mandokir triggered CantPathToVictim() == true.");
         }
-        else if (pVictim && !m_creature->IsWithinMeleeRange(pVictim) && m_creature->GetDistance(pVictim) < 5.0f)
+        else if (pVictim && m_creature->GetDistance(pVictim) < 5.0f && !m_creature->IsWithinDistInMap(pVictim, ATTACK_DISTANCE))
         {
-            // 距离小于5码但由于台阶高低差导致无法进入近战，判定为卡楼梯
             isStuck = true;
-            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Mandokir is close (<5.0f) but not in melee range (Stuck on stairs).");
+            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Mandokir is close (<5.0f) but out of attack distance (Stuck on stairs).");
         }
 
         if (isStuck)
@@ -498,19 +504,21 @@ struct boss_mandokirAI : public ScriptedAI
 
         CheckRaptor();
         CheckWatchedPlayer();
-
+        // Check player to rez
         if (m_uiPlayerToRez)
         {
             if (Player* killedPlayer = m_creature->GetMap()->GetPlayer(m_uiPlayerToRez))
             {
                 if (killedPlayer->GetDeathState() == CORPSE && !killedPlayer->IsRessurectRequested())
                 {
+                    // Find nearest spirit ready to resurrect
                     Creature* spirit = nullptr;
                     float spiritDist = 0.0f;
                     for (const auto& guid : m_lSpirits)
                     {
                         if (Creature* current = m_creature->GetMap()->GetCreature(guid))
                         {
+                            // Ready to resurrect ?
                             if (current->AI() && current->AI()->GetData(0))
                             {
                                 float currentDist = current->GetDistance(killedPlayer);
@@ -532,6 +540,7 @@ struct boss_mandokirAI : public ScriptedAI
             m_uiPlayerToRez = 0;
         }
 
+        // GlobalCD non ecoule.
         if (m_uiGlobalCooldown > diff)
             m_uiGlobalCooldown -= diff;
         else
@@ -541,6 +550,7 @@ struct boss_mandokirAI : public ScriptedAI
             else
                 m_uiGlobalCooldown = 0;
         }
+
 
         // WATCH
         if (m_uiWatch_Timer < diff)
@@ -586,10 +596,12 @@ struct boss_mandokirAI : public ScriptedAI
                         m_creature->GetThreatManager().addThreat(pTargetToKill, (addAggro + 2000));
                         m_creature->SelectHostileTarget();
 
+
                         if (pTargetToKill->IsInRange(m_creature, 0.0f, 40.0f, true))
                         {
                             if (DoCastSpellIfCan(pTargetToKill, SPELL_DECAPITATE) == CAST_OK)
                                 bTargetKilled = true;
+                            // TODO: Mandokir should also cast a sound explosion, after charging the player
                         }
                         if (!bTargetKilled)
                             m_creature->DoKillUnit(pTargetToKill);
@@ -615,6 +627,7 @@ struct boss_mandokirAI : public ScriptedAI
                         {
                             m_uiCharge_Timer = urand(30000, 35000);
                             m_uiGlobalCooldown = 1000;
+                            // Fear imminent
                             m_uiFear_Timer = 100;
                             m_bFearAfterCharge = true;
                             m_bChargeCasted = true;
@@ -640,6 +653,7 @@ struct boss_mandokirAI : public ScriptedAI
                 }
             }
         }
+
 
         // FEAR
         if (m_uiFear_Timer < diff)
@@ -669,6 +683,7 @@ struct boss_mandokirAI : public ScriptedAI
                             m_uiGlobalCooldown = 500;
                             m_bFearAfterCharge = false;
                             m_uiChargedPlayerGUID.Clear();
+
                         }
                     }
                 }
@@ -711,7 +726,7 @@ struct boss_mandokirAI : public ScriptedAI
     }
 };
 
-// Ohgan (宠物迅猛龙)
+//Ohgan
 struct mob_ohganAI : public ScriptedAI
 {
     mob_ohganAI(Creature* pCreature) : ScriptedAI(pCreature)
@@ -797,10 +812,10 @@ struct mob_ohganAI : public ScriptedAI
             isStuck = true;
             sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Ohgan triggered CantPathToVictim() == true.");
         }
-        else if (pVictim && !m_creature->IsWithinMeleeRange(pVictim) && m_creature->GetDistance(pVictim) < 5.0f)
+        else if (pVictim && m_creature->GetDistance(pVictim) < 5.0f && !m_creature->IsWithinDistInMap(pVictim, ATTACK_DISTANCE))
         {
             isStuck = true;
-            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Ohgan is close (<5.0f) but not in melee range (Stuck).");
+            sLog.Out(LOG_SCRIPTS, LOG_LVL_DEBUG, "DEBUG: Ohgan is close (<5.0f) but out of attack distance (Stuck).");
         }
 
         if (isStuck)
@@ -820,6 +835,7 @@ struct mob_ohganAI : public ScriptedAI
             m_uiUnreachableTimer = 0;
         }
 
+        // SunderArmor_Timer
         if (SunderArmor_Timer <= diff)
         {
             DoCast(me->GetVictim(), SPELL_SUNDERARMOR);
@@ -828,6 +844,7 @@ struct mob_ohganAI : public ScriptedAI
         else
             SunderArmor_Timer -= diff;
 
+        // Thrash_Timer
         if (Thrash_Timer <= diff)
         {
             DoCast(me, SPELL_THRASH);
@@ -836,7 +853,8 @@ struct mob_ohganAI : public ScriptedAI
         else
             Thrash_Timer -= diff;
 
-        if (me->GetVictim()->GetHealth() <= me->GetVictim()->GetMaxHealth() * 0.2f)
+        // Execute_Timer
+        if (me->GetVictim()->GetHealth() <= me->GetVictim()->GetMaxHealth() * 0.2f)  // check health first
         {
             if (Execute_Timer <= diff)
             {
@@ -863,7 +881,12 @@ CreatureAI* GetAI_mob_ohgan(Creature* pCreature)
     return new mob_ohganAI(pCreature);
 }
 
-// Chained Spirits (被缚的灵魂)
+
+// Chained Spirits
+/*
+Lorsqu'un joueur meurt, un esprit doit le ressussiter. Si le joueur accepte, alors le mob doit despawn.
+Sinon, l'esprit devient dispo pour les autres joueurs, sachant qu'ils sont spawn en nombre limite.
+*/
 struct mob_chainedSpiritsAI : public ScriptedAI
 {
     mob_chainedSpiritsAI(Creature* pCreature) : ScriptedAI(pCreature)
@@ -895,6 +918,7 @@ struct mob_chainedSpiritsAI : public ScriptedAI
         ScriptedAI::EnterEvadeMode();
     }
 
+    // Ready to revive someone ?
     uint32 GetData(uint32) override
     {
         if (m_uiTargetRezGUID)
@@ -921,7 +945,6 @@ struct mob_chainedSpiritsAI : public ScriptedAI
             if (Player* pPlayer = m_creature->GetMap()->GetPlayer(m_uiTargetRezGUID))
                 m_uiRezTimer = 2500;
     }
-
     void UpdateAI(uint32 const diff) override
     {
         if (m_creature->IsInEvadeMode())
@@ -931,9 +954,10 @@ struct mob_chainedSpiritsAI : public ScriptedAI
         {
             if (m_uiRezTimer <= diff)
             {
+                // Attempt to rez player
                 Player* target = m_creature->GetMap()->GetPlayer(m_uiTargetRezGUID);
                 if (target && target->GetDeathState() == CORPSE && !target->IsRessurectRequested())
-                    m_creature->CastSpell(target, SPELL_REVIVE, true);
+                    m_creature->CastSpell(target, SPELL_REVIVE, true); // Will despawn at SpellHit
                 else
                     m_creature->AddObjectToRemoveList();
             }
@@ -947,6 +971,37 @@ CreatureAI* GetAI_mob_chained_spirit(Creature* pCreature)
 {
     return new mob_chainedSpiritsAI(pCreature);
 }
+
+// Vilebranche
+/*struct mob_vilebrancheAI : public ScriptedAI
+{
+    mob_vilebrancheAI(Creature* pCreature) : ScriptedAI(pCreature)
+    {
+        Reset();
+    }
+
+    void Reset() override
+    {
+    }
+
+    void JustDied(Unit* Killer) override
+    {
+        //
+    }
+
+    void UpdateAI(uint32 const diff) override
+    {
+        if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
+            return;
+
+        DoMeleeAttackIfReady();
+    }
+};
+
+CreatureAI* GetAI_mob_vilebranche(Creature* pCreature)
+{
+    return new mob_vilebrancheAI(pCreature);*/
+//}
 
 void AddSC_boss_mandokir()
 {
@@ -966,4 +1021,10 @@ void AddSC_boss_mandokir()
     newscript->Name = "mob_chained_spirit";
     newscript->GetAI = &GetAI_mob_chained_spirit;
     newscript->RegisterSelf();
+    /*
+    newscript = new Script;
+    newscript->Name = "mob_vilebranche";
+    newscript->GetAI = &GetAI_mob_vilebranche;
+    newscript->RegisterSelf();
+    */
 }
