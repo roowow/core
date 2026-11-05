@@ -2399,6 +2399,18 @@ void Player::AddToWorld()
             m_items[i]->AddToWorld();
     }
     sPlayerBotMgr.OnPlayerInWorld(this);
+
+    // 自动退出队伍：Hardcore (未退役)、天选者、乌龟模式
+    if ((IsHardcore() && !IsHardcoreRetired()) || IsTianxuan() || IsTurtle())
+    {
+        if (Group* group = sObjectMgr.GetGroupByMember(GetGUID()))
+        {
+            RemoveFromGroup(group, GetGUID());
+        }
+        
+        // 如果有未接受的组队邀请，一并清除
+        UninviteFromGroup();
+    }
 }
 
 void Player::RemoveFromWorld()
