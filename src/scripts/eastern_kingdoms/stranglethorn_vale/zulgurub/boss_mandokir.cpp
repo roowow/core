@@ -638,6 +638,12 @@ struct boss_mandokirAI : public ScriptedAI
                             m_uiChargeCasted_Timer = 2000;
                             m_uiChargedPlayerGUID = pTarget->GetObjectGuid();
                         }
+                        else
+                        {
+                            // 冲锋释放失败（如因台阶阻断等导致），强制触发脱战
+                            EnterEvadeMode();
+                            return;
+                        }
                     }
                 }
                 else
