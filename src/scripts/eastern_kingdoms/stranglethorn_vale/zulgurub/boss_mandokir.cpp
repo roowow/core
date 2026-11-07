@@ -647,7 +647,12 @@ struct boss_mandokirAI : public ScriptedAI
                     }
                 }
                 else
-                    m_uiCharge_Timer = urand(5000, 10000);
+                {
+                    // m_uiCharge_Timer = urand(5000, 10000);
+                    // 核心修改：当冲锋计时器到期，但因为玩家全在台阶上/身边导致选不出 8-40 码的合法目标时，判定为利用地形卡冲锋，直接强制脱战
+                    EnterEvadeMode();
+                    return;
+                }
             }
         }
         else
@@ -994,10 +999,6 @@ CreatureAI* GetAI_mob_chained_spirit(Creature* pCreature)
     mob_vilebrancheAI(Creature* pCreature) : ScriptedAI(pCreature)
     {
         Reset();
-    }
-
-    void Reset() override
-    {
     }
 
     void JustDied(Unit* Killer) override
