@@ -16188,8 +16188,11 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
     // 自动退出队伍：Hardcore (未退役)、天选者、乌龟模式
     if ((IsHardcore() && !IsHardcoreRetired()) || IsTianxuan() || IsTurtle())
     {
-        if (Group* group = sObjectMgr.GetGroupByMember(GetGUID() && GetLevel() < 60)
-            RemoveFromGroup(group, GetGUID());
+        if (Group* group = sObjectMgr.GetGroupByMember(GetGUID()))
+        {
+            if (GetLevel() < 60)
+                RemoveFromGroup(group, GetGUID());
+        }
     }
 
     sBattleGroundMgr.PlayerLoggedIn(this); // Add to BG queue if needed
