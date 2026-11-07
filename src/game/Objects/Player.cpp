@@ -2399,18 +2399,6 @@ void Player::AddToWorld()
             m_items[i]->AddToWorld();
     }
     sPlayerBotMgr.OnPlayerInWorld(this);
-
-    // 自动退出队伍：Hardcore (未退役)、天选者、乌龟模式
-    if ((IsHardcore() && !IsHardcoreRetired()) || IsTianxuan() || IsTurtle())
-    {
-        if (Group* group = sObjectMgr.GetGroupByMember(GetGUID()))
-        {
-            RemoveFromGroup(group, GetGUID());
-        }
-        
-        // 如果有未接受的组队邀请，一并清除
-        UninviteFromGroup();
-    }
 }
 
 void Player::RemoveFromWorld()
@@ -16196,6 +16184,13 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
 
     if (extraflags & PLAYER_EXTRA_TURTLE_ON)    // 乌龟模式
         m_ExtraFlags |= PLAYER_EXTRA_TURTLE_ON;
+
+    // 自动退出队伍：Hardcore (未退役)、天选者、乌龟模式
+    if ((IsHardcore() && !IsHardcoreRetired()) || IsTianxuan() || IsTurtle())
+    {
+        if (Group* group = sObjectMgr.GetGroupByMember(GetGUID()) && GetLevel() < 60)
+            RemoveFromGroup(group, GetGUID());
+    }
 
     sBattleGroundMgr.PlayerLoggedIn(this); // Add to BG queue if needed
     CreatePacketBroadcaster();
