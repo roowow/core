@@ -3191,6 +3191,9 @@ void Player::SetTianxuan(bool on)
         if ((IsHardcore() && !IsHardcoreRetired()) || IsTurtle())
             return;
 
+        if (Group* group = sObjectMgr.GetGroupByMember(GetGUID()))
+            RemoveFromGroup(group, GetGUID());
+
         m_ExtraFlags |= PLAYER_EXTRA_TIANXUAN_ON;
         // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE
         // (the full flag bitmask, recomputed here, not a delta), safe to replay.
@@ -3279,6 +3282,9 @@ void Player::SetTurtle(bool on)
     {
         if ((IsHardcore() && !IsHardcoreRetired()) || IsTianxuan())
             return;
+
+        if (Group* group = sObjectMgr.GetGroupByMember(GetGUID()))
+            RemoveFromGroup(group, GetGUID());
 
         m_ExtraFlags |= PLAYER_EXTRA_TURTLE_ON;
         // Phase3 (see HPHA.md) - routed through sCharactersOutbox. Absolute-assignment UPDATE
